@@ -1,6 +1,25 @@
 import { ElMessage } from 'element-plus'
+import { isUserFacingAbort, toUserFacingError } from '@/utils/userFacingError'
 import { GEN_RESOURCE } from '@/stores/generationTaskStore'
 import { buildStoryboardVideoRequest } from '@/utils/storyboardVideoRequest'
+
+function isCancelledPollStatus(status) {
+  const value = String(status || '').toLowerCase()
+  return value === 'cancelled' || value === 'canceled'
+}
+
+function toPipelinePollUserFacingError(result, failedFallback, timeoutFallback) {
+  if (!result) return ''
+  const status = String(result.status || '').toLowerCase()
+  if (isCancelledPollStatus(status)) {
+    const error = new Error(toUserFacingError(result.error, '操作已取消'))
+    error.name = 'AbortError'
+    throw error
+  }
+  if (status === 'timeout') return toUserFacingError(result.error, timeoutFallback || '任务超时，请稍后重试')
+  if (result.error) return toUserFacingError(result.error, failedFallback)
+  return ''
+}
 
 export function useFilmCreatePipelineStages(deps = {}) {
   const {
@@ -166,13 +185,15 @@ export function useFilmCreatePipelineStages(deps = {}) {
           const taskId = res?.task_id
           if (taskId) {
             const result = await pollTaskWithPause(taskId, captureDramaRefresh())
-            if (result?.error) { addPipelineError('提取角色', result.error); return }
+            const pollErr = toPipelinePollUserFacingError(result, '提取角色失败', '提取角色超时，请稍后重试')
+            if (pollErr) { addPipelineError('提取角色', pollErr); return }
           } else {
             await loadDrama()
           }
           await pipelineRest()
         } catch (e) {
-          addPipelineError('提取角色', e.message || String(e))
+          if (isUserFacingAbort(e)) throw e
+          addPipelineError('提取角色', toUserFacingError(e, '提取角色失败'))
           return
         }
         chars = store.currentEpisode?.characters ?? []
@@ -190,13 +211,15 @@ export function useFilmCreatePipelineStages(deps = {}) {
           const taskId = res?.task_id
           if (taskId) {
             const result = await pollTaskWithPause(taskId, captureDramaRefresh())
-            if (result?.error) { addPipelineError('提取场景', result.error); return }
+            const pollErr = toPipelinePollUserFacingError(result, '提取场景失败', '提取场景超时，请稍后重试')
+            if (pollErr) { addPipelineError('提取场景', pollErr); return }
           } else {
             await loadDrama()
           }
           await pipelineRest()
         } catch (e) {
-          addPipelineError('提取场景', e.message || String(e))
+          if (isUserFacingAbort(e)) throw e
+          addPipelineError('提取场景', toUserFacingError(e, '提取场景失败'))
           return
         }
         sceneList = store.currentEpisode?.scenes ?? []
@@ -214,13 +237,15 @@ export function useFilmCreatePipelineStages(deps = {}) {
           const taskId = res?.task_id
           if (taskId) {
             const result = await pollTaskWithPause(taskId, captureDramaRefresh())
-            if (result?.error) { addPipelineError('提取道具', result.error); return }
+            const pollErr = toPipelinePollUserFacingError(result, '提取道具失败', '提取道具超时，请稍后重试')
+            if (pollErr) { addPipelineError('提取道具', pollErr); return }
           } else {
             await loadDrama()
           }
           await pipelineRest()
         } catch (e) {
-          addPipelineError('提取道具', e.message || String(e))
+          if (isUserFacingAbort(e)) throw e
+          addPipelineError('提取道具', toUserFacingError(e, '提取道具失败'))
           // 道具提取失败不中断流程
         }
         propList = store.props ?? []
@@ -249,10 +274,11 @@ export function useFilmCreatePipelineStages(deps = {}) {
           const taskId = res?.task_id ?? (typeof res === 'string' ? res : null)
           if (taskId) {
             const result = await pollTaskWithPause(taskId, captureDramaRefresh())
-            if (result?.error) {
+            const pollErr = toPipelinePollUserFacingError(result, '生成分镜失败', '生成分镜超时，请稍后重试')
+            if (pollErr) {
               // 任务失败，但后端可能已保存了部分分镜，确保最新状态显示出来再停止
               await loadDrama()
-              addPipelineError('生成分镜', result.error)
+              addPipelineError('生成分镜', pollErr)
               clearInterval(sbRefreshTimer)
               return
             }
@@ -264,8 +290,9 @@ export function useFilmCreatePipelineStages(deps = {}) {
           await loadDrama()
           await pipelineRest()
         } catch (e) {
-          addPipelineError('生成分镜', e.message || String(e))
           clearInterval(sbRefreshTimer)
+          if (isUserFacingAbort(e)) throw e
+          addPipelineError('生成分镜', toUserFacingError(e, '生成分镜失败'))
           return
         }
         clearInterval(sbRefreshTimer)
@@ -286,7 +313,7 @@ export function useFilmCreatePipelineStages(deps = {}) {
               `润色全能分镜(${cur}/${total}) #${sb.storyboard_number ?? cur} ${(sb.title || '').slice(0, 16)}`
             ),
           onShotError: (sb, msg) =>
-            addPipelineError('润色全能分镜', `镜#${sb.storyboard_number ?? sb.id}: ${msg}`),
+            addPipelineError('润色全能分镜', `镜#${sb.storyboard_number ?? sb.id}: ${toUserFacingError(msg, '润色失败')}`),
         })
         await loadDrama()
         await loadStoryboardMedia({ failClosed: !textOnly })
@@ -331,7 +358,8 @@ export function useFilmCreatePipelineStages(deps = {}) {
               const taskId = res?.image_generation?.task_id ?? res?.task_id
               if (taskId) {
                 const result = await pollTaskWithPause(taskId, captureDramaRefresh())
-                if (result?.error) throw new Error(result.error)
+                const pollErr = toPipelinePollUserFacingError(result, '生成失败', '生成超时，请稍后重试')
+                if (pollErr) throw new Error(pollErr)
               } else {
                 await loadDrama()
                 await pollUntilResourceHasImage(() => {
@@ -364,7 +392,8 @@ export function useFilmCreatePipelineStages(deps = {}) {
               const taskId = res?.image_generation?.task_id ?? res?.task_id
               if (taskId) {
                 const result = await pollTaskWithPause(taskId, captureDramaRefresh())
-                if (result?.error) throw new Error(result.error)
+                const pollErr = toPipelinePollUserFacingError(result, '生成失败', '生成超时，请稍后重试')
+                if (pollErr) throw new Error(pollErr)
               } else {
                 await loadDrama()
                 await pollUntilResourceHasImage(() => {
@@ -396,7 +425,8 @@ export function useFilmCreatePipelineStages(deps = {}) {
               const taskId = res?.image_generation?.task_id ?? res?.task_id
               if (taskId) {
                 const result = await pollTaskWithPause(taskId, captureDramaRefresh())
-                if (result?.error) throw new Error(result.error)
+                const pollErr = toPipelinePollUserFacingError(result, '生成失败', '生成超时，请稍后重试')
+                if (pollErr) throw new Error(pollErr)
               } else {
                 await loadDrama()
                 await pollUntilResourceHasImage(() => {
@@ -454,7 +484,8 @@ export function useFilmCreatePipelineStages(deps = {}) {
               })
               if (res?.task_id) {
                 const result = await pollTaskWithPause(res.task_id, captureStoryboardMediaRefresh(sb.id))
-                if (result?.error) throw new Error(result.error)
+                const pollErr = toPipelinePollUserFacingError(result, '生成失败', '生成超时，请稍后重试')
+                if (pollErr) throw new Error(pollErr)
               } else await refreshStoryboardMediaForCurrentContext(sb.id)
             })
           } finally {
@@ -518,7 +549,8 @@ export function useFilmCreatePipelineStages(deps = {}) {
               if (res?.task_id) {
                 const meta = buildSbGenMeta(sb, GEN_RESOURCE.SB_VIDEO, '分镜视频')
                 const result = await pollTaskWithPause(res.task_id, captureStoryboardMediaRefresh(sb.id), meta)
-                if (result?.error) throw new Error(result.error)
+                const pollErr = toPipelinePollUserFacingError(result, '生成失败', '生成超时，请稍后重试')
+                if (pollErr) throw new Error(pollErr)
               } else await refreshStoryboardMediaForCurrentContext(sb.id)
             })
           } finally {
@@ -534,13 +566,15 @@ export function useFilmCreatePipelineStages(deps = {}) {
         const result = await dramaAPI.finalizeEpisode(episodeId, getFinalizeMergeOptions())
         if (result?.task_id != null) {
           const pollResult = await pollTaskWithPause(result.task_id, captureDramaRefresh())
-          if (pollResult?.error) addPipelineError('合成整集视频', pollResult.error)
+          const pollErr = toPipelinePollUserFacingError(pollResult, '合成整集视频失败', '合成整集视频超时，请稍后重试')
+          if (pollErr) addPipelineError('合成整集视频', pollErr)
           else await pipelineRest()
         } else {
-          addPipelineError('合成整集视频', result?.message || '本集没有可合成的视频片段')
+          addPipelineError('合成整集视频', toUserFacingError(result?.message, '本集没有可合成的视频片段'))
         }
       } catch (e) {
-        addPipelineError('合成整集视频', e.message || String(e))
+        if (isUserFacingAbort(e)) throw e
+        addPipelineError('合成整集视频', toUserFacingError(e, '合成整集视频失败'))
       }
 
       await checkPause()
@@ -557,7 +591,8 @@ export function useFilmCreatePipelineStages(deps = {}) {
         extra: { error_count: pipelineErrorLog.value.length },
       })
     } catch (e) {
-      addPipelineError('流程', e.message || String(e))
+      if (isUserFacingAbort(e)) throw e
+      addPipelineError('流程', toUserFacingError(e, '流程失败'))
       trackFilmCreateAction('one_click_generate_failed', {
         extra: { message: String(e?.message || 'failed').slice(0, 120) },
       })
@@ -624,11 +659,13 @@ export function useFilmCreatePipelineStages(deps = {}) {
           const taskId = res?.task_id
           if (taskId) {
             const result = await pollTaskWithPause(taskId, captureDramaRefresh())
-            if (result?.error) { addPipelineError('生成角色', result.error); return }
+            const pollErr = toPipelinePollUserFacingError(result, '生成角色失败', '生成角色超时，请稍后重试')
+            if (pollErr) { addPipelineError('生成角色', pollErr); return }
           } else await loadDrama()
           await pipelineRest()
         } catch (e) {
-          addPipelineError('生成角色', e.message || String(e))
+          if (isUserFacingAbort(e)) throw e
+          addPipelineError('生成角色', toUserFacingError(e, '生成角色失败'))
           return
         }
         chars = store.currentEpisode?.characters ?? []
@@ -645,7 +682,8 @@ export function useFilmCreatePipelineStages(deps = {}) {
             const taskId = res?.image_generation?.task_id ?? res?.task_id
             if (taskId) {
               const result = await pollTaskWithPause(taskId, captureDramaRefresh())
-              if (result?.error) throw new Error(result.error)
+              const pollErr = toPipelinePollUserFacingError(result, '生成失败', '生成超时，请稍后重试')
+              if (pollErr) throw new Error(pollErr)
             } else {
               await loadDrama()
               await pollUntilResourceHasImage(() => {
@@ -668,11 +706,13 @@ export function useFilmCreatePipelineStages(deps = {}) {
           const taskId = res?.task_id
           if (taskId) {
             const result = await pollTaskWithPause(taskId, captureDramaRefresh())
-            if (result?.error) { addPipelineError('提取场景', result.error); return }
+            const pollErr = toPipelinePollUserFacingError(result, '提取场景失败', '提取场景超时，请稍后重试')
+            if (pollErr) { addPipelineError('提取场景', pollErr); return }
           } else await loadDrama()
           await pipelineRest()
         } catch (e) {
-          addPipelineError('提取场景', e.message || String(e))
+          if (isUserFacingAbort(e)) throw e
+          addPipelineError('提取场景', toUserFacingError(e, '提取场景失败'))
           return
         }
         sceneList = store.currentEpisode?.scenes ?? []
@@ -690,7 +730,8 @@ export function useFilmCreatePipelineStages(deps = {}) {
             const taskId = res?.image_generation?.task_id ?? res?.task_id
             if (taskId) {
               const result = await pollTaskWithPause(taskId, captureDramaRefresh())
-              if (result?.error) throw new Error(result.error)
+              const pollErr = toPipelinePollUserFacingError(result, '生成失败', '生成超时，请稍后重试')
+              if (pollErr) throw new Error(pollErr)
             } else {
               await loadDrama()
               await pollUntilResourceHasImage(() => {
@@ -713,11 +754,13 @@ export function useFilmCreatePipelineStages(deps = {}) {
           const taskId = res?.task_id
           if (taskId) {
             const result = await pollTaskWithPause(taskId, captureDramaRefresh())
-            if (result?.error) { addPipelineError('提取道具', result.error); /* 不中断 */ }
+            const pollErr = toPipelinePollUserFacingError(result, '提取道具失败', '提取道具超时，请稍后重试')
+            if (pollErr) { addPipelineError('提取道具', pollErr); /* 不中断 */ }
           } else await loadDrama()
           await pipelineRest()
         } catch (e) {
-          addPipelineError('提取道具', e.message || String(e))
+          if (isUserFacingAbort(e)) throw e
+          addPipelineError('提取道具', toUserFacingError(e, '提取道具失败'))
         }
         propList2 = store.props ?? []
       }
@@ -736,7 +779,8 @@ export function useFilmCreatePipelineStages(deps = {}) {
               const taskId = res?.image_generation?.task_id ?? res?.task_id
               if (taskId) {
                 const result = await pollTaskWithPause(taskId, captureDramaRefresh())
-                if (result?.error) throw new Error(result.error)
+                const pollErr = toPipelinePollUserFacingError(result, '生成失败', '生成超时，请稍后重试')
+                if (pollErr) throw new Error(pollErr)
               } else {
                 await loadDrama()
                 await pollUntilResourceHasImage(() => {
@@ -769,12 +813,14 @@ export function useFilmCreatePipelineStages(deps = {}) {
           const taskId = res?.task_id ?? (typeof res === 'string' ? res : null)
           if (taskId) {
             const result = await pollTaskWithPause(taskId, captureDramaRefresh())
-            if (result?.error) { addPipelineError('分镜生成', result.error); return }
+            const pollErr = toPipelinePollUserFacingError(result, '分镜生成失败', '分镜生成超时，请稍后重试')
+            if (pollErr) { addPipelineError('分镜生成', pollErr); return }
           }
           await loadDrama()
           await pipelineRest()
         } catch (e) {
-          addPipelineError('分镜生成', e.message || String(e))
+          if (isUserFacingAbort(e)) throw e
+          addPipelineError('分镜生成', toUserFacingError(e, '分镜生成失败'))
           return
         }
         boards = store.storyboards || []
@@ -787,7 +833,7 @@ export function useFilmCreatePipelineStages(deps = {}) {
             pipelineCurrentStep.value = `润色全能分镜(${cur}/${total}) #${sb.storyboard_number ?? cur} ${(sb.title || '').slice(0, 16)}`
           },
           onShotError: (sb, msg) =>
-            addPipelineError('润色全能分镜', `镜#${sb.storyboard_number ?? sb.id}: ${msg}`),
+            addPipelineError('润色全能分镜', `镜#${sb.storyboard_number ?? sb.id}: ${toUserFacingError(msg, '润色失败')}`),
         })
         await loadDrama()
       }
@@ -820,7 +866,8 @@ export function useFilmCreatePipelineStages(deps = {}) {
             })
             if (res?.task_id) {
               const result = await pollTaskWithPause(res.task_id, captureStoryboardMediaRefresh(sb.id))
-              if (result?.error) throw new Error(result.error)
+              const pollErr = toPipelinePollUserFacingError(result, '生成失败', '生成超时，请稍后重试')
+              if (pollErr) throw new Error(pollErr)
             } else await refreshStoryboardMediaForCurrentContext(sb.id)
           })
         }, { getLabel: (sb) => '分镜图 #' + (sb.storyboard_number ?? sb.id) })
@@ -868,7 +915,8 @@ export function useFilmCreatePipelineStages(deps = {}) {
               if (res?.task_id) {
                 const meta = buildSbGenMeta(sb, GEN_RESOURCE.SB_VIDEO, '分镜视频')
                 const result = await pollTaskWithPause(res.task_id, captureStoryboardMediaRefresh(sb.id), meta)
-                if (result?.error) throw new Error(result.error)
+                const pollErr = toPipelinePollUserFacingError(result, '生成失败', '生成超时，请稍后重试')
+                if (pollErr) throw new Error(pollErr)
               } else await refreshStoryboardMediaForCurrentContext(sb.id)
             })
           } finally {
@@ -884,13 +932,15 @@ export function useFilmCreatePipelineStages(deps = {}) {
         const result = await dramaAPI.finalizeEpisode(episodeId, getFinalizeMergeOptions())
         if (result?.task_id != null) {
           const pollResult = await pollTaskWithPause(result.task_id, captureDramaRefresh())
-          if (pollResult?.error) addPipelineError('生成整集视频', pollResult.error)
+          const pollErr = toPipelinePollUserFacingError(pollResult, '生成整集视频失败', '生成整集视频超时，请稍后重试')
+          if (pollErr) addPipelineError('生成整集视频', pollErr)
           else await pipelineRest()
         } else {
-          addPipelineError('生成整集视频', result?.message || '本集没有可合成的视频片段')
+          addPipelineError('生成整集视频', toUserFacingError(result?.message, '本集没有可合成的视频片段'))
         }
       } catch (e) {
-        addPipelineError('生成整集视频', e.message || String(e))
+        if (isUserFacingAbort(e)) throw e
+        addPipelineError('生成整集视频', toUserFacingError(e, '生成整集视频失败'))
       }
 
       await checkPause()
@@ -904,7 +954,8 @@ export function useFilmCreatePipelineStages(deps = {}) {
         ElMessage.success('修复缺失流程已执行完成')
       }
     } catch (e) {
-      addPipelineError('流程', e.message || String(e))
+      if (isUserFacingAbort(e)) throw e
+      addPipelineError('流程', toUserFacingError(e, '流程失败'))
     }
   }
 

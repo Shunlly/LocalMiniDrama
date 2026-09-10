@@ -7,6 +7,7 @@ const zlib = require('node:zlib')
 const { version: PACKAGE_VERSION } = require('../package.json')
 const { REQUIRED_FINAL_CAPTURES, inspectPng } = require('./acceptance-report-contract.cjs')
 const { removeFixtureTree } = require('./fixture-cleanup.cjs')
+const criticalUiContracts = require('./e2e-critical-contracts.cjs')
 
 const PROJECT_ROOT = path.resolve(__dirname, '..', '..')
 const DEFAULT_EVIDENCE_ROOT = path.join(PROJECT_ROOT, 'artifacts', 'e2e-production')
@@ -3473,6 +3474,28 @@ async function main({
     await evidenceRecorder.set({ browser: { focused_acceptance: focusedAcceptance } })
     await evidenceRecorder.stage('focused_desktop_acceptance', 'passed')
 
+    await evidenceRecorder.stage('critical_ui_contracts')
+    const criticalPage = await browser.newPage({ viewport: startViewport })
+    try {
+      const criticalEvidence = await criticalUiContracts.runCriticalUiContracts(criticalPage, {
+        frontendUrl: FRONTEND_URL,
+        dramaId: drama.id,
+        fixtureTitle,
+        episodeId: completedDrama.episodes?.[0]?.id,
+        storyboardId: completedDrama.episodes?.[0]?.storyboards?.[0]?.id,
+        seedWorkflowGroup: async (group) => {
+          await apiRequest(`/dramas/${drama.id}/canvas-layout`, {
+            method: 'PUT',
+            body: JSON.stringify({ workflow_groups: [group] }),
+          })
+        },
+      })
+      await evidenceRecorder.set({ browser: { critical_ui_contracts: criticalEvidence } })
+    } finally {
+      await criticalPage.close()
+    }
+    await evidenceRecorder.stage('critical_ui_contracts', 'passed')
+
     await evidenceRecorder.stage('browser_acceptance')
     await evidenceRecorder.set({ browser: { status: 'running' } })
     const browserEvidence = []
@@ -3670,6 +3693,7 @@ module.exports = {
   summarizeProviderInvocations,
   restoreProviderConfigs,
   runCleanup,
+  runCriticalUiContracts: criticalUiContracts.runCriticalUiContracts,
   resetAcceptanceReportArtifacts,
   verifyExport,
   verifyAiConfigReturnUi,

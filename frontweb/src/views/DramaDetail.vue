@@ -23,7 +23,12 @@
             placement="bottom"
           >
             <span class="tooltip-trigger">
-              <el-button type="primary" :disabled="!currentEpisodeId" @click="goCreate">
+              <el-button
+                type="primary"
+                :disabled="!currentEpisodeId"
+                :aria-label="currentEpisodeId ? '进入制作' : '进入制作不可用：请先新增一集'"
+                @click="goCreate"
+              >
                 <el-icon><VideoPlay /></el-icon>进入制作
               </el-button>
             </span>
@@ -35,7 +40,13 @@
             placement="bottom"
           >
             <span class="tooltip-trigger">
-              <el-button type="primary" plain :disabled="!currentEpisodeId" @click="goCanvasMode">
+              <el-button
+                type="primary"
+                plain
+                :disabled="!currentEpisodeId"
+                :aria-label="currentEpisodeId ? '画布模式' : '画布模式不可用：请先新增一集'"
+                @click="goCanvasMode"
+              >
                 <el-icon><Grid /></el-icon>画布模式
               </el-button>
             </span>
@@ -102,7 +113,7 @@
           <el-row :gutter="24">
             <el-col :span="12">
               <el-form-item label="标题">
-                <el-input v-model="infoForm.title" placeholder="剧集标题" @blur="saveInfo" />
+                <el-input v-model="infoForm.title" placeholder="剧集标题" aria-label="剧集标题" @blur="saveInfo" />
               </el-form-item>
             </el-col>
             <el-col :span="12">
@@ -166,7 +177,7 @@
             </el-col>
             <el-col :span="24">
               <el-form-item label="故事梗概">
-                <el-input v-model="infoForm.description" type="textarea" :rows="3" placeholder="一句话描述故事梗概" @blur="saveInfo" />
+                <el-input v-model="infoForm.description" type="textarea" :rows="3" placeholder="一句话描述故事梗概" aria-label="故事梗概" @blur="saveInfo" />
               </el-form-item>
             </el-col>
           </el-row>
@@ -246,7 +257,7 @@
               <el-icon><Plus /></el-icon>新增空白集
             </el-button>
           </div>
-          <div v-if="episodeEmptyState.primaryDisabledReason" class="empty-state-note">{{ episodeEmptyState.primaryDisabledReason }}</div>
+          <div v-if="episodeEmptyState.primaryDisabledReason || episodeEmptyState.note" class="empty-state-note">{{ episodeEmptyState.primaryDisabledReason || episodeEmptyState.note }}</div>
         </div>
         <div v-else class="episode-grid">
           <article
@@ -360,7 +371,7 @@
             </div>
           </div>
           <div class="library-pagination">
-            <el-pagination v-model:current-page="charPage" v-model:page-size="charPageSize" :total="charTotal" :page-sizes="[10,20,50]" layout="total, sizes, prev, pager, next" @current-change="loadCharList" @size-change="loadCharList" />
+            <el-pagination v-model:current-page="charPage" v-model:page-size="charPageSize" :total="charTotal" :page-sizes="[10,20,50]" layout="total, sizes, prev, pager, next" aria-label="本剧角色分页" @current-change="loadCharList" @size-change="loadCharList" />
           </div>
           </div>
         </template>
@@ -402,7 +413,7 @@
             </div>
           </div>
           <div class="library-pagination">
-            <el-pagination v-model:current-page="scenePage" v-model:page-size="scenePageSize" :total="sceneTotal" :page-sizes="[10,20,50]" layout="total, sizes, prev, pager, next" @current-change="loadSceneList" @size-change="loadSceneList" />
+            <el-pagination v-model:current-page="scenePage" v-model:page-size="scenePageSize" :total="sceneTotal" :page-sizes="[10,20,50]" layout="total, sizes, prev, pager, next" aria-label="本剧场景分页" @current-change="loadSceneList" @size-change="loadSceneList" />
           </div>
           </div>
         </template>
@@ -444,7 +455,7 @@
             </div>
           </div>
           <div class="library-pagination">
-            <el-pagination v-model:current-page="propPage" v-model:page-size="propPageSize" :total="propTotal" :page-sizes="[10,20,50]" layout="total, sizes, prev, pager, next" @current-change="loadPropList" @size-change="loadPropList" />
+            <el-pagination v-model:current-page="propPage" v-model:page-size="propPageSize" :total="propTotal" :page-sizes="[10,20,50]" layout="total, sizes, prev, pager, next" aria-label="本剧道具分页" @current-change="loadPropList" @size-change="loadPropList" />
           </div>
           </div>
         </template>
@@ -472,7 +483,7 @@
             <div v-else class="library-empty resource-empty-state" role="status">
               <div class="empty-state-title">本剧暂无制作角色</div>
               <div class="empty-state-copy">{{ currentEpisodeId ? '可进入制作页，从当前剧集提取角色。' : '请先新增一集，再进入制作页提取角色。' }}</div>
-              <el-button size="small" type="primary" @click="goCreate">{{ currentEpisodeId ? '进入制作页提取角色' : '先去新增一集' }}</el-button>
+              <el-button size="small" type="primary" :loading="!currentEpisodeId && addingEpisode" :aria-label="currentEpisodeId ? '进入制作页提取角色' : '新增一集后再提取角色'" @click="goCreateOrAddEpisode">{{ currentEpisodeId ? '进入制作页提取角色' : '先去新增一集' }}</el-button>
             </div>
           </div>
         </template>
@@ -501,7 +512,7 @@
             <div v-else class="library-empty resource-empty-state" role="status">
               <div class="empty-state-title">本剧暂无制作场景</div>
               <div class="empty-state-copy">{{ currentEpisodeId ? '可进入制作页，从当前剧集提取场景。' : '请先新增一集，再进入制作页提取场景。' }}</div>
-              <el-button size="small" type="primary" @click="goCreate">{{ currentEpisodeId ? '进入制作页提取场景' : '先去新增一集' }}</el-button>
+              <el-button size="small" type="primary" :loading="!currentEpisodeId && addingEpisode" :aria-label="currentEpisodeId ? '进入制作页提取场景' : '新增一集后再提取场景'" @click="goCreateOrAddEpisode">{{ currentEpisodeId ? '进入制作页提取场景' : '先去新增一集' }}</el-button>
             </div>
           </div>
         </template>
@@ -530,7 +541,7 @@
             <div v-else class="library-empty resource-empty-state" role="status">
               <div class="empty-state-title">本剧暂无制作道具</div>
               <div class="empty-state-copy">{{ currentEpisodeId ? '可进入制作页，从当前剧集提取道具。' : '请先新增一集，再进入制作页提取道具。' }}</div>
-              <el-button size="small" type="primary" @click="goCreate">{{ currentEpisodeId ? '进入制作页提取道具' : '先去新增一集' }}</el-button>
+              <el-button size="small" type="primary" :loading="!currentEpisodeId && addingEpisode" :aria-label="currentEpisodeId ? '进入制作页提取道具' : '新增一集后再提取道具'" @click="goCreateOrAddEpisode">{{ currentEpisodeId ? '进入制作页提取道具' : '先去新增一集' }}</el-button>
             </div>
           </div>
         </template>
@@ -555,7 +566,7 @@
           </div>
           <input ref="dramaCharFileRef" type="file" accept="image/*" style="display:none" @change="uploadDramaCharImg" />
         </el-form-item>
-        <el-form-item label="名称"><el-input v-model="editDramaCharForm.name" /></el-form-item>
+        <el-form-item label="名称"><el-input v-model="editDramaCharForm.name" aria-label="制作角色名称" /></el-form-item>
         <el-form-item label="角色类型">
           <el-select v-model="editDramaCharForm.role" aria-label="角色类型" style="width:100%">
             <el-option label="主角" value="main" />
@@ -563,9 +574,9 @@
             <el-option label="次要角色" value="minor" />
           </el-select>
         </el-form-item>
-        <el-form-item label="描述"><el-input v-model="editDramaCharForm.description" type="textarea" :rows="3" placeholder="角色背景描述" /></el-form-item>
-        <el-form-item label="性格"><el-input v-model="editDramaCharForm.personality" placeholder="性格特征" /></el-form-item>
-        <el-form-item label="外貌"><el-input v-model="editDramaCharForm.appearance" type="textarea" :rows="2" placeholder="外貌特征（影响图片生成）" /></el-form-item>
+        <el-form-item label="描述"><el-input v-model="editDramaCharForm.description" type="textarea" :rows="3" placeholder="角色背景描述" aria-label="制作角色描述" /></el-form-item>
+        <el-form-item label="性格"><el-input v-model="editDramaCharForm.personality" placeholder="性格特征" aria-label="制作角色性格" /></el-form-item>
+        <el-form-item label="外貌"><el-input v-model="editDramaCharForm.appearance" type="textarea" :rows="2" placeholder="外貌特征（影响图片生成）" aria-label="制作角色外貌" /></el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="editDramaCharVisible = false">取消</el-button>
@@ -589,10 +600,10 @@
           </div>
           <input ref="dramaSceneFileRef" type="file" accept="image/*" style="display:none" @change="uploadDramaSceneImg" />
         </el-form-item>
-        <el-form-item label="地点"><el-input v-model="editDramaSceneForm.location" /></el-form-item>
-        <el-form-item label="时间"><el-input v-model="editDramaSceneForm.time" placeholder="如：浅色/夜晚" /></el-form-item>
-        <el-form-item label="描述"><el-input v-model="editDramaSceneForm.description" type="textarea" :rows="3" placeholder="场景描述" /></el-form-item>
-        <el-form-item label="图片提示词"><el-input v-model="editDramaSceneForm.prompt" type="textarea" :rows="2" placeholder="图片生成用的详细提示词" /></el-form-item>
+        <el-form-item label="地点"><el-input v-model="editDramaSceneForm.location" aria-label="制作场景地点" /></el-form-item>
+        <el-form-item label="时间"><el-input v-model="editDramaSceneForm.time" placeholder="如：浅色/夜晚" aria-label="制作场景时间" /></el-form-item>
+        <el-form-item label="描述"><el-input v-model="editDramaSceneForm.description" type="textarea" :rows="3" placeholder="场景描述" aria-label="制作场景描述" /></el-form-item>
+        <el-form-item label="图片提示词"><el-input v-model="editDramaSceneForm.prompt" type="textarea" :rows="2" placeholder="图片生成用的详细提示词" aria-label="制作场景图片提示词" /></el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="editDramaSceneVisible = false">取消</el-button>
@@ -616,10 +627,10 @@
           </div>
           <input ref="dramaPropFileRef" type="file" accept="image/*" style="display:none" @change="uploadDramaPropImg" />
         </el-form-item>
-        <el-form-item label="名称"><el-input v-model="editDramaPropForm.name" /></el-form-item>
-        <el-form-item label="类型"><el-input v-model="editDramaPropForm.type" placeholder="如：关键道具、背景物件" /></el-form-item>
-        <el-form-item label="描述"><el-input v-model="editDramaPropForm.description" type="textarea" :rows="3" placeholder="道具描述" /></el-form-item>
-        <el-form-item label="图片提示词"><el-input v-model="editDramaPropForm.prompt" type="textarea" :rows="2" placeholder="图片生成用的详细提示词" /></el-form-item>
+        <el-form-item label="名称"><el-input v-model="editDramaPropForm.name" aria-label="制作道具名称" /></el-form-item>
+        <el-form-item label="类型"><el-input v-model="editDramaPropForm.type" placeholder="如：关键道具、背景物件" aria-label="制作道具类型" /></el-form-item>
+        <el-form-item label="描述"><el-input v-model="editDramaPropForm.description" type="textarea" :rows="3" placeholder="道具描述" aria-label="制作道具描述" /></el-form-item>
+        <el-form-item label="图片提示词"><el-input v-model="editDramaPropForm.prompt" type="textarea" :rows="2" placeholder="图片生成用的详细提示词" aria-label="制作道具图片提示词" /></el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="editDramaPropVisible = false">取消</el-button>
@@ -643,10 +654,10 @@
           </div>
           <input ref="charFileRef" type="file" accept="image/*" style="display:none" @change="e => doUploadLibImg(e, editCharForm, characterLibraryAPI, loadCharList)" />
         </el-form-item>
-        <el-form-item label="名称"><el-input v-model="editCharForm.name" /></el-form-item>
-        <el-form-item label="分类"><el-input v-model="editCharForm.category" placeholder="可选" /></el-form-item>
-        <el-form-item label="描述"><el-input v-model="editCharForm.description" type="textarea" :rows="3" placeholder="可选" /></el-form-item>
-        <el-form-item label="标签"><el-input v-model="editCharForm.tags" placeholder="逗号分隔" /></el-form-item>
+        <el-form-item label="名称"><el-input v-model="editCharForm.name" aria-label="角色名称" /></el-form-item>
+        <el-form-item label="分类"><el-input v-model="editCharForm.category" placeholder="可选" aria-label="角色分类" /></el-form-item>
+        <el-form-item label="描述"><el-input v-model="editCharForm.description" type="textarea" :rows="3" placeholder="可选" aria-label="角色描述" /></el-form-item>
+        <el-form-item label="标签"><el-input v-model="editCharForm.tags" placeholder="逗号分隔" aria-label="角色标签" /></el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="editCharVisible = false">取消</el-button>
@@ -670,11 +681,11 @@
           </div>
           <input ref="sceneFileRef" type="file" accept="image/*" style="display:none" @change="e => doUploadLibImg(e, editSceneForm, sceneLibraryAPI, loadSceneList)" />
         </el-form-item>
-        <el-form-item label="地点"><el-input v-model="editSceneForm.location" /></el-form-item>
-        <el-form-item label="时间"><el-input v-model="editSceneForm.time" placeholder="如：浅色/夜晚" /></el-form-item>
-        <el-form-item label="分类"><el-input v-model="editSceneForm.category" placeholder="可选" /></el-form-item>
-        <el-form-item label="描述"><el-input v-model="editSceneForm.description" type="textarea" :rows="3" placeholder="可选" /></el-form-item>
-        <el-form-item label="标签"><el-input v-model="editSceneForm.tags" placeholder="逗号分隔" /></el-form-item>
+        <el-form-item label="地点"><el-input v-model="editSceneForm.location" aria-label="场景地点" /></el-form-item>
+        <el-form-item label="时间"><el-input v-model="editSceneForm.time" placeholder="如：浅色/夜晚" aria-label="场景时间" /></el-form-item>
+        <el-form-item label="分类"><el-input v-model="editSceneForm.category" placeholder="可选" aria-label="场景分类" /></el-form-item>
+        <el-form-item label="描述"><el-input v-model="editSceneForm.description" type="textarea" :rows="3" placeholder="可选" aria-label="场景描述" /></el-form-item>
+        <el-form-item label="标签"><el-input v-model="editSceneForm.tags" placeholder="逗号分隔" aria-label="场景标签" /></el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="editSceneVisible = false">取消</el-button>
@@ -698,10 +709,10 @@
           </div>
           <input ref="propFileRef" type="file" accept="image/*" style="display:none" @change="e => doUploadLibImg(e, editPropForm, propLibraryAPI, loadPropList)" />
         </el-form-item>
-        <el-form-item label="名称"><el-input v-model="editPropForm.name" /></el-form-item>
-        <el-form-item label="分类"><el-input v-model="editPropForm.category" placeholder="可选" /></el-form-item>
-        <el-form-item label="描述"><el-input v-model="editPropForm.description" type="textarea" :rows="3" placeholder="可选" /></el-form-item>
-        <el-form-item label="标签"><el-input v-model="editPropForm.tags" placeholder="逗号分隔" /></el-form-item>
+        <el-form-item label="名称"><el-input v-model="editPropForm.name" aria-label="道具名称" /></el-form-item>
+        <el-form-item label="分类"><el-input v-model="editPropForm.category" placeholder="可选" aria-label="道具分类" /></el-form-item>
+        <el-form-item label="描述"><el-input v-model="editPropForm.description" type="textarea" :rows="3" placeholder="可选" aria-label="道具描述" /></el-form-item>
+        <el-form-item label="标签"><el-input v-model="editPropForm.tags" placeholder="逗号分隔" aria-label="道具标签" /></el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="editPropVisible = false">取消</el-button>
@@ -731,7 +742,7 @@
           <el-button size="small" type="primary" plain :loading="importLoading" @click="loadImportList">重试</el-button>
         </div>
         <div v-for="item in importList" :key="item.id" class="library-item">
-          <button type="button" class="library-item-cover" :disabled="!assetImageUrl(item)" aria-label="预览待导入素材图片" @click="openPreview(assetImageUrl(item))">
+          <button type="button" class="library-item-cover" :disabled="!assetImageUrl(item)" :aria-label="`预览待导入素材「${importType === 'scene' ? (item.location || item.time || '未命名') : (item.name || '未命名')}」图片`" @click="openPreview(assetImageUrl(item))">
             <img v-if="item.image_url || item.local_path" :src="assetImageUrl(item)" alt="待导入素材图片" />
             <span v-else class="library-placeholder">暂无图</span>
           </button>
@@ -749,7 +760,7 @@
           <div class="empty-state-title">{{ importKw.trim() ? '没有匹配的素材' : '素材库暂无内容' }}</div>
           <div class="empty-state-copy">{{ importKw.trim() ? '试试其他关键词，或清除搜索后重新查看。' : (currentEpisodeId ? '可前往制作页新增素材并加入素材库。' : '请先新增一集，再去制作页提取素材。') }}</div>
           <el-button v-if="importKw.trim()" size="small" @click="importKw = ''; loadImportList()">清除搜索</el-button>
-          <el-button v-else size="small" type="primary" @click="goCreate()">
+          <el-button v-else size="small" type="primary" :loading="!currentEpisodeId && addingEpisode" :aria-label="currentEpisodeId ? '前往制作页新增并入库' : '新增一集后再去制作页提取素材'" @click="goCreateOrAddEpisode">
             {{ currentEpisodeId ? '前往制作页新增并入库' : '先去新增一集' }}
           </el-button>
         </div>
@@ -761,6 +772,7 @@
           :total="importTotal"
           :page-sizes="[10, 20, 50]"
           layout="total, sizes, prev, pager, next"
+          aria-label="导入素材分页"
           @current-change="loadImportList"
           @size-change="loadImportList"
         />
@@ -808,20 +820,13 @@ import { normalizeProjectListReturnTo, projectRouteInstanceKey, resolveProjectEp
 import { scrollAndFocusSection } from '@/utils/sectionFocus.js'
 import { createProjectInstanceLifecycle } from '@/utils/projectInstanceLifecycle.js'
 import { requestCoreJson as requestCoreDrama } from '@/utils/coreJsonRequest'
-import { describeServiceLoadError, isRequestCanceled, isRequestTimeout } from '@/utils/requestError'
+import { toUserFacingError } from '@/utils/userFacingError'
 
-const TECHNICAL_ENGLISH_RE = /network error|timeout of \d+ms|request failed with status code|project_load_failed|err_network|econnaborted|etimedout|failed to fetch|load failed|internal server error/i
-const UNSET_ERROR = '\0'
 const RESOURCE_TABS = ['lib-char', 'lib-scene', 'lib-prop', 'drama-char', 'drama-scene', 'drama-prop']
 const MESSAGE_BOX_KEYBOARD = {
   closeOnClickModal: false,
   closeOnPressEscape: true,
   distinguishCancelAndClose: true,
-}
-
-function errorText(error) {
-  if (typeof error === 'string') return error.trim()
-  return String(error?.message || '').trim()
 }
 
 function hasChinese(text) {
@@ -830,18 +835,7 @@ function hasChinese(text) {
 
 /** 把剧集详情操作的异常转成可展示的简体中文 */
 function dramaDetailUserError(error, fallback = '操作失败，请稍后重试', serviceLabel = '项目服务') {
-  if (error === 'cancel' || isRequestCanceled(error)) return '操作已取消'
-  const described = describeServiceLoadError(error, {
-    serviceLabel,
-    fallback: UNSET_ERROR,
-  })
-  if (described && described !== UNSET_ERROR && hasChinese(described)) return described
-  const raw = errorText(error)
-  if (raw && hasChinese(raw)) return raw
-  if (isRequestTimeout(error)) return `连接${serviceLabel}超时，请稍后重试`
-  if (described && described !== UNSET_ERROR && !TECHNICAL_ENGLISH_RE.test(described)) return described
-  if (raw && !TECHNICAL_ENGLISH_RE.test(raw) && !/^PROJECT_LOAD_FAILED$/i.test(raw)) return raw
-  return fallback
+  return toUserFacingError(error, fallback, { serviceLabel })
 }
 
 function characterRoleLabel(role) {
@@ -1212,6 +1206,27 @@ function clarifySourceWorkflowAction(action) {
   }
 }
 
+function isNavigableReadinessAction(action) {
+  return ['source-workflow', 'episode-list', 'project-resources'].includes(action?.target)
+}
+
+function sameReadinessDestination(left, right) {
+  if (!left || !right) return false
+  return left.target === right.target && (left.serviceType || '') === (right.serviceType || '')
+}
+
+function resolveEpisodeEmptyState(episodeEmpty) {
+  const primaryAction = clarifySourceWorkflowAction(episodeEmpty?.primaryAction)
+  const unblockAction = clarifySourceWorkflowAction(episodeEmpty?.unblockAction)
+  return {
+    ...episodeEmpty,
+    primaryAction,
+    primaryDisabledReason: isNavigableReadinessAction(primaryAction) ? '' : (episodeEmpty?.primaryDisabledReason || ''),
+    unblockAction: sameReadinessDestination(primaryAction, unblockAction) ? null : unblockAction,
+    note: episodeEmpty?.primaryDisabledReason || '',
+  }
+}
+
 const projectReadiness = computed(() => {
   if (!drama.value || !hasReadinessSnapshot.value || !Array.isArray(aiConfigs.value) || typeof sourceCount.value !== 'number') {
     return null
@@ -1224,11 +1239,7 @@ const projectReadiness = computed(() => {
   return {
     ...readiness,
     nextAction: clarifySourceWorkflowAction(readiness.nextAction),
-    episodeEmptyState: {
-      ...readiness.episodeEmptyState,
-      primaryAction: clarifySourceWorkflowAction(readiness.episodeEmptyState?.primaryAction),
-      unblockAction: clarifySourceWorkflowAction(readiness.episodeEmptyState?.unblockAction),
-    },
+    episodeEmptyState: resolveEpisodeEmptyState(readiness.episodeEmptyState),
   }
 })
 const episodeEmptyState = computed(() => {
@@ -1244,6 +1255,7 @@ const episodeEmptyState = computed(() => {
     },
     primaryDisabledReason: pending ? '正在检查项目就绪依赖' : '',
     unblockAction: null,
+    note: '',
   }
 })
 const nextEpisodeNumber = computed(() => (
@@ -1416,7 +1428,17 @@ function describeInfoLeaveRisk() {
   return ''
 }
 
+async function confirmBatchImportLeave() {
+  if (episodeBatchImportDialogRef.value?.isImporting?.()) {
+    ElMessage.warning('正在导入剧集，请完成后再离开。')
+    return false
+  }
+  if (!episodeBatchImportDialogRef.value?.hasUnsavedWork?.()) return true
+  return (await episodeBatchImportDialogRef.value.requestClose?.()) !== false
+}
+
 async function confirmInfoLeave() {
+  if ((await confirmBatchImportLeave()) === false) return false
   if (!shouldProtectInfoLeave.value) return true
   if (infoSaveState.value !== 'error') {
     const saved = await flushInfoSave()
@@ -1444,7 +1466,7 @@ async function confirmInfoLeave() {
 }
 
 function handleInfoBeforeUnload(event) {
-  if (!shouldProtectInfoLeave.value) return
+  if (!shouldProtectInfoLeave.value && !episodeBatchImportDialogRef.value?.hasUnsavedWork?.()) return
   event.preventDefault()
   event.returnValue = ''
 }
@@ -1647,6 +1669,16 @@ function goCreate() {
   }
   const query = { episode: String(currentEpisodeId.value) }
   router.push({ path: `/film/${dramaId}`, query: withProjectListReturnTo(query) })
+}
+
+function goCreateOrAddEpisode() {
+  if (currentEpisodeId.value) {
+    importVisible.value = false
+    goCreate()
+    return
+  }
+  importVisible.value = false
+  return onAddEpisode()
 }
 
 function goCanvasMode() {

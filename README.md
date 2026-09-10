@@ -41,13 +41,18 @@
 
 ## 当前怎么运行
 
-包版本为 `1.3.3`。当前从源码或 Docker 运行即可，不要按发版下载使用。
+包版本为 `1.3.3`。这是仓库 `package.json` 版本号，不是 GitHub Release / tag，也没有把发版合并到 `main`。当前从源码或 Docker 运行即可，不要按发版下载使用。当前分支和脏工作树不能当作发布完成。
 
 - 后端 `backend-node`：Express + SQLite（better-sqlite3），端口 **5679**，启动执行 `runMigrationsAndEnsure`
 - 前端 `frontweb`：Vite + Vue 3，端口 **3013**，开发时代理 `/api` 与 `/static`
 - 语言：纯 JavaScript，无 TypeScript
-- 未配置外部 API Key 也可以启动和开发界面；真正生成内容到「AI 配置」页填写
-- PDF/图片 OCR、音视频转写、真实厂商账号深度联调、移动端都不在当前完成范围
+- 测试、CI 与 Docker 生产镜像使用 Node.js 20.x；桌面依赖安装、原生重建和打包使用 Node.js 22.12.0（`desktop/.npmrc` 启用 `engine-strict`）
+- 日常 Docker：`docker compose up -d --build --wait`；容器级校验：根目录 `npm run verify:docker`
+- 生产 E2E 必须在干净工作树执行（证据要求 `working_tree_dirty=false`），不要凭历史 SHA 宣称当前工作树已通过
+- 未配置外部 API Key 也可以启动和开发界面；真正生成内容到「AI 配置」页填写。厂商预设填表不等于真实图片/视频/TTS 接入已跑通
+- 页面、API 与 CLI 的用户可见错误为简体中文
+- 故事素材可上传 PDF/图片/音视频：文本可直接导入；PDF/图片需要图片识别（可本机 Tesseract 或 AI 配置 OCR）；音视频需要语音转写配置
+- OCR/转写只是素材抽取扩展，正式制作仍以文本、素材图、分镜图、视频、TTS 五类服务为成片就绪条件。真实云 OCR/Whisper 账号联调、真实图片/视频/TTS 厂商接入、移动端仍不在当前完成范围
 
 详细步骤见下方 [快速开始](#-快速开始) 和 [开发指南](docs/quickstart.md)。
 
@@ -150,7 +155,7 @@
 - **工程 ZIP 导出/导入** · **全局素材库** · **16:9 / 9:16 / 1:1 画幅**
 - **经典 / 全能分镜** · **`@图片N` 多图参考** · **尾帧衔接** · **导出分镜表 HTML**
 - **图片/视频提示词**全文编辑 · 手动上传/拖拽替换参考图
-- **项目就绪度与唯一下一步** · **素材五步流程** · 生成动作不可用时直接说明原因
+- **项目就绪度与唯一下一步** · **素材五步流程**（文本可直接导入；PDF/图片/音视频可上传抽取） · 生成动作不可用时直接说明原因
 
 </details>
 
@@ -171,13 +176,13 @@
 | 节点操作面板 | 单击节点下方编辑/生成，无需频繁切列表 |
 | 镜头检查器 | 右侧停靠编辑、前后镜头导航、真实图片/视频/配音摘要与未保存草稿保护 |
 
-当前交付范围为桌面端。素材中心支持本地图片/视频上传，以及从 Wikimedia Commons 搜索公开图片/视频、查看作者和许可来源、预览并安全下载入库；网页 URL 入口用于把故事正文导入项目。使用者仍需自行确认素材许可是否满足具体用途，其他第三方素材平台暂未接入。AI 配置提供多厂商预设、自定义 OpenAI 兼容厂商和手工模型列表，但不包含通用 `/v1/models` 远端模型自动发现。PDF/图片 OCR、音视频转写、移动/触控、自动模型发现、协作与完整 Agent/MCP 后置；真实第三方 Provider 的账号、模型、区域、额度、计费与长耗时行为也属于部署后深度联调范围。自动化测试不调用外部真实 Provider。
+当前交付范围为桌面端。素材中心支持本地图片/视频上传，以及从 Wikimedia Commons 搜索公开图片/视频、查看作者和许可来源、预览并安全下载入库；网页 URL 入口用于把故事正文导入项目。素材中心还可从 Openverse 搜索公开图片并经本机代理预览入库；使用者仍需自行确认素材许可是否满足具体用途。故事素材可上传 PDF/图片/音视频：文本可直接导入；PDF/图片需要图片识别（可本机 Tesseract 或 AI 配置 OCR）；音视频需要语音转写配置。这是素材抽取扩展，不是成片就绪条件。AI 配置提供多厂商预设、自定义 OpenAI 兼容厂商、手工模型列表，以及可选的 `/v1/models` 目录读取（合并去重，不自动覆盖）。正式制作仍要求文本、素材图、分镜图、视频、TTS 五类服务就绪。移动/触控、协作与完整 Agent/MCP 后置；真实云 OCR/Whisper 账号以及真实第三方 Provider 的账号、模型、区域、额度、计费与长耗时行为属于部署后深度联调范围，不能写成每个云账号都已联调。自动化测试不调用外部真实 Provider。
 
 📖 [画布工作流完整文档](docs/plans/2026-06-15-drama-canvas-workflow-plan.md) · 验收收尾报告：`http://127.0.0.1:3013/reports/infinite-canvas-20260727/report.html`
 
 ### 🤖 AI 配置 · 🌓 亮/暗主题 · 自定义提示词
 
-AI 配置按文本、素材图片、分镜图片、视频和 TTS 五类核心服务展示覆盖状态、默认配置与连接测试结果；新增配置时按基础信息、厂商认证、高级接口、模型和调用策略逐步填写。支持多厂商预设、自定义 OpenAI 兼容厂商和手工模型列表；Google Gemini 文本使用官方 Gemini OpenAI 兼容端点 `https://generativelanguage.googleapis.com/v1beta/openai`，当前连接测试仍只验证配置端点，不会通过通用 `/v1/models` 自动导入远端模型。支持一键配置通义、火山和 Agnes，9 类提示词可自定义覆盖。
+AI 配置按文本、素材图片、分镜图片、视频和 TTS 五类核心服务展示覆盖状态、默认配置与连接测试结果；OCR 与语音转写属于素材抽取扩展，不计入这五类成片就绪条件。新增配置时按基础信息、厂商认证、高级接口、模型和调用策略逐步填写。支持多厂商预设、自定义 OpenAI 兼容厂商、手工模型列表，以及可选的「从服务读取模型」；Google Gemini 文本使用官方 Gemini OpenAI 兼容端点 `https://generativelanguage.googleapis.com/v1beta/openai`。连接测试仍验证配置端点；读取模型目录只合并、不覆盖已有模型名。厂商预设填表不等于真实图片/视频/TTS 接入已跑通，也不等于每个云 OCR/Whisper 账号已联调。支持一键配置通义、火山和 Agnes，9 类提示词可自定义覆盖。
 
 ---
 
@@ -221,23 +226,35 @@ cd frontweb && npm install && npm run dev
 curl.exe --fail http://127.0.0.1:5679/ready
 ```
 
+返回 HTTP 200 且 `status` 为 `ready` 才能接业务。未就绪时 `checks.database.error`、`checks.storage.error`、`checks.maintenance.error` 为简体中文（如「数据库不可用」「存储目录不可用」「维护租约不可用」）。`/health` 只表示进程存活，Compose `--wait` 不等它。
+
 ### Docker
 
-Compose **不挂载应用源码**，只把数据目录和只读配置源挂进容器。改完源码后必须重建镜像，不能指望容器热更新仓库里的 JS/Vue：
+Compose **不挂载应用源码**，只把数据目录和只读配置源挂进容器。后端 `backend-node/Dockerfile` 与前端 `frontweb/Dockerfile.prod` 都固定 **Node.js 20**。改完源码后必须重建镜像，不能指望容器热更新仓库里的 JS/Vue：
 
 ```bash
 docker compose up -d --build --wait
 docker compose ps
 ```
 
-| 服务 | 地址 |
-|------|------|
-| 前端 | `http://127.0.0.1:3013` |
-| 前端 Docker 健康检查 | `http://127.0.0.1:3013/healthz`（代理后端 `/ready`） |
-| 后端健康检查 | `http://127.0.0.1:5679/health` |
-| 后端就绪检查 | `http://127.0.0.1:5679/ready` |
+浏览器打开 `http://127.0.0.1:3013`。默认只绑定宿主机 `127.0.0.1`，数据默认写在 `backend-node/data/`。
 
-默认只绑定宿主机 `127.0.0.1`，并使用只读根文件系统、`no-new-privileges` 与能力裁剪。容器级校验：
+| 探针 | 地址 | Compose 用途 |
+|------|------|------|
+| 前端页面 | `http://127.0.0.1:3013` | 页面入口 |
+| 前端 `/healthz` | `http://127.0.0.1:3013/healthz` | 健康检查；Nginx 代理后端 `/ready` |
+| 后端 `/ready` | `http://127.0.0.1:5679/ready` | 健康检查；可接业务才 200，失败信息为简体中文，`docker compose --wait` 等这个 |
+| 后端 `/health` | `http://127.0.0.1:5679/health` | 不是健康检查；只表示进程存活 |
+
+停止：
+
+```bash
+docker compose down
+```
+
+全量备份/恢复前必须先停 Docker。`backup:data` / `restore:data` / `maintenance:recover` 的帮助与失败输出为简体中文。命令和自定义 `LOCALMINIDRAMA_DATA_DIR` 的 `--data-root` 写法见 [开发指南](docs/quickstart.md#q-如何备份迁移项目数据)。
+
+默认启用只读根文件系统、`no-new-privileges` 与能力裁剪。容器级校验：
 
 ```bash
 npm run verify:docker
@@ -245,11 +262,13 @@ npm run verify:docker
 
 `npm run verify:docker` 检查镜像边界，并在临时验证容器内跑前后端测试，不代替正在运行的 Compose 服务。`npm run docker:up` 要求 Git 工作树干净，并把当前 Git SHA 写入镜像 revision；未提交改动请直接用 `docker compose up -d --build --wait`。
 
-生产 E2E 必须在仓库外新建空数据目录后设置 `LOCALMINIDRAMA_DATA_DIR`，再执行 `npm run docker:e2e:up` 和 `npm run verify:e2e`，最后销毁 E2E profile 与临时数据目录；完整 PowerShell 命令见 [开发指南](docs/quickstart.md#运行方式二docker)。仓库测试使用本地协议兼容 Provider，不代表真实厂商账号已深度联调。
+生产 E2E 必须在干净工作树、仓库外新建空数据目录后设置 `LOCALMINIDRAMA_DATA_DIR`，再执行 `npm run docker:e2e:up` 和 `npm run verify:e2e`，最后销毁 E2E profile 与临时数据目录。证据绑定完整源码 SHA 且 `working_tree_dirty=false`；当前脏工作树不能当作已通过。完整 PowerShell 命令见 [开发指南](docs/quickstart.md#运行方式二docker)。仓库测试使用本地协议兼容 Provider，不代表真实厂商账号已深度联调。
 
 异常退出若留下维护租约，必须按 [维护租约恢复步骤](docs/quickstart.md#q-如何备份迁移项目数据) 先检查归属，再用精确作用域和 PID 显式恢复；不要直接删除锁文件。
 
 ### 测试
+
+以下命令使用 Node.js 20.x（不要用本机 Node 24 跑门禁）。桌面安装/打包仍用 Node.js 22.12.0。
 
 ```bash
 # 后端（Node.js 内置测试运行器）
@@ -272,6 +291,8 @@ npm run verify
 
 ## 🤖 AI 服务商支持
 
+下表表示「AI 配置」里的厂商预设与适配路由，不等于真实账号、额度或图片/视频/TTS 已接入跑通。
+
 | 服务商 | 文本 | 图片 | 视频 |
 |--------|:----:|:----:|:----:|
 | 阿里云 DashScope（通义） | ✅ | ✅ | ✅ |
@@ -284,7 +305,7 @@ npm run verify
 | 本地 Ollama 等 OpenAI 兼容 | ✅ | — | — |
 | 其他 OpenAI 兼容接口 | ✅ | ✅ | ✅ |
 
-> Novel2Anime 生产工作流会调用已启用并通过就绪检查的文本、素材图、分镜图、视频和 TTS 配置，再由本机 FFmpeg/FFprobe 合成与校验；Google Gemini 文本走官方 Gemini OpenAI 兼容端点，图片走 Gemini `generateContent` 原生图片模型（不是 Imagen API），视频走 Veo。真实 Google 账号、模型、额度和计费行为仍需在「AI 配置」中单独连接测试。Draft 预演仍可使用本地 mock 产物，production QA 会拒绝 mock/占位产物。仓库生产 E2E 使用本地协议兼容 Provider 验证完整非 mock 链路，不代表每个第三方厂商、账号、模型或额度组合都已深度联调。当前模型来自内置预设或手工录入，不会通过通用 `/v1/models` 自动发现；素材中心支持本地素材和 Wikimedia Commons 网络素材，展示远端作者与许可元数据并安全下载入库，但使用者仍需核对具体用途的许可兼容性，更多平台及用途许可判断后置。移动端 Web 重排、触控行为和移动画布/列表降级不在当前桌面范围内。
+> Novel2Anime 生产工作流会调用已启用并通过就绪检查的文本、素材图、分镜图、视频和 TTS 配置，再由本机 FFmpeg/FFprobe 合成与校验；Google Gemini 文本走官方 Gemini OpenAI 兼容端点，图片走 Gemini `generateContent` 原生图片模型（不是 Imagen API），视频走 Veo。厂商预设填表不等于真实接入已跑通；真实 Google 账号、模型、额度和计费行为仍需在「AI 配置」中单独连接测试。Draft 预演仍可使用本地 mock 产物，production QA 会拒绝 mock/占位产物。仓库生产 E2E 使用本地协议兼容 Provider 验证完整非 mock 链路，必须在干净工作树执行，不代表每个第三方厂商、账号、模型或额度组合都已深度联调。当前模型来自内置预设、手工录入，或对 OpenAI 兼容端点按需读取 `/v1/models` 后合并；素材中心支持本地素材、Wikimedia Commons 和 Openverse 网络素材，展示远端作者与许可元数据并安全下载入库，但使用者仍需核对具体用途的许可兼容性。更多平台及用途许可判断后置。故事素材 OCR/转写已从入口接通，属于素材抽取扩展，不能替代这五类成片服务；真实云 OCR/Whisper 账号联调仍后置。移动端 Web 重排、触控行为和移动画布/列表降级不在当前桌面范围内。
 
 ---
 
@@ -320,10 +341,11 @@ LocalMiniDrama/
 | ✅ | 参考图自由选择 | 生图时可手动指定角色、场景等参考媒体 |
 | ✅ | 宫格图生成视频 | 支持将宫格参考交给声明兼容能力的视频模型 |
 | ✅ | Wikimedia Commons 网络素材 | 支持公开图片/视频搜索、作者与许可来源展示、预览选择、安全下载和项目/全局素材入库 |
+| ✅ | Openverse 网络图片 | 支持公开图片搜索、作者与许可来源展示、同源缩略图代理、预览选择和安全入库；视频仍以 Commons 为主 |
 | 📋 | 更多网络素材平台与许可兼容判断 | 其他第三方平台接入及针对具体用途的自动许可兼容判断后置 |
-| 📋 | 远端模型自动发现 | 通用 `/v1/models` 模型列表发现与导入后置；当前使用厂商预设、自定义兼容厂商和手工模型 |
-| 📋 | 第三方 Provider 深度联调 | 真实厂商、账户、模型版本、额度与计费组合后置；每个部署仍须本地连接测试和非敏感样例验收 |
-| 📋 | PDF/图片 OCR 与音视频转写 | 产品能力仍后置，不能当作已完成 |
+| ✅ | 可选读取模型目录 | OpenAI 兼容厂商可从服务读取 `/v1/models` 并合并进模型列表，不自动覆盖已有项 |
+| 📋 | 真实图片/视频/TTS 与第三方 Provider 深度联调 | 真实厂商账号、图片/视频/TTS 接入、模型版本、额度与计费后置；每个部署仍须本地连接测试和非敏感样例验收，不能当作已完成 |
+| ✅ | PDF/图片 OCR 与音视频转写入口 | 故事素材可上传 PDF/图片/音视频；未配置时给出中文失败引导。真实云 OCR/Whisper 账号联调仍后置 |
 | 📋 | 移动端 Web | 移动重排、触控行为和移动画布/列表降级后置；当前验收矩阵仅覆盖桌面视口 |
 
 > 认领功能或提建议 → [GitHub Issues](https://github.com/Shunlly/LocalMiniDrama/issues)

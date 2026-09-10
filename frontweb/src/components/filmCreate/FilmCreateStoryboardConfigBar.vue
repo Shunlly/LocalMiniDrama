@@ -15,20 +15,36 @@
       <span class="sb-config-divider">｜</span>
       <label class="sb-config-item">
         <span class="sb-config-label">序列图模式</span>
-        <el-select v-model="gridMode" aria-label="分镜序列图模式" size="small" style="width:110px" :disabled="storyboardUseFirstLastFrame">
+        <el-select
+          v-model="gridMode"
+          :aria-label="configControlState.gridModeAriaLabel"
+          :title="configControlState.gridModeDisabledReason || configControlState.gridModeHint"
+          aria-describedby="sb-grid-mode-hint"
+          size="small"
+          style="width:110px"
+          :disabled="Boolean(configControlState.gridModeDisabledReason)"
+        >
           <el-option label="单张" value="single" />
           <el-option label="四宫格" value="quad_grid" />
           <el-option label="九宫格" value="nine_grid" />
         </el-select>
-        <span class="sb-config-hint">{{ storyboardUseFirstLastFrame ? '首尾帧模式下使用单张图，序列宫格暂不可用' : '四/九宫格自动按视角拆分' }}</span>
+        <span id="sb-grid-mode-hint" class="sb-config-hint">{{ configControlState.gridModeHint }}</span>
       </label>
     </div>
     <div class="sb-config-row sb-narration-export-row" style="margin-top:10px;flex-wrap:wrap;align-items:center;gap:12px">
-      <el-checkbox v-model="storyboardUseFirstLastFrame" @change="onStoryboardUseFirstLastFrameChange">
+      <el-checkbox
+        v-model="storyboardUseFirstLastFrame"
+        :aria-label="configControlState.firstLastFrameAriaLabel"
+        @change="onStoryboardUseFirstLastFrameChange"
+      >
         首尾帧参考图（生成首帧和尾帧，帮助视频保持镜头衔接）
       </el-checkbox>
-      <el-checkbox v-model="storyboardUniversalOmni" @change="emit('save-settings')">
-        多段分镜模式（每镜生成可直接用于长提示词的分段描述）
+      <el-checkbox
+        v-model="storyboardUniversalOmni"
+        :aria-label="configControlState.universalOmniAriaLabel"
+        @change="emit('save-settings')"
+      >
+        全能模式（每镜生成可直接用于长提示词的分段描述）
       </el-checkbox>
       <el-checkbox v-model="storyboardIncludeNarration" @change="emit('save-settings')">
         同时生成解说旁白（与对白分轨，便于配音和字幕）
@@ -141,8 +157,23 @@
 </template>
 
 <script setup>
+import { computed } from 'vue'
 import { QuestionFilled } from '@element-plus/icons-vue'
 import ActionGate from '@/components/filmCreate/ActionGate.vue'
+
+function describeStoryboardConfigControls(input = {}) {
+  const useFirstLast = Boolean(input.storyboardUseFirstLastFrame)
+  const gridModeDisabledReason = useFirstLast ? '首尾帧模式下使用单张图，序列宫格暂不可用' : ''
+  return {
+    gridModeDisabledReason,
+    gridModeHint: gridModeDisabledReason || '四/九宫格自动按视角拆分',
+    gridModeAriaLabel: gridModeDisabledReason
+      ? `分镜序列图模式不可用：${gridModeDisabledReason}`
+      : '分镜序列图模式',
+    firstLastFrameAriaLabel: '首尾帧参考图（生成首帧和尾帧，帮助视频保持镜头衔接）',
+    universalOmniAriaLabel: '全能模式（每镜生成可直接用于长提示词的分段描述）',
+  }
+}
 
 defineProps({
   storyboards: { type: Array, default: () => [] },
@@ -181,6 +212,9 @@ const batchImageStopping = defineModel('batchImageStopping', { type: Boolean, de
 const batchVideoStopping = defineModel('batchVideoStopping', { type: Boolean, default: false })
 
 const emit = defineEmits(['save-settings'])
+const configControlState = computed(() => describeStoryboardConfigControls({
+  storyboardUseFirstLastFrame: storyboardUseFirstLastFrame.value,
+}))
 </script>
 
 <style scoped>

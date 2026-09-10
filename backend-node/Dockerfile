@@ -54,11 +54,15 @@ EXPOSE 5679
 FROM runtime AS verification
 
 COPY --chown=node:node backend-node/test ./test
+COPY --chown=node:node backend-node/Dockerfile ./Dockerfile
+RUN cp /usr/local/bin/localminidrama-entrypoint ./docker-entrypoint.sh \
+  && chown node:node ./docker-entrypoint.sh
 COPY --chown=node:node docker-compose.yml /docker-compose.yml
 COPY --chown=node:node .dockerignore /.dockerignore
 COPY --chown=node:node scripts/verify-docker-artifact.cjs /scripts/verify-docker-artifact.cjs
 COPY --chown=node:node scripts/runtime-config-policy.cjs /scripts/runtime-config-policy.cjs
 COPY --chown=node:node frontweb/nginx.conf /frontweb/nginx.conf
+COPY --chown=node:node frontweb/Dockerfile.prod /frontweb/Dockerfile.prod
 
 CMD ["npm", "run", "verify"]
 
@@ -66,5 +70,9 @@ FROM runtime AS production
 
 RUN rm -rf /usr/local/lib/node_modules/npm \
   && rm -f /usr/local/bin/npm /usr/local/bin/npx
+
+# 与 compose 一致：镜像级探针走 /ready，不要改成存活探针 /health。
+HEALTHCHECK --interval=10s --timeout=5s --start-period=20s --retries=12 \
+  CMD node -e "fetch('http://127.0.0.1:5679/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
 CMD ["node", "src/server.js"]

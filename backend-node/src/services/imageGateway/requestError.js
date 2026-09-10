@@ -4,7 +4,7 @@
 // 取消不得记成失败；超时可重试；用户可见文案使用简体中文。
 // 本模块只做客户端分类，不接真实厂商。
 
-const { summarizeProviderResponse } = require('../providerErrorSanitizer');
+const { createProviderHttpError } = require('../providerErrorSanitizer');
 
 const SAFE_PROVIDER_ERROR = Symbol.for('localMiniDrama.safeProviderError');
 const DEFAULT_JSON_TIMEOUT_MS = 15_000;
@@ -148,10 +148,7 @@ function requestNetworkError(source, options = {}) {
   const provider = providerLabel(options.provider);
   const operation = operationLabel(options.operation);
   const code = source?.code ? String(source.code) : '';
-  const suffix = /^(?:EAI_AGAIN|ECONNREFUSED|ECONNRESET|ENETUNREACH|ENOTFOUND|EPIPE)$/i.test(code)
-    ? `（code ${code}）`
-    : '';
-  const error = new Error(`${provider} ${operation}网络连接失败${suffix}，请检查网络后重试`);
+  const error = new Error(`${provider} ${operation}网络连接失败，请检查网络后重试`);
   error.name = 'NetworkError';
   error.code = code || 'ERR_NETWORK';
   error.retryable = true;
@@ -161,37 +158,16 @@ function requestNetworkError(source, options = {}) {
   return markSafeProviderError(error);
 }
 
-function httpFailureAction(status, responseFormat) {
-  if (status === 400 || status === 422) return '请求被拒绝，请检查所选模型和参数';
-  if (status === 401) return '认证失败，请检查厂商密钥';
-  if (status === 403) return '请求被禁止，请检查权限和内容安全策略';
-  if (status === 404) return '未找到接口、模型或任务，请检查厂商配置';
-  if (status === 408) return '厂商请求超时，请稍后重试';
-  if (status === 409) return '厂商报告请求冲突，请重新发起请求';
-  if (status === 429) return '厂商限流或配额不足，请稍后重试';
-  if (status >= 500) return '厂商暂时不可用，请稍后重试';
-  if (responseFormat === 'non_json') return '厂商返回了无法解析的错误';
-  return '厂商返回错误，请检查配置后重试';
-}
-
 function classifyHttpFailure(options = {}) {
-  const provider = providerLabel(options.provider);
-  const operation = operationLabel(options.operation);
   const status = extractHttpStatus({ status: options.status, message: options.responseBody })
     || extractHttpStatus(options.status);
-  const summary = summarizeProviderResponse(options.responseBody);
-  const code = options.code != null && String(options.code).trim() !== ''
-    ? String(options.code).trim()
-    : (summary.provider_code || '');
-  const details = [];
-  if (status) details.push(`HTTP ${status}`);
-  if (code && /^[A-Za-z0-9][A-Za-z0-9_.:/-]{0,79}$/.test(code)) details.push(`code ${code}`);
-  if (summary.response_bytes > 0) details.push(`response_bytes=${summary.response_bytes}`);
-  const suffix = details.length ? ` (${details.join('; ')})` : '';
-  const error = new Error(`${provider} ${operation}失败${suffix}。${httpFailureAction(status, summary.response_format)}`);
-  error.name = 'ProviderError';
-  if (status) error.status = status;
-  if (code) error.providerCode = code;
+  const error = createProviderHttpError({
+    provider: providerLabel(options.provider),
+    operation: operationLabel(options.operation),
+    status,
+    code: options.code,
+    responseBody: options.responseBody,
+  });
   error.retryable = status === 408 || status === 429 || (Number.isInteger(status) && status >= 500);
   error.provider = options.provider || null;
   error.operation = options.operation || null;

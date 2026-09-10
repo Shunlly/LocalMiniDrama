@@ -85,6 +85,17 @@
         </el-button>
       </CanvasActionGate>
 
+      <el-button
+        v-if="workflowRunning"
+        size="small"
+        type="warning"
+        plain
+        aria-label="取消执行"
+        @click="emit('cancel-workflow')"
+      >
+        取消执行
+      </el-button>
+
       <CanvasActionGate :reason="actionReasons.deleteWorkflow" label="删除工作流分组" description-id="canvas-reason-delete-workflow">
         <el-button
           size="small"
@@ -115,6 +126,7 @@ const props = defineProps({
   activeGroupId: { type: [String, Number], default: null },
   pipelineSteps: { type: Array, default: () => [] },
   workflowRunning: { type: Boolean, default: false },
+  workflowProgress: { type: String, default: '' },
   actionReasons: { type: Object, default: () => ({}) },
   actionConfigServices: { type: Object, default: () => ({}) },
 })
@@ -124,6 +136,7 @@ const emit = defineEmits([
   'update:activeGroupId',
   'create-workflow',
   'run-workflow',
+  'cancel-workflow',
   'delete-workflow',
 ])
 
@@ -135,7 +148,11 @@ const workflowUiState = computed(() => getCanvasWorkflowUiState({
 
 const showCreateControls = computed(() => workflowUiState.value.showCreateControls)
 const showManagementControls = computed(() => workflowUiState.value.showManagementControls)
-const helperText = computed(() => workflowUiState.value.helperText)
+const helperText = computed(() => (
+  props.workflowRunning && props.workflowProgress
+    ? props.workflowProgress
+    : workflowUiState.value.helperText
+))
 const videoStepGateReason = computed(() => (
   props.actionReasons.video && !props.pipelineSteps.includes('video')
     ? props.actionReasons.video

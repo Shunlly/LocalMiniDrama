@@ -6,9 +6,15 @@ import request from '../src/utils/request.js'
 
 import {
   buildSourceWorkflowState,
+  localizeSourceIntakeFailure,
   selectInspectedWorkflowStep,
+  MEDIA_AUTO_EXTRACTION_EXTENSIONS,
+  SOURCE_INTAKE_MEDIA_HELP,
+  SOURCE_MEDIA_EXTRACTION_CONFIG_GUIDANCE,
+  SOURCE_MEDIA_URL_UPLOAD_HINT,
 } from '../src/utils/sourceWorkflowState.js'
 import * as sourceWorkflowController from '../src/utils/sourceImportOutcome.js'
+import { toUserFacingError, isUserFacingAbort } from '../src/utils/userFacingError.js'
 
 const source = readFileSync(
   new URL('../src/components/SourceIntakeWorkflowPanel.vue', import.meta.url),
@@ -723,14 +729,44 @@ test('source workflow component wires the executable controller and keeps the al
   assert.match(source, /sourceImportController\.refreshSources\(\)/)
   assert.match(source, /role="alert"[\s\S]*?aria-live="assertive"/)
   assert.match(source, /@click="refreshImportedSources"[\s\S]*?>\s*刷新列表\s*<\/el-button>/)
-  assert.match(source, /等待当前运行 QA/)
+  assert.match(source, /还没有 QA 结果/)
 })
 
-test('source intake copy defers OCR and transcription instead of advertising them as ready', () => {
+test('source QA issues hide English technical text and keep Chinese findings', () => {
+  assert.match(source, /const displayedQaIssues = computed/)
+  assert.match(source, /qaIssueDisplayMessage\(issue\?\.message\)/)
+  assert.match(source, /toUserFacingError\(message, '该项检查未通过'\)/)
+  assert.match(source, /const displayedQaRecommendations = computed/)
+  assert.match(source, /toUserFacingError\(item, ''\)/)
+  assert.match(source, /v-for="issue in displayedQaIssues"/)
+  assert.match(source, /v-for="item in displayedQaRecommendations"/)
+  assert.doesNotMatch(source, /v-for="issue in latestQa\.issues/)
+  assert.equal(toUserFacingError('Network Error', '该项检查未通过'), '该项检查未通过')
+  assert.equal(toUserFacingError('分镜缺少成片素材', '该项检查未通过'), '分镜缺少成片素材')
+})
+
+test('source intake allows PDF/image/audio/video upload and guides extraction failures to AI config', () => {
   const source = readFileSync(new URL('../src/components/SourceIntakeWorkflowPanel.vue', import.meta.url), 'utf8')
-  assert.match(source, /PDF、图片、音频和视频暂不支持自动抽取/)
-  assert.match(source, /isDeferredAutoExtractionSource/)
-  assert.match(source, /SOURCE_AUTO_EXTRACTION_UNSUPPORTED_MESSAGE/)
+  for (const extension of MEDIA_AUTO_EXTRACTION_EXTENSIONS) {
+    assert.match(source, new RegExp(`['"]${extension.replace('.', '\\.')}['"]`), extension)
+  }
+  assert.match(source, /SOURCE_FILE_EXTENSIONS = Object\.freeze\(\[/)
+  assert.match(source, /:accept="SOURCE_FILE_ACCEPT"/)
+  assert.match(source, /SOURCE_INTAKE_MEDIA_HELP/)
+  assert.match(source, /TEXT_SOURCE_FILE_EXTENSIONS\.has\(extension\) && file\.size <= 2 \* 1024 \* 1024/)
+  assert.match(source, /looksLikeBinaryMedia/)
+  assert.match(source, /form\.text = await file\.text\(\)/)
+  assert.match(source, /sourceIntakeAPI\.uploadForDrama/)
+  assert.match(source, /isDeferredAutoExtractionSource\(rawSourceUrl\.value\)/)
+  assert.match(source, /SOURCE_MEDIA_URL_UPLOAD_HINT/)
+  assert.doesNotMatch(source, /暂不支持自动抽取/)
+  assert.doesNotMatch(source, /SOURCE_AUTO_EXTRACTION_UNSUPPORTED_MESSAGE/)
+  assert.doesNotMatch(source, /isDeferredAutoExtractionSource\(file\)/)
+  assert.doesNotMatch(source, /isDeferredAutoExtractionSource\(sourceFile\.value\)/)
+  assert.doesNotMatch(source, /service_type=ocr/)
+  assert.match(SOURCE_INTAKE_MEDIA_HELP, /图片识别/)
+  assert.match(SOURCE_INTAKE_MEDIA_HELP, /语音转写/)
+  assert.match(SOURCE_MEDIA_URL_UPLOAD_HINT, /本地文件上传/)
 })
 
 test('source workflow polling abort is ignored instead of reported as failure', () => {
@@ -743,4 +779,78 @@ test('source workflow polling abort is ignored instead of reported as failure', 
   assert.equal(shouldIgnoreSourceWorkflowPollError(new Error('处理状态刷新失败'), lifecycle), true)
   const active = createSourceWorkflowLifecycleGuard()
   assert.equal(shouldIgnoreSourceWorkflowPollError(new Error('处理状态刷新失败'), active), false)
+})
+
+test('来源工作流失败不再直出 e.message，取消静默，QA 问题过滤英文和密钥', () => {
+  assert.match(source, /import \{ toUserFacingError, isUserFacingAbort \} from '@\/utils\/userFacingError'/)
+  assert.match(source, /if \(isUserFacingAbort\(error\)\) return ''/)
+  assert.match(source, /if \(localized && localized !== raw\) return toUserFacingError\(localized, fallback\)/)
+  assert.match(source, /return toUserFacingError\(error, fallback\)/)
+  assert.match(source, /if \(isUserFacingAbort\(e\)\) return\s*sourceOperationError\.value = toUserFacingError\(e, '启动失败'\)/)
+  assert.match(source, /toUserFacingError\(e, 'QA 审计失败'\)/)
+  assert.match(source, /toUserFacingError\(e, '加载素材详情失败'\)/)
+  assert.match(source, /toUserFacingError\(error, '自动修复失败'\)/)
+  assert.match(source, /toUserFacingError\(error, '读取文本文件失败，请重新选择。'\)/)
+  assert.match(source, /displayedQaIssues/)
+  assert.match(source, /function qaIssueDisplayMessage\(message\) \{\s*return toUserFacingError\(message, '该项检查未通过'\)/)
+  assert.doesNotMatch(source, /e\.message \|\| '启动失败'/)
+  assert.doesNotMatch(source, /e\.message \|\| 'QA 审计失败'/)
+  assert.doesNotMatch(source, /e\.message \|\| '加载素材详情失败'/)
+  assert.doesNotMatch(source, /error\?\.message \|\| '自动修复失败'/)
+  assert.doesNotMatch(source, /error\?\.message \|\| '读取文本文件失败/)
+  assert.doesNotMatch(source, /latestQa\.issues\.slice\(0, 3\)/)
+  assert.doesNotMatch(source, /describeServiceLoadError/)
+})
+
+test('来源工作流失败文案保留结构化中文，过滤英文异常和密钥', () => {
+  assert.equal(toUserFacingError('缺少分集，或部分分集还没有剧本内容', ''), '缺少分集，或部分分集还没有剧本内容')
+  assert.equal(toUserFacingError('ENOENT: no such file or directory', ''), '')
+  assert.equal(toUserFacingError('Network Error', '启动失败'), '启动失败')
+  assert.equal(toUserFacingError('authorization: Bearer sk-test 失败', ''), '')
+  assert.equal(toUserFacingError('password=secret 配置错误', ''), '')
+  assert.equal(toUserFacingError('client_secret=abc 调用失败', ''), '')
+  assert.equal(toUserFacingError({ message: 'Failed to fetch' }, 'QA 审计失败'), 'QA 审计失败')
+  assert.equal(isUserFacingAbort({ name: 'AbortError' }), true)
+  assert.equal(isUserFacingAbort('cancel'), true)
+})
+
+test('源工作流空状态和失败文案保持简体中文', () => {
+  const empty = buildSourceWorkflowState({
+    sourceCount: 0,
+    hasSourceInput: false,
+    run: null,
+    qa: null,
+    timeline: null,
+    episodeCount: 0,
+    actionReasons: { import: '请先粘贴网页 URL、选择本地文件或输入原始素材。', start: '请先粘贴网页 URL、选择本地文件或输入原始素材。' },
+  })
+  assert.match(empty.sourceEmptyState.title, /还没有已导入/)
+  assert.match(empty.sourceEmptyState.description, /网页、文件和文本/)
+  assert.match(empty.sourceEmptyState.description, /图片识别/)
+  assert.match(empty.sourceEmptyState.description, /语音转写/)
+  assert.equal(localizeSourceIntakeFailure('Network Error'), SOURCE_MEDIA_EXTRACTION_CONFIG_GUIDANCE)
+  assert.equal(localizeSourceIntakeFailure(''), '')
+})
+
+test('来源工作流空状态可操作，忙时按钮带中文禁用原因', () => {
+  assert.match(source, /class="empty-stage-hint"/)
+  assert.match(source, /可用上方「导入故事素材」或「导入并启动/)
+  assert.match(source, /去导入素材/)
+  assert.match(source, /去执行 QA/)
+  assert.match(source, /检查结果已记录，暂无可以展示的说明/)
+  assert.match(source, /暂无可以展示的修复建议/)
+  assert.match(source, /暂无素材片段/)
+  assert.match(source, /加载中…/)
+  assert.doesNotMatch(source, /仅导入素材/)
+  assert.match(source, /const sourceUploadBusyReason = computed/)
+  assert.match(source, /const existingSourceLaunchReason = computed/)
+  assert.match(source, /const refreshBusyReason = computed/)
+  assert.match(source, /<ActionGate label="刷新" :reason="refreshBusyReason">/)
+  assert.match(source, /:disabled="Boolean\(refreshBusyReason\)"/)
+  assert.match(source, /:reason="existingSourceLaunchReason"/)
+  assert.match(source, /:disabled="Boolean\(existingSourceLaunchReason\)"/)
+  assert.match(source, /reasons\.import = reasons\.import \|\| sourceUploadBusyReason\.value/)
+  assert.match(source, /:disabled="Boolean\(actionReasons\.import\)"/)
+  assert.match(source, /:disabled="Boolean\(actionReasons\.start\)"/)
+  assert.doesNotMatch(source, /Boolean\(actionReasons\.import\) \|\| sourceUploadBusy/)
 })

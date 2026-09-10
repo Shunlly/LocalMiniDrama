@@ -64,9 +64,9 @@
             <button
               type="button"
               class="storyboard-order-button"
-              :disabled="reorderDisabled || index === 0"
-              :aria-label="`上移${storyboardTitle(storyboardId)}`"
-              title="上移"
+              :disabled="Boolean(moveUpReason(index, group.storyboard_ids.length))"
+              :aria-label="moveUpReason(index, group.storyboard_ids.length) ? `上移${storyboardTitle(storyboardId)}不可用：${moveUpReason(index, group.storyboard_ids.length)}` : `上移${storyboardTitle(storyboardId)}`"
+              :title="moveUpReason(index, group.storyboard_ids.length) || '上移'"
               @click.stop="requestMove(group.id, index, index - 1, group.storyboard_ids.length)"
             >
               <el-icon><ArrowUp /></el-icon>
@@ -74,9 +74,9 @@
             <button
               type="button"
               class="storyboard-order-button"
-              :disabled="reorderDisabled || index === group.storyboard_ids.length - 1"
-              :aria-label="`下移${storyboardTitle(storyboardId)}`"
-              title="下移"
+              :disabled="Boolean(moveDownReason(index, group.storyboard_ids.length))"
+              :aria-label="moveDownReason(index, group.storyboard_ids.length) ? `下移${storyboardTitle(storyboardId)}不可用：${moveDownReason(index, group.storyboard_ids.length)}` : `下移${storyboardTitle(storyboardId)}`"
+              :title="moveDownReason(index, group.storyboard_ids.length) || '下移'"
               @click.stop="requestMove(group.id, index, index + 1, group.storyboard_ids.length)"
             >
               <el-icon><ArrowDown /></el-icon>
@@ -110,6 +110,22 @@ const dragTarget = ref(null)
 
 function storyboardDetail(storyboardId) {
   return props.storyboardDetails[String(storyboardId)] || {}
+}
+
+function workflowMoveDisabledReason(index, total, offset) {
+  if (props.reorderDisabled) return '当前不能调整工作流分镜顺序'
+  if (Number(total) < 2) return '至少两条分镜才能调整顺序'
+  if (offset < 0 && index === 0) return '已经是第一条分镜'
+  if (offset > 0 && index === Number(total) - 1) return '已经是最后一条分镜'
+  return ''
+}
+
+function moveUpReason(index, total) {
+  return workflowMoveDisabledReason(index, total, -1)
+}
+
+function moveDownReason(index, total) {
+  return workflowMoveDisabledReason(index, total, 1)
 }
 
 function storyboardTitle(storyboardId) {

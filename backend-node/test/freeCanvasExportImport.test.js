@@ -219,6 +219,26 @@ function commonsCategory(
   });
 }
 
+function openverseCategory(
+  contentSha256 = createHash('sha256').update(VALID_PNG_BYTES).digest('hex'),
+  overrides = {},
+) {
+  return JSON.stringify({
+    kind: 'openverse',
+    source_provider: 'Openverse',
+    source_url: 'https://openverse.org/image/11111111-1111-1111-1111-111111111111/',
+    author: '用于验证 Openverse 元数据可恢复性的作者名称'.repeat(4),
+    license: 'CC BY 4.0',
+    license_url: 'https://creativecommons.org/licenses/by/4.0/',
+    openverse_id: '11111111-1111-1111-1111-111111111111',
+    landing_page: 'https://openverse.org/image/11111111-1111-1111-1111-111111111111/',
+    source_site: 'openverse.org',
+    resolved_download_url: 'https://api.openverse.org/v1/images/11111111-1111-1111-1111-111111111111/thumb/',
+    content_sha256: contentSha256,
+    ...overrides,
+  });
+}
+
 test('Commons 网络素材元数据可随项目包完整导出并恢复', (t) => {
   const category = commonsCategory();
   assert.ok(category.length > 128);
@@ -235,6 +255,35 @@ test('Commons 网络素材元数据可随项目包完整导出并恢复', (t) =>
     'SELECT category FROM assets WHERE drama_id = ? AND deleted_at IS NULL'
   ).get(imported.drama_id);
   assert.equal(restored.category, category);
+});
+
+test('Openverse 网络素材元数据可随项目包完整导出并恢复', (t) => {
+  const category = openverseCategory();
+  assert.ok(category.length > 128);
+  const fixture = createSingleImageExport(t, { category });
+  const target = createWorkspace(t, 'lmd-canvas-openverse-target-');
+
+  const imported = dramaImportService.importDrama(
+    target.db,
+    { storage: { local_path: target.storage } },
+    log,
+    fixture.exported.buffer,
+  );
+  const restored = target.db.prepare(
+    'SELECT category FROM assets WHERE drama_id = ? AND deleted_at IS NULL'
+  ).get(imported.drama_id);
+  assert.equal(restored.category, category);
+});
+
+test('项目导入拒绝 Openverse 标识与来源页不一致的证据', (t) => {
+  const fixture = createSingleImageExport(t, { category: openverseCategory() });
+  const target = createWorkspace(t, 'lmd-canvas-openverse-id-import-target-');
+  const tampered = rewriteProjectArchive(fixture.exported.buffer, ({ manifest }) => {
+    const metadata = JSON.parse(manifest.assets[0].category);
+    metadata.openverse_id = '22222222-2222-2222-2222-222222222222';
+    manifest.assets[0].category = JSON.stringify(metadata);
+  });
+  assertImportBadRequestRollback(target, tampered, /网络素材元数据/);
 });
 
 test('项目导入拒绝 Commons 内容哈希与归档媒体不一致', (t) => {

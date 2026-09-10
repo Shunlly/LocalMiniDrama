@@ -27,6 +27,11 @@ function normalizeNetworkAsset(item) {
     media_type: value.media_type === 'video' ? 'video' : 'image',
     width: Number(value.width) || null,
     height: Number(value.height) || null,
+    source: value.source === 'openverse' || value.source === 'commons' ? value.source : '',
+    source_provider: String(value.source_provider || '').trim(),
+    source_site: String(value.source_site || '').trim(),
+    openverse_id: String(value.openverse_id || '').trim(),
+    landing_page: String(value.landing_page || '').trim(),
   }
   if (Number.isSafeInteger(value.drama_id) && value.drama_id > 0) {
     normalized.drama_id = value.drama_id
@@ -38,6 +43,8 @@ function normalizeNetworkSearchResponse(response) {
   const items = Array.isArray(response?.items) ? response.items : []
   return {
     ...response,
+    notice: String(response?.notice || '').trim(),
+    source: String(response?.source || '').trim(),
     items: items.map(normalizeNetworkAsset),
   }
 }

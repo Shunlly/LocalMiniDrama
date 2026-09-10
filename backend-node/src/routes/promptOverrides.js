@@ -1,6 +1,7 @@
 const promptOverridesService = require('../services/promptOverridesService');
 const promptI18n = require('../services/promptI18n');
 const response = require('../response');
+const { sendCaughtRouteError } = require('./serviceFailure');
 
 // 提示词元数据：label / description 在此维护；内容（default_body / locked_suffix）从 promptI18n 动态读取
 const PROMPT_META = [
@@ -80,7 +81,7 @@ function routes(db, log) {
         response.success(res, { prompts });
       } catch (err) {
         log.error('prompts list', { error: err.message });
-        response.internalError(res, err.message);
+        sendCaughtRouteError(res, err, '提示词配置失败，请稍后重试');
       }
     },
     update: (req, res) => {
@@ -88,10 +89,10 @@ function routes(db, log) {
       const { content } = req.body || {};
       const defs = getPromptDefinitions();
       if (!defs.some((d) => d.key === key)) {
-        return response.badRequest(res, `未知的提示词 key: ${key}`);
+        return response.badRequest(res, `未知的提示词：${key}`);
       }
       if (!content || !content.trim()) {
-        return response.badRequest(res, 'content 不能为空');
+        return response.badRequest(res, '提示词内容不能为空');
       }
       try {
         promptOverridesService.setOverride(db, key, content.trim());
@@ -100,14 +101,14 @@ function routes(db, log) {
         response.success(res, { ok: true, key });
       } catch (err) {
         log.error('prompts update', { error: err.message });
-        response.internalError(res, err.message);
+        sendCaughtRouteError(res, err, '提示词配置失败，请稍后重试');
       }
     },
     reset: (req, res) => {
       const { key } = req.params;
       const defs = getPromptDefinitions();
       if (!defs.some((d) => d.key === key)) {
-        return response.badRequest(res, `未知的提示词 key: ${key}`);
+        return response.badRequest(res, `未知的提示词：${key}`);
       }
       try {
         promptOverridesService.deleteOverride(db, key);
@@ -116,7 +117,7 @@ function routes(db, log) {
         response.success(res, { ok: true, key });
       } catch (err) {
         log.error('prompts reset', { error: err.message });
-        response.internalError(res, err.message);
+        sendCaughtRouteError(res, err, '提示词配置失败，请稍后重试');
       }
     },
   };

@@ -1,8 +1,10 @@
-import { isRequestCanceled } from './requestError.js'
+import { isRequestCanceled, isSafeUserFacingMessage } from './requestError.js'
+import { toUserFacingError } from './userFacingError.js'
 import { normalizeWorkflowStatus, workflowStepLabel } from './workflowRunStatus.js'
 
 export const SOURCE_WORKFLOW_CANCEL_REASON = '用户已取消处理'
 export const SOURCE_WORKFLOW_PAUSE_REASON = '用户已暂停处理'
+export const SOURCE_WORKFLOW_FAILURE_FALLBACK = '处理失败，请稍后重试。'
 
 const FLOW_STEPS = [
   { id: 'intake', label: '导入素材' },
@@ -21,7 +23,7 @@ function statusLabel(status) {
     blocked: '需人工处理',
     pending: '未开始',
   }
-  return labels[status] || status
+  return labels[status] || '未知状态'
 }
 
 function firstStepWithStatus(run, statuses) {
@@ -54,7 +56,8 @@ export function resolveWorkflowRunFailedStep(run) {
 
 function labeledRunStep(step, run) {
   if (!step) return ''
-  return workflowStepLabel(step, run) || workflowStepLabel(step.step_key || '', run)
+  const label = workflowStepLabel(step, run) || workflowStepLabel(step.step_key || '', run)
+  return /[一-鿿]/.test(label) ? label : ''
 }
 
 export function resolveInspectedWorkflowStep(flowState, {
@@ -108,7 +111,7 @@ function buildStepSummary(stepId, context) {
   }
 
   if (stepId === 'qa') {
-    if (!qa?.id) return run?.status === 'completed' ? '流程已完成，可执行 QA' : '等待流程完成'
+    if (!qa?.id) return normalizeWorkflowStatus(run?.status) === 'completed' ? '流程已完成，可执行 QA' : '等待流程完成'
     const qaScope = (qa.mode || run?.mode) === 'production' ? '正式交付检查' : '草稿结构检查'
     if (qa.passed) return `${qaScope} 通过，评分 ${qa.score}`
     return `${qaScope} 未通过，${qa.issueCount} 个问题待处理`
@@ -133,8 +136,8 @@ function buildSourceEmptyState({ sourceCount, hasSourceInput, actionReasons }) {
   return {
     title: '还没有已导入素材',
     description: hasSourceInput
-      ? '当前输入尚未保存。导入成功后，这里会显示素材记录并可直接启动处理。'
-      : '保存成功的网页、文件和文本素材会显示在这里，方便回看和重复启动流程。',
+      ? SOURCE_INTAKE_MEDIA_HELP + '当前输入尚未保存。导入成功后，这里会显示素材记录并可直接启动处理。'
+      : SOURCE_INTAKE_MEDIA_HELP + '保存成功的网页、文件和文本素材会显示在这里，方便回看和重复启动流程。',
     primaryAction: {
       id: 'import',
       label: '仅导入素材',
@@ -268,16 +271,34 @@ export function getSourceWorkflowBusyReason({ retrying, pausing, resuming, cance
   return ''
 }
 
-export const SOURCE_AUTO_EXTRACTION_UNSUPPORTED_MESSAGE = 'PDF、图片、音频和视频暂不支持自动抽取，请改为导入文本或网页。'
+export const SOURCE_INTAKE_MEDIA_HELP = '文本可直接导入；PDF/图片需要图片识别，音视频需要语音转写。可先用本机 Tesseract，或在 AI 配置中添加对应服务。'
+export const SOURCE_FILE_FORMAT_UNSUPPORTED_MESSAGE = '不支持此文件格式。请选择 txt、md、csv、tsv、srt、vtt、ass、json，或 PDF、图片、音频、视频文件。'
+export const SOURCE_MEDIA_URL_UPLOAD_HINT = '网页 URL 仅支持公开文本或 HTML 页面。PDF、图片、音频和视频请选择本地文件上传。'
+export const SOURCE_OCR_CONFIG_GUIDANCE = '图片识别失败。请到「AI 配置」添加「图片识别」服务，或先使用本机 Tesseract。'
+export const SOURCE_TRANSCRIPTION_CONFIG_GUIDANCE = '语音转写失败。请到「AI 配置」添加「语音转写」服务。'
+export const SOURCE_MEDIA_EXTRACTION_CONFIG_GUIDANCE = '自动抽取失败。请到「AI 配置」添加「图片识别」或「语音转写」服务，PDF/图片也可先使用本机 Tesseract。'
 
-const DEFERRED_AUTO_EXTRACTION_EXTENSIONS = new Set([
+export const TEXT_SOURCE_FILE_EXTENSIONS = Object.freeze([
+  '.txt', '.md', '.csv', '.tsv', '.srt', '.vtt', '.ass', '.json',
+])
+export const MEDIA_AUTO_EXTRACTION_EXTENSIONS = Object.freeze([
   '.pdf',
   '.png', '.jpg', '.jpeg', '.webp', '.gif',
   '.mp3', '.wav', '.m4a', '.aac', '.flac', '.ogg', '.oga',
   '.mp4', '.mov', '.mkv', '.avi', '.webm', '.ogv',
 ])
 
-const ENGLISH_AUTO_EXTRACTION_FAILURE_PATTERN = /ocr|tesseract|transcription|transcribe|extractable text|extracted video audio|unsupported source intake file type|unsupported or invalid source file|the pdf |extracted pdf text|audio sent for transcription|uploaded video is /i
+const IMAGE_OR_PDF_EXTENSION_SET = new Set(['.pdf', '.png', '.jpg', '.jpeg', '.webp', '.gif'])
+const AUDIO_VIDEO_EXTENSION_SET = new Set([
+  '.mp3', '.wav', '.m4a', '.aac', '.flac', '.ogg', '.oga',
+  '.mp4', '.mov', '.mkv', '.avi', '.webm', '.ogv',
+])
+const MEDIA_AUTO_EXTRACTION_EXTENSION_SET = new Set(MEDIA_AUTO_EXTRACTION_EXTENSIONS)
+
+const SOURCE_FORMAT_ENGLISH_FAILURE_PATTERN = /unsupported source intake file type|unsupported or invalid source file/i
+const OCR_ENGLISH_FAILURE_PATTERN = /\bocr\b|tesseract|extractable text|extracted pdf text/i
+const TRANSCRIPTION_ENGLISH_FAILURE_PATTERN = /whisper|speech[- ]to[- ]text|transcription|transcribe|extracted video audio|audio sent for transcription|uploaded video is /i
+const NETWORK_ENGLISH_FAILURE_PATTERN = /failed to fetch|fetch failed|network error|load failed/i
 
 export function sourceFileExtension(value) {
   const name = String(value || '').trim().split(/[\\/]/).pop() || ''
@@ -300,21 +321,61 @@ function sourcePathnameFromInput(input) {
   return raw
 }
 
+function mediaExtractionKind(input) {
+  if (!input) return ''
+  const mime = String(input && typeof input === 'object' ? input.type || '' : '').toLowerCase()
+  const ext = sourceFileExtension(sourcePathnameFromInput(input))
+  if (mime === 'application/pdf' || mime.startsWith('image/') || IMAGE_OR_PDF_EXTENSION_SET.has(ext)) return 'ocr'
+  if (mime.startsWith('audio/') || mime.startsWith('video/') || AUDIO_VIDEO_EXTENSION_SET.has(ext)) return 'transcription'
+  return ''
+}
+
+function mediaConfigGuidance(kind) {
+  if (kind === 'ocr') return SOURCE_OCR_CONFIG_GUIDANCE
+  if (kind === 'transcription') return SOURCE_TRANSCRIPTION_CONFIG_GUIDANCE
+  return SOURCE_MEDIA_EXTRACTION_CONFIG_GUIDANCE
+}
+
+function readIntakeFailureTexts(error) {
+  if (typeof error === 'string') return [error.trim()].filter(Boolean)
+  const texts = []
+  const backend = String(error?.response?.data?.error?.message || '').trim()
+  const message = String(error?.message || '').trim()
+  if (backend) texts.push(backend)
+  if (message && message !== backend) texts.push(message)
+  return texts
+}
+
+/** 识别需要图片识别或语音转写的 PDF/图片/音视频，不再作为前端拦截条件。 */
 export function isDeferredAutoExtractionSource(input) {
   const mime = String(input && typeof input === 'object' ? input.type || '' : '').toLowerCase()
   if (mime === 'application/pdf' || mime.startsWith('image/') || mime.startsWith('audio/') || mime.startsWith('video/')) {
     return true
   }
-  return DEFERRED_AUTO_EXTRACTION_EXTENSIONS.has(sourceFileExtension(sourcePathnameFromInput(input)))
+  return MEDIA_AUTO_EXTRACTION_EXTENSION_SET.has(sourceFileExtension(sourcePathnameFromInput(input)))
 }
 
 export function localizeSourceIntakeFailure(error, context = {}) {
-  const message = String(error?.message || error || '').trim()
-  const hint = context.file || context.filename || context.sourceUrl || ''
-  if (hint && isDeferredAutoExtractionSource(hint)) return SOURCE_AUTO_EXTRACTION_UNSUPPORTED_MESSAGE
-  if (ENGLISH_AUTO_EXTRACTION_FAILURE_PATTERN.test(message)) return SOURCE_AUTO_EXTRACTION_UNSUPPORTED_MESSAGE
   if (isRequestCanceled(error)) return ''
-  if (/user cancelled from source intake panel/i.test(message)) return SOURCE_WORKFLOW_CANCEL_REASON
-  if (/user paused from source intake panel/i.test(message)) return SOURCE_WORKFLOW_PAUSE_REASON
-  return message
+  const texts = readIntakeFailureTexts(error)
+  if (!texts.length) return ''
+
+  for (const text of texts) {
+    if (/user cancelled from source intake panel/i.test(text)) return SOURCE_WORKFLOW_CANCEL_REASON
+    if (/user paused from source intake panel/i.test(text)) return SOURCE_WORKFLOW_PAUSE_REASON
+  }
+
+  for (const text of texts) {
+    if (isSafeUserFacingMessage(text)) return text
+  }
+
+  const combined = texts.join('\n')
+  const hint = context.file || context.filename || context.sourceUrl || ''
+  const kind = mediaExtractionKind(hint)
+
+  if (SOURCE_FORMAT_ENGLISH_FAILURE_PATTERN.test(combined)) return SOURCE_FILE_FORMAT_UNSUPPORTED_MESSAGE
+  if (TRANSCRIPTION_ENGLISH_FAILURE_PATTERN.test(combined)) return SOURCE_TRANSCRIPTION_CONFIG_GUIDANCE
+  if (OCR_ENGLISH_FAILURE_PATTERN.test(combined)) return SOURCE_OCR_CONFIG_GUIDANCE
+  if (NETWORK_ENGLISH_FAILURE_PATTERN.test(combined)) return mediaConfigGuidance(kind)
+  return toUserFacingError(error, SOURCE_WORKFLOW_FAILURE_FALLBACK)
 }

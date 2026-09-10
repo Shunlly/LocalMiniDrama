@@ -7,6 +7,7 @@ const uploadService = require('./uploadService');
 const storageLayout = require('./storageLayout');
 const { scheduleLegacyAsync } = require('./legacyAsyncSchedulerService');
 const { aspectRatioToSize } = require('./imageService');
+const { toUserFacingProcessError } = require('./providerErrorSanitizer');
 
 function waitForTaskWork(work, signal) {
   if (!signal) return Promise.resolve(work);
@@ -40,10 +41,11 @@ function removeDownloadedImage(storagePath, localPath, log) {
 }
 
 function failPropImageTask(db, taskId, propId, signal, message) {
+  const userMessage = toUserFacingProcessError(message, '图片生成失败，请稍后重试');
   taskService.runTaskMutation(db, taskId, signal, () => {
     db.prepare('UPDATE props SET error_msg = ?, updated_at = ? WHERE id = ?')
-      .run(message, new Date().toISOString(), propId);
-    taskService.updateTaskError(db, taskId, message);
+      .run(userMessage, new Date().toISOString(), propId);
+    taskService.updateTaskError(db, taskId, userMessage);
   });
 }
 
@@ -123,10 +125,9 @@ async function processPropImageGeneration(db, log, taskId, propId, opts) {
       log.info('Prop image generation cancelled; skipping late writes', { task_id: taskId, prop_id: propId });
       return;
     }
-    const errMsg = '图片生成请求失败: ' + (err.message || '未知错误');
     log.error('Prop image API failed', { prop_id: propId, error: err.message });
     try {
-      failPropImageTask(db, taskId, propId, signal, errMsg);
+      failPropImageTask(db, taskId, propId, signal, toUserFacingProcessError(err, '图片生成请求失败，请稍后重试'));
     } catch (writeError) {
       if (!taskWasCancelled(signal, writeError)) throw writeError;
     }
@@ -223,6 +224,8 @@ function generatePropImage(db, log, propId, opts) {
   scheduleLegacyAsync(log, 'prop_image_generation', () => {
     processPropImageGeneration(db, log, task.id, propId, opts || {}).catch((err) => {
       log.error('processPropImageGeneration fatal', { error: err.message, task_id: task.id });
+      if (taskWasCancelled(null, err)) return;
+      taskService.updateTaskError(db, task.id, toUserFacingProcessError(err, '道具图片生成失败，请稍后重试'));
     });
   }, { task_id: task.id, prop_id: propId });
   return task.id;

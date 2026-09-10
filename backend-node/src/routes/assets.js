@@ -1,13 +1,14 @@
 const response = require('../response');
+const { sendCaughtRouteError, publicErrorMessage } = require('./serviceFailure');
 const assetService = require('../services/assetService');
 
 function handleError(res, log, operation, err) {
-  if (err?.code === 'BAD_REQUEST') return response.badRequest(res, err.message);
+  if (err?.code === 'BAD_REQUEST') return response.badRequest(res, publicErrorMessage(err, '请求参数无效'));
   if (Number.isInteger(err?.statusCode) && err.statusCode >= 400 && err.statusCode < 600) {
-    return response.error(res, err.statusCode, err.code || 'NETWORK_MEDIA_ERROR', err.message);
+    return response.error(res, err.statusCode, err.code || 'NETWORK_MEDIA_ERROR', publicErrorMessage(err, '素材服务暂时不可用'));
   }
   log.error(operation, { error: err?.message });
-  return response.internalError(res);
+  return sendCaughtRouteError(res, err, '素材操作失败，请稍后重试');
 }
 
 function routes(db, log) {
@@ -45,6 +46,19 @@ function routes(db, log) {
         handleError(res, log, 'assets network import', err);
       }
     },
+    networkThumbnail: async (req, res) => {
+      try {
+        const result = await assetService.proxyNetworkThumbnail(req.query || {});
+        res.setHeader('Content-Type', result.contentType);
+        res.setHeader('X-Content-Type-Options', 'nosniff');
+        res.setHeader('Cache-Control', 'private, max-age=300');
+        res.setHeader('Content-Length', String(result.buffer.length));
+        res.setHeader('Content-Disposition', 'inline');
+        return res.status(200).end(result.buffer);
+      } catch (err) {
+        handleError(res, log, 'assets network thumbnail', err);
+      }
+    },
     get: (req, res) => {
       try {
         const item = assetService.getById(db, req.params.id);
@@ -70,7 +84,7 @@ function routes(db, log) {
         response.success(res, { message: '删除成功' });
       } catch (err) {
         if (err.code === 'ASSET_IN_USE') {
-          return response.error(res, 409, err.code, err.message, err.details);
+          return response.error(res, 409, err.code, publicErrorMessage(err, '素材正在使用中，无法删除'), err.details);
         }
         handleError(res, log, 'assets delete', err);
       }

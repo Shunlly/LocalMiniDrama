@@ -69,7 +69,7 @@ git push origin feature/your-feature-name
 - 基于 `main` 分支创建
 - 一个 PR 只做一件事，避免混合无关改动
 - 填写 PR 模板中的各项信息
-- 本地测试通过后再提交
+- 用 Node.js 20.x 跑通本地测试后再提交；不要用本机 Node 24 跑前后端门禁
 
 ---
 
@@ -96,11 +96,21 @@ npm run dev       # 默认端口 3013
 
 浏览器访问 `http://127.0.0.1:3013`
 
-在页面的「AI 配置」中填写 Provider 地址、模型和 API Key；AI 服务凭据存储在本地 SQLite 数据库，不写入 `config.yaml`。
+在页面的「AI 配置」中填写 Provider 地址、模型和 API Key；AI 服务凭据存储在本地 SQLite 数据库，不写入 `config.yaml`。厂商预设填表不等于真实图片/视频/TTS 接入已跑通。页面、API 与 CLI 的用户可见错误为简体中文。
 
 ### 一键启动（Windows）
 
 双击根目录的 `run_dev.bat` 可同时启动前端和后端。
+
+### Docker
+
+仓库根目录：
+
+```bash
+docker compose up -d --build --wait
+```
+
+Compose 不挂载应用源码，生产镜像固定 Node.js 20。改完代码必须 `--build`。健康检查：后端 `/ready`（未就绪时 `checks.*.error` 为简体中文），前端 `/healthz`（代理 `/ready`）。`/health` 只是存活探针。容器级校验用根目录 `npm run verify:docker`。生产 E2E 必须在干净工作树执行，见 [快速开始](docs/quickstart.md#运行方式二docker)。
 
 ### 桌面端开发（Electron）
 
@@ -112,6 +122,21 @@ npm start
 
 > Electron 开发需要安装 Python 3 和 Visual Studio C++ 生成工具（用于编译 better-sqlite3）。  
 > 详见 [快速开始文档](docs/quickstart.md)。
+
+### 测试与校验
+
+根目录、后端、前端测试和 `npm run verify` 使用 Node.js 20.x。桌面依赖安装、原生重建和打包使用 Node.js 22.12.0（`desktop/.npmrc` 启用 `engine-strict`）。
+
+```bash
+npm --prefix backend-node test
+npm --prefix frontweb test
+npm run verify
+npm run verify:docker
+```
+
+生产 E2E 必须在干净工作树、仓库外空数据目录上按 `npm run docker:e2e:up` → `npm run verify:e2e` 执行，证据要求 `working_tree_dirty=false`；当前脏工作树不能当作已通过。命令见 [快速开始](docs/quickstart.md#运行方式二docker)。
+
+页面、API 与 CLI 的用户可见错误为简体中文。备份/恢复 CLI 的 `--help` 和失败输出为简体中文，见 [备份 FAQ](docs/quickstart.md#q-如何备份迁移项目数据)。
 
 ---
 

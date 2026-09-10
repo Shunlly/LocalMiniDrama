@@ -39,8 +39,8 @@ test('Source intake workflow remains a valid SFC with poll failure status and re
   assert.match(sourceWorkflowSource, /class="poll-status-banner"/)
   assert.match(sourceWorkflowSource, /async function resumePolling\(\)/)
   assert.match(sourceWorkflowSource, /pollState\.value = 'error'/)
-  assert.match(sourceWorkflowSource, /pollError\.value = describeServiceLoadError\(error, \{[\s\S]*?fallback: '处理状态刷新失败，自动轮询已暂停。'/)
-  assert.match(sourceWorkflowSource, /workflowDataError\.value = describeServiceLoadError\(e, \{[\s\S]*?fallback: '加载素材流程状态失败，请稍后重试。'/)
+  assert.match(sourceWorkflowSource, /pollError.value = toUserFacingError\(error, '处理状态刷新失败，自动轮询已暂停。'/)
+  assert.match(sourceWorkflowSource, /workflowDataError.value = toUserFacingError\(e, '加载素材流程状态失败，请稍后重试。'/)
   assert.match(sourceWorkflowSource, /@click="resumePolling"/)
 })
 
@@ -52,7 +52,32 @@ test('剧集资源库失败与空搜索分开展示，无分集时进入制作�
   assert.match(dramaDetailSource, /v-if="!charLoading && !charError && charList\.length === 0"/)
   assert.match(dramaDetailSource, /charKw\.trim\(\) \? '没有匹配的角色' : '暂无本剧角色库记录'/)
   assert.match(dramaDetailSource, /ElMessage\.warning\('请先新增一集，再进入制作'\)/)
-  assert.match(dramaDetailSource, /:disabled="!currentEpisodeId" @click="goCreate"/)
+  assert.match(dramaDetailSource, /:disabled="!currentEpisodeId"/)
+  assert.match(dramaDetailSource, /@click="goCreate"/)
+  assert.match(dramaDetailSource, /进入制作不可用：请先新增一集/)
   assert.match(dramaDetailSource, /ElMessage.warning\('请先新增一集，再进入画布'\)/)
-  assert.match(dramaDetailSource, /:disabled="!currentEpisodeId" @click="goCanvasMode"/)
+  assert.match(dramaDetailSource, /@click="goCanvasMode"/)
+  assert.match(dramaDetailSource, /画布模式不可用：请先新增一集/)
+})
+
+test('剧集详情离开保护会拦截未导入的批量剧集，并走统一中文错误', () => {
+  assert.match(dramaDetailSource, /import \{ toUserFacingError \} from '@\/utils\/userFacingError'/)
+  assert.match(dramaDetailSource, /async function confirmBatchImportLeave\(\)/)
+  assert.match(dramaDetailSource, /episodeBatchImportDialogRef\.value\?\.isImporting\?\.\(\)/)
+  assert.match(dramaDetailSource, /ElMessage\.warning\('正在导入剧集，请完成后再离开。'\)/)
+  assert.match(dramaDetailSource, /episodeBatchImportDialogRef\.value\?\.hasUnsavedWork\?\.\(\)/)
+  assert.match(
+    dramaDetailSource,
+    /function handleInfoBeforeUnload\(event\) \{[\s\S]*shouldProtectInfoLeave\.value && !episodeBatchImportDialogRef\.value\?\.hasUnsavedWork\?\.\(\)/,
+  )
+})
+
+test('批量导入弹窗关闭会保护进行中的导入和未提交草稿', () => {
+  const dialogSource = readFileSync(new URL('../src/components/EpisodeBatchImportDialog.vue', import.meta.url), 'utf8')
+  assert.match(dialogSource, /:before-close="requestClose"/)
+  assert.match(dialogSource, /ElMessage\.warning\('正在导入剧集，请完成后再关闭。'\)/)
+  assert.match(dialogSource, /关闭批量导入？/)
+  assert.match(dialogSource, /已选择的剧本文件和预览结果尚未导入，关闭后会丢失。/)
+  assert.match(dialogSource, /文件内容为空，请选择包含章节文本的 TXT 文件/)
+  assert.match(dialogSource, /aria-label="选择 TXT 剧本文件"/)
 })

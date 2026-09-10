@@ -15,12 +15,33 @@
         <strong>{{ deliveryFileCount }} 项</strong>
       </div>
     </div>
+    <div
+      v-if="panelState.guidanceText"
+      class="delivery-guidance"
+      :class="{
+        'is-empty': panelState.guidanceKind === 'empty',
+        'is-disabled': panelState.guidanceKind === 'disabled',
+      }"
+      role="status"
+      aria-live="polite"
+      data-testid="delivery-guidance"
+    >
+      <p>{{ panelState.guidanceText }}</p>
+      <a
+        v-if="panelState.guidanceHref"
+        class="delivery-guidance-link"
+        :href="panelState.guidanceHref"
+        :aria-label="panelState.guidanceActionLabel"
+        data-testid="delivery-empty-action"
+      >{{ panelState.guidanceActionLabel }}</a>
+    </div>
     <div class="delivery-actions">
-      <ActionGate :reason="composeActionDisabledReason" label="合成成片">
+      <ActionGate :reason="visibleComposeDisabledReason" label="合成成片">
         <el-button
           type="primary"
           :loading="videoStatus === 'generating'"
-          :disabled="Boolean(composeActionDisabledReason)"
+          :disabled="Boolean(visibleComposeDisabledReason)"
+          :aria-label="panelState.composeButtonAriaLabel"
           @click="$emit('generate-video')"
         >
           <el-icon><VideoPlay /></el-icon>
@@ -33,6 +54,7 @@
           plain
           :loading="videoDownloadStatus === 'downloading'"
           :disabled="Boolean(downloadVideoDisabledReason)"
+          :aria-label="panelState.downloadVideoButtonAriaLabel"
           @click="$emit('download-video')"
         >
           <el-icon><Download /></el-icon>
@@ -44,6 +66,7 @@
           plain
           :loading="deliveryExportStatus.subtitle === 'downloading'"
           :disabled="Boolean(downloadSubtitleDisabledReason)"
+          :aria-label="panelState.downloadSubtitleButtonAriaLabel"
           @click="$emit('download-subtitle')"
         >
           <el-icon><Document /></el-icon>
@@ -55,6 +78,7 @@
           plain
           :loading="deliveryExportStatus.project === 'downloading'"
           :disabled="Boolean(exportProjectDisabledReason)"
+          :aria-label="panelState.exportProjectButtonAriaLabel"
           @click="$emit('export-project')"
         >
           <el-icon><Box /></el-icon>
@@ -70,7 +94,7 @@
       <el-alert type="success" title="视频生成完成" show-icon />
     </div>
     <div v-else-if="videoStatus === 'error'" class="video-error">
-      <el-alert type="error" :title="videoErrorMsg" show-icon />
+      <el-alert type="error" :title="panelState.videoErrorMsg" show-icon />
     </div>
     <div v-if="currentEpisodeVideoUrl" class="video-preview-wrap">
       <div class="video-preview-header">
@@ -94,17 +118,17 @@
           ? '正在验证并下载成片...'
           : videoDownloadStatus === 'success'
             ? '成片下载已完成。'
-            : videoDownloadError }}
+            : panelState.videoDownloadError }}
       </p>
     </div>
     <p
-      v-if="deliveryExportFeedback"
+      v-if="panelState.deliveryExportFeedback"
       class="delivery-export-feedback"
       :class="{ 'is-error': deliveryExportHasError }"
       :role="deliveryExportHasError ? 'alert' : 'status'"
       aria-live="polite"
     >
-      {{ deliveryExportFeedback }}
+      {{ panelState.deliveryExportFeedback }}
     </p>
   </section>
 </template>
@@ -113,6 +137,122 @@
 import { computed } from 'vue'
 import { Box, Document, Download, VideoPlay } from '@element-plus/icons-vue'
 import ActionGate from '@/components/filmCreate/ActionGate.vue'
+
+function describeDeliveryPanelState(input = {}) {
+  const technicalEnglish = /network error|http\s*error|failed to fetch|fetch failed|internal server error|econnrefused|err_network|status code|axioserror/i
+  function hasChinese(text) {
+    return /[\u4e00-\u9fff]/.test(String(text || ''))
+  }
+  function toUserFacingText(value, fallback) {
+    const text = String(value || '').trim()
+    const safeFallback = String(fallback || '操作失败，请稍后重试')
+    if (!text) return safeFallback
+    if (technicalEnglish.test(text) || !hasChinese(text)) return safeFallback
+    return text
+  }
+  function toOptionalUserFacingText(value, fallback) {
+    if (!String(value || '').trim()) return ''
+    return toUserFacingText(value, fallback)
+  }
+  function toDisabledReason(value, fallback) {
+    const text = String(value || '').trim()
+    if (!text) return ''
+    if (technicalEnglish.test(text) || !hasChinese(text)) return String(fallback || '当前不可用')
+    return text
+  }
+  function buttonAriaLabel({ actionLabel, loading, loadingLabel, disabledReason }) {
+    const label = String(actionLabel || '').trim() || '此操作'
+    if (loading) return String(loadingLabel || `正在${label}`).trim()
+    const reason = String(disabledReason || '').trim()
+    if (reason) return `${label}不可用：${reason}`
+    return label
+  }
+
+  const playable = Math.max(0, Math.floor(Number(input.playableStoryboardVideoCount) || 0))
+  const total = Math.max(0, Math.floor(Number(input.storyboardCount) || 0))
+  const composeDisabledReason = toDisabledReason(input.composeActionDisabledReason, '当前不能合成成片')
+  const downloadVideoDisabledReason = input.currentEpisodeVideoUrl ? '' : '请先合成成片后再下载'
+  const downloadSubtitleDisabledReason = !input.currentEpisodeId
+    ? '请先选择剧集'
+    : (input.deliverySubtitleAvailable ? '' : '当前集还没有可下载的字幕')
+  const exportProjectDisabledReason = input.dramaId ? '' : '请先打开制作项目'
+
+  let guidanceKind = ''
+  let guidanceText = ''
+  let guidanceHref = ''
+  let guidanceActionLabel = ''
+  if (/请先创建或选择剧集|请先打开制作项目/.test(composeDisabledReason)) {
+    guidanceKind = 'disabled'
+    guidanceText = composeDisabledReason
+  } else if (playable <= 0) {
+    guidanceKind = 'empty'
+    if (total > 0) {
+      guidanceText = `还没有可播放的分镜视频（已完成 0/${total}）。请先到「分镜」面板为每个镜头生成视频，全部完成后再回来合成成片。`
+      guidanceHref = '#anchor-storyboard-images'
+      guidanceActionLabel = '去分镜面板生成视频'
+    } else {
+      guidanceText = '还没有可播放的分镜视频。请先到「分镜」面板生成或添加分镜，再为每个镜头生成视频。'
+      guidanceHref = '#anchor-storyboard'
+      guidanceActionLabel = '去分镜面板添加分镜'
+    }
+  } else if (composeDisabledReason) {
+    guidanceKind = 'disabled'
+    guidanceText = composeDisabledReason
+  }
+
+  const composeActionLabel = input.currentEpisodeVideoUrl ? '重新合成' : '合成成片'
+  const downloadVideoActionLabel = input.videoDownloadStatus === 'error' ? '重试下载' : '下载成片'
+  const downloadSubtitleActionLabel = input.deliveryExportStatus?.subtitle === 'error' ? '重试字幕' : '下载字幕'
+  const exportProjectActionLabel = input.deliveryExportStatus?.project === 'error' ? '重试项目包' : '导出项目包'
+
+  return {
+    composeDisabledReason,
+    downloadVideoDisabledReason,
+    downloadSubtitleDisabledReason,
+    exportProjectDisabledReason,
+    guidanceKind,
+    guidanceText,
+    guidanceHref,
+    guidanceActionLabel,
+    composeActionLabel,
+    downloadVideoActionLabel,
+    downloadSubtitleActionLabel,
+    exportProjectActionLabel,
+    composeButtonAriaLabel: buttonAriaLabel({
+      actionLabel: composeActionLabel,
+      loading: input.videoStatus === 'generating',
+      loadingLabel: '正在合成成片',
+      disabledReason: composeDisabledReason,
+    }),
+    downloadVideoButtonAriaLabel: buttonAriaLabel({
+      actionLabel: downloadVideoActionLabel,
+      loading: input.videoDownloadStatus === 'downloading',
+      loadingLabel: '正在下载成片',
+      disabledReason: downloadVideoDisabledReason,
+    }),
+    downloadSubtitleButtonAriaLabel: buttonAriaLabel({
+      actionLabel: downloadSubtitleActionLabel,
+      loading: input.deliveryExportStatus?.subtitle === 'downloading',
+      loadingLabel: '正在下载字幕',
+      disabledReason: downloadSubtitleDisabledReason,
+    }),
+    exportProjectButtonAriaLabel: buttonAriaLabel({
+      actionLabel: exportProjectActionLabel,
+      loading: input.deliveryExportStatus?.project === 'downloading',
+      loadingLabel: '正在导出项目包',
+      disabledReason: exportProjectDisabledReason,
+    }),
+    videoErrorMsg: input.videoStatus === 'error'
+      ? toUserFacingText(input.videoErrorMsg, '成片合成失败，请稍后重试')
+      : toOptionalUserFacingText(input.videoErrorMsg, '成片合成失败，请稍后重试'),
+    videoDownloadError: input.videoDownloadStatus === 'error'
+      ? toUserFacingText(input.videoDownloadError, '成片下载失败，请稍后重试')
+      : toOptionalUserFacingText(input.videoDownloadError, '成片下载失败，请稍后重试'),
+    deliveryExportFeedback: input.deliveryExportHasError
+      ? toUserFacingText(input.deliveryExportFeedback, '导出失败，请稍后重试')
+      : toOptionalUserFacingText(input.deliveryExportFeedback, '导出失败，请稍后重试'),
+  }
+}
 
 const props = defineProps({
   playableStoryboardVideoCount: { type: Number, default: 0 },
@@ -139,17 +279,11 @@ const props = defineProps({
 
 defineEmits(['generate-video', 'download-video', 'download-subtitle', 'export-project'])
 
-const downloadVideoDisabledReason = computed(() => (
-  props.currentEpisodeVideoUrl ? '' : '请先合成成片后再下载'
-))
-const downloadSubtitleDisabledReason = computed(() => {
-  if (!props.currentEpisodeId) return '请先选择剧集'
-  if (!props.deliverySubtitleAvailable) return '当前集还没有可下载的字幕'
-  return ''
-})
-const exportProjectDisabledReason = computed(() => (
-  props.dramaId ? '' : '请先打开制作项目'
-))
+const panelState = computed(() => describeDeliveryPanelState(props))
+const visibleComposeDisabledReason = computed(() => panelState.value.composeDisabledReason)
+const downloadVideoDisabledReason = computed(() => panelState.value.downloadVideoDisabledReason)
+const downloadSubtitleDisabledReason = computed(() => panelState.value.downloadSubtitleDisabledReason)
+const exportProjectDisabledReason = computed(() => panelState.value.exportProjectDisabledReason)
 </script>
 
 <style scoped>
@@ -212,6 +346,35 @@ html.light .section-title { color: #1e1b4b; }
 .delivery-stat strong {
   color: var(--el-text-color-primary);
   font-size: 14px;
+}
+.delivery-guidance {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(99, 102, 241, 0.08);
+  color: var(--el-text-color-regular);
+  font-size: 0.875rem;
+  line-height: 1.55;
+}
+.delivery-guidance p {
+  margin: 0;
+}
+.delivery-guidance.is-disabled {
+  background: rgba(245, 158, 11, 0.12);
+  color: #fbbf24;
+}
+html.light .delivery-guidance.is-disabled {
+  color: #b45309;
+}
+.delivery-guidance-link {
+  display: inline-block;
+  margin-top: 6px;
+  color: var(--el-color-primary);
+  text-decoration: underline;
+}
+.delivery-guidance-link:focus-visible {
+  outline: 2px solid #818cf8;
+  outline-offset: 2px;
 }
 .delivery-actions {
   display: flex;

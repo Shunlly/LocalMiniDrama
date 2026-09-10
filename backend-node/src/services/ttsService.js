@@ -8,6 +8,12 @@ const { createHash, randomUUID } = require('crypto');
 const aiConfigService = require('./aiConfigService');
 const { secureHttpFetch } = require('./secureHttpFetch');
 const uploadService = require('./uploadService');
+const {
+  isTrustedChineseUserError,
+  ttsBusinessFailureMessage,
+  ttsHttpFailureMessage,
+  toUserFacingTtsMessage,
+} = require('./providerErrorSanitizer');
 
 const DEFAULT_TTS_TIMEOUT_MS = 120000;
 const MAX_TTS_TIMEOUT_MS = 5 * 60 * 1000;
@@ -25,10 +31,6 @@ function markTtsUserError(error) {
     Object.defineProperty(error, TTS_USER_ERROR, { value: true });
   }
   return error;
-}
-
-function hasCjk(text) {
-  return /[\u4e00-\u9fff]/.test(String(text || ''));
 }
 
 function errorMessageOf(error) {
@@ -94,19 +96,12 @@ function ttsCanceledError(reason) {
     return reason;
   }
   const raw = errorMessageOf(reason);
-  const error = new Error(hasCjk(raw) ? raw : '配音已取消');
+  const error = new Error(isTrustedChineseUserError(raw) ? raw : '操作已取消');
   error.name = 'AbortError';
   error.code = 'OPERATION_CANCELLED';
   error.retryable = false;
   if (reason instanceof Error) error.cause = reason;
   return markTtsUserError(error);
-}
-
-function ttsHttpFailureMessage(status) {
-  if (status === 401 || status === 403) return 'TTS 认证失败，请检查「AI 配置」中的密钥后重试';
-  if (status === 404) return 'TTS 接口不存在，请检查「AI 配置」后重试';
-  if (status === 408 || status === 429) return '配音生成繁忙，请稍后重试';
-  return '配音生成失败，请稍后重试';
 }
 
 function ttsHttpRetryable(status) {
@@ -154,12 +149,18 @@ function looksPassthroughPolicyError(error) {
 function toUserFacingTtsError(error, signal) {
   if (error && error[TTS_USER_ERROR]) {
     if (isTtsTimeout(error, signal) && error.retryable !== true) error.retryable = true;
-    return error;
+    if (isTrustedChineseUserError(errorMessageOf(error))) return error;
+    return ttsFailedError(toUserFacingTtsMessage(error, { status: error.status, code: error.providerCode }), {
+      retryable: error.retryable !== false,
+      code: error.code,
+      status: error.status,
+      cause: error instanceof Error ? error : undefined,
+    });
   }
   if (isTtsTimeout(error, signal)) return ttsTimeoutError(error);
   if (isTtsCanceled(error, signal)) return ttsCanceledError(error || signal?.reason);
   if (looksPassthroughPolicyError(error)) {
-    if (hasCjk(errorMessageOf(error))) return markTtsUserError(error);
+    if (isTrustedChineseUserError(errorMessageOf(error))) return markTtsUserError(error);
     return ttsFailedError('当前 TTS 地址不可用，请检查「AI 配置」后重试', {
       retryable: false,
       code: error.code || 'UNSAFE_MEDIA_REFERENCE',
@@ -168,30 +169,11 @@ function toUserFacingTtsError(error, signal) {
   }
   const status = extractHttpStatus(error);
   if (status) return ttsHttpError(status, error);
-  const message = errorMessageOf(error);
-  if (/redirect/i.test(message)) {
-    return ttsFailedError('TTS 请求被重定向，已拦截，请检查服务地址后重试', {
-      retryable: false,
-      cause: error instanceof Error ? error : undefined,
-    });
-  }
-  if (/ECONNREFUSED|ENOTFOUND|EAI_AGAIN|ECONNRESET|ENETUNREACH|ERR_NETWORK|network error|fetch failed|socket hang up/i.test(`${error?.code || ''} ${message}`)) {
-    return ttsFailedError('配音服务连接失败，请检查网络后重试', {
-      retryable: true,
-      code: error?.code || 'ERR_NETWORK',
-      cause: error instanceof Error ? error : undefined,
-    });
-  }
-  if (hasCjk(message) && !/unknown|invalid JSON|cannot be empty|not allowed/i.test(message)) {
-    const wrapped = new Error(message);
-    wrapped.name = error?.name || 'Error';
-    wrapped.code = error?.code;
-    wrapped.retryable = error?.retryable === true;
-    if (error instanceof Error) wrapped.cause = error;
-    return markTtsUserError(wrapped);
-  }
-  return ttsFailedError('配音生成失败，请稍后重试', {
-    retryable: true,
+  const message = toUserFacingTtsMessage(error);
+  const retryable = /连接失败|繁忙|稍后重试|超时/.test(message) && !/取消/.test(message);
+  return ttsFailedError(message, {
+    retryable,
+    code: error && error.code,
     cause: error instanceof Error ? error : undefined,
   });
 }
@@ -307,7 +289,12 @@ async function synthesizeWithMinimax(
     throw ttsFailedError('配音生成失败，请稍后重试', { retryable: true, cause: error });
   }
   if (data.base_resp?.status_code !== 0) {
-    throw ttsFailedError('配音生成失败，请稍后重试', { retryable: true });
+    const businessCode = Number(data.base_resp?.status_code);
+    if (businessCode === 1001) throw ttsTimeoutError();
+    throw ttsFailedError(ttsBusinessFailureMessage(businessCode), {
+      retryable: businessCode === 1002,
+      code: Number.isFinite(businessCode) ? String(businessCode) : undefined,
+    });
   }
   const audioHex = data.data?.audio;
   if (!audioHex) throw ttsFailedError('配音生成失败，请稍后重试', { retryable: true });

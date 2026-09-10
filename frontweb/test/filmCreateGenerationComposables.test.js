@@ -506,7 +506,74 @@ describe('filmCreateGenerationComposables', () => {
     })
     await thrown.api.onGenerateSbImage(thrown.sb)
     assertChinese(feedback.last('error').message, /分镜图提交失败/)
-    assertChinese(thrown.sb.errorMsg, /分镜图提交失败/)
+    assert.equal(thrown.sb.errorMsg, '分镜图提交失败，请稍后重试')
+  })
+
+  test('storyboard image cards map Network Error to 生成失败 and keep cancel/timeout in Chinese', async () => {
+    const feedback = captureFeedback()
+
+    const failed = createImageGeneration({
+      pollResult: { status: 'failed', error: '图片模型暂时不可用' },
+    })
+    await failed.api.onGenerateSbImage(failed.sb)
+    assert.equal(failed.sb.errorMsg, '图片模型暂时不可用')
+
+    const thrown = createImageGeneration({
+      imagesAPI: {
+        create: async () => { throw new Error('分镜图提交失败，请稍后重试') },
+      },
+    })
+    await thrown.api.onGenerateSbImage(thrown.sb)
+    assert.equal(thrown.sb.errorMsg, '分镜图提交失败，请稍后重试')
+    assertChinese(feedback.last('error').message, /分镜图提交失败，请稍后重试/)
+
+    const english = createImageGeneration({
+      imagesAPI: {
+        create: async () => { throw new Error('Network Error') },
+      },
+    })
+    english.sb.errorMsg = '旧错误'
+    await english.api.onGenerateSbImage(english.sb)
+    assert.equal(english.sb.errorMsg, '生成失败')
+    assert.doesNotMatch(String(english.sb.errorMsg), /Network Error/i)
+    assertChinese(feedback.last('error').message, /生成失败/)
+    assert.doesNotMatch(String(feedback.last('error').message), /Network Error/i)
+
+    const beforeAbort = feedback.messages.length
+    const aborted = createImageGeneration({
+      imagesAPI: {
+        create: async () => {
+          throw Object.assign(new Error('canceled'), { name: 'AbortError' })
+        },
+      },
+    })
+    aborted.sb.errorMsg = '旧错误'
+    await aborted.api.onGenerateSbImage(aborted.sb)
+    assert.equal(aborted.sb.errorMsg, '操作已取消')
+    assertChinese(aborted.sb.errorMsg, /操作已取消/)
+    assert.equal(feedback.messages.length, beforeAbort)
+    assert.equal(aborted.generatingSbImageIds.size, 0)
+
+    const beforeCancel = feedback.messages.length
+    const cancelled = createImageGeneration({
+      imagesAPI: {
+        create: async () => { throw 'cancel' },
+      },
+    })
+    cancelled.sb.errorMsg = '旧错误'
+    await cancelled.api.onGenerateSbImage(cancelled.sb)
+    assert.equal(cancelled.sb.errorMsg, '操作已取消')
+    assert.equal(feedback.messages.length, beforeCancel)
+    assert.equal(cancelled.generatingSbImageIds.size, 0)
+
+    const timedOut = createImageGeneration({
+      pollResult: { status: 'timeout', error: 'ETIMEDOUT' },
+    })
+    await timedOut.api.onGenerateSbImage(timedOut.sb)
+    assert.equal(timedOut.sb.errorMsg, '生成超时，请稍后重试')
+    assertChinese(timedOut.sb.errorMsg, /超时/)
+    assert.equal(timedOut.generatingSbImageIds.size, 0)
+    assertChinese(feedback.last('warning').message, /超时/)
   })
 
   test('storyboard image generation stays idle for media lock and missing ids', async () => {

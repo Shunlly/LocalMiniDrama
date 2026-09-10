@@ -5,6 +5,11 @@ const uploadService = require('./uploadService');
 const { requireCompleteProviderNetworkPolicy } = require('./providerNetworkPolicy');
 const { redirectRequestOptions, secureHttpFetch, validateHttpRequestTarget } = require('./secureHttpFetch');
 const { isSensitiveFieldKey } = require('./sensitiveFieldPolicy');
+const {
+  isTrustedChineseUserError,
+  toUserFacingGatewayError,
+  toUserFacingProcessError,
+} = require('./providerErrorSanitizer');
 
 const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
 const DEFAULT_REQUEST_TIMEOUT_MS = 30 * 1000;
@@ -105,6 +110,31 @@ function sanitizeProviderText(value, secrets = []) {
   return text.slice(0, 300);
 }
 
+function trustedChineseDetail(value, secrets = []) {
+  const text = sanitizeProviderText(value, secrets);
+  return isTrustedChineseUserError(text) ? text : '';
+}
+
+function comfyFallbackMessage(error, fallback, secrets = []) {
+  const trusted = trustedChineseDetail(error?.message || error, secrets);
+  if (trusted) return trusted;
+  const mapped = toUserFacingProcessError(error, fallback);
+  return isTrustedChineseUserError(mapped) ? mapped : fallback;
+}
+
+function comfyProviderFailure(response, operation, detail, context) {
+  const trusted = trustedChineseDetail(detail, context.secrets);
+  const mapped = toUserFacingGatewayError(
+    Object.assign(new Error('provider error'), { status: response.status }),
+    { provider: 'ComfyUI', operation }
+  );
+  const message = trusted || mapped;
+  return new ComfyUiError(message, 'COMFYUI_PROVIDER', {
+    status: response.status,
+    promptId: context.promptId,
+  });
+}
+
 function buildHeaders(config, settings, json = false) {
   const headers = {};
   for (const [key, value] of Object.entries(normalizeCustomHeaders(settings))) {
@@ -175,25 +205,25 @@ async function fetchWithLimits(url, options, context) {
         signal: controller.signal,
       });
       if (![301, 302, 303, 307, 308].includes(response.status)) return response;
-      if (redirects === 5) throw new ComfyUiError('ComfyUI redirect limit exceeded', 'COMFYUI_REDIRECT');
+      if (redirects === 5) throw new ComfyUiError('ComfyUI 重定向次数过多，请检查服务地址后重试', 'COMFYUI_REDIRECT');
       const location = response.headers?.get?.('location');
-      if (!location) throw new ComfyUiError('ComfyUI redirect has no Location', 'COMFYUI_REDIRECT');
+      if (!location) throw new ComfyUiError('ComfyUI 重定向缺少目标地址，请检查服务地址后重试', 'COMFYUI_REDIRECT');
       const nextUrl = new URL(location, currentUrl).toString();
       const crossOrigin = new URL(currentUrl).origin !== new URL(nextUrl).origin;
       const method = String(currentOptions?.method || 'GET').toUpperCase();
       if (crossOrigin && !['GET', 'HEAD'].includes(method)) {
-        throw new ComfyUiError('ComfyUI write request redirect rejected', 'COMFYUI_REDIRECT');
+        throw new ComfyUiError('ComfyUI 写入请求不允许跨源重定向，请检查服务地址后重试', 'COMFYUI_REDIRECT');
       }
       currentOptions = redirectRequestOptions(currentOptions, response.status, currentUrl, nextUrl);
       currentUrl = nextUrl;
     }
-    throw new ComfyUiError('ComfyUI redirect limit exceeded', 'COMFYUI_REDIRECT');
+    throw new ComfyUiError('ComfyUI 重定向次数过多，请检查服务地址后重试', 'COMFYUI_REDIRECT');
   } catch (error) {
     if (error instanceof ComfyUiError) throw error;
     if (error?.name === 'AbortError' || controller.signal.aborted) {
       throw createAbortError(reason === 'cancelled' ? 'COMFYUI_CANCELLED' : 'COMFYUI_TIMEOUT', context.promptId);
     }
-    throw new ComfyUiError(`ComfyUI 网络请求失败: ${sanitizeProviderText(error?.message, context.secrets) || '连接失败'}`, 'COMFYUI_NETWORK', {
+    throw new ComfyUiError(comfyFallbackMessage(error, 'ComfyUI 网络请求失败，请检查网络后重试', context.secrets), 'COMFYUI_NETWORK', {
       promptId: context.promptId,
     });
   } finally {
@@ -217,12 +247,7 @@ async function readProviderError(response, operation, context) {
       || '';
     if (typeof detail !== 'string') detail = JSON.stringify(detail);
   } catch (_) {}
-  const safeDetail = sanitizeProviderText(detail, context.secrets);
-  const suffix = safeDetail ? `: ${safeDetail}` : '';
-  return new ComfyUiError(`ComfyUI ${operation}失败 (HTTP ${response.status})${suffix}`, 'COMFYUI_PROVIDER', {
-    status: response.status,
-    promptId: context.promptId,
-  });
+  return comfyProviderFailure(response, operation, detail, context);
 }
 
 async function requestJson(baseUrl, endpoint, options, operation, context) {
@@ -282,7 +307,7 @@ function resolveLocalReference(value, storageLocalPath, maxBytes) {
   if (!resolved) return null;
   const filename = resolved.absolutePath;
   if (fs.statSync(filename).size > maxBytes) {
-    throw new ComfyUiError('ComfyUI local reference exceeds the size limit', 'REFERENCE_TOO_LARGE');
+    throw new ComfyUiError('ComfyUI 本地参考图超过大小限制', 'REFERENCE_TOO_LARGE');
   }
   return {
     buffer: fs.readFileSync(filename),
@@ -524,8 +549,8 @@ async function waitForCompletion(baseUrl, config, settings, promptId, context) {
     if (entry) {
       const providerError = historyErrorMessage(entry);
       if (providerError) {
-        const safe = sanitizeProviderText(providerError, context.secrets);
-        throw new ComfyUiError(`ComfyUI workflow 执行失败${safe ? `: ${safe}` : ''}`, 'COMFYUI_EXECUTION', { promptId });
+        const safe = trustedChineseDetail(providerError, context.secrets);
+        throw new ComfyUiError(safe ? `ComfyUI workflow 执行失败：${safe}` : 'ComfyUI workflow 执行失败', 'COMFYUI_EXECUTION', { promptId });
       }
       const images = extractOutputs(entry, settings);
       if (images.length > 0) return images;
@@ -657,8 +682,8 @@ async function generateComfyUiImage(config, log, opts = {}) {
     }, '任务提交', context);
     promptId = submitted?.prompt_id || submitted?.promptId;
     if (!promptId) {
-      const nodeErrors = sanitizeProviderText(JSON.stringify(submitted?.node_errors || ''), context.secrets);
-      throw new ComfyUiError(`ComfyUI 任务提交未返回 prompt_id${nodeErrors ? `: ${nodeErrors}` : ''}`, 'COMFYUI_RESPONSE');
+      const nodeErrors = trustedChineseDetail(JSON.stringify(submitted?.node_errors || ''), context.secrets);
+      throw new ComfyUiError(nodeErrors ? `ComfyUI 任务提交未返回 prompt_id：${nodeErrors}` : 'ComfyUI 任务提交未返回 prompt_id', 'COMFYUI_RESPONSE');
     }
     context.promptId = String(promptId);
     log?.info?.('ComfyUI image task submitted', {
@@ -684,7 +709,7 @@ async function generateComfyUiImage(config, log, opts = {}) {
   } catch (error) {
     const safeError = error instanceof ComfyUiError
       ? error
-      : new ComfyUiError(`ComfyUI 请求失败: ${sanitizeProviderText(error?.message, context.secrets) || '未知错误'}`, 'COMFYUI_ERROR', { promptId });
+      : new ComfyUiError(comfyFallbackMessage(error, 'ComfyUI 请求失败，请稍后重试', context.secrets), 'COMFYUI_ERROR', { promptId });
     if (promptId && (safeError.code === 'COMFYUI_TIMEOUT' || safeError.code === 'COMFYUI_CANCELLED')) {
       await cancelPrompt(baseUrl, config, settings, String(promptId), context);
     }

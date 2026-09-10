@@ -255,28 +255,28 @@ function configuredModel(config) {
     }
   }
   const model = aiConfigService.resolveConfiguredModel({ ...config, model: models });
-  if (!model) throw actionableError(`当前启用的 service_type=${config?.service_type || 'unknown'} 配置缺少 model。请在「AI 配置」中补全模型名称。`);
-  if (/\r|\n|\0/.test(model)) throw actionableError('配置的 model 名称无效。请在「AI 配置」中改为不含换行或空字符的名称。');
+  if (!model) throw actionableError('当前启用的抽取服务缺少模型名。请在「AI 配置」中补全。');
+  if (/\r|\n|\0/.test(model)) throw actionableError('配置的模型名称无效。请在「AI 配置」中改为不含换行或空字符的名称。');
   return model.slice(0, 300);
 }
 
 function validateEndpointPath(endpoint) {
   const value = String(endpoint || '').trim();
   if (!value || value.length > 1000 || /[\\\0\r\n]/.test(value) || value.includes('?') || value.includes('#')) {
-    throw actionableError('配置的服务 endpoint 路径无效。请在「AI 配置」中填写相对路径。');
+    throw actionableError('配置的服务提交路径无效。请在「AI 配置」中填写相对路径。');
   }
   if (/^[a-z][a-z\d+.-]*:/i.test(value) || value.startsWith('//')) {
-    throw actionableError('服务 endpoint 必须相对于已配置的 base_url。请不要填写完整 URL。');
+    throw actionableError('服务提交路径必须相对于已配置的接口地址。请不要填写完整网址。');
   }
   const normalized = value.startsWith('/') ? value : `/${value}`;
   let decoded;
   try {
     decoded = decodeURIComponent(normalized);
   } catch (err) {
-    throw actionableError('配置的服务 endpoint 路径无效。请在「AI 配置」中填写相对路径。', err);
+    throw actionableError('配置的服务提交路径无效。请在「AI 配置」中填写相对路径。', err);
   }
   if (decoded.split('/').some((segment) => segment === '..' || segment === '.')) {
-    throw actionableError('配置的服务 endpoint 路径不能穿越目录。请改为当前服务下的相对路径。');
+    throw actionableError('配置的服务提交路径不能穿越目录。请改为当前服务下的相对路径。');
   }
   return normalized;
 }
@@ -284,16 +284,16 @@ function validateEndpointPath(endpoint) {
 function buildConfiguredUrl(config, defaultEndpoint) {
   const rawBase = String(config?.base_url || '').trim();
   if (!rawBase || rawBase.length > 2048) {
-    throw actionableError(`当前启用的 service_type=${config?.service_type || 'unknown'} 配置缺少有效的 base_url。请在「AI 配置」中填写 HTTP 地址。`);
+    throw actionableError('当前启用的抽取服务缺少有效接口地址。请在「AI 配置」中填写网址。');
   }
   let url;
   try {
     url = new URL(rawBase);
   } catch (err) {
-    throw actionableError('配置的服务 base_url 无效。请填写合法的 HTTP 地址。', err);
+    throw actionableError('配置的服务接口地址无效。请填写合法的网址。', err);
   }
   if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) {
-    throw actionableError('配置的服务 base_url 必须是不含账号、查询参数或片段的 HTTP 地址。请修改后重试。');
+    throw actionableError('配置的服务接口地址必须是不含账号、查询参数或片段的网址。请修改后重试。');
   }
 
   const endpoint = validateEndpointPath(config.endpoint || defaultEndpoint);
@@ -302,14 +302,14 @@ function buildConfiguredUrl(config, defaultEndpoint) {
     url.pathname = endpoint.startsWith(`${basePath}/`) ? endpoint : `${basePath}${endpoint}`;
   }
   if (url.origin !== new URL(rawBase).origin) {
-    throw actionableError('配置的服务 endpoint 必须与已配置的 base_url 同源。请检查后再试。');
+    throw actionableError('配置的服务提交路径必须与接口地址同源。请检查后再试。');
   }
   return url.toString();
 }
 
 function authorizationHeaders(config) {
   const key = String(config?.api_key || '');
-  if (/\r|\n|\0/.test(key)) throw actionableError('配置的 API key 无效。请去掉换行或空字符后重新保存。');
+  if (/\r|\n|\0/.test(key)) throw actionableError('配置的密钥无效。请去掉换行或空字符后重新保存。');
   return key ? { Authorization: `Bearer ${key}` } : {};
 }
 
@@ -369,13 +369,13 @@ async function requestBounded(url, init, options) {
       }
     } catch (err) {
       if (controller.signal.aborted || err?.name === 'AbortError' || err?.name === 'TimeoutError') {
-        throw actionableError(`${options.label} 在 ${timeoutMs}ms 后超时。请检查当前 AI 配置后重试。`, err);
+        throw actionableError(`${options.label}超时，请检查当前 AI 配置后重试。`, err);
       }
-      throw actionableError(`${options.label} 无法连接。请检查当前 AI 配置中的 base_url 后重试。`, err);
+      throw actionableError(`${options.label}无法连接。请检查当前 AI 配置中的接口地址后重试。`, err);
     }
     if (!response.ok) {
       await response.body?.cancel().catch(() => {});
-      throw actionableError(`${options.label} 返回 HTTP ${response.status}。请检查当前 AI 配置。`);
+      throw actionableError(`${options.label}返回了无法处理的响应。请检查当前 AI 配置。`);
     }
     return {
       body: await readBoundedResponse(response, maxResponseBytes),
@@ -400,12 +400,12 @@ function extractVisionResponse(body) {
   try {
     parsed = JSON.parse(body.toString('utf8'));
   } catch (err) {
-    throw actionableError('OCR 服务返回了无效 JSON。请检查 service_type=ocr 的接口响应格式。', err);
+    throw actionableError('图片识别服务返回了无效数据。请检查「图片识别」配置的接口响应格式。', err);
   }
   const text = contentText(parsed?.choices?.[0]?.message?.content) ||
     contentText(parsed?.output_text) ||
     contentText(parsed?.output?.[0]?.content);
-  return ensureTextResult(text, 'OCR 服务未返回可读文本。请更换更清晰的图片，或检查 service_type=ocr 配置。');
+  return ensureTextResult(text, '图片识别服务未返回可读文本。请更换更清晰的图片，或检查「图片识别」配置。');
 }
 
 async function callVisionOcr(config, image, options = {}) {
@@ -516,7 +516,7 @@ function runBoundedProcess(command, args, options = {}) {
 
     const timer = setTimeout(() => {
       child.kill('SIGKILL');
-      finish(actionableError(`${label} 在 ${timeoutMs}ms 后超时。请缩短源文件或稍后重试。`));
+      finish(actionableError(`${label}超时。请缩短源文件或稍后重试。`));
     }, timeoutMs);
     timer.unref?.();
 
@@ -583,7 +583,7 @@ async function tryTesseract(image, options, settings) {
         cwd: temp.dir,
       }
     );
-    return { ok: true, text: ensureTextResult(Buffer.from(result.stdout || '').toString('utf8'), 'Tesseract OCR 未返回可读文本。请更换更清晰的图片，或改用 service_type=ocr 配置。') };
+    return { ok: true, text: ensureTextResult(Buffer.from(result.stdout || '').toString('utf8'), '本机 Tesseract 未返回可读文本。请更换更清晰的图片，或在「AI 配置」中添加图片识别服务。') };
   } catch (err) {
     return { ok: false, unavailable: err?.process_code === 'PROCESS_UNAVAILABLE', error: err };
   } finally {
@@ -609,10 +609,10 @@ async function ocrImageWithFallback(db, image, options = {}, existingConfig) {
   const tesseract = await tryTesseract(image, options, config?.settings_object || {});
   if (tesseract.ok) return { text: tesseract.text, method: 'tesseract_cli' };
   if (!config && tesseract.unavailable) {
-    throw actionableError('未配置 OCR 服务，且 Tesseract 不可用。请添加启用的 service_type=ocr AI 配置，或安装 Tesseract CLI。');
+    throw actionableError('未配置图片识别服务，且本机 Tesseract 不可用。请在「AI 配置」中添加并启用「图片识别」，或安装 Tesseract 命令行工具。');
   }
   if (providerError) throw providerError;
-  throw actionableError('OCR 失败。请检查 service_type=ocr 配置或本机 Tesseract 安装。', tesseract.error);
+  throw actionableError('图片识别失败。请检查「图片识别」配置或本机 Tesseract 安装。', tesseract.error);
 }
 
 async function normalizeImage(buffer) {
@@ -801,21 +801,21 @@ async function extractPdf(db, descriptor, fileBuffer, options) {
 }
 
 function transcriptionResponse(body, contentType) {
-  if (contentType.startsWith('text/')) return ensureTextResult(body.toString('utf8'), '转写服务未返回文本。请检查音频内容，或核对 service_type=transcription 配置。');
+  if (contentType.startsWith('text/')) return ensureTextResult(body.toString('utf8'), '转写服务未返回文本。请检查音频内容，或核对「语音转写」配置。');
   let parsed;
   try {
     parsed = JSON.parse(body.toString('utf8'));
   } catch (err) {
-    throw actionableError('转写服务返回了无效 JSON。请检查 service_type=transcription 的接口响应格式。', err);
+    throw actionableError('转写服务返回了无效数据。请检查「语音转写」配置的接口响应格式。', err);
   }
   const text = parsed?.text || parsed?.transcript || parsed?.data?.text || '';
-  return ensureTextResult(text, '转写服务未返回文本。请检查音频内容，或核对 service_type=transcription 配置。');
+  return ensureTextResult(text, '转写服务未返回文本。请检查音频内容，或核对「语音转写」配置。');
 }
 
 async function transcribeAudio(db, audio, options = {}) {
   const config = selectActiveConfig(db, 'transcription');
   if (!config) {
-    throw actionableError('未配置转写服务。请添加启用的 service_type=transcription、且兼容 OpenAI 的 AI 配置。');
+    throw actionableError('未配置语音转写服务。请在「AI 配置」中添加并启用兼容的「语音转写」服务。');
   }
   if (audio.buffer.length > MAX_TRANSCODED_AUDIO_BYTES) {
     throw actionableError('送去转写的音频超过 20MB 上限。请缩短或压缩源文件后重试。');

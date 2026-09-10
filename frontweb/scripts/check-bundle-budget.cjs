@@ -8,7 +8,7 @@ const MANIFEST_PATH = path.join(DIST_ROOT, '.vite', 'manifest.json')
 const BUDGETS = Object.freeze({
   initialJavaScriptGzip: 120 * 1024,
   initialCssGzip: 40 * 1024,
-  // 制作页本身接近上限；按需拆分后不再把公共 Element Plus 塞进共享块，预留 2KiB 避免 gzip 抖动。
+  // 制作页页面块接近上限；filmCreate composable/utils 已拆独立异步块，且不把公共 Element Plus 打回全量共享块。预留 2KiB 避免 gzip 抖动。
   asyncChunkGzip: 132 * 1024,
 })
 

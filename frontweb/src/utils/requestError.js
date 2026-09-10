@@ -26,6 +26,27 @@ const NETWORK_ERROR_CODES = new Set([
   'ERR_INTERNET_DISCONNECTED',
   'ERR_FAILED',
 ])
+const SECRET_RE = /password\s*=|client_secret|cookie\s*:|authorization\s*:|api[_-]?key\s*[:=]/i
+const TECHNICAL_ENGLISH_RE = /network error|timeout of \d+ms|request failed with status code|err_network|econnaborted|etimedout|failed to fetch|fetch failed|load failed|internal server error|econnrefused|enotfound|\baborterror\b/i
+const NETWORK_ERROR_MESSAGE_RE = /network error|failed to fetch|fetch failed|load failed/i
+const INTERNAL_FIELD_RE = /\bdrama_id\b/i
+
+/** 仅放行不含密钥、链接、内部字段和英文技术异常的简体中文 */
+export function isSafeUserFacingMessage(text) {
+  const value = String(text || '').trim()
+  if (!value || !/[\u4e00-\u9fff]/.test(value)) return false
+  if (SECRET_RE.test(value) || /https?:\/\//i.test(value)) return false
+  if (INTERNAL_FIELD_RE.test(value)) return false
+  if (TECHNICAL_ENGLISH_RE.test(value)) return false
+  if (/^http\s*\d{3}$/i.test(value)) return false
+  return true
+}
+
+function readSafeBackendMessage(error) {
+  const message = error?.response?.data?.error?.message
+  const text = typeof message === 'string' ? message.trim() : ''
+  return isSafeUserFacingMessage(text) ? text : ''
+}
 
 function abortLikeError(error) {
   return error?.name === 'CanceledError' || error?.name === 'AbortError'
@@ -61,7 +82,7 @@ export function isRequestNetworkError(error, signal) {
   if (isRequestCanceled(error, signal) || isRequestTimeout(error, signal)) return false
   const code = String(error?.code || '')
   if (NETWORK_ERROR_CODES.has(code)) return true
-  return /network error/i.test(String(error?.message || ''))
+  return NETWORK_ERROR_MESSAGE_RE.test(String(error?.message || ''))
 }
 
 function readHeaderValue(headers, name) {
@@ -137,7 +158,7 @@ export function shouldRetryRequest(error, attempt, signal) {
 export function describeServiceLoadError(error, options = {}) {
   const serviceLabel = options.serviceLabel || '服务'
   const signal = options.signal
-  const backendMessage = error?.response?.data?.error?.message
+  const backendMessage = readSafeBackendMessage(error)
   if (backendMessage) return backendMessage
   const status = Number(error?.status || error?.response?.status)
   if (status === 404 && options.notFoundMessage) return options.notFoundMessage

@@ -14,6 +14,8 @@ const episodeBatchImportSource = read('../src/components/EpisodeBatchImportDialo
 const sceneModelMapSource = read('../src/components/SceneModelMap.vue')
 const promptEditorSource = read('../src/components/PromptEditor.vue')
 const sd2Source = read('../src/components/Sd2AssetManagement.vue')
+const aiConfigSource = read('../src/components/AIConfigContent.vue')
+const notFoundSource = read('../src/views/NotFound.vue')
 
 const ALLOWED_SOURCES = {
   'MediaLibrary.vue': mediaLibrarySource,
@@ -159,7 +161,7 @@ test('自由创作、项目列表、提示词和场景映射的用户可见句�
   assert.match(sceneModelMapSource, /当文本生成请求传入场景键 scene_key 时/)
   assert.match(sceneModelMapSource, /description="暂无场景模型映射配置"/)
   assert.match(sceneModelMapSource, /确定要删除场景「\$\{row\.key\}」的模型映射配置吗？/)
-  assert.match(sceneModelMapSource, /ElMessage\.error\('加载场景模型映射失败：'/)
+  assert.match(sceneModelMapSource, /ElMessage\.error\(toUserFacingError\(err, '加载场景模型映射失败'\)\)/)
   assert.doesNotMatch(sceneModelMapSource, /当调用 generateText 时传入 scene_key/)
 })
 
@@ -178,7 +180,7 @@ test('素材中心、剧详情、剧本生成和任务轮询的反馈文案保�
 
   assert.match(storyGenerationSource, /ElMessage\.warning\('请先输入故事梗概'\)/)
   assert.match(storyGenerationSource, /ElMessage\.error\('未能启动剧本生成任务'\)/)
-  assert.match(storyGenerationSource, /ElMessage\.error\(e\.message \|\| '剧本生成失败'\)/)
+  assert.match(storyGenerationSource, /ElMessage\.error\(toUserFacingError\(e, '剧本生成失败'\)\)/)
   assert.match(storyGenerationSource, /ElMessage\.success\(n > 1 \? `剧本已生成，共 \$\{n\} 集/)
 
   assert.match(generationTaskStoreSource, /error: '缺少任务编号（task_id）'/)
@@ -191,6 +193,38 @@ test('素材中心、剧详情、剧本生成和任务轮询的反馈文案保�
   assert.match(episodeBatchImportSource, /将提前准备好的小说原文或剧本内容的 TXT 文件导入系统/)
   assert.match(episodeBatchImportSource, /ElMessage\.warning\('请先选择 TXT 文件'\)/)
   assert.doesNotMatch(episodeBatchImportSource, /\.txt文件/)
+})
+
+
+test('AI 配置页按钮、占位、表单标签和错误提示改为简体中文', () => {
+  assert.match(aiConfigSource, /一键换密钥/)
+  assert.doesNotMatch(aiConfigSource, /一键换Key/)
+  assert.match(aiConfigSource, /修改密钥/)
+  assert.doesNotMatch(aiConfigSource, /修改Key/)
+  assert.match(aiConfigSource, /label="接口地址（Base URL）"/)
+  assert.match(aiConfigSource, /label="工作流 JSON"/)
+  assert.match(aiConfigSource, /label="素材地址"/)
+  assert.match(aiConfigSource, /请输入 Bearer 令牌/)
+  assert.match(aiConfigSource, /<span class="form-label-tip">API 密钥<\/span>/)
+  assert.match(aiConfigSource, /访问密钥（AccessKey）/)
+  assert.match(aiConfigSource, /私有密钥（SecretKey）/)
+  assert.match(aiConfigSource, /组 ID（GroupId）/)
+  assert.match(aiConfigSource, /placeholder="粘贴新的 API 密钥"/)
+  assert.match(aiConfigSource, /ElMessage\.success\(res\?\.message \|\| '所有配置的 API 密钥已更新'\)/)
+  assert.match(aiConfigSource, /jimeng2AssetStatusLabel\(row\.status\)/)
+  assert.match(aiConfigSource, /jimeng2AssetTypeLabel\(row\.asset_type\)/)
+  assert.match(aiConfigSource, /throw new Error\('工作流 JSON 格式无效'\)/)
+  assert.doesNotMatch(aiConfigSource, /label="Base URL"/)
+  assert.doesNotMatch(aiConfigSource, /label="Workflow JSON"/)
+  assert.doesNotMatch(aiConfigSource, /label="asset_url"/)
+  assert.doesNotMatch(aiConfigSource, /placeholder=.Bearer Token/)
+})
+
+test('404 页主标题是本地短剧助手，英文品牌只作次要标识', () => {
+  assert.match(notFoundSource, /class="logo-main">本地短剧助手/)
+  assert.match(notFoundSource, /class="logo-sub">LocalMiniDrama/)
+  assert.match(notFoundSource, /<h1[^>]*>页面不存在<\/h1>/)
+  assert.doesNotMatch(notFoundSource, /<p class="product-name">LocalMiniDrama<\/p>/)
 })
 
 test('允许修改的页面里，用户可见字符串都带有简体中文', () => {

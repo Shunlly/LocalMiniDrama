@@ -458,3 +458,22 @@ test('production retry and resume recheck the original run selection and return 
   assert.deepEqual(resumeDetails, startDetails);
   assert.equal(db.prepare('SELECT status FROM workflow_runs WHERE id = ?').get(run.id).status, 'paused');
 });
+
+test('就绪探测源码不再包含英文内部抛错', () => {
+  const source = fs.readFileSync(path.join(__dirname, '../src/services/readinessService.js'), 'utf8');
+  for (const phrase of [
+    'required database schema is unavailable',
+    'database write probe did not insert one row',
+    'database write probe could not read its row',
+    'database write probe left persistent data',
+    'storage write probe stopped early',
+    'not a regular directory',
+  ]) {
+    assert.equal(source.includes(phrase), false, phrase);
+  }
+  assert.match(source, /数据库结构不可用/);
+  assert.match(source, /存储路径不是普通目录/);
+  assert.match(source, /checks\.database\.error = '数据库不可用'/);
+  assert.match(source, /checks\.storage\.error = '存储目录不可用'/);
+  assert.match(source, /checks\.maintenance\.error = '维护租约不可用'/);
+});

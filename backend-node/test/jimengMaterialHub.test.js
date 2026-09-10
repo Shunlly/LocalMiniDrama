@@ -15,8 +15,8 @@ describe('jimengMaterialHub response parsing', () => {
     });
     assert.equal(typeof msg, 'string');
     assert.match(msg, /失败/);
-    assert.match(msg, /HTTP 502/);
     assert.match(msg, /暂时不可用/);
+    assert.doesNotMatch(msg, /\bHTTP\s+\d+|response_bytes=/);
     assert.doesNotMatch(msg, /synthetic-private-value|vendor\.invalid|Failed to download media/i);
   });
 

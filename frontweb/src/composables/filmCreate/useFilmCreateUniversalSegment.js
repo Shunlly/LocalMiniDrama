@@ -1,3 +1,4 @@
+import { watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { toUserFacingError, isUserFacingAbort } from '@/utils/userFacingError'
 
@@ -189,10 +190,14 @@ export function useFilmCreateUniversalSegment(deps = {}) {
     universalOmniPolishRunning.value = true
     universalOmniPolishAbort.value = false
     universalOmniPolishProgress.value = { current: 0, total: targets.length, label: '' }
+    const controller = new AbortController()
+    const stopWatch = watch(universalOmniPolishAbort, (flag) => {
+      if (flag) controller.abort()
+    })
     let polished = 0
     try {
       for (let i = 0; i < targets.length; i++) {
-        if (universalOmniPolishAbort.value) break
+        if (universalOmniPolishAbort.value || controller.signal.aborted) break
         await checkPause()
         const sb = targets[i]
         const cur = i + 1
@@ -218,7 +223,8 @@ export function useFilmCreateUniversalSegment(deps = {}) {
             (delta) => {
               live += delta
               sbUniversalSegmentText.value = { ...sbUniversalSegmentText.value, [sb.id]: live }
-            }
+            },
+            { signal: controller.signal },
           )
           const text = (data?.universal_segment_text ?? '').toString().trim()
           if (text) {
@@ -231,7 +237,8 @@ export function useFilmCreateUniversalSegment(deps = {}) {
             }
           }
         } catch (e) {
-          const msg = e?.message || String(e)
+          if (isUserFacingAbort(e) || universalOmniPolishAbort.value || controller.signal.aborted) break
+          const msg = toUserFacingError(e, '润色失败')
           if (onShotError) onShotError(sb, msg)
           else ElMessage.warning(`分镜 #${sb.storyboard_number ?? sb.id} 全能润色失败：${msg}`)
         } finally {
@@ -240,6 +247,7 @@ export function useFilmCreateUniversalSegment(deps = {}) {
         await pipelineRest()
       }
     } finally {
+      stopWatch()
       universalOmniPolishRunning.value = false
       universalOmniPolishProgress.value = { current: 0, total: 0, label: '' }
     }

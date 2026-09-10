@@ -97,7 +97,7 @@ async function callGeminiVideoApi(config, log, opts) {
     log.info('Gemini Video task created', { operation: operationName, video_gen_id });
     return { task_id: operationName, status: 'processing' };
   }
-  return { error: 'Gemini 未返回 operation name，请检查模型名称或 API Key 权限' };
+  return { error: 'Gemini 未返回任务编号，请检查模型名称或密钥权限' };
 }
 
 module.exports = {

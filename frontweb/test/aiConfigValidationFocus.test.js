@@ -41,15 +41,24 @@ test('AI config form dialog stays within the viewport while only its body conten
 })
 
 test('critical AI config fields expose explicit invalid state and descriptions', () => {
-  for (const field of ['service_type', 'name', 'base_url', 'api_key', 'model', 'api_protocol', 'endpoint']) {
+  for (const field of ['service_type', 'name', 'provider', 'base_url', 'api_key', 'model', 'default_model', 'api_protocol', 'endpoint']) {
     const marker = `data-ai-config-field="${field}"`
-    const start = componentSource.indexOf(marker)
-    assert.notEqual(start, -1, `${field} should have a stable field marker`)
-    const tagStart = componentSource.lastIndexOf('<el-', start)
-    const tagEnd = componentSource.indexOf('>', start)
-    const fieldTag = componentSource.slice(tagStart, tagEnd + 1)
-    assert.match(fieldTag, /:aria-invalid="isConfigFieldInvalid\('[^']+'\)"/)
-    assert.match(fieldTag, /:aria-describedby="configFieldDescriptionId\('[^']+'\)"/)
+    let start = 0
+    let found = 0
+    while (true) {
+      start = componentSource.indexOf(marker, start)
+      if (start === -1) break
+      found += 1
+      const tagStart = componentSource.lastIndexOf('<el-', start)
+      const tagEnd = componentSource.indexOf('>', start)
+      const fieldTag = componentSource.slice(tagStart, tagEnd + 1)
+      assert.match(fieldTag, /:aria-invalid="isConfigFieldInvalid\('[^']+'\)(?: \|\| isDefaultModelUnavailable)?"/)
+      assert.match(fieldTag, /:aria-describedby="configFieldDescriptionId\('[^']+'\)"/)
+      if (field === 'provider') assert.match(fieldTag, /aria-label="厂商"/)
+      if (field === 'default_model') assert.match(fieldTag, /aria-label="默认模型"/)
+      start += marker.length
+    }
+    assert.ok(found >= 1, `${field} should have a stable field marker`)
   }
 
   assert.match(componentSource, /<el-form-item[^>]*prop="modelText"/)

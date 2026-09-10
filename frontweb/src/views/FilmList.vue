@@ -8,11 +8,11 @@
         </h1>
         <!-- 素材入口：通用媒体为一级入口，语义素材保留在分类菜单中 -->
         <div class="header-library">
-          <el-button class="btn-library btn-material-center" title="打开素材中心" @click="goMaterialCenter">
+          <el-button class="btn-library btn-material-center" title="打开素材中心" aria-label="打开素材中心" @click="goMaterialCenter">
             <el-icon><Files /></el-icon>素材中心
           </el-button>
           <el-dropdown :disabled="listWriteLocked" trigger="click" placement="bottom-start" @command="openSemanticLibrary">
-            <el-button class="btn-library btn-semantic-library" :disabled="listWriteLocked">
+            <el-button class="btn-library btn-semantic-library" :disabled="listWriteLocked" aria-label="打开分类素材">
               <el-icon><Collection /></el-icon>分类素材
               <el-icon class="dropdown-caret"><ArrowDown /></el-icon>
             </el-button>
@@ -27,7 +27,7 @@
         </div>
         <!-- 右侧操作区 -->
         <div class="header-actions">
-          <el-button class="btn-library" title="打开自由创作" @click="router.push({ name: 'free-create' })">
+          <el-button class="btn-library" title="打开自由创作" aria-label="打开自由创作" @click="goFreeCreate">
             <el-icon><MagicStick /></el-icon>自由创作
           </el-button>
           <el-tooltip content="项目回收站" placement="bottom">
@@ -42,8 +42,8 @@
               <span class="visually-hidden">{{ isDark ? '切换到浅色模式' : '切换到暗色模式' }}</span>
             </el-button>
           </el-tooltip>
-          <el-button class="btn-settings" title="打开 AI 配置" @click="showAiConfigDialog = true">
-            <el-icon><Setting /></el-icon>AI配置
+          <el-button class="btn-settings" title="打开 AI 配置" aria-label="打开 AI 配置" @click="showAiConfigDialog = true">
+            <el-icon><Setting /></el-icon>AI 配置
           </el-button>
           <el-button
             v-if="backupNavItem"
@@ -54,11 +54,11 @@
           >
             <el-icon><Download /></el-icon>数据备份
           </el-button>
-          <el-button ref="importTriggerButton" class="btn-import" :loading="importing" :disabled="listWriteLocked" @click="triggerImport">
+          <el-button ref="importTriggerButton" class="btn-import" :loading="importing" :disabled="listWriteLocked" aria-label="导入项目包" :title="listWriteLocked ? listWriteLockReason : undefined" :aria-describedby="listError ? 'project-list-load-error' : undefined" @click="triggerImport">
             <el-icon><Upload /></el-icon>导入项目包
           </el-button>
           <input ref="importFileInput" type="file" accept=".zip" style="display:none" @change="onImportFile" />
-          <el-button type="primary" class="btn-new" :disabled="listWriteLocked" aria-label="新建项目" @click="goNewProject">
+          <el-button type="primary" class="btn-new" :disabled="listWriteLocked" aria-label="新建项目" :title="listWriteLocked ? listWriteLockReason : undefined" :aria-describedby="listError ? 'project-list-load-error' : undefined" @click="goNewProject">
             <el-icon><Plus /></el-icon>新建项目
           </el-button>
         </div>
@@ -75,6 +75,7 @@
       <div v-loading="loading" class="projects-wrap" :aria-busy="loading">
         <section
           v-if="listError"
+          id="project-list-load-error"
           class="data-load-state"
           role="alert"
           aria-live="assertive"
@@ -186,7 +187,7 @@
 
         <div class="project-grid">
           <!-- 空项目时提供完整起步路径；已有项目时使用顶部主操作，避免重复入口。 -->
-          <section v-if="!loading && hasSuccessfulListLoad && !listError && dramas.length === 0 && !hasProjectFilters" class="action-card action-card--empty">
+          <section v-if="!loading && hasSuccessfulListLoad && !listError && dramas.length === 0 && !hasProjectFilters" class="action-card action-card--empty" role="status">
             <div class="action-card-inner">
               <h2 class="action-card-title">还没有短剧项目</h2>
               <p class="action-card-desc">新建空白项目，或继续已有项目包。</p>
@@ -194,7 +195,7 @@
                 <el-button type="primary" size="large" class="action-btn action-btn-new" :disabled="listWriteLocked" aria-label="新建项目" @click="goNewProject">
                   <el-icon><Plus /></el-icon>新建项目
                 </el-button>
-                <el-button size="large" class="action-btn action-btn-import" :loading="importing" :disabled="listWriteLocked" @click="triggerImport">
+                <el-button size="large" class="action-btn action-btn-import" :loading="importing" :disabled="listWriteLocked" aria-label="导入项目包" @click="triggerImport">
                   <el-icon><Upload /></el-icon>导入项目包
                 </el-button>
               </div>
@@ -439,7 +440,7 @@
           <el-input v-model="newForm.title" autofocus aria-label="项目标题" placeholder="输入项目标题" maxlength="100" show-word-limit />
         </el-form-item>
         <el-form-item label="描述">
-          <el-input v-model="newForm.description" type="textarea" :rows="3" placeholder="输入项目描述（选填）" />
+          <el-input v-model="newForm.description" type="textarea" :rows="3" aria-label="项目描述" placeholder="输入项目描述（选填）" />
         </el-form-item>
         <el-form-item label="画面比例">
           <el-select v-model="newForm.aspect_ratio" aria-label="画面比例" style="width: 100%">
@@ -465,6 +466,7 @@
       title="AI 配置"
       width="90%"
       destroy-on-close
+      :close-on-click-modal="false"
       :before-close="confirmAiConfigWorkspaceClose"
     >
       <AIConfigContent ref="aiConfigContentRef" v-if="showAiConfigDialog" />
@@ -502,10 +504,10 @@
           <p>{{ charLibraryError }}</p>
           <el-button size="small" type="primary" plain :loading="charLibraryLoading" @click="loadCharLibraryList">重试</el-button>
         </div>
-        <div v-if="!charLibraryLoading && !charLibraryError && charLibraryList.length === 0" class="library-empty">{{ charLibraryKeyword.trim() ? '没有匹配的角色，试试其他关键词。' : '素材库暂无角色，可在项目中将角色「加入素材库」后在此查看' }}</div>
+        <div v-if="!charLibraryLoading && !charLibraryError && charLibraryList.length === 0" class="library-empty" role="status">{{ charLibraryKeyword.trim() ? '没有匹配的角色，试试其他关键词。' : '素材库暂无角色，可在项目中将角色「加入素材库」后在此查看' }}</div>
       </div>
       <div class="library-pagination">
-        <el-pagination v-model:current-page="charLibraryPage" v-model:page-size="charLibraryPageSize" :total="charLibraryTotal" :page-sizes="[10, 20, 50]" layout="total, sizes, prev, pager, next" @current-change="loadCharLibraryList" @size-change="loadCharLibraryList" />
+        <el-pagination v-model:current-page="charLibraryPage" v-model:page-size="charLibraryPageSize" :total="charLibraryTotal" :page-sizes="[10, 20, 50]" layout="total, sizes, prev, pager, next" aria-label="角色素材分页" @current-change="loadCharLibraryList" @size-change="loadCharLibraryList" />
       </div>
       <template #footer><el-button @click="showCharLibrary = false">关闭</el-button></template>
     </AccessibleDialog>
@@ -533,10 +535,10 @@
           </div>
           <input ref="charLibFileRef" type="file" accept="image/*" style="display:none" @change="e => doUploadLibImg(e, editCharLibraryForm, characterLibraryAPI, loadCharLibraryList)" />
         </el-form-item>
-        <el-form-item label="名称"><el-input v-model="editCharLibraryForm.name" placeholder="角色名称" /></el-form-item>
-        <el-form-item label="分类"><el-input v-model="editCharLibraryForm.category" placeholder="可选" /></el-form-item>
-        <el-form-item label="描述"><el-input v-model="editCharLibraryForm.description" type="textarea" :rows="3" placeholder="可选" /></el-form-item>
-        <el-form-item label="标签"><el-input v-model="editCharLibraryForm.tags" placeholder="可选，逗号分隔" /></el-form-item>
+        <el-form-item label="名称"><el-input v-model="editCharLibraryForm.name" aria-label="角色名称" placeholder="角色名称" /></el-form-item>
+        <el-form-item label="分类"><el-input v-model="editCharLibraryForm.category" aria-label="角色分类" placeholder="可选" /></el-form-item>
+        <el-form-item label="描述"><el-input v-model="editCharLibraryForm.description" type="textarea" :rows="3" aria-label="角色描述" placeholder="可选" /></el-form-item>
+        <el-form-item label="标签"><el-input v-model="editCharLibraryForm.tags" aria-label="角色标签" placeholder="可选，逗号分隔" /></el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="showEditCharLibrary = false">取消</el-button>
@@ -576,10 +578,10 @@
           <p>{{ sceneLibraryError }}</p>
           <el-button size="small" type="primary" plain :loading="sceneLibraryLoading" @click="loadSceneLibraryList">重试</el-button>
         </div>
-        <div v-if="!sceneLibraryLoading && !sceneLibraryError && sceneLibraryList.length === 0" class="library-empty">{{ sceneLibraryKeyword.trim() ? '没有匹配的场景，试试其他关键词。' : '素材库暂无场景，可在项目中将场景「加入素材库」后在此查看' }}</div>
+        <div v-if="!sceneLibraryLoading && !sceneLibraryError && sceneLibraryList.length === 0" class="library-empty" role="status">{{ sceneLibraryKeyword.trim() ? '没有匹配的场景，试试其他关键词。' : '素材库暂无场景，可在项目中将场景「加入素材库」后在此查看' }}</div>
       </div>
       <div class="library-pagination">
-        <el-pagination v-model:current-page="sceneLibraryPage" v-model:page-size="sceneLibraryPageSize" :total="sceneLibraryTotal" :page-sizes="[10, 20, 50]" layout="total, sizes, prev, pager, next" @current-change="loadSceneLibraryList" @size-change="loadSceneLibraryList" />
+        <el-pagination v-model:current-page="sceneLibraryPage" v-model:page-size="sceneLibraryPageSize" :total="sceneLibraryTotal" :page-sizes="[10, 20, 50]" layout="total, sizes, prev, pager, next" aria-label="场景素材分页" @current-change="loadSceneLibraryList" @size-change="loadSceneLibraryList" />
       </div>
       <template #footer><el-button @click="showSceneLibrary = false">关闭</el-button></template>
     </AccessibleDialog>
@@ -607,11 +609,11 @@
           </div>
           <input ref="sceneLibFileRef" type="file" accept="image/*" style="display:none" @change="e => doUploadLibImg(e, editSceneLibraryForm, sceneLibraryAPI, loadSceneLibraryList)" />
         </el-form-item>
-        <el-form-item label="地点"><el-input v-model="editSceneLibraryForm.location" placeholder="场景地点" /></el-form-item>
-        <el-form-item label="时间"><el-input v-model="editSceneLibraryForm.time" placeholder="如：浅色/夜晚" /></el-form-item>
-        <el-form-item label="分类"><el-input v-model="editSceneLibraryForm.category" placeholder="可选" /></el-form-item>
-        <el-form-item label="描述"><el-input v-model="editSceneLibraryForm.description" type="textarea" :rows="3" placeholder="可选" /></el-form-item>
-        <el-form-item label="标签"><el-input v-model="editSceneLibraryForm.tags" placeholder="可选，逗号分隔" /></el-form-item>
+        <el-form-item label="地点"><el-input v-model="editSceneLibraryForm.location" aria-label="场景地点" placeholder="场景地点" /></el-form-item>
+        <el-form-item label="时间"><el-input v-model="editSceneLibraryForm.time" aria-label="场景时间" placeholder="如：浅色/夜晚" /></el-form-item>
+        <el-form-item label="分类"><el-input v-model="editSceneLibraryForm.category" aria-label="场景分类" placeholder="可选" /></el-form-item>
+        <el-form-item label="描述"><el-input v-model="editSceneLibraryForm.description" type="textarea" :rows="3" aria-label="场景描述" placeholder="可选" /></el-form-item>
+        <el-form-item label="标签"><el-input v-model="editSceneLibraryForm.tags" aria-label="场景标签" placeholder="可选，逗号分隔" /></el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="showEditSceneLibrary = false">取消</el-button>
@@ -651,10 +653,10 @@
           <p>{{ propLibraryError }}</p>
           <el-button size="small" type="primary" plain :loading="propLibraryLoading" @click="loadPropLibraryList">重试</el-button>
         </div>
-        <div v-if="!propLibraryLoading && !propLibraryError && propLibraryList.length === 0" class="library-empty">{{ propLibraryKeyword.trim() ? '没有匹配的道具，试试其他关键词。' : '素材库暂无道具，可在项目中将道具「加入素材库」后在此查看' }}</div>
+        <div v-if="!propLibraryLoading && !propLibraryError && propLibraryList.length === 0" class="library-empty" role="status">{{ propLibraryKeyword.trim() ? '没有匹配的道具，试试其他关键词。' : '素材库暂无道具，可在项目中将道具「加入素材库」后在此查看' }}</div>
       </div>
       <div class="library-pagination">
-        <el-pagination v-model:current-page="propLibraryPage" v-model:page-size="propLibraryPageSize" :total="propLibraryTotal" :page-sizes="[10, 20, 50]" layout="total, sizes, prev, pager, next" @current-change="loadPropLibraryList" @size-change="loadPropLibraryList" />
+        <el-pagination v-model:current-page="propLibraryPage" v-model:page-size="propLibraryPageSize" :total="propLibraryTotal" :page-sizes="[10, 20, 50]" layout="total, sizes, prev, pager, next" aria-label="道具素材分页" @current-change="loadPropLibraryList" @size-change="loadPropLibraryList" />
       </div>
       <template #footer><el-button @click="showPropLibrary = false">关闭</el-button></template>
     </AccessibleDialog>
@@ -682,10 +684,10 @@
           </div>
           <input ref="propLibFileRef" type="file" accept="image/*" style="display:none" @change="e => doUploadLibImg(e, editPropLibraryForm, propLibraryAPI, loadPropLibraryList)" />
         </el-form-item>
-        <el-form-item label="名称"><el-input v-model="editPropLibraryForm.name" placeholder="道具名称" /></el-form-item>
-        <el-form-item label="分类"><el-input v-model="editPropLibraryForm.category" placeholder="可选" /></el-form-item>
-        <el-form-item label="描述"><el-input v-model="editPropLibraryForm.description" type="textarea" :rows="3" placeholder="可选" /></el-form-item>
-        <el-form-item label="标签"><el-input v-model="editPropLibraryForm.tags" placeholder="可选，逗号分隔" /></el-form-item>
+        <el-form-item label="名称"><el-input v-model="editPropLibraryForm.name" aria-label="道具名称" placeholder="道具名称" /></el-form-item>
+        <el-form-item label="分类"><el-input v-model="editPropLibraryForm.category" aria-label="道具分类" placeholder="可选" /></el-form-item>
+        <el-form-item label="描述"><el-input v-model="editPropLibraryForm.description" type="textarea" :rows="3" aria-label="道具描述" placeholder="可选" /></el-form-item>
+        <el-form-item label="标签"><el-input v-model="editPropLibraryForm.tags" aria-label="道具标签" placeholder="可选，逗号分隔" /></el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="showEditPropLibrary = false">取消</el-button>
@@ -712,7 +714,7 @@
           <el-input v-model="editForm.title" autofocus aria-label="项目标题" placeholder="输入项目标题" maxlength="100" show-word-limit />
         </el-form-item>
         <el-form-item label="故事">
-          <el-input v-model="editForm.description" type="textarea" :rows="3" placeholder="输入故事梗概（选填）" />
+          <el-input v-model="editForm.description" type="textarea" :rows="3" aria-label="故事梗概" placeholder="输入故事梗概（选填）" />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -836,6 +838,16 @@ const listError = ref('')
 const hasSuccessfulListLoad = ref(false)
 const listIsStale = computed(() => Boolean(listError.value) && hasSuccessfulListLoad.value)
 const listWriteLocked = computed(() => loading.value || !hasSuccessfulListLoad.value || Boolean(listError.value))
+const listWriteLockReason = computed(() => {
+  if (loading.value) return '项目列表正在加载，请稍候'
+  if (listError.value) {
+    return listIsStale.value
+      ? '项目列表刷新失败，成功重试前不能新增或导入'
+      : '项目数据加载失败，成功重试前不能新增或导入'
+  }
+  if (!hasSuccessfulListLoad.value) return '项目列表尚未就绪'
+  return ''
+})
 let listRequestSequence = 0
 let projectReloadTimer = null
 let projectListMounted = false
@@ -927,7 +939,21 @@ async function confirmAiConfigWorkspaceClose(done) {
   if (canClose) done()
 }
 
+function hasPendingProjectPackageWork() {
+  return importing.value || Boolean(importingExample.value) || exportingId.value !== null
+}
+
+function describePendingProjectPackageWork() {
+  if (importing.value || importingExample.value) return '项目包正在导入，请完成后再离开。'
+  if (exportingId.value !== null) return '项目包正在导出，请完成后再离开。'
+  return ''
+}
+
 async function requestFilmListNavigation() {
+  if (hasPendingProjectPackageWork()) {
+    ElMessage.warning(describePendingProjectPackageWork())
+    return false
+  }
   if (!showAiConfigDialog.value) return true
   return (await aiConfigContentRef.value?.requestClose?.()) !== false
 }
@@ -935,7 +961,7 @@ async function requestFilmListNavigation() {
 function handleBeforeUnload(event) {
   const hasUnsavedAiConfig = showAiConfigDialog.value
     && aiConfigContentRef.value?.hasUnsavedChanges?.()
-  if (!hasUnsavedAiConfig) return
+  if (!hasUnsavedAiConfig && !hasPendingProjectPackageWork()) return
   event.preventDefault()
   event.returnValue = ''
 }
@@ -1437,7 +1463,11 @@ async function restoreFromTrash(item) {
 }
 
 function goMaterialCenter() {
-  router.push('/media-library')
+  openWorkspaceNavItem(router, 'media-library')
+}
+
+function goFreeCreate() {
+  openWorkspaceNavItem(router, 'free-create')
 }
 
 const backupNavItem = listWorkspaceNavItems().find((item) => item.id === 'backup') || null
@@ -1593,17 +1623,18 @@ function sanitizeImportFailureReason(message) {
 }
 
 function resolveImportFailureMessage(error) {
+  const fallback = '项目包导入失败，请重新选择项目包后重试'
   const responseBody = error?.response?.data
   if (typeof responseBody === 'string' && responseBody.trim()) {
-    return sanitizeImportFailureReason(responseBody)
+    return toUserFacingError({ message: sanitizeImportFailureReason(responseBody) }, fallback)
   }
   if (responseBody && typeof responseBody === 'object') {
     const responseMessage = responseBody?.error?.message
       || responseBody?.message
       || (typeof responseBody?.error === 'string' ? responseBody.error : '')
-    if (responseMessage) return sanitizeImportFailureReason(responseMessage)
+    if (responseMessage) return toUserFacingError({ message: sanitizeImportFailureReason(responseMessage) }, fallback)
   }
-  return sanitizeImportFailureReason(error?.message)
+  return toUserFacingError({ message: sanitizeImportFailureReason(error?.message) }, fallback)
 }
 
 function setImportFailure(fileName, error) {
@@ -1845,7 +1876,7 @@ html.light .btn-theme {
   --el-button-hover-text-color: #4f46e5;
 }
 
-/* AI配置按钮 —— 琥珀调 */
+/* AI 配置按钮 —— 琥珀调 */
 .btn-settings {
   --el-button-bg-color: rgba(234, 179, 8, 0.1);
   --el-button-border-color: rgba(234, 179, 8, 0.32);

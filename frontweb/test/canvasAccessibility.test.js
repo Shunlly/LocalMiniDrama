@@ -9,6 +9,17 @@ function read(path) {
   return readFileSync(new URL(path, import.meta.url), 'utf8')
 }
 
+const canvasRuntimeSource = [
+  read('../src/views/DramaCanvas.vue'),
+  read('../src/views/DramaCanvas.css'),
+  read('../src/composables/useDramaCanvasFreeCanvas.js'),
+  read('../src/composables/useDramaCanvasPersist.js'),
+  read('../src/composables/useDramaCanvasProjectLoad.js'),
+  read('../src/composables/useDramaCanvasWorkflow.js'),
+  read('../src/composables/useDramaCanvasGraph.js'),
+  read('../src/composables/useDramaCanvasViewport.js'),
+].join('\n')
+
 const expandableNodeSources = [
   read('../src/components/dramaCanvas/CanvasAssetNode.vue'),
   read('../src/components/dramaCanvas/CanvasScriptNode.vue'),
@@ -40,6 +51,8 @@ test('canvas disabled actions associate reasons with aria-describedby', () => {
   assert.match(gate, /前往 AI 配置/)
   assert.match(gate, /openAiConfigHandler\?\.\(props\.configServiceType\)/)
   assert.match(toolbar, /description-id="canvas-reason-batch-videos"/)
+  assert.match(toolbar, /description-id="canvas-reason-align-nodes"/)
+  assert.match(toolbar, /正在对齐节点，请稍候/)
   assert.match(toolbar, /:config-service-type="actionConfigServices\.batchVideos"/)
   assert.match(workflowToolbar, /description-id="canvas-reason-run-workflow"/)
   assert.match(workflowToolbar, /config-service-type="video"/)
@@ -51,7 +64,7 @@ test('canvas disabled actions associate reasons with aria-describedby', () => {
 })
 
 test('canvas production actions load authoritative readiness and guard execution entry points', () => {
-  const canvas = read('../src/views/DramaCanvas.vue')
+  const canvas = canvasRuntimeSource
   const storyboardPanel = read('../src/components/dramaCanvas/CanvasStoryboardPanel.vue')
   const mediaPanel = read('../src/components/dramaCanvas/CanvasMediaPanel.vue')
 
@@ -114,7 +127,7 @@ test('Vue Flow mounts only after its container reports a non-zero size', () => {
 })
 
 test('canvas viewport controls are named and initial fitting keeps nodes readable', () => {
-  const canvas = read('../src/views/DramaCanvas.vue')
+  const canvas = canvasRuntimeSource
   const aligner = read('../src/components/dramaCanvas/CanvasFlowAligner.vue')
 
   for (const label of ['放大画布', '缩小画布', '适配可读视图']) {

@@ -16,6 +16,7 @@ const {
   SUPPORTED_FORMAT_VERSIONS,
 } = require('./dataBackupFormatContract');
 const { updateMaintenanceHeartbeatFd } = require('./maintenanceLockFile');
+const BACKUP_PUBLIC_MESSAGES = require('./backupPublicMessages');
 
 const MANIFEST_ENTRY = 'manifest.json';
 const DATABASE_ENTRY = 'database.sqlite';
@@ -97,7 +98,12 @@ class DataBackupError extends Error {
 }
 
 function backupError(code, message, cause) {
-  return new DataBackupError(code, message, cause);
+  if (message instanceof Error && cause === undefined) {
+    cause = message;
+    message = undefined;
+  }
+  const mapped = BACKUP_PUBLIC_MESSAGES[code];
+  return new DataBackupError(code, mapped || message, cause);
 }
 
 function isPermissionDeniedError(error) {
@@ -106,11 +112,7 @@ function isPermissionDeniedError(error) {
 }
 
 function permissionDeniedError(cause) {
-  return backupError(
-    'PERMISSION_DENIED',
-    '当前路径没有读写权限，请检查数据目录或备份输出目录的权限后重试。',
-    cause
-  );
+  return backupError('PERMISSION_DENIED', cause);
 }
 
 function wrapUnknownBackupError(error, fallbackCode, fallbackMessage) {
@@ -148,7 +150,7 @@ function attachCleanupErrors(primaryError, cleanupErrors) {
 
 function assertOperationNotAborted(signal) {
   if (signal?.aborted) {
-    throw backupError('OPERATION_ABORTED', 'The data maintenance operation was interrupted.');
+    throw backupError('OPERATION_ABORTED');
   }
 }
 
@@ -158,12 +160,12 @@ function normalizeLimits(overrides = {}) {
     if (overrides[key] === undefined) continue;
     const value = Number(overrides[key]);
     if (!Number.isSafeInteger(value) || value <= 0) {
-      throw backupError('INVALID_LIMIT', 'Backup safety limits must be positive integers.');
+      throw backupError('INVALID_LIMIT');
     }
     limits[key] = value;
   }
   if (limits.maxManifestBytes > limits.maxFileBytes) {
-    throw backupError('INVALID_LIMIT', 'The manifest size limit cannot exceed the file size limit.');
+    throw backupError('INVALID_LIMIT');
   }
   return limits;
 }
@@ -189,26 +191,26 @@ function assertSafeTargetPaths(databasePath, storagePath, storySourcesPath) {
       isPathInside(storySources, db) || isPathInside(storage, storySources) || isPathInside(storySources, storage)
     ))
   ) {
-    throw backupError('UNSAFE_TARGET', 'The configured data targets are not safe to replace.');
+    throw backupError('UNSAFE_TARGET');
   }
 }
 
 function resolveDataRoot(value) {
   if (typeof value !== 'string' || value.trim() === '' || !path.isAbsolute(value.trim())) {
-    throw backupError('INVALID_DATA_ROOT', '数据根目录必须是已存在的绝对路径。');
+    throw backupError('INVALID_DATA_ROOT');
   }
   const resolved = path.resolve(value.trim());
   if (resolved === path.parse(resolved).root) {
-    throw backupError('INVALID_DATA_ROOT', '数据根目录不能是文件系统根目录。');
+    throw backupError('INVALID_DATA_ROOT');
   }
   let stat;
   try {
     stat = fs.lstatSync(resolved);
   } catch (error) {
-    throw backupError('INVALID_DATA_ROOT', '数据根目录不存在或不可读取。', error);
+    throw backupError('INVALID_DATA_ROOT', error);
   }
   if (!stat.isDirectory() || stat.isSymbolicLink()) {
-    throw backupError('INVALID_DATA_ROOT', '数据根目录必须是非符号链接目录。');
+    throw backupError('INVALID_DATA_ROOT');
   }
   const realPath = path.resolve(fs.realpathSync(resolved));
   const normalize = (pathValue) => {
@@ -216,7 +218,7 @@ function resolveDataRoot(value) {
     return process.platform === 'win32' ? normalized.toLowerCase() : normalized;
   };
   if (normalize(realPath) !== normalize(resolved)) {
-    throw backupError('INVALID_DATA_ROOT', '数据根目录不能通过符号链接或联接访问。');
+    throw backupError('INVALID_DATA_ROOT');
   }
   return realPath;
 }
@@ -236,35 +238,35 @@ function assertPortableSegment(segment) {
     segment.endsWith(' ') ||
     WINDOWS_RESERVED_NAME.test(segment)
   ) {
-    throw backupError('UNSAFE_ARCHIVE_PATH', 'The archive contains an unsafe or non-portable file name.');
+    throw backupError('UNSAFE_ARCHIVE_PATH');
   }
 }
 
 function validateArchiveName(name, rawName, limits) {
   if (typeof name !== 'string' || !name || name.includes('\\') || name.startsWith('/')) {
-    throw backupError('UNSAFE_ARCHIVE_PATH', 'The archive contains an unsafe file path.');
+    throw backupError('UNSAFE_ARCHIVE_PATH');
   }
   if (rawName && (!Buffer.from(name, 'utf8').equals(rawName) || rawName.length > limits.maxPathBytes)) {
-    throw backupError('UNSAFE_ARCHIVE_PATH', 'The archive contains an invalid encoded file path.');
+    throw backupError('UNSAFE_ARCHIVE_PATH');
   }
   const segments = name.split('/');
   if (segments.length > limits.maxPathDepth || segments.some((segment) => segment === '')) {
-    throw backupError('UNSAFE_ARCHIVE_PATH', 'The archive contains an unsafe file path.');
+    throw backupError('UNSAFE_ARCHIVE_PATH');
   }
   for (const segment of segments) assertPortableSegment(segment);
 
   const normalized = path.posix.normalize(name);
   if (normalized !== name || path.posix.isAbsolute(normalized) || /^[a-z]:/i.test(normalized)) {
-    throw backupError('UNSAFE_ARCHIVE_PATH', 'The archive contains an absolute or traversing file path.');
+    throw backupError('UNSAFE_ARCHIVE_PATH');
   }
   if (
     name !== MANIFEST_ENTRY && name !== DATABASE_ENTRY &&
     !name.startsWith(STORAGE_PREFIX) && !name.startsWith(STORY_SOURCES_PREFIX)
   ) {
-    throw backupError('UNEXPECTED_ARCHIVE_ENTRY', 'The archive contains an unexpected file.');
+    throw backupError('UNEXPECTED_ARCHIVE_ENTRY');
   }
   if (name === STORAGE_PREFIX.slice(0, -1) || name === STORY_SOURCES_PREFIX.slice(0, -1)) {
-    throw backupError('UNSAFE_ARCHIVE_PATH', 'The archive contains an invalid storage entry.');
+    throw backupError('UNSAFE_ARCHIVE_PATH');
   }
   return name;
 }
@@ -465,7 +467,7 @@ function startMaintenanceHeartbeat(lock, options = {}) {
     } catch (error) {
       lock.heartbeatError = error instanceof DataBackupError
         ? error
-        : backupError('MAINTENANCE_LEASE_INVALID', 'The service maintenance guard lost its public path.', error);
+        : backupError('MAINTENANCE_LEASE_INVALID', error);
       options.log?.error?.('Maintenance lock heartbeat failed', { error: error.message });
     }
   }, intervalMs);
@@ -496,10 +498,7 @@ function startMaintenanceRecoveryHeartbeat(claim, options = {}) {
     Atomics.compareExchange(state, 0, 0, 2);
     Atomics.notify(state, 0);
     worker.terminate().catch(() => {});
-    throw backupError(
-      'MAINTENANCE_LOCK_FAILED',
-      'The maintenance recovery heartbeat could not be started.'
-    );
+    throw backupError('MAINTENANCE_LOCK_FAILED');
   }
   claim.heartbeatWorker = worker;
   claim.heartbeatState = state;
@@ -519,21 +518,21 @@ function stopMaintenanceRecoveryHeartbeat(claim) {
 
 function assertMaintenanceLockRecoverable(lock, lockStat, options = {}) {
   if (!lock || typeof lock !== 'object' || Array.isArray(lock)) {
-    throw backupError('MAINTENANCE_LOCK_INVALID', 'Maintenance lock is not a valid object.');
+    throw backupError('MAINTENANCE_LOCK_INVALID');
   }
   const pid = Number(lock.pid);
   const operation = String(lock.operation || '');
   if (!Number.isInteger(pid) || pid <= 0 || !['service', 'backup', 'restore'].includes(operation)) {
-    throw backupError('MAINTENANCE_LOCK_INVALID', 'Maintenance lock fields are invalid.');
+    throw backupError('MAINTENANCE_LOCK_INVALID');
   }
 
   const version = Number(lock.version);
   if (!Number.isInteger(version) || ![1, MAINTENANCE_LOCK_VERSION].includes(version)) {
-    throw backupError('MAINTENANCE_LOCK_INVALID', 'Maintenance lock version is invalid or unsupported.');
+    throw backupError('MAINTENANCE_LOCK_INVALID');
   }
   const heartbeatMs = Date.parse(String(lock.heartbeatAt || lock.createdAt || ''));
   if (!Number.isFinite(heartbeatMs)) {
-    throw backupError('MAINTENANCE_LOCK_INVALID', 'Maintenance lock has no valid heartbeat timestamp.');
+    throw backupError('MAINTENANCE_LOCK_INVALID');
   }
   if (version === 1) {
     const legacyKeys = ['contract', 'createdAt', 'operation', 'pid', 'version'];
@@ -546,10 +545,7 @@ function assertMaintenanceLockRecoverable(lock, lockStat, options = {}) {
       lock.contract !== LEGACY_MAINTENANCE_LOCK_CONTRACT ||
       (hasLegacyTokenShape && (typeof lock.token !== 'string' || !/^[0-9a-f]{16}$/.test(lock.token)))
     ) {
-      throw backupError(
-        'MAINTENANCE_LOCK_FOREIGN',
-        'A legacy maintenance lock cannot be proven to use the supported single-host contract.'
-      );
+      throw backupError('MAINTENANCE_LOCK_FOREIGN');
     }
   } else {
     if (
@@ -557,7 +553,7 @@ function assertMaintenanceLockRecoverable(lock, lockStat, options = {}) {
       typeof lock.ownerScope !== 'string' || !lock.ownerScope ||
       lock.contract !== MAINTENANCE_LOCK_CONTRACT
     ) {
-      throw backupError('MAINTENANCE_LOCK_INVALID', 'Maintenance lease ownership fields are invalid.');
+      throw backupError('MAINTENANCE_LOCK_INVALID');
     }
   }
 
@@ -568,13 +564,13 @@ function assertMaintenanceLockRecoverable(lock, lockStat, options = {}) {
   const nowMs = Number.isFinite(Number(options.nowMs)) ? Number(options.nowMs) : Date.now();
   const freshestMs = Math.max(heartbeatMs, Number(lockStat?.mtimeMs) || 0);
   if (nowMs - freshestMs <= staleMs) {
-    throw backupError('MAINTENANCE_ACTIVE', 'Another LocalMiniDrama process holds a fresh maintenance lease.');
+    throw backupError('MAINTENANCE_ACTIVE');
   }
 
   const currentScope = resolveMaintenanceOwnerScope(options.ownerScope);
   if (version === 1) {
     if (!currentScope.explicit && processIsRunning(pid)) {
-      throw backupError('MAINTENANCE_ACTIVE', 'Another LocalMiniDrama process still owns the maintenance lease.');
+      throw backupError('MAINTENANCE_ACTIVE');
     }
     return true;
   }
@@ -583,7 +579,7 @@ function assertMaintenanceLockRecoverable(lock, lockStat, options = {}) {
     // Explicit scopes are shared across container PID namespaces. Once their heartbeat is stale,
     // a local PID match (usually PID 1 after a recreate) cannot prove that the old owner is alive.
     if (!currentScope.explicit && processIsRunning(pid)) {
-      throw backupError('MAINTENANCE_ACTIVE', 'Another LocalMiniDrama process still owns the maintenance lease.');
+      throw backupError('MAINTENANCE_ACTIVE');
     }
     return true;
   }
@@ -602,10 +598,7 @@ function assertMaintenanceLockRecoverable(lock, lockStat, options = {}) {
     return true;
   }
 
-  throw backupError(
-    'MAINTENANCE_LOCK_FOREIGN',
-    'A stale maintenance lock belongs to another process namespace and requires explicit operator recovery.'
-  );
+  throw backupError('MAINTENANCE_LOCK_FOREIGN');
 }
 
 function assertRecoveryAuxPath(targetPath, candidate, label) {
@@ -614,14 +607,14 @@ function assertRecoveryAuxPath(targetPath, candidate, label) {
   const resolved = path.resolve(String(candidate));
   const expectedPrefix = `.${path.basename(target)}.${label}.`;
   if (path.dirname(resolved) !== path.dirname(target) || !path.basename(resolved).startsWith(expectedPrefix)) {
-    throw backupError('INVALID_RESTORE_JOURNAL', 'Restore journal contains an unsafe recovery path.');
+    throw backupError('INVALID_RESTORE_JOURNAL');
   }
   return resolved;
 }
 
 function validateRestoreJournal(raw, databasePath, storagePath, storySourcesPath) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
-    throw backupError('INVALID_RESTORE_JOURNAL', 'Restore journal is not a valid object.');
+    throw backupError('INVALID_RESTORE_JOURNAL');
   }
   const database = path.resolve(databasePath);
   const storage = path.resolve(storagePath);
@@ -634,7 +627,7 @@ function validateRestoreJournal(raw, databasePath, storagePath, storySourcesPath
     path.resolve(String(raw.storagePath || '')) !== storage ||
     typeof raw.originalDatabaseExisted !== 'boolean' || typeof raw.originalStorageExisted !== 'boolean'
   ) {
-    throw backupError('INVALID_RESTORE_JOURNAL', 'Restore journal does not match the configured data targets.');
+    throw backupError('INVALID_RESTORE_JOURNAL');
   }
   const storyFields = [
     'storySourcesPath',
@@ -644,7 +637,7 @@ function validateRestoreJournal(raw, databasePath, storagePath, storySourcesPath
     'replaceStorySources',
   ];
   if (legacyJournal && storyFields.some((key) => Object.hasOwn(raw, key))) {
-    throw backupError('INVALID_RESTORE_JOURNAL', 'A legacy restore journal contains unsupported data targets.');
+    throw backupError('INVALID_RESTORE_JOURNAL');
   }
   if (currentJournal && (
     path.resolve(String(raw.storySourcesPath || '')) !== storySources ||
@@ -653,7 +646,7 @@ function validateRestoreJournal(raw, databasePath, storagePath, storySourcesPath
     (raw.replaceStorySources && (!raw.storySourcesStage || !raw.storySourcesRollbackPath)) ||
     (!raw.replaceStorySources && (raw.storySourcesStage != null || raw.storySourcesRollbackPath != null))
   )) {
-    throw backupError('INVALID_RESTORE_JOURNAL', 'Restore journal does not match the configured source-text target.');
+    throw backupError('INVALID_RESTORE_JOURNAL');
   }
   const replaceStorySources = currentJournal && raw.replaceStorySources;
   return {
@@ -681,7 +674,7 @@ function readJsonFileSync(filePath, code) {
   try {
     return JSON.parse(fs.readFileSync(filePath, 'utf8'));
   } catch (error) {
-    throw backupError(code, 'Persistent maintenance state could not be read safely.', error);
+    throw backupError(code, error);
   }
 }
 
@@ -706,11 +699,11 @@ function assertServiceMaintenanceLockPath(lock) {
       !sameMaintenanceLeaseFile(descriptorStat, lock.identity) ||
       !sameMaintenanceLeaseFile(pathStat, lock.identity)
     ) {
-      throw backupError('MAINTENANCE_LEASE_INVALID', 'The service maintenance guard lost its public path identity.');
+      throw backupError('MAINTENANCE_LEASE_INVALID');
     }
   } catch (error) {
     if (error instanceof DataBackupError) throw error;
-    throw backupError('MAINTENANCE_LEASE_INVALID', 'The service maintenance guard public path is unavailable.', error);
+    throw backupError('MAINTENANCE_LEASE_INVALID', error);
   }
   return lock;
 }
@@ -735,17 +728,17 @@ function readExternalMaintenanceLeaseSync(lockPath, identity) {
         !sameMaintenanceLeaseFile(descriptorBefore, identity) ||
         !sameMaintenanceLeaseFile(pathBefore, identity)
       ) {
-        throw backupError('MAINTENANCE_LEASE_INVALID', 'The external maintenance lease file identity changed.');
+        throw backupError('MAINTENANCE_LEASE_INVALID');
       }
       if (
         descriptorBefore.size <= 0n ||
         descriptorBefore.size > BigInt(MAX_MAINTENANCE_LEASE_BYTES)
       ) {
-        throw backupError('MAINTENANCE_LEASE_INVALID', 'The external maintenance lease file size is invalid.');
+        throw backupError('MAINTENANCE_LEASE_INVALID');
       }
       if (!sameMaintenanceLeaseSnapshot(descriptorBefore, pathBefore)) {
         unstable = true;
-        lastInstability = 'The external maintenance lease changed before it was read.';
+        lastInstability = '读取前租约已变化。';
         continue;
       }
 
@@ -754,12 +747,12 @@ function readExternalMaintenanceLeaseSync(lockPath, identity) {
       while (offset < data.length) {
         const bytesRead = fs.readSync(fd, data, offset, data.length - offset, offset);
         if (bytesRead === 0) {
-          throw backupError('MAINTENANCE_LEASE_INVALID', 'The external maintenance lease ended before its file boundary.');
+          throw backupError('MAINTENANCE_LEASE_INVALID');
         }
         offset += bytesRead;
       }
       if (fs.readSync(fd, Buffer.alloc(1), 0, 1, data.length) !== 0) {
-        throw backupError('MAINTENANCE_LEASE_INVALID', 'The external maintenance lease grew while it was read.');
+        throw backupError('MAINTENANCE_LEASE_INVALID');
       }
 
       const descriptorAfter = fs.fstatSync(fd, { bigint: true });
@@ -768,24 +761,24 @@ function readExternalMaintenanceLeaseSync(lockPath, identity) {
         !sameMaintenanceLeaseFile(descriptorAfter, identity) ||
         !sameMaintenanceLeaseFile(pathAfter, identity)
       ) {
-        throw backupError('MAINTENANCE_LEASE_INVALID', 'The external maintenance lease file identity changed.');
+        throw backupError('MAINTENANCE_LEASE_INVALID');
       }
       if (
         !sameMaintenanceLeaseSnapshot(descriptorBefore, descriptorAfter) ||
         !sameMaintenanceLeaseSnapshot(descriptorAfter, pathAfter)
       ) {
         unstable = true;
-        lastInstability = 'The external maintenance lease changed while it was read.';
+        lastInstability = '读取中租约已变化。';
         continue;
       }
       try {
         return JSON.parse(data.toString('utf8'));
       } catch (error) {
-        throw backupError('MAINTENANCE_LEASE_INVALID', 'The external maintenance lease is not valid JSON.', error);
+        throw backupError('MAINTENANCE_LEASE_INVALID', error);
       }
     } catch (error) {
       if (error instanceof DataBackupError) throw error;
-      throw backupError('MAINTENANCE_LEASE_INVALID', 'The external maintenance lease file is unavailable.', error);
+      throw backupError('MAINTENANCE_LEASE_INVALID', error);
     } finally {
       if (fd != null) {
         try { fs.closeSync(fd); } catch (_) {}
@@ -795,7 +788,7 @@ function readExternalMaintenanceLeaseSync(lockPath, identity) {
   }
   throw backupError(
     'MAINTENANCE_LEASE_INVALID',
-    lastInstability || 'The external maintenance lease could not be read consistently.'
+    lastInstability || '无法一致读取外部维护租约。'
   );
 }
 
@@ -805,7 +798,7 @@ function restoreRegularClaimWithoutOverwriteSync(claimPath, targetPath, identity
   fs.linkSync(claimPath, targetPath);
   const restoredStat = fs.lstatSync(targetPath, { bigint: true });
   if (!sameMaintenanceLeaseFile(restoredStat, identity)) {
-    throw backupError('PATH_CLAIM_RESTORE_FAILED', 'A claimed replacement could not be restored safely.');
+    throw backupError('PATH_CLAIM_RESTORE_FAILED');
   }
   fs.rmSync(claimPath);
   syncParentDirectoriesSync(claimPath, targetPath);
@@ -847,7 +840,7 @@ function writeMaintenanceQuarantineMarkerSync(targetPath, claim, claimStat) {
   return true;
 }
 
-function createPrivateClaimSync(targetPath, code, message) {
+function createPrivateClaimSync(targetPath, code) {
   let directoryPath;
   try {
     directoryPath = fs.mkdtempSync(path.join(path.dirname(targetPath), `.${path.basename(targetPath)}.claim-`));
@@ -855,7 +848,7 @@ function createPrivateClaimSync(targetPath, code, message) {
       if (!['ENOSYS', 'ENOTSUP', 'EPERM', 'EINVAL'].includes(error.code)) throw error;
     }
     const directoryStat = fs.lstatSync(directoryPath, { bigint: true });
-    if (directoryStat.isSymbolicLink() || !directoryStat.isDirectory()) throw new Error('The private claim is not a directory.');
+    if (directoryStat.isSymbolicLink() || !directoryStat.isDirectory()) throw new Error('私有认领目录无效。');
     return {
       claimPath: path.join(directoryPath, 'owned'),
       directoryIdentity: maintenanceLeaseFileIdentity(directoryStat),
@@ -865,7 +858,7 @@ function createPrivateClaimSync(targetPath, code, message) {
     if (directoryPath) {
       try { fs.rmdirSync(directoryPath); } catch (_) {}
     }
-    throw backupError(code, message, error);
+    throw backupError(code, error);
   }
 }
 
@@ -878,26 +871,26 @@ function sameMaintenanceLeaseDirectory(stat, identity) {
 function removePrivateClaimDirectorySync(claim) {
   const directoryStat = fs.lstatSync(claim.directoryPath, { bigint: true });
   if (!sameMaintenanceLeaseDirectory(directoryStat, claim.directoryIdentity)) {
-    throw new Error('The private claim directory identity changed.');
+    throw new Error('私有认领目录身份已变化。');
   }
   fs.rmdirSync(claim.directoryPath);
   syncParentDirectoriesSync(claim.directoryPath);
 }
 
-function claimOwnedRegularPathSync(targetPath, identity, code, message) {
-  const claim = createPrivateClaimSync(targetPath, code, message);
+function claimOwnedRegularPathSync(targetPath, identity, code) {
+  const claim = createPrivateClaimSync(targetPath, code);
   try {
     renameDurablySync(targetPath, claim.claimPath);
   } catch (error) {
     try { removePrivateClaimDirectorySync(claim); } catch (_) {}
-    throw backupError(code, message, error);
+    throw backupError(code, error);
   }
 
   let claimStat;
   try {
     claimStat = fs.lstatSync(claim.claimPath, { bigint: true });
   } catch (error) {
-    throw backupError(code, message, error);
+    throw backupError(code, error);
   }
   if (sameMaintenanceLeaseFile(claimStat, identity)) return claim;
 
@@ -919,23 +912,23 @@ function claimOwnedRegularPathSync(targetPath, identity, code, message) {
       restoreError = error;
     }
   }
-  throw backupError(code, message, restoreError || undefined);
+  throw backupError(code, restoreError || undefined);
 }
 
-function removeOwnedClaimSync(claim, identity, code, message) {
+function removeOwnedClaimSync(claim, identity, code) {
   try {
     const directoryStat = fs.lstatSync(claim.directoryPath, { bigint: true });
     if (!sameMaintenanceLeaseDirectory(directoryStat, claim.directoryIdentity)) {
-      throw new Error('The private claim directory identity changed.');
+      throw new Error('私有认领目录身份已变化。');
     }
     const finalStat = fs.lstatSync(claim.claimPath, { bigint: true });
-    if (!sameMaintenanceLeaseFile(finalStat, identity)) throw new Error('The private claim identity changed.');
+    if (!sameMaintenanceLeaseFile(finalStat, identity)) throw new Error('私有认领文件身份已变化。');
     // The unpredictable 0700 directory excludes other OS identities. A process running as
     // the same account remains inside the local-operator trust boundary and can alter it.
     fs.rmSync(claim.claimPath);
     removePrivateClaimDirectorySync(claim);
   } catch (error) {
-    throw backupError(code, message, error);
+    throw backupError(code, error);
   }
 }
 
@@ -943,11 +936,11 @@ function assertExternalMaintenanceLeaseState(lockPath, value) {
   const persisted = readExternalMaintenanceLeaseSync(lockPath, value);
   for (const field of ['contract', 'ownerScope', 'pid', 'token', 'version']) {
     if (persisted?.[field] !== value[field]) {
-      throw backupError('MAINTENANCE_LEASE_INVALID', 'The external maintenance lease no longer matches its host guard.');
+      throw backupError('MAINTENANCE_LEASE_INVALID');
     }
   }
   if (persisted.operation !== 'service') {
-    throw backupError('MAINTENANCE_LEASE_INVALID', 'The external maintenance lease is not a service guard.');
+    throw backupError('MAINTENANCE_LEASE_INVALID');
   }
   const createdAt = Date.parse(String(persisted.createdAt || ''));
   const heartbeatAt = Date.parse(String(persisted.heartbeatAt || ''));
@@ -957,7 +950,7 @@ function assertExternalMaintenanceLeaseState(lockPath, value) {
     heartbeatAt < createdAt || now - heartbeatAt > MAINTENANCE_LOCK_STALE_MS ||
     heartbeatAt - now > MAINTENANCE_LOCK_STALE_MS
   ) {
-    throw backupError('MAINTENANCE_LEASE_INVALID', 'The external maintenance lease heartbeat is not fresh.');
+    throw backupError('MAINTENANCE_LEASE_INVALID');
   }
   return value;
 }
@@ -976,7 +969,7 @@ function assertExternalMaintenanceLease(databasePath, value) {
     typeof value.ownerScope !== 'string' || !value.ownerScope || value.ownerScope.length > 512 ||
     !Number.isSafeInteger(value.pid) || value.pid <= 0
   ) {
-    throw backupError('MAINTENANCE_LEASE_INVALID', 'The external maintenance lease is invalid.');
+    throw backupError('MAINTENANCE_LEASE_INVALID');
   }
 
   const { lockPath } = maintenancePaths(databasePath);
@@ -1020,13 +1013,13 @@ function acquireMaintenanceRecoveryClaimSync(databasePath, options = {}) {
         try { fs.closeSync(fd); } catch (_) {}
       }
       if (error.code !== 'EEXIST') {
-        throw backupError('MAINTENANCE_LOCK_FAILED', 'The maintenance recovery lease could not be created.', error);
+        throw backupError('MAINTENANCE_LOCK_FAILED', error);
       }
 
       const claimStat = lstatIfExistsSync(recoveryLockPath, { bigint: true });
       if (!claimStat) continue;
       if (claimStat.isSymbolicLink() || !claimStat.isFile()) {
-        throw backupError('MAINTENANCE_LOCK_INVALID', 'Maintenance recovery lease is not a regular file.');
+        throw backupError('MAINTENANCE_LOCK_INVALID');
       }
       const current = readJsonFileSync(recoveryLockPath, 'MAINTENANCE_LOCK_INVALID');
       // 回收恢复租约时不得把原生 pid 命名空间当作显式作用域；过期租约按自身 owner/pid 确认。
@@ -1041,26 +1034,16 @@ function acquireMaintenanceRecoveryClaimSync(databasePath, options = {}) {
       const staleIdentity = maintenanceLeaseFileIdentity(claimStat);
       let staleClaim;
       try {
-        staleClaim = claimOwnedRegularPathSync(
-          recoveryLockPath,
-          staleIdentity,
-          'MAINTENANCE_ACTIVE',
-          'The maintenance recovery lease changed while it was being reclaimed.'
-        );
+        staleClaim = claimOwnedRegularPathSync(recoveryLockPath, staleIdentity, 'MAINTENANCE_ACTIVE');
       } catch (claimError) {
         if (claimError?.cause?.code === 'ENOENT') continue;
         throw claimError;
       }
-      removeOwnedClaimSync(
-        staleClaim,
-        staleIdentity,
-        'MAINTENANCE_LOCK_FAILED',
-        'The stale maintenance recovery lease could not be removed.'
-      );
+      removeOwnedClaimSync(staleClaim, staleIdentity, 'MAINTENANCE_LOCK_FAILED');
     }
   }
 
-  throw backupError('MAINTENANCE_ACTIVE', 'Another LocalMiniDrama process is recovering maintenance state.');
+  throw backupError('MAINTENANCE_ACTIVE');
 }
 
 function releaseMaintenanceRecoveryClaimSync(claim) {
@@ -1074,13 +1057,13 @@ function releaseMaintenanceRecoveryClaimSync(claim) {
   try {
     const descriptorStat = fs.fstatSync(claim.fd, { bigint: true });
     if (!claim.identity || !sameMaintenanceLeaseFile(descriptorStat, claim.identity)) {
-      throw backupError('MAINTENANCE_LOCK_RELEASE_FAILED', 'The maintenance recovery lease descriptor identity changed.');
+      throw backupError('MAINTENANCE_LOCK_RELEASE_FAILED');
     }
     descriptorValidated = true;
   } catch (error) {
     primaryError = error instanceof DataBackupError && error.code === 'MAINTENANCE_LOCK_RELEASE_FAILED'
       ? error
-      : backupError('MAINTENANCE_LOCK_RELEASE_FAILED', 'The maintenance recovery lease could not be claimed for release.', error);
+      : backupError('MAINTENANCE_LOCK_RELEASE_FAILED', error);
   }
   // Windows-host Docker bind mounts defer renaming an open file. The atomic claim below
   // still verifies the persisted file identity after this descriptor is closed.
@@ -1093,50 +1076,36 @@ function releaseMaintenanceRecoveryClaimSync(claim) {
   }
   if (!primaryError && descriptorValidated && descriptorClosed) {
     try {
-      ownedClaim = claimOwnedRegularPathSync(
-        claim.lockPath,
-        claim.identity,
-        'MAINTENANCE_LOCK_RELEASE_FAILED',
-        'The maintenance recovery lease could not be claimed for release.'
-      );
+      ownedClaim = claimOwnedRegularPathSync(claim.lockPath, claim.identity, 'MAINTENANCE_LOCK_RELEASE_FAILED');
     } catch (error) {
       primaryError = error instanceof DataBackupError && error.code === 'MAINTENANCE_LOCK_RELEASE_FAILED'
         ? error
-        : backupError('MAINTENANCE_LOCK_RELEASE_FAILED', 'The maintenance recovery lease could not be claimed for release.', error);
+        : backupError('MAINTENANCE_LOCK_RELEASE_FAILED', error);
     }
   }
   if (ownedClaim) {
     try {
-      removeOwnedClaimSync(
-        ownedClaim,
-        claim.identity,
-        'MAINTENANCE_LOCK_RELEASE_FAILED',
-        'The claimed maintenance recovery lease could not be removed.'
-      );
+      removeOwnedClaimSync(ownedClaim, claim.identity, 'MAINTENANCE_LOCK_RELEASE_FAILED');
     } catch (error) {
       cleanupErrors.push(error);
     }
   }
   if (!primaryError && cleanupErrors.length > 0) {
-    primaryError = backupError(
-      'MAINTENANCE_LOCK_RELEASE_FAILED',
-      'The maintenance recovery lease cleanup failed.',
-      cleanupErrors.shift()
-    );
+    primaryError = backupError('MAINTENANCE_LOCK_RELEASE_FAILED', cleanupErrors.shift());
   }
   if (primaryError) throw attachCleanupErrors(primaryError, cleanupErrors);
 }
 
 function recoverInterruptedMaintenanceSync(options = {}) {
   if (!options.databasePath || !options.storagePath) {
-    throw backupError('INVALID_ARGUMENT', 'Database and storage locations are required for maintenance recovery.');
+    throw backupError('INVALID_ARGUMENT');
   }
   const expectsOwner = options.expectedOwnerScope !== undefined || options.expectedPid !== undefined;
   if (expectsOwner && (
     typeof options.expectedOwnerScope !== 'string' || !options.expectedOwnerScope ||
     !Number.isInteger(options.expectedPid) || options.expectedPid <= 0
   )) {
-    throw backupError('INVALID_ARGUMENT', 'A valid expected maintenance owner scope and PID are required.');
+    throw backupError('INVALID_ARGUMENT');
   }
   const databasePath = path.resolve(options.databasePath);
   const storagePath = path.resolve(options.storagePath);
@@ -1150,7 +1119,7 @@ function recoverInterruptedMaintenanceSync(options = {}) {
     const lockStat = lstatIfExistsSync(lockPath);
     if (lockStat) {
       if (lockStat.isSymbolicLink() || !lockStat.isFile()) {
-        throw backupError('MAINTENANCE_LOCK_INVALID', 'Maintenance lock is not a regular file.');
+        throw backupError('MAINTENANCE_LOCK_INVALID');
       }
       const lock = readJsonFileSync(lockPath, 'MAINTENANCE_LOCK_INVALID');
       assertMaintenanceLockRecoverable(lock, lockStat, options);
@@ -1158,19 +1127,16 @@ function recoverInterruptedMaintenanceSync(options = {}) {
         lock.ownerScope !== options.expectedOwnerScope ||
         Number(lock.pid) !== options.expectedPid
       )) {
-        throw backupError(
-          'MAINTENANCE_OWNER_MISMATCH',
-          'The maintenance lock owner changed after inspection; inspect it again.'
-        );
+        throw backupError('MAINTENANCE_OWNER_MISMATCH');
       }
       if (
         expectsOwner && lock.ownerScope === nativeMaintenanceOwnerScope() &&
         processIsRunning(Number(lock.pid))
       ) {
-        throw backupError('MAINTENANCE_ACTIVE', 'The native maintenance lease owner process is still running.');
+        throw backupError('MAINTENANCE_ACTIVE');
       }
     } else if (expectsOwner) {
-      throw backupError('MAINTENANCE_LOCK_MISSING', 'No maintenance lock exists.');
+      throw backupError('MAINTENANCE_LOCK_MISSING');
     }
 
     const journalStat = lstatIfExistsSync(journalPath);
@@ -1179,7 +1145,7 @@ function recoverInterruptedMaintenanceSync(options = {}) {
       return { recovered: false };
     }
     if (journalStat.isSymbolicLink() || !journalStat.isFile()) {
-      throw backupError('INVALID_RESTORE_JOURNAL', 'Restore journal is not a regular file.');
+      throw backupError('INVALID_RESTORE_JOURNAL');
     }
     const journal = validateRestoreJournal(
       readJsonFileSync(journalPath, 'INVALID_RESTORE_JOURNAL'),
@@ -1230,7 +1196,7 @@ function recoverInterruptedMaintenanceSync(options = {}) {
       return { recovered: true, action: journal.phase === 'committed' ? 'finalized' : 'rolled_back' };
     } catch (error) {
       if (error instanceof DataBackupError) throw error;
-      throw backupError('RESTORE_RECOVERY_FAILED', 'Interrupted restore could not be recovered automatically.', error);
+      throw backupError('RESTORE_RECOVERY_FAILED', error);
     }
   } catch (error) {
     recoveryFailed = true;
@@ -1253,7 +1219,7 @@ function releaseServiceMaintenanceLock(lock) {
   runtimeServiceLocks.delete(lock.lockPath);
   let claim = null;
   let primaryError = lock.heartbeatError
-    ? backupError('MAINTENANCE_LOCK_RELEASE_FAILED', 'The service maintenance lock lost its public path before release.', lock.heartbeatError)
+    ? backupError('MAINTENANCE_LOCK_RELEASE_FAILED', lock.heartbeatError)
     : null;
   const cleanupErrors = [];
   let descriptorValidated = false;
@@ -1262,14 +1228,14 @@ function releaseServiceMaintenanceLock(lock) {
     const descriptorStat = fs.fstatSync(lock.fd, { bigint: true });
     const current = readExternalMaintenanceLeaseSync(lock.lockPath, lock.identity);
     if (!sameMaintenanceLeaseFile(descriptorStat, lock.identity) || current.token !== lock.token || Number(current.pid) !== process.pid) {
-      throw backupError('MAINTENANCE_LOCK_RELEASE_FAILED', 'The service maintenance lock no longer belongs to this guard.');
+      throw backupError('MAINTENANCE_LOCK_RELEASE_FAILED');
     }
     descriptorValidated = true;
   } catch (error) {
     if (!primaryError) {
       primaryError = error instanceof DataBackupError && error.code === 'MAINTENANCE_LOCK_RELEASE_FAILED'
         ? error
-        : backupError('MAINTENANCE_LOCK_RELEASE_FAILED', 'The service maintenance lock could not be claimed for release.', error);
+        : backupError('MAINTENANCE_LOCK_RELEASE_FAILED', error);
     } else if (error !== primaryError) {
       cleanupErrors.push(error);
     }
@@ -1284,26 +1250,16 @@ function releaseServiceMaintenanceLock(lock) {
   }
   if (!primaryError && descriptorValidated && descriptorClosed) {
     try {
-      claim = claimOwnedRegularPathSync(
-        lock.lockPath,
-        lock.identity,
-        'MAINTENANCE_LOCK_RELEASE_FAILED',
-        'The service maintenance lock could not be claimed for release.'
-      );
+      claim = claimOwnedRegularPathSync(lock.lockPath, lock.identity, 'MAINTENANCE_LOCK_RELEASE_FAILED');
     } catch (error) {
       primaryError = error instanceof DataBackupError && error.code === 'MAINTENANCE_LOCK_RELEASE_FAILED'
         ? error
-        : backupError('MAINTENANCE_LOCK_RELEASE_FAILED', 'The service maintenance lock could not be claimed for release.', error);
+        : backupError('MAINTENANCE_LOCK_RELEASE_FAILED', error);
     }
   }
   if (claim) {
     try {
-      removeOwnedClaimSync(
-        claim,
-        lock.identity,
-        'MAINTENANCE_LOCK_RELEASE_FAILED',
-        'The claimed service maintenance lock could not be removed.'
-      );
+      removeOwnedClaimSync(claim, lock.identity, 'MAINTENANCE_LOCK_RELEASE_FAILED');
     } catch (error) {
       cleanupErrors.push(error);
     }
@@ -1312,7 +1268,7 @@ function releaseServiceMaintenanceLock(lock) {
     const cleanupError = cleanupErrors.shift();
     primaryError = cleanupError instanceof DataBackupError && cleanupError.code === 'MAINTENANCE_LOCK_RELEASE_FAILED'
       ? cleanupError
-      : backupError('MAINTENANCE_LOCK_RELEASE_FAILED', 'The service maintenance lock release cleanup failed.', cleanupError);
+      : backupError('MAINTENANCE_LOCK_RELEASE_FAILED', cleanupError);
   }
   if (primaryError) throw attachCleanupErrors(primaryError, cleanupErrors);
 }
@@ -1351,18 +1307,18 @@ function serviceMaintenanceLease(lock) {
     typeof payload.ownerScope !== 'string' || !payload.ownerScope ||
     !Number.isSafeInteger(payload.pid) || payload.pid <= 0
   ) {
-    throw backupError('MAINTENANCE_LEASE_INVALID', 'An active service maintenance guard is required.');
+    throw backupError('MAINTENANCE_LEASE_INVALID');
   }
   assertServiceMaintenanceLockPath(lock);
   let descriptorStat;
   try {
     descriptorStat = fs.fstatSync(lock.fd, { bigint: true });
   } catch (error) {
-    throw backupError('MAINTENANCE_LEASE_INVALID', 'The service maintenance guard descriptor is unavailable.', error);
+    throw backupError('MAINTENANCE_LEASE_INVALID', error);
   }
   const identity = maintenanceLeaseFileIdentity(descriptorStat);
   if (!sameMaintenanceLeaseFile(descriptorStat, lock.identity || identity)) {
-    throw backupError('MAINTENANCE_LEASE_INVALID', 'The service maintenance guard descriptor identity changed.');
+    throw backupError('MAINTENANCE_LEASE_INVALID');
   }
   const lease = Object.freeze({
     schema: EXTERNAL_MAINTENANCE_LEASE_SCHEMA,
@@ -1400,7 +1356,7 @@ function acquireServiceMaintenanceLockSync(options = {}) {
   const storagePath = path.resolve(options.storagePath || '');
   const storySourcesPath = resolveStorySourcesPath(options);
   if (!options.databasePath || !options.storagePath) {
-    throw backupError('INVALID_ARGUMENT', 'Database and storage locations are required for the service maintenance guard.');
+    throw backupError('INVALID_ARGUMENT');
   }
   const { lockPath } = maintenancePaths(databasePath);
   const existing = runtimeServiceLocks.get(lockPath);
@@ -1427,9 +1383,9 @@ function acquireServiceMaintenanceLockSync(options = {}) {
       try { fs.closeSync(fd); } catch (_) {}
     }
     if (error.code === 'EEXIST') {
-      throw backupError('MAINTENANCE_LOCKED', 'A maintenance operation started while the backend was starting.');
+      throw backupError('MAINTENANCE_LOCKED');
     }
-    throw backupError('MAINTENANCE_LOCK_FAILED', 'The backend maintenance guard could not be created.', error);
+    throw backupError('MAINTENANCE_LOCK_FAILED', error);
   }
   const lock = {
     fd,
@@ -1476,7 +1432,7 @@ async function assertDiskAllocations(allocations, reserveBytes) {
     const statfs = await fsp.statfs(group.existing);
     const available = Number(statfs.bavail ?? statfs.bfree) * Number(statfs.bsize);
     if (Number.isFinite(available) && available - group.bytes < reserveBytes) {
-      throw backupError('INSUFFICIENT_STORAGE', '磁盘空间不足，无法完成备份或恢复。');
+      throw backupError('INSUFFICIENT_STORAGE');
     }
   }
 }
@@ -1495,7 +1451,7 @@ async function removeSqliteSidecars(databasePath, strict = false) {
       await fsp.rm(`${databasePath}${suffix}`, { force: true });
     } catch (error) {
       if (strict) {
-        throw backupError('TEMP_CLEANUP_FAILED', 'Temporary SQLite files could not be removed safely.', error);
+        throw backupError('TEMP_CLEANUP_FAILED', error);
       }
     }
   }
@@ -1505,7 +1461,7 @@ async function collectDirectoryFiles(rootPath, entryPrefix, limits) {
   const rootStat = await lstatIfExists(rootPath);
   if (!rootStat) return { files: [], totalBytes: 0 };
   if (rootStat.isSymbolicLink() || !rootStat.isDirectory()) {
-    throw backupError('UNSAFE_STORAGE', 'A backup data root must be a real directory, not a symbolic link.');
+    throw backupError('UNSAFE_STORAGE');
   }
 
   const files = [];
@@ -1519,7 +1475,7 @@ async function collectDirectoryFiles(rootPath, entryPrefix, limits) {
     try {
       entries = await fsp.readdir(current.absolute, { withFileTypes: true });
     } catch (error) {
-      throw backupError('STORAGE_READ_FAILED', 'Storage files could not be enumerated safely.', error);
+      throw backupError('STORAGE_READ_FAILED', error);
     }
     entries.sort((a, b) => a.name.localeCompare(b.name));
 
@@ -1531,33 +1487,33 @@ async function collectDirectoryFiles(rootPath, entryPrefix, limits) {
       try {
         stat = await fsp.lstat(absolute);
       } catch (error) {
-        throw backupError('STORAGE_CHANGED', 'Storage changed while the backup was being prepared.', error);
+        throw backupError('STORAGE_CHANGED', error);
       }
       if (stat.isSymbolicLink()) {
-        throw backupError('SYMLINK_REJECTED', 'Symbolic links in storage are not included in backups.');
+        throw backupError('SYMLINK_REJECTED');
       }
       if (stat.isDirectory()) {
         pending.push({ absolute, relative });
         continue;
       }
       if (!stat.isFile()) {
-        throw backupError('SPECIAL_FILE_REJECTED', 'Storage contains a non-regular file that cannot be backed up.');
+        throw backupError('SPECIAL_FILE_REJECTED');
       }
       if (stat.size > limits.maxFileBytes) {
-        throw backupError('FILE_LIMIT_EXCEEDED', 'A storage file exceeds the configured backup size limit.');
+        throw backupError('FILE_LIMIT_EXCEEDED');
       }
       if (files.length + 1 > limits.maxFiles) {
-        throw backupError('FILE_LIMIT_EXCEEDED', 'Storage contains more files than the configured backup limit.');
+        throw backupError('FILE_LIMIT_EXCEEDED');
       }
       totalBytes += stat.size;
       if (!Number.isSafeInteger(totalBytes) || totalBytes > limits.maxTotalBytes) {
-        throw backupError('SIZE_LIMIT_EXCEEDED', 'Storage exceeds the configured total backup size limit.');
+        throw backupError('SIZE_LIMIT_EXCEEDED');
       }
 
       const archiveName = archiveNameForDirectory(relative, entryPrefix, limits);
       const collisionKey = archiveName.normalize('NFC').toLowerCase();
       if (names.has(collisionKey)) {
-        throw backupError('DUPLICATE_ARCHIVE_PATH', 'Storage contains file names that collide on supported platforms.');
+        throw backupError('DUPLICATE_ARCHIVE_PATH');
       }
       names.add(collisionKey);
       files.push({ absolute, archiveName, identity: fileIdentity(stat) });
@@ -1582,7 +1538,7 @@ async function sha256CollectedFile(file) {
     handle = await fsp.open(file.absolute, fs.constants.O_RDONLY);
     const before = await handle.stat();
     if (!sameFileIdentity(before, file.identity)) {
-      throw backupError('BACKUP_DATA_CHANGED', 'A backup data file changed while the backup was being prepared.');
+      throw backupError('BACKUP_DATA_CHANGED');
     }
     const hash = crypto.createHash('sha256');
     const buffer = Buffer.allocUnsafe(1024 * 1024);
@@ -1591,19 +1547,19 @@ async function sha256CollectedFile(file) {
       const length = Math.min(buffer.length, file.identity.size - position);
       const result = await handle.read(buffer, 0, length, position);
       if (result.bytesRead <= 0) {
-        throw backupError('BACKUP_DATA_CHANGED', 'A backup data file changed while the backup was being prepared.');
+        throw backupError('BACKUP_DATA_CHANGED');
       }
       hash.update(buffer.subarray(0, result.bytesRead));
       position += result.bytesRead;
     }
     const after = await handle.stat();
     if (position !== file.identity.size || !sameFileIdentity(after, file.identity)) {
-      throw backupError('BACKUP_DATA_CHANGED', 'A backup data file changed while the backup was being prepared.');
+      throw backupError('BACKUP_DATA_CHANGED');
     }
     return hash.digest('hex');
   } catch (error) {
     if (error instanceof DataBackupError) throw error;
-    throw backupError('BACKUP_DATA_READ_FAILED', 'A backup data file could not be read safely.', error);
+    throw backupError('BACKUP_DATA_READ_FAILED', error);
   } finally {
     if (handle) await handle.close().catch(() => {});
   }
@@ -1666,34 +1622,34 @@ function validateStorySourceReferences(databasePath, storySourcesPath, storySour
         typeof rawPath !== 'string' || path.isAbsolute(rawPath) || rawPath.includes('\\') ||
         /[\x00-\x1f\x7f]/.test(rawPath)
       ) {
-        throw backupError('SOURCE_TEXT_REFERENCE_INVALID', 'An active source-text reference has an unsafe path.');
+        throw backupError('SOURCE_TEXT_REFERENCE_INVALID');
       }
       const segments = rawPath.split('/');
       if (segments.some((segment) => !segment)) {
-        throw backupError('SOURCE_TEXT_REFERENCE_INVALID', 'An active source-text reference has an unsafe path.');
+        throw backupError('SOURCE_TEXT_REFERENCE_INVALID');
       }
       try {
         for (const segment of segments) assertPortableSegment(segment);
       } catch (error) {
         if (error instanceof DataBackupError) {
-          throw backupError('SOURCE_TEXT_REFERENCE_INVALID', 'An active source-text reference has an unsafe path.');
+          throw backupError('SOURCE_TEXT_REFERENCE_INVALID');
         }
         throw error;
       }
       const candidate = path.resolve(packageRoot, ...segments);
       if (!isPathInside(storySourcesPath, candidate)) {
-        throw backupError('SOURCE_TEXT_REFERENCE_INVALID', 'An active source-text reference escapes the source-text root.');
+        throw backupError('SOURCE_TEXT_REFERENCE_INVALID');
       }
       const relative = path.relative(storySourcesPath, candidate);
       const archiveName = archiveNameForDirectory(relative, STORY_SOURCES_PREFIX, limits);
       if (!archivedNames.has(archiveName)) {
-        throw backupError('SOURCE_TEXT_MISSING', 'An active source-text reference points to a missing or unsafe file.');
+        throw backupError('SOURCE_TEXT_MISSING');
       }
     }
     return rows.length;
   } catch (error) {
     if (error instanceof DataBackupError) throw error;
-    throw backupError('SOURCE_TEXT_VALIDATION_FAILED', 'Source-text references could not be validated safely.', error);
+    throw backupError('SOURCE_TEXT_VALIDATION_FAILED', error);
   } finally {
     if (db) db.close();
   }
@@ -1706,11 +1662,11 @@ function sqliteIntegrityCheck(databasePath) {
     db.pragma('query_only = ON');
     const rows = db.pragma('integrity_check');
     if (rows.length !== 1 || String(Object.values(rows[0] || {})[0]).toLowerCase() !== 'ok') {
-      throw backupError('SQLITE_INTEGRITY_FAILED', 'The SQLite database failed its integrity check.');
+      throw backupError('SQLITE_INTEGRITY_FAILED');
     }
   } catch (error) {
     if (error instanceof DataBackupError) throw error;
-    throw backupError('SQLITE_INTEGRITY_FAILED', 'The SQLite database failed its integrity check.', error);
+    throw backupError('SQLITE_INTEGRITY_FAILED', error);
   } finally {
     if (db) db.close();
   }
@@ -1719,7 +1675,7 @@ function sqliteIntegrityCheck(databasePath) {
 async function createOnlineDatabaseSnapshot(databasePath, snapshotPath) {
   const sourceStat = await lstatIfExists(databasePath);
   if (!sourceStat || sourceStat.isSymbolicLink() || !sourceStat.isFile()) {
-    throw backupError('DATABASE_UNAVAILABLE', 'The configured SQLite database is unavailable or unsafe.');
+    throw backupError('DATABASE_UNAVAILABLE');
   }
 
   let db;
@@ -1728,13 +1684,13 @@ async function createOnlineDatabaseSnapshot(databasePath, snapshotPath) {
     db.pragma('busy_timeout = 5000');
     await db.backup(snapshotPath);
   } catch (error) {
-    throw backupError('DATABASE_BACKUP_FAILED', 'A consistent SQLite snapshot could not be created.', error);
+    throw backupError('DATABASE_BACKUP_FAILED', error);
   } finally {
     if (db) db.close();
   }
   const snapshotStat = await lstatIfExists(snapshotPath);
   if (!snapshotStat || snapshotStat.isSymbolicLink() || !snapshotStat.isFile()) {
-    throw backupError('DATABASE_BACKUP_FAILED', 'A consistent SQLite snapshot could not be created.');
+    throw backupError('DATABASE_BACKUP_FAILED');
   }
   await chmodPrivate(snapshotPath);
   sqliteIntegrityCheck(snapshotPath);
@@ -1743,17 +1699,17 @@ async function createOnlineDatabaseSnapshot(databasePath, snapshotPath) {
 async function createLockedDatabaseSnapshot(databasePath, snapshotPath) {
   const sourceBefore = await fsp.lstat(databasePath);
   if (sourceBefore.isSymbolicLink() || !sourceBefore.isFile()) {
-    throw backupError('DATABASE_UNAVAILABLE', 'The configured SQLite database is unavailable or unsafe.');
+    throw backupError('DATABASE_UNAVAILABLE');
   }
   try {
     await fsp.copyFile(databasePath, snapshotPath, fs.constants.COPYFILE_EXCL);
   } catch (error) {
-    throw backupError('DATABASE_BACKUP_FAILED', 'A consistent SQLite snapshot could not be created.', error);
+    throw backupError('DATABASE_BACKUP_FAILED', error);
   }
   const sourceAfter = await fsp.lstat(databasePath);
   if (!sameFileIdentity(sourceAfter, fileIdentity(sourceBefore))) {
     await fsp.rm(snapshotPath, { force: true }).catch(() => {});
-    throw backupError('DATABASE_CHANGED', 'The SQLite database changed while its snapshot was being created.');
+    throw backupError('DATABASE_CHANGED');
   }
   await chmodPrivate(snapshotPath);
   sqliteIntegrityCheck(snapshotPath);
@@ -2062,7 +2018,7 @@ function excludeSecretsFromSnapshot(snapshotPath) {
     fs.rmSync(snapshotPath, { force: true });
     renameDurablySync(rewrittenPath, snapshotPath);
   } catch (error) {
-    throw backupError('SECRET_EXCLUSION_FAILED', 'Secrets could not be safely excluded from the backup snapshot.', error);
+    throw backupError('SECRET_EXCLUSION_FAILED', error);
   } finally {
     if (db) db.close();
     try { fs.rmSync(rewrittenPath, { force: true }); } catch (_) {}
@@ -2146,7 +2102,7 @@ async function captureBackupView(databasePath, storagePath, storySourcesPath, sn
     return { storage, storySources };
   } catch (error) {
     if (isSqliteBusy(error)) {
-      throw backupError('DATABASE_BUSY', 'The SQLite database is in use; stop all writing processes before backup.');
+      throw backupError('DATABASE_BUSY');
     }
     throw error;
   } finally {
@@ -2200,7 +2156,7 @@ function toSafeNumber(value, code = 'INVALID_ARCHIVE') {
   } else if (typeof value === 'bigint' && value <= BigInt(Number.MAX_SAFE_INTEGER)) {
     return Number(value);
   }
-  throw backupError(code, 'The archive uses unsupported numeric sizes or offsets.');
+  throw backupError(code, '压缩包使用了不支持的数值大小或偏移。');
 }
 
 function dosDateTime(dateValue) {
@@ -2215,7 +2171,7 @@ async function writeAll(handle, buffer, startPosition) {
   let offset = 0;
   while (offset < buffer.length) {
     const result = await handle.write(buffer, offset, buffer.length - offset, startPosition + offset);
-    if (result.bytesWritten <= 0) throw backupError('ARCHIVE_WRITE_FAILED', 'The backup archive could not be written.');
+    if (result.bytesWritten <= 0) throw backupError('ARCHIVE_WRITE_FAILED');
     offset += result.bytesWritten;
   }
   return startPosition + buffer.length;
@@ -2260,14 +2216,14 @@ function canonicalPhysicalIdentity(stat) {
 
 function descriptorSize(stat, code = 'INVALID_DESCRIPTOR_PUBLICATION') {
   if (typeof stat.size !== 'bigint' || stat.size < 0n || stat.size > BigInt(Number.MAX_SAFE_INTEGER)) {
-    throw backupError(code, 'The descriptor-backed archive size is unsupported.');
+    throw backupError(code, '描述符备份大小不受支持。');
   }
   return Number(stat.size);
 }
 
 function assertRegularDescriptorStat(stat) {
   if (!stat?.isFile?.()) {
-    throw backupError('INVALID_DESCRIPTOR_PUBLICATION', 'Descriptor publication requires regular file descriptors.');
+    throw backupError('INVALID_DESCRIPTOR_PUBLICATION');
   }
 }
 
@@ -2284,7 +2240,7 @@ async function sha256Descriptor(fd, expectedBytes, signal) {
     const length = Math.min(buffer.length, expectedBytes - position);
     const result = await descriptorRead(fd, buffer, 0, length, position);
     if (result.bytesRead <= 0) {
-      throw backupError('PUBLICATION_CONTENT_MISMATCH', 'The descriptor-backed archive changed while it was being verified.');
+      throw backupError('PUBLICATION_CONTENT_MISMATCH');
     }
     hash.update(buffer.subarray(0, result.bytesRead));
     position += result.bytesRead;
@@ -2294,7 +2250,7 @@ async function sha256Descriptor(fd, expectedBytes, signal) {
 
 function normalizeDescriptorPublication(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw backupError('INVALID_DESCRIPTOR_PUBLICATION', 'Descriptor publication options are invalid.');
+    throw backupError('INVALID_DESCRIPTOR_PUBLICATION');
   }
   const {
     readFd,
@@ -2305,20 +2261,20 @@ function normalizeDescriptorPublication(value) {
     waitForPublication,
   } = value;
   if (!Number.isInteger(readFd) || readFd < 0 || !Number.isInteger(writeFd) || writeFd < 0 || readFd === writeFd) {
-    throw backupError('INVALID_DESCRIPTOR_PUBLICATION', 'Descriptor publication requires distinct read and write descriptors.');
+    throw backupError('INVALID_DESCRIPTOR_PUBLICATION');
   }
   if (
     typeof publicationPath !== 'string' || !path.isAbsolute(publicationPath) ||
     typeof publicationFile !== 'string' || publicationFile !== BACKUP_PUBLICATION_FILE ||
     path.basename(publicationPath) !== publicationFile
   ) {
-    throw backupError('INVALID_DESCRIPTOR_PUBLICATION', 'Descriptor publication requires an absolute data.zip path.');
+    throw backupError('INVALID_DESCRIPTOR_PUBLICATION');
   }
   if (typeof operationId !== 'string' || !BACKUP_PUBLICATION_OPERATION_PATTERN.test(operationId)) {
-    throw backupError('INVALID_DESCRIPTOR_PUBLICATION', 'Descriptor publication requires a canonical operation identifier.');
+    throw backupError('INVALID_DESCRIPTOR_PUBLICATION');
   }
   if (typeof waitForPublication !== 'function') {
-    throw backupError('INVALID_DESCRIPTOR_PUBLICATION', 'Descriptor publication requires a publication wait callback.');
+    throw backupError('INVALID_DESCRIPTOR_PUBLICATION');
   }
   return Object.freeze({
     readFd,
@@ -2366,7 +2322,7 @@ async function writeStoredZipEntry(archiveHandle, position, source, signal) {
   assertOperationNotAborted(signal);
   const nameBuffer = Buffer.from(source.name, 'utf8');
   if (nameBuffer.length > ZIP64_UINT16) {
-    throw backupError('UNSAFE_ARCHIVE_PATH', 'A storage path is too long for a ZIP archive.');
+    throw backupError('UNSAFE_ARCHIVE_PATH');
   }
   const localOffset = position;
   const localExtra = createLocalZip64Extra();
@@ -2401,7 +2357,7 @@ async function writeStoredZipEntry(archiveHandle, position, source, signal) {
       sourceHandle = await fsp.open(source.filePath, fs.constants.O_RDONLY);
       const before = await sourceHandle.stat();
       if (!sameFileIdentity(before, source.identity)) {
-        throw backupError('STORAGE_CHANGED', 'A source file changed while the backup was being created.');
+        throw backupError('STORAGE_CHANGED');
       }
       const buffer = Buffer.allocUnsafe(1024 * 1024);
       let sourcePosition = 0;
@@ -2410,7 +2366,7 @@ async function writeStoredZipEntry(archiveHandle, position, source, signal) {
         const length = Math.min(buffer.length, source.identity.size - sourcePosition);
         const result = await sourceHandle.read(buffer, 0, length, sourcePosition);
         if (result.bytesRead <= 0) {
-          throw backupError('STORAGE_CHANGED', 'A source file changed while the backup was being created.');
+          throw backupError('STORAGE_CHANGED');
         }
         const chunk = buffer.subarray(0, result.bytesRead);
         crc = updateCrc32(crc, chunk);
@@ -2421,7 +2377,7 @@ async function writeStoredZipEntry(archiveHandle, position, source, signal) {
       }
       const after = await sourceHandle.stat();
       if (size !== source.identity.size || !sameFileIdentity(after, source.identity)) {
-        throw backupError('STORAGE_CHANGED', 'A source file changed while the backup was being created.');
+        throw backupError('STORAGE_CHANGED');
       }
     } finally {
       if (sourceHandle) await sourceHandle.close();
@@ -2429,7 +2385,7 @@ async function writeStoredZipEntry(archiveHandle, position, source, signal) {
   }
 
   if (contentHash && contentHash.digest('hex') !== source.sha256) {
-    throw backupError('BACKUP_DATA_CHANGED', 'A backup data file changed while the backup was being created.');
+    throw backupError('BACKUP_DATA_CHANGED');
   }
 
   assertOperationNotAborted(signal);
@@ -2524,7 +2480,7 @@ async function writeZip64ArchiveToHandle(handle, sources, signal) {
     return position;
   } catch (error) {
     if (error instanceof DataBackupError) throw error;
-    throw backupError('ARCHIVE_WRITE_FAILED', 'The backup archive could not be written.', error);
+    throw backupError('ARCHIVE_WRITE_FAILED', error);
   }
 }
 
@@ -2547,12 +2503,12 @@ async function createDescriptorArchive(publication, sources, limits, signal) {
       descriptorStat(publication.writeFd),
     ]);
   } catch (error) {
-    throw backupError('INVALID_DESCRIPTOR_PUBLICATION', 'Descriptor publication handles could not be inspected.', error);
+    throw backupError('INVALID_DESCRIPTOR_PUBLICATION', error);
   }
   assertRegularDescriptorStat(readStat);
   assertRegularDescriptorStat(writeStat);
   if (!sameDescriptorIdentity(readStat, writeStat) || descriptorSize(readStat) !== 0 || descriptorSize(writeStat) !== 0) {
-    throw backupError('INVALID_DESCRIPTOR_PUBLICATION', 'Descriptor publication handles must refer to the same empty file.');
+    throw backupError('INVALID_DESCRIPTOR_PUBLICATION');
   }
   const filesystemIdentity = canonicalPhysicalIdentity(readStat);
   const archiveBytesWritten = await writeZip64ArchiveToHandle(
@@ -2575,10 +2531,10 @@ async function createDescriptorArchive(publication, sources, limits, signal) {
     descriptorSize(writeStat) !== archiveBytes ||
     archiveBytes !== archiveBytesWritten
   ) {
-    throw backupError('PUBLICATION_CONTENT_MISMATCH', 'The descriptor-backed archive changed while it was being written.');
+    throw backupError('PUBLICATION_CONTENT_MISMATCH');
   }
   if (archiveBytes > limits.maxArchiveBytes) {
-    throw backupError('ARCHIVE_LIMIT_EXCEEDED', 'The resulting backup exceeds the configured archive size limit.');
+    throw backupError('ARCHIVE_LIMIT_EXCEEDED');
   }
   const archiveSha256 = await sha256Descriptor(publication.readFd, archiveBytes, signal);
   const preReadyStat = await descriptorStat(publication.readFd);
@@ -2586,7 +2542,7 @@ async function createDescriptorArchive(publication, sources, limits, signal) {
     canonicalPhysicalIdentity(preReadyStat) !== filesystemIdentity ||
     descriptorSize(preReadyStat, 'PUBLICATION_CONTENT_MISMATCH') !== archiveBytes
   ) {
-    throw backupError('PUBLICATION_CONTENT_MISMATCH', 'The descriptor-backed archive changed before publication.');
+    throw backupError('PUBLICATION_CONTENT_MISMATCH');
   }
 
   const ready = descriptorPublicationMarker(
@@ -2604,9 +2560,9 @@ async function createDescriptorArchive(publication, sources, limits, signal) {
     finalPathStat = await fsp.lstat(publication.publicationPath, { bigint: true });
   } catch (error) {
     if (error.code === 'ENOENT') {
-      throw backupError('PUBLICATION_IDENTITY_MISMATCH', 'The descriptor-backed archive was not published at the expected path.');
+      throw backupError('PUBLICATION_IDENTITY_MISMATCH');
     }
-    throw backupError('PUBLICATION_IDENTITY_MISMATCH', 'The descriptor-backed archive path could not be inspected.', error);
+    throw backupError('PUBLICATION_IDENTITY_MISMATCH', error);
   }
   const [finalReadStat, finalWriteStat] = await Promise.all([
     descriptorStat(publication.readFd),
@@ -2618,10 +2574,10 @@ async function createDescriptorArchive(publication, sources, limits, signal) {
     canonicalPhysicalIdentity(finalReadStat) !== filesystemIdentity ||
     canonicalPhysicalIdentity(finalPathStat) !== filesystemIdentity
   ) {
-    throw backupError('PUBLICATION_IDENTITY_MISMATCH', 'The published archive does not match the retained descriptor identity.');
+    throw backupError('PUBLICATION_IDENTITY_MISMATCH');
   }
   if (descriptorSize(finalReadStat, 'PUBLICATION_CONTENT_MISMATCH') !== archiveBytes) {
-    throw backupError('PUBLICATION_CONTENT_MISMATCH', 'The published archive size changed after publication.');
+    throw backupError('PUBLICATION_CONTENT_MISMATCH');
   }
   const committedSha256 = await sha256Descriptor(publication.readFd, archiveBytes, signal);
   const committedReadStat = await descriptorStat(publication.readFd);
@@ -2630,7 +2586,7 @@ async function createDescriptorArchive(publication, sources, limits, signal) {
     canonicalPhysicalIdentity(committedReadStat) !== filesystemIdentity ||
     descriptorSize(committedReadStat, 'PUBLICATION_CONTENT_MISMATCH') !== archiveBytes
   ) {
-    throw backupError('PUBLICATION_CONTENT_MISMATCH', 'The published archive bytes changed after publication.');
+    throw backupError('PUBLICATION_CONTENT_MISMATCH');
   }
   const committed = descriptorPublicationMarker(
     publication,
@@ -2651,32 +2607,32 @@ async function createDataBackup(options) {
     ? null
     : normalizeDescriptorPublication(options.descriptorPublication);
   if (descriptorPublication && options?.outputPath != null) {
-    throw backupError('INVALID_ARGUMENT', 'Descriptor publication and output paths are mutually exclusive.');
+    throw backupError('INVALID_ARGUMENT');
   }
   const outputPath = descriptorPublication
     ? descriptorPublication.publicationPath
     : path.resolve(options?.outputPath || '');
   const limits = normalizeLimits(options?.limits);
   if (!options?.databasePath || !options?.storagePath || (!descriptorPublication && !options?.outputPath)) {
-    throw backupError('INVALID_ARGUMENT', 'Database, storage, and output locations are required.');
+    throw backupError('INVALID_ARGUMENT');
   }
   assertSafeTargetPaths(databasePath, storagePath, storySourcesPath);
   if (
     outputPath === databasePath || isPathInside(storagePath, outputPath) ||
     isPathInside(storySourcesPath, outputPath)
   ) {
-    throw backupError('UNSAFE_OUTPUT', 'The backup output must be outside the live data targets.');
+    throw backupError('UNSAFE_OUTPUT');
   }
   if (await lstatIfExists(outputPath)) {
-    throw backupError('OUTPUT_EXISTS', 'The requested backup output already exists.');
+    throw backupError('OUTPUT_EXISTS');
   }
 
   if (descriptorPublication) {
     const parentStat = await fsp.lstat(path.dirname(outputPath)).catch((error) => {
-      throw backupError('INVALID_DESCRIPTOR_PUBLICATION', 'The descriptor publication directory is unavailable.', error);
+      throw backupError('INVALID_DESCRIPTOR_PUBLICATION', error);
     });
     if (!parentStat.isDirectory() || parentStat.isSymbolicLink()) {
-      throw backupError('INVALID_DESCRIPTOR_PUBLICATION', 'The descriptor publication directory must be a real directory.');
+      throw backupError('INVALID_DESCRIPTOR_PUBLICATION');
     }
   } else {
     await fsp.mkdir(path.dirname(outputPath), { recursive: true });
@@ -2702,7 +2658,7 @@ async function createDataBackup(options) {
       });
     } catch (error) {
       if (error instanceof DataBackupError) throw error;
-      throw backupError('MAINTENANCE_LOCK_FAILED', 'Backup maintenance lock could not be acquired.', error);
+      throw backupError('MAINTENANCE_LOCK_FAILED', error);
     }
   }
   let workDir = null;
@@ -2722,7 +2678,7 @@ async function createDataBackup(options) {
     const sourceDatabaseStat = await fsp.stat(databasePath);
     const snapshotWorkingBytes = sourceDatabaseStat.size * (options?.includeSecrets === true ? 1 : 2);
     if (!Number.isSafeInteger(snapshotWorkingBytes)) {
-      throw backupError('SIZE_LIMIT_EXCEEDED', 'The SQLite database is too large to snapshot safely.');
+      throw backupError('SIZE_LIMIT_EXCEEDED');
     }
     await assertDiskAllocations(
       [{ targetPath: workDir, bytes: snapshotWorkingBytes }],
@@ -2744,15 +2700,15 @@ async function createDataBackup(options) {
     assertOperationNotAborted(options?.signal);
     const databaseStat = await fsp.stat(snapshotPath);
     if (databaseStat.size > limits.maxFileBytes) {
-      throw backupError('FILE_LIMIT_EXCEEDED', 'The SQLite snapshot exceeds the configured file size limit.');
+      throw backupError('FILE_LIMIT_EXCEEDED');
     }
     const directoryFileCount = storage.files.length + storySources.files.length;
     if (directoryFileCount > limits.maxFiles) {
-      throw backupError('FILE_LIMIT_EXCEEDED', 'Backup data contains more files than the configured backup limit.');
+      throw backupError('FILE_LIMIT_EXCEEDED');
     }
     const totalBytes = databaseStat.size + storage.totalBytes + storySources.totalBytes;
     if (!Number.isSafeInteger(totalBytes) || totalBytes > limits.maxTotalBytes) {
-      throw backupError('SIZE_LIMIT_EXCEEDED', 'The database and storage exceed the configured total backup size limit.');
+      throw backupError('SIZE_LIMIT_EXCEEDED');
     }
     await assertDiskAllocations(
       [{ targetPath: path.dirname(outputPath), bytes: totalBytes + limits.maxManifestBytes + (directoryFileCount * 256) }],
@@ -2790,7 +2746,7 @@ async function createDataBackup(options) {
     };
     const manifestBuffer = Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
     if (manifestBuffer.length > limits.maxManifestBytes) {
-      throw backupError('MANIFEST_LIMIT_EXCEEDED', 'The generated backup manifest is unexpectedly large.');
+      throw backupError('MANIFEST_LIMIT_EXCEEDED');
     }
 
     const sources = [
@@ -2837,7 +2793,7 @@ async function createDataBackup(options) {
     assertOperationNotAborted(options?.signal);
     const archiveStat = await fsp.stat(tempArchivePath);
     if (archiveStat.size > limits.maxArchiveBytes) {
-      throw backupError('ARCHIVE_LIMIT_EXCEEDED', 'The resulting backup exceeds the configured archive size limit.');
+      throw backupError('ARCHIVE_LIMIT_EXCEEDED');
     }
     await chmodPrivate(tempArchivePath);
     assertOperationNotAborted(options?.signal);
@@ -2847,14 +2803,14 @@ async function createDataBackup(options) {
       outputLinked = true;
       const outputStat = await fsp.lstat(outputPath, { bigint: true });
       if (!outputStat.isFile() || outputStat.isSymbolicLink()) {
-        throw backupError('OUTPUT_COMMIT_FAILED', 'The backup output is not a regular file.');
+        throw backupError('OUTPUT_COMMIT_FAILED');
       }
       outputIdentity = maintenanceLeaseFileIdentity(outputStat);
       await syncParentDirectories(outputPath);
     } catch (error) {
-      if (error.code === 'EEXIST') throw backupError('OUTPUT_EXISTS', 'The requested backup output already exists.');
+      if (error.code === 'EEXIST') throw backupError('OUTPUT_EXISTS');
       if (isPermissionDeniedError(error)) throw permissionDeniedError(error);
-      throw backupError('OUTPUT_COMMIT_FAILED', 'The backup output could not be created atomically without overwrite.', error);
+      throw backupError('OUTPUT_COMMIT_FAILED', error);
     }
     await runFaultInjector(options, 'after-backup-output-linked');
     if (externalMaintenanceLease) assertExternalMaintenanceLease(databasePath, externalMaintenanceLease);
@@ -2866,22 +2822,11 @@ async function createDataBackup(options) {
     const primaryError = wrapUnknownBackupError(
       error,
       'BACKUP_FAILED',
-      'The data backup could not be completed.'
     );
     if (outputLinked) {
       try {
-        const claim = claimOwnedRegularPathSync(
-          outputPath,
-          outputIdentity,
-          'OUTPUT_CLEANUP_FAILED',
-          'The failed backup output could not be claimed without touching a replacement.'
-        );
-        removeOwnedClaimSync(
-          claim,
-          outputIdentity,
-          'OUTPUT_CLEANUP_FAILED',
-          'The claimed failed backup output could not be removed.'
-        );
+        const claim = claimOwnedRegularPathSync(outputPath, outputIdentity, 'OUTPUT_CLEANUP_FAILED');
+        removeOwnedClaimSync(claim, outputIdentity, 'OUTPUT_CLEANUP_FAILED');
         outputLinked = false;
       } catch (cleanupError) {
         try {
@@ -2899,14 +2844,14 @@ async function createDataBackup(options) {
 
 async function readExactly(handle, length, position) {
   if (!Number.isSafeInteger(length) || length < 0 || !Number.isSafeInteger(position) || position < 0) {
-    throw backupError('INVALID_ARCHIVE', 'The ZIP archive contains invalid offsets.');
+    throw backupError('INVALID_ARCHIVE');
   }
   const buffer = Buffer.alloc(length);
   let offset = 0;
   while (offset < length) {
     const result = await handle.read(buffer, offset, length - offset, position + offset);
     if (result.bytesRead <= 0) {
-      throw backupError('INVALID_ARCHIVE', 'The ZIP archive is truncated.');
+      throw backupError('INVALID_ARCHIVE');
     }
     offset += result.bytesRead;
   }
@@ -2925,7 +2870,7 @@ function findEndOfCentralDirectory(tail, tailOffset) {
       return { bufferOffset: index, fileOffset: tailOffset + index };
     }
   }
-  throw backupError('INVALID_ARCHIVE', 'The file is not a complete ZIP archive.');
+  throw backupError('INVALID_ARCHIVE');
 }
 
 function readZip64Values(extra, needs) {
@@ -2936,33 +2881,33 @@ function readZip64Values(extra, needs) {
     const size = extra.readUInt16LE(cursor + 2);
     cursor += 4;
     if (cursor + size > extra.length) {
-      throw backupError('INVALID_ARCHIVE', 'The ZIP archive contains a malformed extra field.');
+      throw backupError('INVALID_ARCHIVE');
     }
     if (id === 0x0001) {
-      if (zip64) throw backupError('INVALID_ARCHIVE', 'The ZIP archive contains duplicate ZIP64 metadata.');
+      if (zip64) throw backupError('INVALID_ARCHIVE');
       zip64 = extra.subarray(cursor, cursor + size);
     }
     cursor += size;
   }
   if (cursor !== extra.length) {
-    throw backupError('INVALID_ARCHIVE', 'The ZIP archive contains a malformed extra field.');
+    throw backupError('INVALID_ARCHIVE');
   }
   if (!Object.values(needs).some(Boolean)) return {};
-  if (!zip64) throw backupError('INVALID_ARCHIVE', 'The ZIP archive is missing required ZIP64 metadata.');
+  if (!zip64) throw backupError('INVALID_ARCHIVE');
 
   const result = {};
   let offset = 0;
   for (const key of ['uncompressedSize', 'compressedSize', 'localOffset']) {
     if (!needs[key]) continue;
     if (offset + 8 > zip64.length) {
-      throw backupError('INVALID_ARCHIVE', 'The ZIP64 metadata is truncated.');
+      throw backupError('INVALID_ARCHIVE');
     }
     result[key] = readUInt64Safe(zip64, offset);
     offset += 8;
   }
   if (needs.diskStart) {
     if (offset + 4 > zip64.length) {
-      throw backupError('INVALID_ARCHIVE', 'The ZIP64 metadata is truncated.');
+      throw backupError('INVALID_ARCHIVE');
     }
     result.diskStart = zip64.readUInt32LE(offset);
   }
@@ -2974,17 +2919,17 @@ function assertRegularZipEntry(externalAttributes) {
   const fileType = unixMode & 0xf000;
   const dosDirectory = (externalAttributes & 0x10) !== 0;
   if (dosDirectory || (fileType !== 0 && fileType !== 0x8000)) {
-    throw backupError('SYMLINK_REJECTED', 'The ZIP archive contains a link or non-regular file.');
+    throw backupError('SYMLINK_REJECTED');
   }
 }
 
 async function readArchiveDirectory(archivePath, limits, archiveHandle = null) {
   const archiveStat = await lstatIfExists(archivePath);
   if (!archiveStat || archiveStat.isSymbolicLink() || !archiveStat.isFile()) {
-    throw backupError('ARCHIVE_UNAVAILABLE', 'The requested backup archive is unavailable or unsafe.');
+    throw backupError('ARCHIVE_UNAVAILABLE');
   }
   if (archiveStat.size > limits.maxArchiveBytes) {
-    throw backupError('ARCHIVE_LIMIT_EXCEEDED', 'The backup archive exceeds the configured size limit.');
+    throw backupError('ARCHIVE_LIMIT_EXCEEDED');
   }
 
   let handle = archiveHandle;
@@ -2993,10 +2938,10 @@ async function readArchiveDirectory(archivePath, limits, archiveHandle = null) {
     if (ownsHandle) handle = await fsp.open(archivePath, 'r');
     const openedStat = await handle.stat();
     if (!openedStat.isFile() || openedStat.size !== archiveStat.size || openedStat.dev !== archiveStat.dev || openedStat.ino !== archiveStat.ino) {
-      throw backupError('ARCHIVE_CHANGED', 'The backup archive changed while it was being opened.');
+      throw backupError('ARCHIVE_CHANGED');
     }
     if (openedStat.size < MINIMUM_ZIP_ARCHIVE_BYTES) {
-      throw backupError('INVALID_ARCHIVE', 'The file is not a complete ZIP archive.');
+      throw backupError('INVALID_ARCHIVE');
     }
 
     const tailLength = Math.min(openedStat.size, 22 + ZIP64_UINT16 + 20);
@@ -3011,21 +2956,21 @@ async function readArchiveDirectory(archivePath, limits, archiveHandle = null) {
     let centralSize = end.readUInt32LE(12);
     let centralOffset = end.readUInt32LE(16);
     if (diskNumber !== 0 || centralDisk !== 0 || entriesOnDisk !== entryCount) {
-      throw backupError('INVALID_ARCHIVE', 'Multi-disk ZIP archives are not supported.');
+      throw backupError('INVALID_ARCHIVE');
     }
 
     const needsZip64 = entryCount === ZIP64_UINT16 || centralSize === ZIP64_UINT32 || centralOffset === ZIP64_UINT32;
     let centralBoundary = endLocation.fileOffset;
     if (needsZip64) {
       const locatorOffset = endLocation.fileOffset - 20;
-      if (locatorOffset < 0) throw backupError('INVALID_ARCHIVE', 'The ZIP64 locator is missing.');
+      if (locatorOffset < 0) throw backupError('INVALID_ARCHIVE');
       const locator = await readExactly(handle, 20, locatorOffset);
       if (
         locator.readUInt32LE(0) !== ZIP64_LOCATOR_SIGNATURE ||
         locator.readUInt32LE(4) !== 0 ||
         locator.readUInt32LE(16) !== 1
       ) {
-        throw backupError('INVALID_ARCHIVE', 'The ZIP64 locator is invalid.');
+        throw backupError('INVALID_ARCHIVE');
       }
       const zip64Offset = readUInt64Safe(locator, 8);
       const zip64End = await readExactly(handle, 56, zip64Offset);
@@ -3035,23 +2980,23 @@ async function readArchiveDirectory(archivePath, limits, archiveHandle = null) {
         zip64RecordSize !== 44 ||
         zip64Offset + 12 + zip64RecordSize !== locatorOffset
       ) {
-        throw backupError('INVALID_ARCHIVE', 'The ZIP64 directory record is invalid.');
+        throw backupError('INVALID_ARCHIVE');
       }
       if (zip64End.readUInt32LE(16) !== 0 || zip64End.readUInt32LE(20) !== 0) {
-        throw backupError('INVALID_ARCHIVE', 'Multi-disk ZIP archives are not supported.');
+        throw backupError('INVALID_ARCHIVE');
       }
       entriesOnDisk = readUInt64Safe(zip64End, 24);
       entryCount = readUInt64Safe(zip64End, 32);
       centralSize = readUInt64Safe(zip64End, 40);
       centralOffset = readUInt64Safe(zip64End, 48);
       if (entriesOnDisk !== entryCount || zip64Offset + 56 > locatorOffset) {
-        throw backupError('INVALID_ARCHIVE', 'The ZIP64 directory record is inconsistent.');
+        throw backupError('INVALID_ARCHIVE');
       }
       centralBoundary = zip64Offset;
     }
 
     if (entryCount < 2 || entryCount > limits.maxFiles + 2) {
-      throw backupError('FILE_LIMIT_EXCEEDED', 'The backup archive contains an invalid number of files.');
+      throw backupError('FILE_LIMIT_EXCEEDED');
     }
     if (
       centralOffset < 0 ||
@@ -3059,7 +3004,7 @@ async function readArchiveDirectory(archivePath, limits, archiveHandle = null) {
       centralOffset + centralSize > centralBoundary ||
       centralOffset + centralSize > openedStat.size
     ) {
-      throw backupError('INVALID_ARCHIVE', 'The ZIP central directory points outside the archive.');
+      throw backupError('INVALID_ARCHIVE');
     }
 
     const entries = [];
@@ -3069,11 +3014,11 @@ async function readArchiveDirectory(archivePath, limits, archiveHandle = null) {
     let payloadBytes = 0;
     for (let index = 0; index < entryCount; index += 1) {
       if (position + 46 > centralOffset + centralSize) {
-        throw backupError('INVALID_ARCHIVE', 'The ZIP central directory is truncated.');
+        throw backupError('INVALID_ARCHIVE');
       }
       const header = await readExactly(handle, 46, position);
       if (header.readUInt32LE(0) !== ZIP_CENTRAL_SIGNATURE) {
-        throw backupError('INVALID_ARCHIVE', 'The ZIP central directory is malformed.');
+        throw backupError('INVALID_ARCHIVE');
       }
       const versionMadeBy = header.readUInt16LE(4);
       const versionNeeded = header.readUInt16LE(6);
@@ -3090,7 +3035,7 @@ async function readArchiveDirectory(archivePath, limits, archiveHandle = null) {
       let localOffset = header.readUInt32LE(42);
       const variableLength = nameLength + extraLength + commentLength;
       if (nameLength === 0 || nameLength > limits.maxPathBytes || position + 46 + variableLength > centralOffset + centralSize) {
-        throw backupError('UNSAFE_ARCHIVE_PATH', 'The ZIP archive contains an invalid file name.');
+        throw backupError('UNSAFE_ARCHIVE_PATH');
       }
       const variable = await readExactly(handle, variableLength, position + 46);
       const rawName = variable.subarray(0, nameLength);
@@ -3106,28 +3051,28 @@ async function readArchiveDirectory(archivePath, limits, archiveHandle = null) {
       if (compressedSize === ZIP64_UINT32) compressedSize = zip64.compressedSize;
       if (localOffset === ZIP64_UINT32) localOffset = zip64.localOffset;
       if (diskStart === ZIP64_UINT16) diskStart = zip64.diskStart;
-      if (diskStart !== 0) throw backupError('INVALID_ARCHIVE', 'Multi-disk ZIP archives are not supported.');
+      if (diskStart !== 0) throw backupError('INVALID_ARCHIVE');
       const allowedFlags = ZIP_UTF8_FLAG | ZIP_DATA_DESCRIPTOR_FLAG | (method === 8 ? 0x0006 : 0);
       if ((flags & ~allowedFlags) !== 0 || ![0, 8].includes(method)) {
-        throw backupError('UNSUPPORTED_ARCHIVE', 'The ZIP archive uses encryption or an unsupported compression method.');
+        throw backupError('UNSUPPORTED_ARCHIVE');
       }
       assertRegularZipEntry(externalAttributes);
       if (uncompressedSize > limits.maxFileBytes) {
-        throw backupError('FILE_LIMIT_EXCEEDED', 'A file in the backup archive exceeds the configured size limit.');
+        throw backupError('FILE_LIMIT_EXCEEDED');
       }
       if (compressedSize > limits.maxArchiveBytes) {
-        throw backupError('ARCHIVE_LIMIT_EXCEEDED', 'A compressed ZIP entry exceeds the configured size limit.');
+        throw backupError('ARCHIVE_LIMIT_EXCEEDED');
       }
       if (method === 8 && uncompressedSize > 0 && compressedSize === 0) {
-        throw backupError('INVALID_ARCHIVE', 'A compressed ZIP entry has an invalid size.');
+        throw backupError('INVALID_ARCHIVE');
       }
       if (method === 8 && compressedSize > 0 && uncompressedSize / compressedSize > limits.maxCompressionRatio) {
-        throw backupError('COMPRESSION_LIMIT_EXCEEDED', 'A ZIP entry exceeds the configured compression ratio limit.');
+        throw backupError('COMPRESSION_LIMIT_EXCEEDED');
       }
 
       const collisionKey = name.normalize('NFC').toLowerCase();
       if (duplicateNames.has(collisionKey)) {
-        throw backupError('DUPLICATE_ARCHIVE_PATH', 'The ZIP archive contains duplicate or colliding file paths.');
+        throw backupError('DUPLICATE_ARCHIVE_PATH');
       }
       duplicateNames.add(collisionKey);
       if (name.startsWith(STORAGE_PREFIX) || name.startsWith(STORY_SOURCES_PREFIX)) {
@@ -3136,7 +3081,7 @@ async function readArchiveDirectory(archivePath, limits, archiveHandle = null) {
       if (name !== MANIFEST_ENTRY) {
         payloadBytes += uncompressedSize;
         if (!Number.isSafeInteger(payloadBytes) || payloadBytes > limits.maxTotalBytes) {
-          throw backupError('SIZE_LIMIT_EXCEEDED', 'The backup archive exceeds the configured total size limit.');
+          throw backupError('SIZE_LIMIT_EXCEEDED');
         }
       }
       entries.push({
@@ -3156,20 +3101,20 @@ async function readArchiveDirectory(archivePath, limits, archiveHandle = null) {
     }
 
     if (position !== centralOffset + centralSize || directoryFileCount > limits.maxFiles) {
-      throw backupError('INVALID_ARCHIVE', 'The ZIP central directory contains unexpected trailing data.');
+      throw backupError('INVALID_ARCHIVE');
     }
     if (!duplicateNames.has(MANIFEST_ENTRY) || !duplicateNames.has(DATABASE_ENTRY)) {
-      throw backupError('INVALID_ARCHIVE', 'The backup archive is missing its manifest or database.');
+      throw backupError('INVALID_ARCHIVE');
     }
 
     const ranges = [];
     for (const entry of entries) {
       if (entry.localOffset + 30 > centralOffset) {
-        throw backupError('INVALID_ARCHIVE', 'A ZIP entry points outside the file data region.');
+        throw backupError('INVALID_ARCHIVE');
       }
       const local = await readExactly(handle, 30, entry.localOffset);
       if (local.readUInt32LE(0) !== ZIP_LOCAL_SIGNATURE) {
-        throw backupError('INVALID_ARCHIVE', 'A ZIP local file header is malformed.');
+        throw backupError('INVALID_ARCHIVE');
       }
       const localFlags = local.readUInt16LE(6);
       const localMethod = local.readUInt16LE(8);
@@ -3179,11 +3124,11 @@ async function readArchiveDirectory(archivePath, limits, archiveHandle = null) {
       const localNameLength = local.readUInt16LE(26);
       const localExtraLength = local.readUInt16LE(28);
       if (localFlags !== entry.flags || localMethod !== entry.method || localNameLength !== entry.rawName.length) {
-        throw backupError('INVALID_ARCHIVE', 'ZIP local and central headers do not match.');
+        throw backupError('INVALID_ARCHIVE');
       }
       const localName = await readExactly(handle, localNameLength, entry.localOffset + 30);
       if (!localName.equals(entry.rawName)) {
-        throw backupError('INVALID_ARCHIVE', 'ZIP local and central file names do not match.');
+        throw backupError('INVALID_ARCHIVE');
       }
       const localExtra = await readExactly(
         handle,
@@ -3205,7 +3150,7 @@ async function readArchiveDirectory(archivePath, limits, archiveHandle = null) {
       const dataOffset = entry.localOffset + 30 + localNameLength + localExtraLength;
       const dataEnd = dataOffset + entry.compressedSize;
       if (!Number.isSafeInteger(dataEnd) || dataEnd > centralOffset) {
-        throw backupError('INVALID_ARCHIVE', 'A ZIP entry points outside the file data region.');
+        throw backupError('INVALID_ARCHIVE');
       }
       let rangeEnd = dataEnd;
       if ((entry.flags & ZIP_DATA_DESCRIPTOR_FLAG) !== 0) {
@@ -3223,7 +3168,7 @@ async function readArchiveDirectory(archivePath, limits, archiveHandle = null) {
           descriptorCompressed !== entry.compressedSize ||
           descriptorUncompressed !== entry.uncompressedSize
         ) {
-          throw backupError('INVALID_ARCHIVE', 'A ZIP data descriptor does not match its directory entry.');
+          throw backupError('INVALID_ARCHIVE');
         }
         rangeEnd = descriptorOffset + descriptorLength;
       } else if (
@@ -3231,10 +3176,10 @@ async function readArchiveDirectory(archivePath, limits, archiveHandle = null) {
         resolvedLocalCompressed !== entry.compressedSize ||
         resolvedLocalUncompressed !== entry.uncompressedSize
       ) {
-        throw backupError('INVALID_ARCHIVE', 'ZIP local and central sizes do not match.');
+        throw backupError('INVALID_ARCHIVE');
       }
       if (rangeEnd > centralOffset) {
-        throw backupError('INVALID_ARCHIVE', 'A ZIP entry overlaps the central directory.');
+        throw backupError('INVALID_ARCHIVE');
       }
       entry.dataOffset = dataOffset;
       entry.rangeEnd = rangeEnd;
@@ -3243,7 +3188,7 @@ async function readArchiveDirectory(archivePath, limits, archiveHandle = null) {
     ranges.sort((a, b) => a.start - b.start);
     for (let index = 1; index < ranges.length; index += 1) {
       if (ranges[index].start < ranges[index - 1].end) {
-        throw backupError('INVALID_ARCHIVE', 'ZIP file entries overlap each other.');
+        throw backupError('INVALID_ARCHIVE');
       }
     }
 
@@ -3251,7 +3196,7 @@ async function readArchiveDirectory(archivePath, limits, archiveHandle = null) {
   } catch (error) {
     if (ownsHandle && handle) await handle.close().catch(() => {});
     if (error instanceof DataBackupError) throw error;
-    throw backupError('INVALID_ARCHIVE', 'The backup archive could not be parsed safely.', error);
+    throw backupError('INVALID_ARCHIVE', error);
   }
 }
 
@@ -3264,7 +3209,7 @@ async function consumeArchiveEntry(archive, entry, options = {}) {
     transform(chunk, encoding, callback) {
       bytes += chunk.length;
       if (bytes > entry.uncompressedSize) {
-        callback(backupError('INVALID_ARCHIVE', 'A ZIP entry expanded beyond its declared size.'));
+        callback(backupError('INVALID_ARCHIVE'));
         return;
       }
       crc = updateCrc32(crc, chunk);
@@ -3300,10 +3245,10 @@ async function consumeArchiveEntry(archive, entry, options = {}) {
     await pipeline(...streams);
   } catch (error) {
     if (error instanceof DataBackupError) throw error;
-    throw backupError('INVALID_ARCHIVE', 'A ZIP entry could not be decompressed safely.', error);
+    throw backupError('INVALID_ARCHIVE', error);
   }
   if (bytes !== entry.uncompressedSize || finishCrc32(crc) !== entry.crc) {
-    throw backupError('INVALID_ARCHIVE', 'A ZIP entry failed its size or checksum validation.');
+    throw backupError('INVALID_ARCHIVE');
   }
   if (options.destination) await chmodPrivate(options.destination);
   return {
@@ -3333,10 +3278,10 @@ function validateManifest(value) {
     !isPlainObject(value) || baseKeys.some((key) => !Object.hasOwn(value, key)) ||
     Object.keys(value).some((key) => !allowedKeys.has(key))
   ) {
-    throw backupError('INVALID_MANIFEST', 'The backup manifest has an invalid structure.');
+    throw backupError('INVALID_MANIFEST');
   }
   if (!SUPPORTED_FORMAT_VERSIONS.includes(value.formatVersion)) {
-    throw backupError('UNSUPPORTED_FORMAT', 'The backup format version is not supported.');
+    throw backupError('UNSUPPORTED_FORMAT');
   }
   if (
     typeof value.createdAt !== 'string' ||
@@ -3344,7 +3289,7 @@ function validateManifest(value) {
     Number.isNaN(Date.parse(value.createdAt)) ||
     new Date(value.createdAt).toISOString() !== value.createdAt
   ) {
-    throw backupError('INVALID_MANIFEST', 'The backup manifest has an invalid creation time.');
+    throw backupError('INVALID_MANIFEST');
   }
   if (
     !hasExactKeys(value.database, ['entry', 'sha256', 'bytes']) ||
@@ -3352,7 +3297,7 @@ function validateManifest(value) {
     !/^[a-f0-9]{64}$/.test(value.database.sha256) ||
     !isNonNegativeSafeInteger(value.database.bytes)
   ) {
-    throw backupError('INVALID_MANIFEST', 'The backup manifest has invalid database metadata.');
+    throw backupError('INVALID_MANIFEST');
   }
   const storageKeys = value.formatVersion === LEGACY_FORMAT_VERSION
     ? ['entryPrefix', 'fileCount', 'totalBytes']
@@ -3366,7 +3311,7 @@ function validateManifest(value) {
     !isNonNegativeSafeInteger(value.fileCount) ||
     !isNonNegativeSafeInteger(value.totalBytes)
   ) {
-    throw backupError('INVALID_MANIFEST', 'The backup manifest has invalid file totals.');
+    throw backupError('INVALID_MANIFEST');
   }
   if (value.storySources !== undefined && (
     !hasExactKeys(value.storySources, ['entryPrefix', 'fileCount', 'totalBytes', 'sha256', 'referenceCount']) ||
@@ -3376,7 +3321,7 @@ function validateManifest(value) {
     !/^[a-f0-9]{64}$/.test(value.storySources.sha256) ||
     !isNonNegativeSafeInteger(value.storySources.referenceCount)
   )) {
-    throw backupError('INVALID_MANIFEST', 'The backup manifest has invalid source-text metadata.');
+    throw backupError('INVALID_MANIFEST');
   }
   const storySourceFileCount = value.storySources?.fileCount || 0;
   const storySourceBytes = value.storySources?.totalBytes || 0;
@@ -3384,13 +3329,13 @@ function validateManifest(value) {
     value.fileCount !== value.storage.fileCount + storySourceFileCount + 1 ||
     value.totalBytes !== value.database.bytes + value.storage.totalBytes + storySourceBytes
   ) {
-    throw backupError('INVALID_MANIFEST', 'The backup manifest file totals are inconsistent.');
+    throw backupError('INVALID_MANIFEST');
   }
   if (value.security !== undefined && (
     !hasExactKeys(value.security, ['secretPolicy']) ||
     !['excluded', 'included-by-explicit-request'].includes(value.security.secretPolicy)
   )) {
-    throw backupError('INVALID_MANIFEST', 'The backup manifest has an invalid secret handling policy.');
+    throw backupError('INVALID_MANIFEST');
   }
   return value;
 }
@@ -3398,14 +3343,14 @@ function validateManifest(value) {
 async function readAndValidateManifest(archive, limits) {
   const manifestEntry = archive.entries.find((entry) => entry.name === MANIFEST_ENTRY);
   if (!manifestEntry || manifestEntry.uncompressedSize > limits.maxManifestBytes) {
-    throw backupError('INVALID_MANIFEST', 'The backup manifest is missing or too large.');
+    throw backupError('INVALID_MANIFEST');
   }
   const result = await consumeArchiveEntry(archive, manifestEntry, { collect: true });
   let manifest;
   try {
     manifest = JSON.parse(result.buffer.toString('utf8'));
   } catch (error) {
-    throw backupError('INVALID_MANIFEST', 'The backup manifest is not valid JSON.', error);
+    throw backupError('INVALID_MANIFEST', error);
   }
   validateManifest(manifest);
 
@@ -3423,7 +3368,7 @@ async function readAndValidateManifest(archive, limits) {
     manifest.fileCount !== archive.entries.length - 1 ||
     manifest.totalBytes !== archive.payloadBytes
   ) {
-    throw backupError('INVALID_MANIFEST', 'The backup manifest does not match the ZIP contents.');
+    throw backupError('INVALID_MANIFEST');
   }
   return { manifest, databaseEntry, storageEntries, storySourceEntries };
 }
@@ -3478,7 +3423,7 @@ async function prepareRestoreStages(
       sha256: true,
     });
     if (databaseResult.sha256 !== validated.manifest.database.sha256) {
-      throw backupError('DATABASE_HASH_MISMATCH', 'The database snapshot does not match the backup manifest.');
+      throw backupError('DATABASE_HASH_MISMATCH');
     }
     sqliteIntegrityCheck(databaseStage);
     await removeSqliteSidecars(databaseStage, true);
@@ -3487,7 +3432,7 @@ async function prepareRestoreStages(
       const relative = entry.name.slice(STORAGE_PREFIX.length);
       const destination = path.resolve(storageStage, ...relative.split('/'));
       if (!isPathInside(storageStage, destination)) {
-        throw backupError('UNSAFE_ARCHIVE_PATH', 'A storage entry would escape the restore staging directory.');
+        throw backupError('UNSAFE_ARCHIVE_PATH');
       }
       await consumeArchiveEntry(archive, entry, { destination });
     }
@@ -3497,18 +3442,18 @@ async function prepareRestoreStages(
       stagedStorage.files.length !== validated.manifest.storage.fileCount ||
       stagedStorage.totalBytes !== validated.manifest.storage.totalBytes
     ) {
-      throw backupError('INVALID_ARCHIVE', 'The restored storage files do not match the backup manifest.');
+      throw backupError('INVALID_ARCHIVE');
     }
     const expectedNames = validated.storageEntries.map((entry) => entry.name).sort();
     const stagedNames = stagedStorage.files.map((entry) => entry.archiveName).sort();
     if (expectedNames.some((name, index) => name !== stagedNames[index])) {
-      throw backupError('INVALID_ARCHIVE', 'The restored storage paths do not match the backup manifest.');
+      throw backupError('INVALID_ARCHIVE');
     }
     if (
       validated.manifest.formatVersion >= FORMAT_VERSION &&
       stagedStorage.sha256 !== validated.manifest.storage.sha256
     ) {
-      throw backupError('STORAGE_HASH_MISMATCH', 'The storage files do not match the backup manifest.');
+      throw backupError('STORAGE_HASH_MISMATCH');
     }
 
     if (replaceStorySources) {
@@ -3516,7 +3461,7 @@ async function prepareRestoreStages(
         const relative = entry.name.slice(STORY_SOURCES_PREFIX.length);
         const destination = path.resolve(storySourcesStage, ...relative.split('/'));
         if (!isPathInside(storySourcesStage, destination)) {
-          throw backupError('UNSAFE_ARCHIVE_PATH', 'A source-text entry would escape the restore staging directory.');
+          throw backupError('UNSAFE_ARCHIVE_PATH');
         }
         await consumeArchiveEntry(archive, entry, { destination });
       }
@@ -3531,7 +3476,7 @@ async function prepareRestoreStages(
         stagedStorySources.sha256 !== validated.manifest.storySources.sha256 ||
         expectedSourceNames.some((name, index) => name !== stagedSourceNames[index])
       ) {
-        throw backupError('SOURCE_TEXT_HASH_MISMATCH', 'Restored source-text files do not match the backup manifest.');
+        throw backupError('SOURCE_TEXT_HASH_MISMATCH');
       }
       const referenceCount = validateStorySourceReferences(
         databaseStage,
@@ -3540,7 +3485,7 @@ async function prepareRestoreStages(
         limits
       );
       if (referenceCount !== validated.manifest.storySources.referenceCount) {
-        throw backupError('INVALID_MANIFEST', 'The source-text reference count does not match the backup manifest.');
+        throw backupError('INVALID_MANIFEST');
       }
     } else {
       const currentStorySources = await collectStorySourceFiles(storySourcesPath, limits);
@@ -3548,7 +3493,7 @@ async function prepareRestoreStages(
     }
     const finalArchiveStat = await archive.handle.stat();
     if (!sameFileIdentity(finalArchiveStat, fileIdentity(archive.archiveStat))) {
-      throw backupError('ARCHIVE_CHANGED', 'The backup archive changed while it was being validated.');
+      throw backupError('ARCHIVE_CHANGED');
     }
 
     return {
@@ -3566,7 +3511,7 @@ async function prepareRestoreStages(
       await fsp.rm(storySourcesStage, { recursive: true, force: true }).catch(() => {});
     }
     if (error instanceof DataBackupError) throw error;
-    throw backupError('ARCHIVE_VALIDATION_FAILED', 'The backup archive could not be validated safely.', error);
+    throw backupError('ARCHIVE_VALIDATION_FAILED', error);
   } finally {
     if (archive?.ownsHandle && archive.handle) await archive.handle.close().catch(() => {});
   }
@@ -3613,7 +3558,7 @@ async function assertServiceStopped(options = {}) {
   }
   const port = Number(options.servicePort || process.env.PORT || configuredServer.port || 5679);
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
-    throw backupError('SERVICE_CHECK_FAILED', 'The configured backend service port is invalid.');
+    throw backupError('SERVICE_CHECK_FAILED');
   }
   let listening;
   try {
@@ -3623,17 +3568,17 @@ async function assertServiceStopped(options = {}) {
       options.serviceProbeTimeoutMs || 750
     );
   } catch (error) {
-    throw backupError('SERVICE_CHECK_FAILED', 'The backend service state could not be confirmed safely.', error);
+    throw backupError('SERVICE_CHECK_FAILED', error);
   }
   if (listening) {
-    throw backupError('SERVICE_RUNNING', 'Stop the LocalMiniDrama backend before data backup or restore.');
+    throw backupError('SERVICE_RUNNING');
   }
 }
 
 async function assertTargetDirectorySafe(targetPath) {
   const stat = await lstatIfExists(targetPath);
   if (stat && (stat.isSymbolicLink() || !stat.isDirectory())) {
-    throw backupError('UNSAFE_TARGET', 'A configured data directory target is not a real directory.');
+    throw backupError('UNSAFE_TARGET');
   }
 }
 
@@ -3645,7 +3590,7 @@ async function assertDatabaseAvailable(databasePath) {
   const stat = await lstatIfExists(databasePath);
   if (!stat) return;
   if (stat.isSymbolicLink() || !stat.isFile()) {
-    throw backupError('UNSAFE_TARGET', 'The configured database target is unavailable or unsafe.');
+    throw backupError('UNSAFE_TARGET');
   }
   let db;
   let transactionStarted = false;
@@ -3656,10 +3601,10 @@ async function assertDatabaseAvailable(databasePath) {
     transactionStarted = true;
   } catch (error) {
     if (isSqliteBusy(error)) {
-      throw backupError('DATABASE_BUSY', 'The SQLite database is in use; stop all processes using it before restoring.');
+      throw backupError('DATABASE_BUSY');
     }
     if (error instanceof DataBackupError) throw error;
-    throw backupError('DATABASE_UNAVAILABLE', 'The target SQLite database could not be opened safely.', error);
+    throw backupError('DATABASE_UNAVAILABLE', error);
   } finally {
     if (db) {
       if (transactionStarted) {
@@ -3691,9 +3636,9 @@ async function acquireMaintenanceLock(databasePath, operation, options = {}) {
   } catch (error) {
     if (handle) await handle.close().catch(() => {});
     if (error.code === 'EEXIST') {
-      throw backupError('MAINTENANCE_LOCKED', 'Another maintenance operation is active, or startup recovery is required.');
+      throw backupError('MAINTENANCE_LOCKED');
     }
-    throw backupError('MAINTENANCE_LOCK_FAILED', 'A maintenance lock could not be created safely.', error);
+    throw backupError('MAINTENANCE_LOCK_FAILED', error);
   }
 }
 
@@ -3724,7 +3669,7 @@ async function writeRestoreJournal(journal) {
     await chmodPrivate(journalPath);
     return journalPath;
   } catch (error) {
-    throw backupError('RESTORE_JOURNAL_WRITE_FAILED', 'Restore journal could not be persisted safely.', error);
+    throw backupError('RESTORE_JOURNAL_WRITE_FAILED', error);
   } finally {
     if (handle) await handle.close().catch(() => {});
     await fsp.rm(tempPath, { force: true }).catch(() => {});
@@ -3746,7 +3691,7 @@ async function prepareDatabaseRollback(databasePath) {
     db.pragma('busy_timeout = 0');
     const checkpoint = db.pragma('wal_checkpoint(TRUNCATE)')[0] || {};
     if (Number(checkpoint.busy || 0) !== 0) {
-      throw backupError('DATABASE_BUSY', 'The SQLite database is in use; stop all processes using it before restoring.');
+      throw backupError('DATABASE_BUSY');
     }
     db.exec('BEGIN EXCLUSIVE');
     transactionStarted = true;
@@ -3760,10 +3705,10 @@ async function prepareDatabaseRollback(databasePath) {
     await fsp.rm(rollbackPath, { force: true }).catch(() => {});
     await removeSqliteSidecars(rollbackPath);
     if (isSqliteBusy(error)) {
-      throw backupError('DATABASE_BUSY', 'The SQLite database is in use; stop all processes using it before restoring.');
+      throw backupError('DATABASE_BUSY');
     }
     if (error instanceof DataBackupError) throw error;
-    throw backupError('ROLLBACK_PREPARE_FAILED', 'A rollback copy of the current database could not be created.', error);
+    throw backupError('ROLLBACK_PREPARE_FAILED', error);
   } finally {
     if (db) {
       if (transactionStarted) {
@@ -3778,12 +3723,12 @@ async function assertDatabaseUnchanged(databasePath, expectedIdentity) {
   const stat = await lstatIfExists(databasePath);
   if (!expectedIdentity) {
     if (stat) {
-      throw backupError('TARGET_CHANGED', 'The target database changed while restore validation was in progress.');
+      throw backupError('TARGET_CHANGED');
     }
     return;
   }
   if (!stat || !sameFileIdentity(stat, expectedIdentity)) {
-    throw backupError('TARGET_CHANGED', 'The target database changed while restore validation was in progress.');
+    throw backupError('TARGET_CHANGED');
   }
 }
 
@@ -3793,7 +3738,7 @@ async function moveDatabaseSidecars(databasePath, oldDatabasePath, moved) {
     const stat = await lstatIfExists(source);
     if (!stat) continue;
     if (stat.isSymbolicLink() || !stat.isFile()) {
-      throw backupError('UNSAFE_TARGET', 'A SQLite sidecar path is not a regular file.');
+      throw backupError('UNSAFE_TARGET');
     }
     const destination = `${oldDatabasePath}${suffix}`;
     await renameDurably(source, destination, () => {
@@ -3815,7 +3760,7 @@ async function verifyInstalledStorage(storagePath, manifest, limits) {
     storage.totalBytes !== manifest.storage.totalBytes ||
     (manifest.formatVersion >= FORMAT_VERSION && storage.sha256 !== manifest.storage.sha256)
   ) {
-    throw backupError('RESTORE_VERIFY_FAILED', 'Restored storage failed its final verification.');
+    throw backupError('RESTORE_VERIFY_FAILED');
   }
 }
 
@@ -3834,7 +3779,7 @@ async function verifyInstalledStorySources(databasePath, storySourcesPath, manif
     storySources.sha256 !== manifest.storySources.sha256 ||
     referenceCount !== manifest.storySources.referenceCount
   ) {
-    throw backupError('RESTORE_VERIFY_FAILED', 'Restored source-text data failed its final verification.');
+    throw backupError('RESTORE_VERIFY_FAILED');
   }
 }
 
@@ -3901,7 +3846,7 @@ async function rollbackRestoreState(state, databasePath, storagePath, storySourc
     }
   }
   if (failures.length > 0) {
-    throw backupError('ROLLBACK_FAILED', 'Restore failed and automatic rollback could not fully recover the original targets.', failures[0]);
+    throw backupError('ROLLBACK_FAILED', failures[0]);
   }
 }
 
@@ -4024,7 +3969,7 @@ async function commitRestore(prepared, databasePath, storagePath, storySourcesPa
     };
   } catch (error) {
     if (journal?.phase === 'committed') {
-      throw backupError('RESTORE_FINALIZE_FAILED', 'Restore committed but cleanup requires startup recovery.', error);
+      throw backupError('RESTORE_FINALIZE_FAILED', error);
     }
     if (mutated) {
       if (journal) await setJournalPhase('rolling_back').catch(() => {});
@@ -4034,16 +3979,16 @@ async function commitRestore(prepared, databasePath, storagePath, storySourcesPa
       await removeRestoreJournal(databasePath);
     }
     if (error instanceof DataBackupError && !mutated) throw error;
-    throw backupError('RESTORE_FAILED', 'Restore failed; the original data was restored.', error);
+    throw backupError('RESTORE_FAILED', error);
   }
 }
 
 async function restoreDataBackup(options) {
   if (options?.confirmed !== true) {
-    throw backupError('CONFIRMATION_REQUIRED', 'Restore requires explicit confirmation with --yes.');
+    throw backupError('CONFIRMATION_REQUIRED');
   }
   if (!options?.archivePath || !options?.databasePath || !options?.storagePath) {
-    throw backupError('INVALID_ARGUMENT', 'Archive, database, and storage locations are required.');
+    throw backupError('INVALID_ARGUMENT');
   }
   const archivePath = path.resolve(options.archivePath);
   const databasePath = path.resolve(options.databasePath);
@@ -4091,7 +4036,6 @@ async function restoreDataBackup(options) {
     throw wrapUnknownBackupError(
       error,
       'RESTORE_FAILED',
-      'The data restore could not be completed.'
     );
   } finally {
     const recoveryPending = Boolean(await lstatIfExists(maintenancePaths(databasePath).journalPath).catch(() => null));
@@ -4125,6 +4069,7 @@ module.exports = {
   resolveDataRoot,
   __testing: Object.freeze({
     acquireMaintenanceRecoveryClaimSync,
+    backupError,
     canonicalPhysicalIdentity,
     releaseMaintenanceRecoveryClaimSync,
   }),

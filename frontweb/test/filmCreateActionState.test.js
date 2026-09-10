@@ -113,6 +113,21 @@ test('video generation errors hide placeholders and generic server failures', ()
     '视频生成服务暂时不可用，请检查视频模型配置后重试。',
   )
   assert.equal(userFacingVideoGenerationError('模型额度不足'), '模型额度不足')
+  assert.equal(
+    userFacingVideoGenerationError('Failed to fetch'),
+    '无法连接视频生成服务，请检查网络与模型配置后重试。',
+  )
+  assert.equal(
+    userFacingVideoGenerationError('HTTP 500'),
+    '视频生成服务暂时不可用，请检查视频模型配置后重试。',
+  )
+  assert.equal(
+    userFacingVideoGenerationError({ name: 'AbortError', message: 'The user aborted a request.' }),
+    '操作已取消',
+  )
+  assert.doesNotMatch(userFacingVideoGenerationError('缺少 drama_id'), /drama_id/)
+  const source = readFileSync(new URL('../src/utils/filmCreateActionState.js', import.meta.url), 'utf8')
+  assert.match(source, /toUserFacingError\(value, fallback\)/)
 })
 
 test('video and production capabilities require a usable model, with only explicit ComfyUI workflow exception', () => {
@@ -278,7 +293,7 @@ test('FilmCreate delegates pipeline UI and wraps major gated actions', async () 
   assert.match(filmCreateSource, /<FilmCreateResourcePanel/)
   assert.match(filmCreateSource, /:batch-action-disabled-reason="batchActionDisabledReason"/)
   assert.match(filmCreateSource, /<FilmCreateStoryboardPanel/)
-  assert.match(deliveryPanelSource, /:reason="composeActionDisabledReason"/)
+  assert.match(deliveryPanelSource, /:reason="visibleComposeDisabledReason"/)
   assert.match(filmCreateSource, /ttsGenerationDisabledReason/)
   assert.match(filmCreateSource, /productionReadinessReason/)
   assert.match(pipelinePanelSource, /高级|生成设置/)

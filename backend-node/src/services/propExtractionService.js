@@ -5,6 +5,7 @@ const promptI18n = require('./promptI18n');
 const propService = require('./propService');
 const { scheduleLegacyAsync } = require('./legacyAsyncSchedulerService');
 const { safeParseAIJSON, extractFirstArray } = require('../utils/safeJson');
+const { toUserFacingProcessError } = require('./providerErrorSanitizer');
 let _cfg = null; // 由 extractPropsForEpisode 注入，供异步任务使用
 
 function waitForTaskWork(work, signal) {
@@ -83,7 +84,7 @@ async function processPropExtraction(db, log, taskId, episodeId) {
       return;
     }
     log.error('Prop extraction AI failed', { error: err.message, task_id: taskId });
-    taskService.updateTaskError(db, taskId, 'AI 提取失败: ' + (err.message || '未知错误'));
+    taskService.updateTaskError(db, taskId, toUserFacingProcessError(err, 'AI 提取道具失败，请稍后重试'));
     return;
   }
 
@@ -184,6 +185,8 @@ function extractPropsForEpisode(db, log, episodeId, cfg) {
   scheduleLegacyAsync(log, 'prop_extraction', () => {
     processPropExtraction(db, log, task.id, episodeId).catch((err) => {
       log.error('processPropExtraction fatal', { error: err.message, task_id: task.id });
+      if (taskWasCancelled(null, err)) return;
+      taskService.updateTaskError(db, task.id, toUserFacingProcessError(err, '道具提取失败，请稍后重试'));
     });
   }, { task_id: task.id, episode_id: episodeId });
   return task.id;

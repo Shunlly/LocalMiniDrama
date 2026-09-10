@@ -28,18 +28,18 @@ function runDatabaseRollbackProbe(db) {
     const table = db.prepare(
       "SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'dramas'"
     ).get();
-    if (table?.ok !== 1) throw new Error('required database schema is unavailable');
+    if (table?.ok !== 1) throw new Error('数据库结构不可用');
 
     db.exec(`SAVEPOINT ${savepoint}`);
     savepointActive = true;
     const result = db.prepare(
       'INSERT INTO dramas (title, status, metadata, created_at, updated_at) VALUES (?, ?, ?, ?, ?)'
     ).run(marker, 'draft', marker, createdAt, createdAt);
-    if (result.changes !== 1) throw new Error('database write probe did not insert one row');
+    if (result.changes !== 1) throw new Error('数据库写入探测未插入记录');
     const inserted = db.prepare(
       'SELECT id FROM dramas WHERE title = ? AND metadata = ?'
     ).get(marker, marker);
-    if (!inserted?.id) throw new Error('database write probe could not read its row');
+    if (!inserted?.id) throw new Error('数据库写入探测无法读回记录');
 
     db.exec(`ROLLBACK TO ${savepoint}`);
     db.exec(`RELEASE ${savepoint}`);
@@ -47,7 +47,7 @@ function runDatabaseRollbackProbe(db) {
     const residual = db.prepare(
       'SELECT 1 AS present FROM dramas WHERE title = ? AND metadata = ? LIMIT 1'
     ).get(marker, marker);
-    if (residual) throw new Error('database write probe left persistent data');
+    if (residual) throw new Error('数据库写入探测留下了持久数据');
   } catch (error) {
     if (savepointActive) {
       try { db.exec(`ROLLBACK TO ${savepoint}`); } catch (_) {}
@@ -73,7 +73,7 @@ function runStorageWriteProbe(storageRoot, fileSystem) {
     let offset = 0;
     while (offset < payload.length) {
       const written = fileSystem.writeSync(fd, payload, offset, payload.length - offset, offset);
-      if (!Number.isInteger(written) || written <= 0) throw new Error('storage write probe stopped early');
+      if (!Number.isInteger(written) || written <= 0) throw new Error('存储写入探测提前停止');
       offset += written;
     }
     fileSystem.fsyncSync(fd);
@@ -113,7 +113,7 @@ function checkReadiness(db, storageRoot, options = {}) {
 
   try {
     const stat = fileSystem.lstatSync(storageRoot);
-    if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error('not a regular directory');
+    if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error('存储路径不是普通目录');
     fileSystem.accessSync(storageRoot, fileSystem.constants.R_OK | fileSystem.constants.W_OK);
     runStorageWriteProbe(storageRoot, fileSystem);
     checks.storage.ok = true;
@@ -317,13 +317,13 @@ function resolveWorkflowConfigs(db, params, options) {
 function assertDramaExists(db, params) {
   const dramaId = Number(params.drama_id || params.dramaId);
   if (!Number.isSafeInteger(dramaId) || dramaId <= 0) {
-    const error = new Error('drama_id 必填，且必须指向未删除的项目');
+    const error = new Error('项目 ID 必填，且必须指向未删除的项目');
     error.code = 'BAD_REQUEST';
     throw error;
   }
   const drama = db.prepare('SELECT id FROM dramas WHERE id = ? AND deleted_at IS NULL').get(dramaId);
   if (!drama) {
-    const error = new Error('drama_id 必填，且必须指向未删除的项目');
+    const error = new Error('项目 ID 必填，且必须指向未删除的项目');
     error.code = 'BAD_REQUEST';
     throw error;
   }
@@ -414,7 +414,7 @@ function assertNovel2AnimeReadiness(db, params = {}, options = {}) {
   const readiness = checkNovel2AnimeReadiness(db, params, options);
   if (readiness.ready) return readiness;
   const labels = readiness.missing_capabilities.map((item) => item.label).join('、');
-  const error = new Error(`Production 启动条件未满足：${labels}`);
+  const error = new Error(`正式制作启动条件未满足：${labels}`);
   error.code = 'WORKFLOW_NOT_READY';
   error.status = 409;
   error.details = readiness;

@@ -451,7 +451,7 @@ test('project readiness service links are consumed as an AI configuration filter
 })
 
 test('ComfyUI configuration exposes a validated workflow editor and persists the parsed object', () => {
-  assert.match(vueSource, /v-if="isComfyUiForm" prop="comfy_workflow_json" label="Workflow JSON"/)
+  assert.match(vueSource, /v-if="isComfyUiForm" prop="comfy_workflow_json" label="工作流 JSON"/)
   assert.match(vueSource, /function parseComfyWorkflowJson\(value\)/)
   assert.match(vueSource, /settingsObject\.workflow = parseComfyWorkflowJson\(form\.value\.comfy_workflow_json\)/)
   assert.match(vueSource, /delete settingsObject\.workflow/)
@@ -637,7 +637,7 @@ test('zero saved configs hide prompt, scene-map and SD2 tabs and fall back to th
   assert.match(vueSource, /const hasSavedConfigs = computed\(\(\) => \(list\.value \|\| \[\]\)\.length > 0\)/)
   assert.match(vueSource, /<el-tab-pane v-if="hasSavedConfigs" label="高级设置（提示词）" name="prompts">/)
   assert.match(vueSource, /<el-tab-pane v-if="hasSavedConfigs" label="高级设置（业务场景）" name="sceneModelMap">/)
-  assert.match(vueSource, /<el-tab-pane v-if="hasSavedConfigs" label="SD2 资产管理" name="sd2_assets">/)
+  assert.match(vueSource, /<el-tab-pane v-if="hasSavedConfigs" label="认证资产管理" name="sd2_assets">/)
   assert.match(vueSource, /if \(!hasConfigs && ADVANCED_CONFIG_TABS\.has\(activeTab\.value\)\)/)
   assert.match(vueSource, /activeTab\.value = 'configs'/)
   assert.match(vueSource, /<el-tab-pane label="生成设置" name="generation">/)
@@ -647,6 +647,8 @@ test('AI 配置保存、导入和连接测试失败不再直出 e.message', () =
   assert.match(vueSource, /import \{ toUserFacingError, isUserFacingAbort \} from '@\/utils\/userFacingError'/)
   assert.match(vueSource, /if \(isUserFacingAbort\(e\)\) return\s*ElMessage\.error\(toUserFacingError\(e, '保存失败'\)\)/)
   assert.match(vueSource, /if \(isUserFacingAbort\(e\)\) return\s*ElMessage\.error\(toUserFacingError\(e, '导入失败'\)\)/)
+  assert.match(vueSource, /toUserFacingError\(error, '删除失败'/)
+  assert.match(vueSource, /configFieldDisplayLabel\(item\.label\)/)
   assert.match(vueSource, /toUserFacingError\(error, '暂时无法完成连接测试，请稍后重试。'/)
   assert.match(vueSource, /isUserFacingAbort\(e, controller\.signal\)/)
   assert.match(vueSource, /runWithOwnedRequestErrorToast\(\(\) => generationSettingsAPI\.update/)
@@ -654,4 +656,36 @@ test('AI 配置保存、导入和连接测试失败不再直出 e.message', () =
   assert.doesNotMatch(vueSource, /ElMessage\.error\('保存失败：'/)
   assert.doesNotMatch(vueSource, /ElMessage\.error\('导入失败：' \+ \(e\.message/)
   assert.doesNotMatch(vueSource, /ElMessage\.error\(e\??\.message/)
+})
+
+
+test('AI 配置厂商和模型选择保留中文空状态、无障碍名称，以及删除/保存确认', () => {
+  const providerTag = vueSource.match(/<el-select[^>]*data-ai-config-field="provider"[^>]*>/)?.[0]
+  const modelPickTag = vueSource.match(/<el-select[^>]*aria-label="追加预设模型"[^>]*>/)?.[0]
+  const defaultModelTags = [...vueSource.matchAll(/<el-select[^>]*data-ai-config-field="default_model"[^>]*>/g)].map((item) => item[0])
+  assert.ok(providerTag, 'missing provider select')
+  assert.ok(modelPickTag, 'missing preset model select')
+  assert.equal(defaultModelTags.length, 2)
+  assert.match(providerTag, /aria-label="厂商"/)
+  assert.match(providerTag, /no-data-text="没有匹配的厂商，可直接输入自定义名称"/)
+  assert.match(modelPickTag, /no-data-text="暂无预设模型，可直接输入"/)
+  for (const tag of defaultModelTags) {
+    assert.match(tag, /aria-label="默认模型"/)
+    assert.match(tag, /no-data-text="/)
+  }
+  assert.ok(defaultModelTags.some((tag) => tag.includes('allow-create') && tag.includes('暂无模型，可直接输入或先填写模型列表')))
+  assert.ok(defaultModelTags.some((tag) => !tag.includes('allow-create') && tag.includes('暂无可用模型')))
+  assert.match(vueSource, /请先选择厂商，或直接输入模型名。/)
+  assert.match(vueSource, /当前厂商没有预设模型，可直接输入模型名。/)
+  assert.match(vueSource, /:aria-label="configActionLabel\('测试', row\)"/)
+  assert.match(vueSource, /:aria-label="configActionLabel\('删除', row\)"/)
+  assert.match(vueSource, /aria-label="保存配置"/)
+  assert.match(vueSource, /@click="submit">保存<\/el-button>/)
+  assert.match(vueSource, /'保存确认'/)
+  assert.match(vueSource, /confirmButtonText: '确认保存'/)
+  assert.match(vueSource, /if \(!await confirmReplaceDefaultConfig\(\)\) return\s*if \(configWriteLocked\.value\) return/)
+  assert.match(vueSource, /确定删除配置「\$\{name\}」？此操作不可恢复。/)
+  assert.match(vueSource, /catch \(error\) \{\s*if \(isUserFacingAbort\(error\)\) return\s*ElMessage\.error\(toUserFacingError\(error, '删除失败'\)/)
+  assert.match(vueSource, /if \(!success && failed\) ElMessage\.error\(`删除失败，\$\{failed\} 条未能删除`\)/)
+  assert.doesNotMatch(vueSource, /ElMessage\.success\(`已删除 \$\{success\} 条\$\{failed \? `，\$\{failed\} 条失败` : ''\}`\)/)
 })

@@ -15,6 +15,8 @@ const {
   placeBackupFile,
   resolveBackupDir,
   resolveRuntimeDataPaths,
+  describeBackupHttpError,
+  formatBackupCliError,
   stagePendingRestore,
 } = require('../src/services/backupSettingsService')
 const { acquireServiceMaintenanceLockSync, DataBackupError } = require('../src/services/dataBackupService')
@@ -173,4 +175,48 @@ test('resolveRuntimeDataPaths 不会把备份目录放到素材目录里', () =>
   const backupDir = require('../src/services/backupSettingsService').resolveBackupDir(paths)
   assert.equal(backupDir.replace(/\\/g, '/').endsWith('/data/backups'), true)
   assert.equal(backupDir.includes(`${path.sep}storage${path.sep}`), false)
+})
+
+test('HTTP/CLI 备份错误映射不会回落英文', () => {
+  const abort = new Error('The operation was aborted.')
+  abort.name = 'AbortError'
+  const abortMapped = describeBackupHttpError(abort)
+  assert.equal(abortMapped.code, 'OPERATION_ABORTED')
+  assert.equal(abortMapped.status, 409)
+  assert.match(abortMapped.message, /[\u4e00-\u9fff]/)
+  assert.doesNotMatch(abortMapped.message, /aborted/i)
+
+  const missing = Object.assign(new Error('ENOENT: no such file or directory'), { code: 'ENOENT' })
+  const missingMapped = describeBackupHttpError(missing)
+  assert.equal(missingMapped.code, 'NOT_FOUND')
+  assert.match(missingMapped.message, /[\u4e00-\u9fff]/)
+  assert.doesNotMatch(missingMapped.message, /ENOENT|no such file/i)
+
+  const unknownEnglish = new DataBackupError('WEIRD_CODE', 'The private claim is not a directory.')
+  const fallback = describeBackupHttpError(unknownEnglish)
+  assert.match(fallback.message, /[\u4e00-\u9fff]/)
+  assert.doesNotMatch(fallback.message, /private claim/i)
+
+  const cli = formatBackupCliError(abort)
+  assert.match(cli, /^\[OPERATION_ABORTED\] /)
+  assert.match(cli, /[\u4e00-\u9fff]/)
+  assert.doesNotMatch(cli, /The operation was aborted/i)
+})
+
+test('HTTP/CLI 优先使用可信中文 publicMessage，英文仍走码表', () => {
+  const specific = new DataBackupError('INVALID_ARGUMENT', '--output 缺少参数值。')
+  const specificMapped = describeBackupHttpError(specific)
+  assert.equal(specificMapped.status, 400)
+  assert.equal(specificMapped.code, 'INVALID_ARGUMENT')
+  assert.equal(specificMapped.message, '--output 缺少参数值。')
+  assert.match(formatBackupCliError(specific), /缺少参数值/)
+  assert.doesNotMatch(formatBackupCliError(specific), /备份参数不完整/)
+
+  const english = new DataBackupError('INVALID_ARGUMENT', 'The flag requires a value.')
+  const englishMapped = describeBackupHttpError(english)
+  assert.equal(englishMapped.code, 'INVALID_ARGUMENT')
+  assert.match(englishMapped.message, /备份参数不完整/)
+  assert.doesNotMatch(englishMapped.message, /requires a value/i)
+  assert.match(formatBackupCliError(english), /备份参数不完整/)
+  assert.doesNotMatch(formatBackupCliError(english), /requires a value/i)
 })

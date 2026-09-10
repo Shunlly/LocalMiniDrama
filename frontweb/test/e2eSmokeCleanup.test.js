@@ -380,3 +380,15 @@ test('production E2E 必须接上 smoke 的剧集页文案，避免烟测脚本�
   assert.match(scriptSource, /getByRole\('navigation', \{ name: '素材处理步骤' \}\)/)
   assert.match(scriptSource, /getByRole\('button', \{ name: '以 草稿预演 启动', exact: true \}\)/)
 })
+
+test('关键中文失败页、素材库空态和分镜空状态由共享 E2E 合同覆盖，烟测脚本不接真实生成供应商', () => {
+  const helperSource = readFileSync(new URL('../scripts/e2e-critical-contracts.cjs', import.meta.url), 'utf8')
+  const productionSource = readFileSync(new URL('../scripts/e2e-production.cjs', import.meta.url), 'utf8')
+  assert.match(helperSource, /制作项目不存在/)
+  assert.match(helperSource, /该项目不存在，或已移入回收站。/)
+  assert.match(helperSource, /素材中心还是空的/)
+  assert.match(helperSource, /还没有分镜，可生成分镜或添加一个分镜/)
+  assert.match(helperSource, /verifyWorkspaceEntries/)
+  assert.match(productionSource, /criticalUiContracts\.runCriticalUiContracts/)
+  assert.doesNotMatch(scriptSource, /api\.openai\.com|sk-[A-Za-z0-9]{8,}/)
+})

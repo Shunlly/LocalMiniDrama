@@ -205,7 +205,7 @@ test('filmCreateAssetComposables characters skip requests without dramaId or epi
   await missingEpisode.chars.onAddCharFromLibrary({ name: '王芳' })
   assertNoCalls(missingEpisode.apiCalls)
   assert.equal(missingEpisode.messages[0].type, 'warning')
-  assert.equal(missingEpisode.messages[0].text, '请先选择集次')
+  assert.equal(missingEpisode.messages[0].text, '请先选择剧集')
   assert.equal(missingEpisode.messages[1].type, 'warning')
   assert.equal(missingEpisode.messages[1].text, '请先选择本集')
 
@@ -564,4 +564,205 @@ test('filmCreateAssetComposables scenes delete confirm failure stays Chinese and
   await cancelHarness.scenes.onDeleteScene({ id: 11, location: '办公室' })
   assertNoCalls(cancelHarness.apiCalls)
   assert.equal(cancelHarness.messages.length, 0)
+})
+
+
+test('filmCreateAssetComposables image cards map Network Error to 生成失败', async () => {
+  const originalConsoleError = console.error
+  console.error = () => {}
+  try {
+    const charNetwork = createCharacters({
+      apis: {
+        characterAPI: {
+          generateImage: async () => { throw new Error('Network Error') },
+        },
+      },
+    })
+    const char = { id: 55, name: '李华', errorMsg: '旧错误' }
+    await charNetwork.chars.onGenerateCharacterImage(char)
+    assert.equal(char.errorMsg, '生成失败')
+    assert.doesNotMatch(String(char.errorMsg), /Network Error/i)
+    assertChineseError(charNetwork.messages, /提交失败/)
+    for (const item of charNetwork.messages) {
+      assert.doesNotMatch(String(item.text), /Network Error/i)
+    }
+
+    const charChinese = createCharacters({
+      pollResult: { status: 'failed', error: '图片模型暂时不可用' },
+      apis: {
+        characterAPI: {
+          generateImage: async () => ({ task_id: 'char-img-task' }),
+        },
+      },
+    })
+    const chineseChar = { id: 55, name: '李华', errorMsg: '' }
+    await charChinese.chars.onGenerateCharacterImage(chineseChar)
+    assert.equal(chineseChar.errorMsg, '图片模型暂时不可用')
+    assert.equal(charChinese.messages.filter((item) => item.type === 'error').length, 0)
+
+    const charAbort = createCharacters({
+      apis: {
+        characterAPI: {
+          generateImage: async () => {
+            throw Object.assign(new Error('canceled'), { name: 'AbortError' })
+          },
+        },
+      },
+    })
+    const abortChar = { id: 56, name: '王芳', errorMsg: '旧错误' }
+    await charAbort.chars.onGenerateCharacterImage(abortChar)
+    assert.equal(abortChar.errorMsg, '操作已取消')
+    assert.equal(charAbort.messages.length, 0)
+    assert.equal(charAbort.chars.generatingCharIds.has(56), false)
+
+    const charCancel = createCharacters({
+      apis: {
+        characterAPI: {
+          generateImage: async () => { throw 'cancel' },
+        },
+      },
+    })
+    const cancelChar = { id: 57, name: '赵强', errorMsg: '旧错误' }
+    await charCancel.chars.onGenerateCharacterImage(cancelChar)
+    assert.equal(cancelChar.errorMsg, '操作已取消')
+    assert.equal(charCancel.messages.length, 0)
+
+    const charTimeout = createCharacters({
+      pollResult: { status: 'timeout', error: 'ETIMEDOUT' },
+      apis: {
+        characterAPI: {
+          generateImage: async () => ({ task_id: 'char-timeout' }),
+        },
+      },
+    })
+    const timeoutChar = { id: 58, name: '周敏', errorMsg: '' }
+    await charTimeout.chars.onGenerateCharacterImage(timeoutChar)
+    assert.equal(timeoutChar.errorMsg, '生成超时，请稍后重试')
+    assert.match(charTimeout.messages.filter((item) => item.type === 'warning').at(-1).text, /超时/)
+    assert.equal(charTimeout.chars.generatingCharIds.has(58), false)
+
+    const sceneNetwork = createScenes({
+      apis: {
+        sceneAPI: {
+          generateImage: async () => { throw new Error('Network Error') },
+        },
+      },
+    })
+    const scene = { id: 11, location: '办公室', errorMsg: '旧错误' }
+    await sceneNetwork.scenes.onGenerateSceneImage(scene)
+    assert.equal(scene.errorMsg, '生成失败')
+    assert.doesNotMatch(String(scene.errorMsg), /Network Error/i)
+    assertChineseError(sceneNetwork.messages, /提交失败/)
+    for (const item of sceneNetwork.messages) {
+      assert.doesNotMatch(String(item.text), /Network Error/i)
+    }
+
+    const sceneChinese = createScenes({
+      pollResult: { status: 'failed', error: '图片模型暂时不可用' },
+      apis: {
+        sceneAPI: {
+          generateImage: async () => ({ task_id: 'scene-img-task' }),
+        },
+      },
+    })
+    const chineseScene = { id: 11, location: '办公室', errorMsg: '' }
+    await sceneChinese.scenes.onGenerateSceneImage(chineseScene)
+    assert.equal(chineseScene.errorMsg, '图片模型暂时不可用')
+    assert.equal(sceneChinese.messages.filter((item) => item.type === 'error').length, 0)
+
+    const sceneAbort = createScenes({
+      apis: {
+        sceneAPI: {
+          generateImage: async () => {
+            throw Object.assign(new Error('canceled'), { name: 'AbortError' })
+          },
+        },
+      },
+    })
+    const abortScene = { id: 12, location: '走廊', errorMsg: '旧错误' }
+    await sceneAbort.scenes.onGenerateSceneImage(abortScene)
+    assert.equal(abortScene.errorMsg, '操作已取消')
+    assert.equal(sceneAbort.messages.length, 0)
+    assert.equal(sceneAbort.scenes.generatingSceneIds.has(12), false)
+
+    const sceneCancel = createScenes({
+      apis: {
+        sceneAPI: {
+          generateImage: async () => { throw 'cancel' },
+        },
+      },
+    })
+    const cancelScene = { id: 13, location: '天台', errorMsg: '旧错误' }
+    await sceneCancel.scenes.onGenerateSceneImage(cancelScene)
+    assert.equal(cancelScene.errorMsg, '操作已取消')
+    assert.equal(sceneCancel.messages.length, 0)
+
+    const sceneTimeout = createScenes({
+      pollResult: { status: 'timeout', error: 'ETIMEDOUT' },
+      apis: {
+        sceneAPI: {
+          generateImage: async () => ({ task_id: 'scene-timeout' }),
+        },
+      },
+    })
+    const timeoutScene = { id: 14, location: '停车场', errorMsg: '' }
+    await sceneTimeout.scenes.onGenerateSceneImage(timeoutScene)
+    assert.equal(timeoutScene.errorMsg, '生成超时，请稍后重试')
+    assert.match(sceneTimeout.messages.filter((item) => item.type === 'warning').at(-1).text, /超时/)
+    assert.equal(sceneTimeout.scenes.generatingSceneIds.has(14), false)
+
+    const propTimeout = createProps({
+      pollResult: { status: 'timeout', error: 'ETIMEDOUT' },
+      apis: {
+        propAPI: {
+          generateImage: async () => ({ task_id: 'prop-timeout' }),
+        },
+      },
+    })
+    const timeoutProp = { id: 21, name: '钥匙', errorMsg: '' }
+    await propTimeout.props.onGeneratePropImage(timeoutProp)
+    assert.equal(timeoutProp.errorMsg, '生成超时，请稍后重试')
+    assert.equal(propTimeout.props.generatingPropIds.has(21), false)
+  } finally {
+    console.error = originalConsoleError
+  }
+})
+
+test('场景全景图生成走中文提示并保持项目 ID 边界', async () => {
+  const missingImage = createScenes({
+    commonHasAssetImage: false,
+  })
+  missingImage.common.hasAssetImage = () => false
+  const scenes = useScenes({
+    ...missingImage.common,
+    dramaId: missingImage.dramaId,
+    currentEpisodeId: missingImage.currentEpisodeId,
+    scriptLanguage: { value: 'zh' },
+    dramaAPI: tracked(missingImage.apiCalls, 'drama'),
+    sceneAPI: tracked(missingImage.apiCalls, 'scene'),
+    sceneLibraryAPI: tracked(missingImage.apiCalls, 'sceneLibrary'),
+    uploadAPI: tracked(missingImage.apiCalls, 'upload'),
+    hasAssetImage: () => false,
+  })
+  await scenes.onGenerateScenePanorama({ id: 11, location: '办公室' })
+  assert.equal(missingImage.apiCalls.length, 0)
+  assert.equal(missingImage.messages[0].text, '请先为该场景生成或上传主图')
+
+  const harness = createScenes({
+    apis: {
+      sceneAPI: {
+        generatePanorama: async (id) => ({ task_id: 'pano-' + id }),
+      },
+    },
+  })
+  await harness.scenes.onGenerateScenePanorama({ id: 11, location: '办公室' })
+  const call = namedCalls(harness.apiCalls, 'scene.generatePanorama')[0]
+  assert.equal(call.args[0], 11)
+  assert.equal(harness.pollTaskCalls[0][0], 'pano-11')
+  assert.equal(harness.pollTaskCalls[0][2].dramaId, PROJECT_ID)
+  assert.equal(harness.pollTaskCalls[0][2].episodeId, EPISODE_ID)
+  assert.notEqual(harness.pollTaskCalls[0][2].dramaId, harness.pollTaskCalls[0][2].episodeId)
+  assert.equal(harness.pollTaskCalls[0][2].resourceType, 'scene_panorama')
+  assert.match(harness.messages.find((item) => item.type === 'success').text, /全景图已生成/)
+  assert.equal(harness.scenes.generatingPanoramaIds.has(11), false)
 })

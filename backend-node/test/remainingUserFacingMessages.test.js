@@ -44,6 +44,59 @@ const leftoverEnglish = [
   'stream failed',
   'provider reported an error; check provider configuration and retry',
   'Unsafe media reference.',
+  'Vision reference image is required.',
+  'Vision reference image exceeds the size limit.',
+  'AI request body exceeds the size limit.',
+  'episode_id must belong to drama_id',
+  'Remote URL is invalid.',
+  'Public provider endpoints must use HTTPS.',
+  'Remote response exceeds the size limit.',
+  'required database schema is unavailable',
+  'database write probe did not insert one row',
+  'database write probe could not read its row',
+  'database write probe left persistent data',
+  'storage write probe stopped early',
+  'not a regular directory',
+  'The data backup could not be completed.',
+  'The data restore could not be completed.',
+  'Stop the LocalMiniDrama backend before data backup or restore.',
+  'The archive contains an unsafe or non-portable file name.',
+  'The private claim directory identity changed.',
+  'The archive uses unsupported numeric sizes or offsets.',
+  'The descriptor-backed archive size is unsupported.',
+  'The external maintenance lease changed before it was read.',
+  'The external maintenance lease changed while it was read.',
+  'The external maintenance lease could not be read consistently.',
+  'The failed backup output could not be claimed without touching a replacement.',
+  'The claimed failed backup output could not be removed.',
+  'The claimed maintenance recovery lease could not be removed.',
+  'The claimed service maintenance lock could not be removed.',
+  'The private claim is not a directory.',
+  'HTTPS requests cannot redirect to HTTP.',
+  'Cross-origin redirects cannot replay request bodies.',
+  'HTTP provider endpoints must remain on an explicitly allowed private origin.',
+  'The provider network policy is incomplete or invalid.',
+  'The provider endpoint is not authorized by the saved network policy.',
+  'Private provider origins must also be trusted provider origins.',
+  'The backup publication result exceeded',
+  'could not be written',
+  'was not committed before the deadline',
+  'requires a value.',
+  'Duplicate option',
+  'Unknown option',
+  'project.json field',
+  'Project import ',
+  'Source Intake manifest',
+  'Source Intake original',
+  'Imported source',
+  'image pixel limit exceeded',
+  'Sharp could not decode image metadata',
+  'Unknown library table',
+  'Unknown or templated skill not found',
+  'Skill is disabled or missing',
+  'Electron image validation requires an application entry',
+  'media validation failed',
+  'ffprobe is unavailable',
 ];
 
 function hasCjk(text) {
@@ -123,12 +176,28 @@ test('\u5269\u4f59\u7528\u6237\u9519\u8bef\u6e90\u7801\u4e0d\u518d\u5305\u542b\u
     'services/dramaWriteGuard.js',
     'services/videoMergeService.js',
     'services/providerErrorSanitizer.js',
+    'services/aiClient.js',
+    'services/characterGenerationService.js',
+    'services/secureHttpFetch.js',
+    'services/readinessService.js',
+    'services/dataBackupService.js',
+    'services/dramaImportService.js',
+    'services/dramaExportService.js',
+    'services/importImageValidator.js',
+    'services/skillRegistryService.js',
+    'services/libraryDedup.js',
     'routes/storyboards.js',
     'routes/aiConfig.js',
     'app.js',
+    'scripts/backup-data.js',
+    'scripts/restore-data.js',
+    'scripts/recover-maintenance.js',
   ];
   for (const name of files) {
-    const source = fs.readFileSync(path.join(__dirname, '../src', name), 'utf8');
+    const sourcePath = name.startsWith('scripts/')
+      ? path.join(__dirname, '..', name)
+      : path.join(__dirname, '../src', name);
+    const source = fs.readFileSync(sourcePath, 'utf8');
     for (const phrase of leftoverEnglish) {
       assert.equal(source.includes(phrase), false, `${name} \u4ecd\u5305\u542b\uff1a${phrase}`);
     }
@@ -154,8 +223,8 @@ test('\u56fe\u7247\u751f\u6210\u8de8\u9879\u76ee ID \u4e0d\u76f8\u7b49\u65f6\u8f
     }, res);
     assert.equal(res.statusCode, 400);
     assert.equal(res.body.error.code, 'BAD_REQUEST');
-    assert.match(res.body.error.message, /storyboard_id/);
-    assert.match(res.body.error.message, /drama_id/);
+    assert.match(res.body.error.message, /分镜不属于当前项目/);
+    assert.doesNotMatch(res.body.error.message, /storyboard_id|drama_id/);
     assert.equal(hasCjk(res.body.error.message), true);
 
     const invalid = mockResponse();
@@ -164,7 +233,8 @@ test('\u56fe\u7247\u751f\u6210\u8de8\u9879\u76ee ID \u4e0d\u76f8\u7b49\u65f6\u8f
     }, invalid);
     assert.equal(invalid.statusCode, 400);
     assert.equal(invalid.body.error.code, 'BAD_REQUEST');
-    assert.match(invalid.body.error.message, /drama_id.*\u65e0\u6548/);
+    assert.match(invalid.body.error.message, /项目 ID.*无效/);
+    assert.doesNotMatch(invalid.body.error.message, /drama_id/);
   } finally {
     db.close();
   }
@@ -289,3 +359,110 @@ test('videoClient 用户错误不再是问号乱码', () => {
   assert.equal(source.includes('throw signal.reason'), false);
 });
 
+test('角色生成在 episode_id 与 drama_id 不相等时返回中文 BAD_REQUEST', () => {
+  const characterGenerationService = require('../src/services/characterGenerationService');
+  assert.notEqual(DRAMA_ID, OTHER_DRAMA_ID);
+  assert.notEqual(EPISODE_ID, 2201);
+  const db = createDb();
+  try {
+    assert.throws(
+      () => characterGenerationService.generateCharacters(db, {}, silentLog, {
+        drama_id: DRAMA_ID,
+        episode_id: 2201,
+        outline: '跨项目大纲',
+      }),
+      (error) => error.code === 'BAD_REQUEST'
+        && error.message.includes('剧集不属于当前项目')
+        && !/episode_id|drama_id/.test(error.message)
+        && hasCjk(error.message)
+        && !/must belong/.test(error.message)
+    );
+  } finally {
+    db.close();
+  }
+});
+
+test('视频后处理异常不会把英文堆栈返回给用户', () => {
+  const { toUserFacingProcessError } = require('../src/services/providerErrorSanitizer');
+  assert.equal(
+    toUserFacingProcessError(new Error('spawn ffmpeg ENOENT'), '视频后处理失败，请确认已安装 ffmpeg 后重试'),
+    '视频后处理失败，请确认已安装 ffmpeg 后重试',
+  );
+  assert.equal(
+    toUserFacingProcessError('烧录字幕或混音失败（请确认已安装 ffmpeg 且支持 libx264）', '处理失败'),
+    '烧录字幕或混音失败（请确认已安装 ffmpeg 且支持 libx264）',
+  );
+  const cancelled = new Error('Canceled');
+  cancelled.name = 'AbortError';
+  cancelled.code = 'OPERATION_CANCELLED';
+  assert.equal(toUserFacingProcessError(cancelled, '处理失败'), '操作已取消');
+  const chineseCancel = new Error('用户取消后处理');
+  chineseCancel.name = 'AbortError';
+  chineseCancel.code = 'OPERATION_CANCELLED';
+  assert.equal(toUserFacingProcessError(chineseCancel, '处理失败'), '用户取消后处理');
+  assert.doesNotMatch(
+    toUserFacingProcessError(new Error('Invalid API key sk-secret-value'), '视频后处理失败，请确认已安装 ffmpeg 后重试'),
+    /sk-secret/,
+  );
+});
+
+test('角色库未映射的英文错误不会回给前端', () => {
+  const { sendMappedServiceFailure } = require('../src/routes/serviceFailure');
+  const res = mockResponse();
+  assert.equal(sendMappedServiceFailure(res, { ok: false, error: 'ENOENT: no such file or directory' }), true);
+  assert.equal(res.statusCode, 400);
+  assert.equal(hasCjk(res.body.error.message), true);
+  assert.doesNotMatch(res.body.error.message, /ENOENT|no such file/i);
+});
+
+test('备份 HTTP 错误不会把英文 publicMessage 回给前端', () => {
+  const { DataBackupError } = require('../src/services/dataBackupService');
+  const { describeBackupHttpError } = require('../src/services/backupSettingsService');
+  const english = new DataBackupError('INVALID_MANIFEST', 'The backup manifest is not valid JSON.');
+  const mapped = describeBackupHttpError(english);
+  assert.equal(mapped.code, 'INVALID_MANIFEST');
+  assert.match(mapped.message, /备份清单/);
+  assert.doesNotMatch(mapped.message, /manifest/i);
+  const unknownEnglish = new DataBackupError('WEIRD_CODE', 'The private claim is not a directory.');
+  const fallback = describeBackupHttpError(unknownEnglish);
+  assert.equal(hasCjk(fallback.message), true);
+  assert.doesNotMatch(fallback.message, /private claim/i);
+});
+
+test('备份 CLI 错误输出使用简体中文', () => {
+  const { formatBackupCliError } = require('../src/services/backupSettingsService');
+  const { DataBackupError } = require('../src/services/dataBackupService');
+  const english = new DataBackupError('BACKUP_FAILED', 'The data backup could not be completed.');
+  const mapped = formatBackupCliError(english);
+  assert.match(mapped, /^\[BACKUP_FAILED\] /);
+  assert.match(mapped, /数据备份未能完成/);
+  assert.doesNotMatch(mapped, /could not be completed/i);
+
+  const backupCli = fs.readFileSync(path.join(__dirname, '../scripts/backup-data.js'), 'utf8');
+  const restoreCli = fs.readFileSync(path.join(__dirname, '../scripts/restore-data.js'), 'utf8');
+  assert.match(backupCli, /数据备份已完成/);
+  assert.match(restoreCli, /数据恢复已完成/);
+  assert.equal(backupCli.includes('The data backup could not be completed.'), false);
+  assert.equal(restoreCli.includes('The data restore could not be completed.'), false);
+  assert.match(backupCli, /formatBackupCliError/);
+  assert.match(restoreCli, /formatBackupCliError/);
+});
+
+test('备份服务 publicMessage 对已映射错误码使用简体中文', () => {
+  const { DataBackupError } = require('../src/services/dataBackupService');
+  const BACKUP_PUBLIC_MESSAGES = require('../src/services/backupPublicMessages');
+  const { __testing } = require('../src/services/dataBackupService');
+  const mapped = __testing.backupError('SERVICE_RUNNING', 'Stop the LocalMiniDrama backend before data backup or restore.');
+  assert.equal(hasCjk(mapped.publicMessage), true);
+  assert.doesNotMatch(mapped.publicMessage, /Stop the LocalMiniDrama/i);
+  assert.equal(mapped.publicMessage, BACKUP_PUBLIC_MESSAGES.SERVICE_RUNNING);
+
+  const createDataBackupSource = fs.readFileSync(
+    path.join(__dirname, '../src/services/dataBackupService.js'),
+    'utf8',
+  );
+  assert.match(createDataBackupSource, /BACKUP_PUBLIC_MESSAGES\[code\]/);
+  assert.equal(hasCjk(BACKUP_PUBLIC_MESSAGES.SERVICE_RUNNING), true);
+  assert.equal(hasCjk(BACKUP_PUBLIC_MESSAGES.UNSAFE_ARCHIVE_PATH), true);
+  assert.equal(BACKUP_PUBLIC_MESSAGES.SERVICE_RUNNING, require('../src/services/backupSettingsService').HTTP_BACKUP_MESSAGES.SERVICE_RUNNING);
+});

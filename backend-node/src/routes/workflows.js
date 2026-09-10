@@ -1,14 +1,15 @@
 const response = require('../response');
+const { sendCaughtRouteError, publicErrorMessage } = require('./serviceFailure');
 const workflowService = require('../services/workflowService');
 const readinessService = require('../services/readinessService');
 const { canReadDrama } = require('../services/dramaWriteGuard');
 
 function badRequestOrInternal(res, err) {
-  if (err && err.code === 'BAD_REQUEST') return response.badRequest(res, err.message);
+  if (err && err.code === 'BAD_REQUEST') return response.badRequest(res, publicErrorMessage(err, '工作流请求无效'));
   if (err && err.code === 'WORKFLOW_NOT_READY') {
-    return response.error(res, 409, err.code, err.message, err.details);
+    return response.error(res, 409, err.code, publicErrorMessage(err, '工作流尚未就绪'), err.details);
   }
-  return response.internalError(res, err.message || '工作流操作失败');
+  return sendCaughtRouteError(res, err, '工作流操作失败');
 }
 
 function positiveInteger(value) {

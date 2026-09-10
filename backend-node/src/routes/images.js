@@ -1,4 +1,5 @@
 const response = require('../response');
+const { sendCaughtRouteError } = require('./serviceFailure');
 const imageService = require('../services/imageService');
 const backgroundExtractionService = require('../services/backgroundExtractionService');
 
@@ -11,7 +12,7 @@ function routes(db, cfg, log) {
         response.successWithPagination(res, items, total, page, pageSize);
       } catch (err) {
         log.error('images list', { error: err.message });
-        response.internalError(res, err.message);
+        sendCaughtRouteError(res, err, '图片操作失败，请稍后重试');
       }
     },
     create: (req, res) => {
@@ -21,8 +22,7 @@ function routes(db, cfg, log) {
         response.created(res, rec);
       } catch (err) {
         log.error('images create', { error: err.message });
-        if (err.code === 'BAD_REQUEST') return response.badRequest(res, err.message);
-        response.internalError(res, err.message);
+        sendCaughtRouteError(res, err, '图片操作失败，请稍后重试');
       }
     },
     get: (req, res) => {
@@ -32,7 +32,7 @@ function routes(db, cfg, log) {
         response.success(res, item);
       } catch (err) {
         log.error('images get', { error: err.message });
-        response.internalError(res, err.message);
+        sendCaughtRouteError(res, err, '图片操作失败，请稍后重试');
       }
     },
     delete: (req, res) => {
@@ -42,7 +42,7 @@ function routes(db, cfg, log) {
         response.success(res, { message: '删除成功' });
       } catch (err) {
         log.error('images delete', { error: err.message });
-        response.internalError(res, err.message);
+        sendCaughtRouteError(res, err, '图片操作失败，请稍后重试');
       }
     },
     scene: (_req, res) => response.error(
@@ -57,7 +57,7 @@ function routes(db, cfg, log) {
         response.success(res, list);
       } catch (err) {
         log.error('images episode backgrounds', { error: err.message });
-        response.internalError(res, err.message);
+        sendCaughtRouteError(res, err, '图片操作失败，请稍后重试');
       }
     },
     episodeBackgroundsExtract: (req, res) => {
@@ -75,10 +75,7 @@ function routes(db, cfg, log) {
         response.success(res, { task_id: taskId, status: 'pending', message: '场景提取任务已创建，正在后台处理...' });
       } catch (err) {
         log.error('images episode backgrounds extract', { error: err.message });
-        if (err.message && (err.message.includes('script content') || err.message.includes('not found') || err.message.includes('剧本内容为空') || err.message.includes('剧集不存在'))) {
-          return response.badRequest(res, err.message);
-        }
-        response.internalError(res, err.message || '任务创建失败');
+        sendCaughtRouteError(res, err, '场景提取任务创建失败');
       }
     },
     episodeBatch: (_req, res) => response.error(
@@ -94,8 +91,7 @@ function routes(db, cfg, log) {
         response.created(res, item);
       } catch (err) {
         log.error('images upload', { error: err.message });
-        if (err.code === 'BAD_REQUEST') return response.badRequest(res, err.message);
-        response.internalError(res, err.message);
+        sendCaughtRouteError(res, err, '图片操作失败，请稍后重试');
       }
     },
   };

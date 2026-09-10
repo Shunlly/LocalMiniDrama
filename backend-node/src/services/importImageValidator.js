@@ -30,7 +30,7 @@ function rejectValidation(code, mediaPath, reason, details = {}) {
 function parsePositiveInteger(value, label) {
   const parsed = Number(value);
   if (!Number.isSafeInteger(parsed) || parsed <= 0) {
-    rejectValidation('MEDIA_VALIDATION_UNAVAILABLE', null, `${label} must be a positive integer`);
+    rejectValidation('MEDIA_VALIDATION_UNAVAILABLE', null, `${label} 必须是正整数`);
   }
   return parsed;
 }
@@ -51,26 +51,26 @@ async function validateImage(sharp, absolutePath, mediaPath, expectedFormat, lim
     rejectValidation(
       limitFailure ? 'IMPORT_IMAGE_LIMIT_EXCEEDED' : 'INVALID_MEDIA_CONTENT',
       mediaPath,
-      limitFailure ? 'image pixel limit exceeded' : 'Sharp could not decode image metadata'
+      limitFailure ? '图片像素数量超过上限' : 'Sharp 无法解码图片元数据'
     );
   }
 
   if (metadata.format !== expectedFormat || !metadata.width || !metadata.height) {
-    rejectValidation('INVALID_MEDIA_CONTENT', mediaPath, 'image content does not match its extension');
+    rejectValidation('INVALID_MEDIA_CONTENT', mediaPath, '图片内容与扩展名不符');
   }
 
   const frames = metadata.pages == null ? 1 : Number(metadata.pages);
   const frameHeight = Number(metadata.pageHeight || metadata.height);
   const pixels = Number(metadata.width) * frameHeight * frames;
   if (!Number.isSafeInteger(frames) || frames < 1 || frames > limits.maxFrames) {
-    rejectValidation('IMPORT_IMAGE_LIMIT_EXCEEDED', mediaPath, 'image frame limit exceeded', {
+    rejectValidation('IMPORT_IMAGE_LIMIT_EXCEEDED', mediaPath, '图片帧数超过上限', {
       actual: frames,
       limit: limits.maxFrames,
       kind: 'frames',
     });
   }
   if (!Number.isSafeInteger(pixels) || pixels < 1 || pixels > limits.maxPixels) {
-    rejectValidation('IMPORT_IMAGE_LIMIT_EXCEEDED', mediaPath, 'image pixel limit exceeded', {
+    rejectValidation('IMPORT_IMAGE_LIMIT_EXCEEDED', mediaPath, '图片像素数量超过上限', {
       actual: Number.isSafeInteger(pixels) ? pixels : 'overflow',
       limit: limits.maxPixels,
       kind: 'pixels',
@@ -80,11 +80,11 @@ async function validateImage(sharp, absolutePath, mediaPath, expectedFormat, lim
   try {
     const decoded = await image.raw().toBuffer({ resolveWithObject: true });
     if (!decoded || !Buffer.isBuffer(decoded.data) || decoded.data.length === 0) {
-      rejectValidation('INVALID_MEDIA_CONTENT', mediaPath, 'Sharp produced no decoded pixels');
+      rejectValidation('INVALID_MEDIA_CONTENT', mediaPath, 'Sharp 未解码出像素数据');
     }
   } catch (error) {
     if (error && error.mediaPath) throw error;
-    rejectValidation('INVALID_MEDIA_CONTENT', mediaPath, 'Sharp could not fully decode image');
+    rejectValidation('INVALID_MEDIA_CONTENT', mediaPath, 'Sharp 无法完整解码图片');
   }
   return {
     format: metadata.format,
@@ -109,11 +109,11 @@ async function validateImportImages({ projectRoot, maxPixels, maxFrames, sharp =
     for (const entry of entries) {
       const mediaPath = `${category}/${entry.name}`;
       if (!entry.isFile()) {
-        rejectValidation('INVALID_MEDIA_CONTENT', mediaPath, 'image staging entry is not a regular file');
+        rejectValidation('INVALID_MEDIA_CONTENT', mediaPath, '图片暂存条目不是普通文件');
       }
       const expectedFormat = IMAGE_FORMATS[path.extname(entry.name).toLowerCase()];
       if (!expectedFormat) {
-        rejectValidation('INVALID_MEDIA_CONTENT', mediaPath, 'image extension is not allowed');
+        rejectValidation('INVALID_MEDIA_CONTENT', mediaPath, '图片扩展名不受支持');
       }
       const metadata = await validateImage(
         sharp,
@@ -134,7 +134,7 @@ function validationFailure(error) {
     ok: false,
     code: error && error.code ? error.code : 'MEDIA_VALIDATION_UNAVAILABLE',
     mediaPath: error && error.mediaPath ? error.mediaPath : null,
-    reason: error && error.message ? error.message : 'image validation failed',
+    reason: error && error.message ? error.message : '图片校验失败',
     details: error && error.details ? error.details : null,
   };
 }
@@ -150,12 +150,12 @@ async function runImportImageValidatorCli(args = process.argv.slice(2), stdout =
   let exitCode = 0;
   try {
     if (!Array.isArray(args) || args.length !== 3) {
-      throw new Error('image validator requires project root, pixel limit, and frame limit');
+      throw new Error('图片校验需要项目目录、像素上限和帧数上限');
     }
     payload = await validateImportImages({
       projectRoot: args[0],
-      maxPixels: parsePositiveInteger(args[1], 'pixel limit'),
-      maxFrames: parsePositiveInteger(args[2], 'frame limit'),
+      maxPixels: parsePositiveInteger(args[1], '像素上限'),
+      maxFrames: parsePositiveInteger(args[2], '帧数上限'),
     });
   } catch (error) {
     payload = validationFailure(error);

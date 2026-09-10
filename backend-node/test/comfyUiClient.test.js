@@ -244,7 +244,10 @@ describe('ComfyUI production protocol', () => {
         settings: workflowSettings({ workflow: { 1: { class_type: 'EmptyLatentImage', inputs: {} } } }),
       }, null, { prompt: 'error', provider_network_policy: localNetworkPolicy(baseUrl) }),
       (error) => {
-        assert.match(error.message, /HTTP 500/);
+        assert.match(error.message, /[一-鿿]/);
+        assert.match(error.message, /失败|不可用|稍后重试/);
+        assert.doesNotMatch(error.message, /\bHTTP\s*\d+/i);
+        assert.equal(error.status, 500);
         assert.doesNotMatch(error.message, /sk-comfy-super-secret/);
         assert.doesNotMatch(error.message, /\?token=/);
         return true;
@@ -252,7 +255,7 @@ describe('ComfyUI production protocol', () => {
     );
   });
 
-  it('redacts credential-bearing custom headers without hiding token budgets', async () => {
+  it('redacts credential-bearing custom headers from user-facing errors', async () => {
     const secretHeaders = {
       'X-Client-Credential': 'synthetic-client-credential',
       'X-Service-Password': 'synthetic-service-password',
@@ -286,7 +289,10 @@ describe('ComfyUI production protocol', () => {
         for (const secret of Object.values(secretHeaders)) {
           assert.doesNotMatch(error.message, new RegExp(secret));
         }
-        assert.match(error.message, /token_budget=4096/);
+        assert.match(error.message, /[一-鿿]/);
+        assert.doesNotMatch(error.message, /\bHTTP\s*\d+/i);
+        assert.doesNotMatch(error.message, /token_budget=4096/);
+        assert.equal(error.status, 500);
         return true;
       }
     );

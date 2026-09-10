@@ -29,6 +29,9 @@ const elementPlusStubUrl = dataModule(`
     success: (message) => notify('success', message),
     warning: (message) => notify('warning', message),
   }
+  export const ElMessageBox = {
+    async confirm() { return true },
+  }
 `)
 const iconsStubUrl = dataModule('export const Upload = { render() { return null } }')
 
@@ -268,6 +271,62 @@ test('a deferred project A HTTP failure cannot create a global toast after proje
   } finally {
     RawElMessage.error = originalRawError
     parentLifecycle.dispose()
+    harness.app.unmount()
+    delete globalThis.__episodeBatchImportMessages
+    delete globalThis.FileReader
+  }
+})
+
+test('批量导入空状态和禁用原因保持简体中文', () => {
+  assert.match(source, /还没有可导入的集数预览/)
+  assert.match(source, /请先在「导入设置」中选择 TXT 文件，再点击「确认导入配置」/)
+  assert.match(source, />返回导入设置</)
+  assert.match(source, /const configConfirmDisabledReason = computed/)
+  assert.match(source, /请先选择包含章节文本的 TXT 文件/)
+  assert.match(source, /请先完成预览确认/)
+  assert.match(source, /正在导入剧集，请完成后再关闭/)
+  assert.match(source, /:disabled="Boolean\(configConfirmDisabledReason\)"/)
+  assert.match(source, /:disabled="Boolean\(importConfirmDisabledReason\)"/)
+  assert.match(source, /:disabled="importing"/)
+  assert.match(source, /ElMessage\.error\('文件内容为空，请选择包含章节文本的 TXT 文件'\)/)
+  assert.match(source, /ElMessage\.warning\('请选择 TXT 文本文件'\)/)
+  assert.match(source, /读取文件失败，请重新选择 TXT 文件/)
+  assert.doesNotMatch(source, /ElMessage\.error\('读取文件失败'\)/)
+})
+
+test('空 TXT 和非法扩展名给出中文失败，确认按钮保持禁用', async () => {
+  globalThis.__episodeBatchImportMessages = []
+  globalThis.FileReader = class {
+    readAsText() {
+      this.onload?.({ target: { result: '   \n' } })
+    }
+  }
+  const harness = mountDialog(async () => {})
+  try {
+    clickButton(harness.root, '批量导入剧集')
+    await nextTick()
+    const fileInput = findAll(harness.root, (node) => node.type === 'input' && node.props.type === 'file')[0]
+    assert.ok(fileInput, 'missing TXT file input')
+
+    fileInput.props.onChange({ target: { files: [{ name: 'story.md' }], value: 'story.md' } })
+    await nextTick()
+    assert.equal(
+      globalThis.__episodeBatchImportMessages.some((item) => String(item.message).includes('请选择 TXT')),
+      true,
+    )
+
+    globalThis.__episodeBatchImportMessages.length = 0
+    fileInput.props.onChange({ target: { files: [{ name: 'empty.txt' }], value: 'empty.txt' } })
+    await nextTick()
+    assert.equal(
+      globalThis.__episodeBatchImportMessages.some((item) => String(item.message).includes('文件内容为空')),
+      true,
+    )
+    const confirm = findAll(harness.root, (node) => node.type === 'button' && textContent(node).includes('确认导入配置'))[0]
+    assert.ok(confirm, 'missing confirm config button')
+    assert.equal(Boolean(confirm.props.disabled), true)
+    assert.match(String(confirm.props.title || ''), /请先选择包含章节文本的 TXT 文件/)
+  } finally {
     harness.app.unmount()
     delete globalThis.__episodeBatchImportMessages
     delete globalThis.FileReader

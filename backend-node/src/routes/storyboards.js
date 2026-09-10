@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const response = require('../response');
+const { sendCaughtRouteError, publicErrorMessage } = require('./serviceFailure');
 const storyboardService = require('../services/storyboardService');
 const episodeStoryboardService = require('../services/episodeStoryboardService');
 const framePromptService = require('../services/framePromptService');
@@ -247,7 +248,7 @@ function routes(db, log) {
         response.created(res, sb);
       } catch (err) {
         log.error('storyboards create', { error: err.message });
-        response.internalError(res, err.message);
+        sendCaughtRouteError(res, err, '分镜操作失败，请稍后重试');
       }
     },
     insertBefore: (req, res) => {
@@ -257,7 +258,7 @@ function routes(db, log) {
         response.created(res, sb);
       } catch (err) {
         log.error('storyboards insertBefore', { error: err.message });
-        response.internalError(res, err.message);
+        sendCaughtRouteError(res, err, '分镜操作失败，请稍后重试');
       }
     },
     getOne: (req, res) => {
@@ -267,7 +268,7 @@ function routes(db, log) {
         response.success(res, sb);
       } catch (err) {
         log.error('storyboards getOne', { error: err.message });
-        response.internalError(res, err.message);
+        sendCaughtRouteError(res, err, '分镜操作失败，请稍后重试');
       }
     },
     update: (req, res) => {
@@ -277,8 +278,7 @@ function routes(db, log) {
         response.success(res, sb);
       } catch (err) {
         log.error('storyboards update', { error: err.message });
-        if (err.code === 'BAD_REQUEST') return response.badRequest(res, err.message);
-        response.internalError(res, err.message);
+        sendCaughtRouteError(res, err, '分镜操作失败，请稍后重试');
       }
     },
     delete: (req, res) => {
@@ -288,7 +288,7 @@ function routes(db, log) {
         response.success(res, { message: '删除成功' });
       } catch (err) {
         log.error('storyboards delete', { error: err.message });
-        response.internalError(res, err.message);
+        sendCaughtRouteError(res, err, '分镜操作失败，请稍后重试');
       }
     },
     framePrompt: (req, res) => {
@@ -305,10 +305,7 @@ function routes(db, log) {
         });
       } catch (err) {
         log.error('storyboards frame-prompt', { error: err.message });
-        if (err.message && (err.message.includes('分镜不存在') || err.message.includes('不支持的'))) {
-          return response.badRequest(res, err.message);
-        }
-        response.internalError(res, err.message);
+        sendCaughtRouteError(res, err, '分镜操作失败，请稍后重试');
       }
     },
     framePromptsGet: (req, res) => {
@@ -317,7 +314,7 @@ function routes(db, log) {
         response.success(res, { frame_prompts: list });
       } catch (err) {
         log.error('storyboards frame-prompts', { error: err.message });
-        response.internalError(res, err.message);
+        sendCaughtRouteError(res, err, '分镜操作失败，请稍后重试');
       }
     },
     framePromptSave: (req, res) => {
@@ -325,20 +322,20 @@ function routes(db, log) {
         const frameType = req.params.frame_type;
         const validTypes = ['first', 'key', 'last', 'panel', 'action'];
         if (!validTypes.includes(frameType)) {
-          return response.badRequest(res, '不支持的 frame_type');
+          return response.badRequest(res, '不支持的帧类型');
         }
         const body = req.body || {};
         const prompt = typeof body.prompt === 'string' ? body.prompt : '';
         const description = typeof body.description === 'string' ? body.description : null;
         const layout = typeof body.layout === 'string' ? body.layout : null;
         if (!prompt.trim()) {
-          return response.badRequest(res, 'prompt 不能为空');
+          return response.badRequest(res, '提示词不能为空');
         }
         framePromptService.saveFramePrompt(db, log, req.params.id, frameType, prompt, description, layout);
         response.success(res, { message: '保存成功', frame_type: frameType });
       } catch (err) {
         log.error('storyboards frame-prompt-save', { error: err.message });
-        response.internalError(res, err.message);
+        sendCaughtRouteError(res, err, '分镜操作失败，请稍后重试');
       }
     },
     regenerateLayoutDescription: async (req, res) => {
@@ -352,7 +349,7 @@ function routes(db, log) {
         });
       } catch (err) {
         log.error('storyboards regenerateLayoutDescription', { error: err.message, id: req.params.id });
-        response.internalError(res, err.message || '重新生成布局描述失败');
+        sendCaughtRouteError(res, err, '重新生成布局描述失败');
       }
     },
     rebuildVideoPrompt: (req, res) => {
@@ -367,7 +364,7 @@ function routes(db, log) {
         });
       } catch (err) {
         log.error('storyboards rebuildVideoPrompt', { error: err.message, id: req.params.id });
-        response.internalError(res, err.message || '重建视频提示词失败');
+        sendCaughtRouteError(res, err, '重建视频提示词失败');
       }
     },
     splitByAudio: (req, res) => {
@@ -381,7 +378,7 @@ function routes(db, log) {
         });
       } catch (err) {
         log.error('storyboards splitByAudio', { error: err.message, id: req.params.id });
-        response.badRequest(res, err.message || '拆镜失败');
+        response.badRequest(res, publicErrorMessage(err, '拆镜失败'));
       }
     },
     episodeStoryboardsGenerate: (req, res) => {
@@ -397,7 +394,7 @@ function routes(db, log) {
         response.success(res, { task_id: taskId, status: 'pending', message: '分镜头生成任务已创建，正在后台处理...' });
       } catch (err) {
         log.error('episode storyboards generate', { error: err.message });
-        response.internalError(res, err.message);
+        sendCaughtRouteError(res, err, '分镜操作失败，请稍后重试');
       }
     },
     episodeStoryboardsGet: (req, res) => {
@@ -406,7 +403,7 @@ function routes(db, log) {
         response.success(res, { storyboards: list, total: list.length });
       } catch (err) {
         log.error('episode storyboards get', { error: err.message });
-        response.internalError(res, err.message);
+        sendCaughtRouteError(res, err, '分镜操作失败，请稍后重试');
       }
     },
 
@@ -550,7 +547,7 @@ function routes(db, log) {
         response.success(res, { polished_prompt: polished });
       } catch (err) {
         log.error('storyboards polishPrompt', { error: err.message });
-        response.internalError(res, err.message);
+        sendCaughtRouteError(res, err, '分镜操作失败，请稍后重试');
       }
     },
 
@@ -588,7 +585,7 @@ function routes(db, log) {
         response.success(res, { universal_segment_text: text });
       } catch (err) {
         log.error('storyboards generateUniversalSegmentPrompt', { error: err.message });
-        response.internalError(res, err.message);
+        sendCaughtRouteError(res, err, '分镜操作失败，请稍后重试');
       }
     },
 
@@ -630,7 +627,7 @@ function routes(db, log) {
         );
       } catch (err) {
         log.error('storyboards generateUniversalSegmentStream', { error: err.message, id: sbId });
-        writeNd({ type: 'error', message: err.message || '流式生成失败' });
+        writeNd({ type: 'error', message: publicErrorMessage(err, '流式生成失败') });
         return res.end();
       }
 
@@ -752,7 +749,7 @@ function routes(db, log) {
         );
       } catch (err) {
         log.error('storyboards polishUniversalSegmentStream', { error: err.message, id: sbId });
-        writeNd({ type: 'error', message: err.message || '流式生成失败' });
+        writeNd({ type: 'error', message: publicErrorMessage(err, '流式生成失败') });
         return res.end();
       }
 
@@ -1009,7 +1006,7 @@ function routes(db, log) {
         );
       } catch (err) {
         log.error('storyboards polishClassicVideoPromptStream', { error: err.message, id: sbId });
-        writeNd({ type: 'error', message: err.message || '流式生成失败' });
+        writeNd({ type: 'error', message: publicErrorMessage(err, '流式生成失败') });
         return res.end();
       }
 
@@ -1074,7 +1071,7 @@ function routes(db, log) {
         if (err?.code === 'UNSAFE_MEDIA_REFERENCE') {
           return response.badRequest(res, '分镜本地图片路径无效，无法超分');
         }
-        response.internalError(res, '分镜超分失败');
+        sendCaughtRouteError(res, err, '分镜超分失败');
       }
     },
 
@@ -1123,7 +1120,7 @@ function routes(db, log) {
         response.success(res, { total: rows.length, updated });
       } catch (err) {
         log.error('storyboards batchInferParams', { error: err.message });
-        response.internalError(res, err.message);
+        sendCaughtRouteError(res, err, '分镜操作失败，请稍后重试');
       }
     },
   };

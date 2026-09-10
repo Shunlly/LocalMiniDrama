@@ -113,7 +113,7 @@ describe('imageGateway/videoGateway 共用 requestError', () => {
     assert.equal(canceledAttempts, 1);
   });
 
-  it('HTTP 失败对用户返回中文，并保留 status/code/bytes', () => {
+  it('HTTP 失败对用户返回中文，不回传状态原文和密钥', () => {
     const error = classifyHttpFailure({
       provider: 'Kling',
       operation: 'image request',
@@ -121,11 +121,10 @@ describe('imageGateway/videoGateway 共用 requestError', () => {
       code: 'AUTH_DENIED',
       responseBody: JSON.stringify({ code: 'AUTH_DENIED', error: 'Bearer sk-provider-secret' }),
     });
-    assert.match(error.message, /HTTP 401/);
-    assert.match(error.message, /AUTH_DENIED/);
-    assert.match(error.message, /response_bytes=/);
     assert.match(error.message, /认证失败/);
-    assert.doesNotMatch(error.message, /authentication rejected|sk-provider-secret/);
+    assert.doesNotMatch(error.message, /\bHTTP\s+\d+|response_bytes=|AUTH_DENIED|authentication rejected|sk-provider-secret|Bearer /i);
+    assert.equal(error.status, 401);
+    assert.equal(error.providerCode, 'AUTH_DENIED');
     assert.equal(shouldRetryRequest(error), false);
   });
 });

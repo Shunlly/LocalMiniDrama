@@ -39,7 +39,8 @@ test('制作页把提示词弹窗状态交给 composable，并继续传给分镜
   assert.match(filmCreateSource, /useFilmCreatePromptDialogState\(\)/)
   assert.doesNotMatch(filmCreateSource, /const showSbPromptDialog = ref\(false\)/)
   assert.doesNotMatch(filmCreateSource, /const editingFramePromptSb = ref\(null\)/)
-  assert.match(filmCreateSource, /v-model:show-sb-prompt-dialog="showSbPromptDialog"/)
+  assert.match(filmCreateSource, /showSbPromptDialog,/)
+  assert.match(filmCreateSource, /FILM_CREATE_STORYBOARD_DIALOG_MODEL_KEYS/)
   assert.match(
     filmCreateSource,
     /useFilmCreateStoryboardPrompts\(\{[\s\S]*sbPromptTarget,[\s\S]*showSbPromptDialog/,

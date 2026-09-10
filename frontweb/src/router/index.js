@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import { requireValidDramaId } from '@/utils/routeValidation'
+import { requireValidDramaId, sanitizeDramaDetailLocation } from '@/utils/routeValidation'
+import { resolveCatchallNotFoundLocation } from '@/utils/notFoundNavigation.js'
 import { normalizeProjectListReturnTo } from '@/utils/projectListRoute'
 import { createLocationSanitizer } from './navigation.js'
 
@@ -175,6 +176,9 @@ const sanitizeAppLocation = createLocationSanitizer({
 })
 
 router.beforeEach((to) => {
+  if (to.name === 'not-found-catchall') {
+    return resolveCatchallNotFoundLocation(to.fullPath, router.options.history.state?.current)
+  }
   if (['drama-detail', 'film', 'film-canvas'].includes(to.name) && Object.prototype.hasOwnProperty.call(to.query, 'returnTo')) {
     const rawReturnTo = Array.isArray(to.query.returnTo) ? to.query.returnTo[0] : to.query.returnTo
     const returnTo = normalizeProjectListReturnTo(to.query.returnTo)
@@ -182,7 +186,8 @@ router.beforeEach((to) => {
       const query = { ...to.query }
       if (returnTo) query.returnTo = returnTo
       else delete query.returnTo
-      return { name: to.name, params: to.params, query, hash: to.hash, replace: true }
+      const next = { name: to.name, params: to.params, query, hash: to.hash, replace: true }
+      return sanitizeDramaDetailLocation(next) || next
     }
   }
   if (to.name === 'ai-config' && Object.prototype.hasOwnProperty.call(to.query, 'returnTo')) {
@@ -216,6 +221,8 @@ router.beforeEach((to) => {
     }
   }
   const redirected = sanitizeAppLocation(to)
+  const dramaRedirect = sanitizeDramaDetailLocation(redirected || to)
+  if (dramaRedirect) return dramaRedirect
   if (redirected) return redirected
   if (to.meta.title) {
     document.title = `${to.meta.title} - LocalMiniDrama`

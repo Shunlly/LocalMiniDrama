@@ -328,7 +328,7 @@ async function callKlingOmniVideoApi(config, log, opts) {
 
   const textPrompt = (prompt || '').trim().slice(0, 2500);
   if (!textPrompt) {
-    return { error: '可灵 Omni：multi_shot=false 时 prompt 不能为空' };
+    return { error: '可灵 Omni：关闭多镜头时提示词不能为空' };
   }
 
   const body = {
@@ -414,7 +414,7 @@ async function callKlingOmniVideoApi(config, log, opts) {
     data?.data?.task?.id ||
     data?.result?.task_id;
   if (!taskId) {
-    return { error: '可灵 Omni 未返回 task_id' };
+    return { error: '可灵 Omni 未返回任务编号' };
   }
 
   const encoded = 'omni:' + String(taskId);
@@ -570,7 +570,7 @@ async function callKlingVideoApi(config, log, opts) {
 
   const taskId = data?.data?.task_id;
   if (!taskId) {
-    return { error: '可灵未返回 task_id' };
+    return { error: '可灵未返回任务编号' };
   }
 
   // 在 task_id 中编码任务类型，轮询时用于还原正确的查询端点

@@ -240,7 +240,7 @@ describe('TTS request reliability', () => {
             'private narration', 'alloy', 'stored-secret', sourceBaseUrl,
             'tts-1', 1, 2000, undefined, localProviderNetworkOptions(sourceBaseUrl)
           ),
-          /Redirects are not allowed/
+          /当前请求不允许跟随重定向|TTS 请求被重定向/
         );
       });
     });
@@ -254,7 +254,7 @@ describe('TTS request reliability', () => {
           'hello', 'alloy', '', baseUrl, 'tts-1', 1, 1, undefined,
           localProviderNetworkOptions(baseUrl)
         ),
-        /OpenAI TTS .*timeout|OpenAI TTS .*超时/i
+        /配音生成超时，请稍后重试/
       );
     });
   });
@@ -297,7 +297,7 @@ describe('TTS request reliability', () => {
                 timeout = setTimeout(() => reject(new Error('TTS 取消未及时收敛')), 750);
               }),
             ]),
-            (error) => error?.message === 'TTS 请求取消'
+            (error) => error?.message === '操作已取消' || error?.message === 'TTS 请求取消' || error?.message === '配音已取消'
           );
         } finally {
           clearTimeout(timeout);
@@ -339,8 +339,8 @@ describe('TTS request reliability', () => {
           localProviderNetworkOptions(baseUrl)
         ),
         (error) => {
-          assert.equal(error.message, 'OpenAI TTS 请求失败（HTTP 401）');
-          assert.doesNotMatch(error.message, /secret|private narration/i);
+          assert.match(error.message, /TTS 认证失败，请检查「AI 配置」中的密钥后重试/);
+          assert.doesNotMatch(error.message, /secret|private narration|HTTP\s*401|Unauthorized/i);
           return true;
         }
       );

@@ -10,6 +10,8 @@
       width="920px"
       append-to-body
       destroy-on-close
+      :close-on-click-modal="false"
+      :before-close="requestClose"
       @close="resetState"
     >
       <div class="batch-import-dialog">
@@ -18,7 +20,12 @@
             <div class="batch-import-panel">
               <div class="batch-import-toolbar">
                 <input ref="fileInputRef" type="file" accept=".txt,text/plain" style="display:none" @change="onFileChange" />
-                <el-button @click="fileInputRef?.click()">
+                <el-button
+                  aria-label="选择 TXT 剧本文件"
+                  :disabled="importing"
+                  :title="importing ? '正在导入剧集，请完成后再选择文件。' : ''"
+                  @click="fileInputRef?.click()"
+                >
                   <el-icon><Upload /></el-icon>选择 TXT 文件
                 </el-button>
                 <span class="batch-import-file" :class="{ 'is-empty': !fileName }">
@@ -28,10 +35,10 @@
 
               <el-form label-width="120px" class="batch-import-form">
                 <el-form-item label="章节正则">
-                  <el-input v-model="chapterPattern" placeholder="例如：^\s*(第\d+章[^\n]*)" />
+                  <el-input v-model="chapterPattern" placeholder="例如：^\s*(第\d+章[^\n]*)" aria-label="章节正则" />
                 </el-form-item>
                 <el-form-item label="每集章节数">
-                  <el-input-number v-model="chaptersPerEpisode" :min="1" :max="100" />
+                  <el-input-number v-model="chaptersPerEpisode" :min="1" :max="100" aria-label="每集章节数" />
                 </el-form-item>
               </el-form>
 
@@ -67,27 +74,47 @@
                   </el-table-column>
                 </el-table>
               </template>
-              <div v-else class="batch-import-empty">请先在上一步确认导入配置</div>
+              <div v-else class="batch-import-empty">
+                <strong>还没有可导入的集数预览</strong>
+                <p>请先在「导入设置」中选择 TXT 文件，再点击「确认导入配置」。</p>
+                <el-button type="primary" plain @click="activeTab = 'config'">返回导入设置</el-button>
+              </div>
             </div>
           </el-tab-pane>
         </el-tabs>
       </div>
       <template #footer>
-        <el-button @click="visible = false">取消</el-button>
-        <el-button v-if="activeTab === 'preview'" @click="activeTab = 'config'">上一步</el-button>
+        <el-button
+          :disabled="Boolean(closeDisabledReason)"
+          :title="closeDisabledReason"
+          :aria-label="closeDisabledReason || '取消'"
+          @click="requestClose()"
+        >取消</el-button>
+        <el-button
+          v-if="activeTab === 'preview'"
+          :disabled="importing"
+          :title="importing ? '正在导入剧集，请完成后再返回。' : ''"
+          @click="activeTab = 'config'"
+        >上一步</el-button>
         <el-button
           v-if="activeTab === 'config'"
           type="primary"
-          :disabled="!rawText.trim()"
+          :disabled="Boolean(configConfirmDisabledReason)"
+          :title="configConfirmDisabledReason"
           @click="confirmConfig"
         >确认导入配置</el-button>
         <el-button
           v-else
           type="primary"
-          :disabled="!previewEpisodes.length"
+          :disabled="Boolean(importConfirmDisabledReason)"
+          :title="importConfirmDisabledReason"
           :loading="importing"
           @click="confirmImport"
         >确认导入集数</el-button>
+        <span
+          v-if="activeTab === 'config' ? configConfirmDisabledReason : importConfirmDisabledReason"
+          class="batch-import-disabled-reason"
+        >{{ activeTab === 'config' ? configConfirmDisabledReason : importConfirmDisabledReason }}</span>
       </template>
     </AccessibleDialog>
   </div>
@@ -95,8 +122,8 @@
 
 <script setup>
 import { toUserFacingError, isUserFacingAbort } from '@/utils/userFacingError'
-import { onBeforeUnmount, ref } from 'vue'
-import { ElMessage as RawElMessage } from 'element-plus'
+import { computed, onBeforeUnmount, ref } from 'vue'
+import { ElMessage as RawElMessage, ElMessageBox } from 'element-plus'
 import { Upload } from '@element-plus/icons-vue'
 import {
   createProjectInstanceLifecycle,
@@ -111,8 +138,7 @@ const props = defineProps({
     type: Number,
     default: 1,
   },
-  // Event listeners are fire-and-forget in Vue; this callback lets the dialog
-  // wait for the parent's async persistence before closing or showing success.
+  // Vue 事件监听是即发即忘；该回调让弹窗等待父级异步落盘后再关闭或提示成功。
   importHandler: {
     type: Function,
     default: null,
@@ -132,14 +158,73 @@ const chapterPattern = ref('^\\s*(第[0-9０-９零一二三四五六七八九�
 const chaptersPerEpisode = ref(1)
 const previewChapters = ref([])
 const previewEpisodes = ref([])
+let closeConfirmOpen = false
+
+const closeDisabledReason = computed(() => (
+  importing.value ? '正在导入剧集，请完成后再关闭。' : ''
+))
+const configConfirmDisabledReason = computed(() => {
+  if (importing.value) return '正在导入剧集，请完成后再关闭。'
+  if (!rawText.value.trim()) return '请先选择包含章节文本的 TXT 文件'
+  return ''
+})
+const importConfirmDisabledReason = computed(() => {
+  if (importing.value) return '正在导入剧集，请稍候。'
+  if (!previewEpisodes.value.length) return '请先完成预览确认'
+  return ''
+})
 
 function openDialog() {
   visible.value = true
   activeTab.value = 'config'
 }
 
+function hasUnsavedWork() {
+  return importing.value || Boolean(rawText.value.trim() || fileName.value || previewEpisodes.value.length)
+}
+
+function isImporting() {
+  return importing.value
+}
+
+async function requestClose(done) {
+  if (importing.value) {
+    ElMessage.warning('正在导入剧集，请完成后再关闭。')
+    return false
+  }
+  if (!rawText.value.trim() && !fileName.value && !previewEpisodes.value.length) {
+    if (typeof done === 'function') done()
+    else resetState()
+    return true
+  }
+  if (closeConfirmOpen) return false
+  closeConfirmOpen = true
+  try {
+    await ElMessageBox.confirm(
+      '已选择的剧本文件和预览结果尚未导入，关闭后会丢失。',
+      '关闭批量导入？',
+      {
+        confirmButtonText: '放弃并关闭',
+        cancelButtonText: '继续导入',
+        type: 'warning',
+        distinguishCancelAndClose: true,
+      },
+    )
+    if (typeof done === 'function') done()
+    else resetState()
+    return true
+  } catch {
+    return false
+  } finally {
+    closeConfirmOpen = false
+  }
+}
+
 defineExpose({
   openDialog,
+  hasUnsavedWork,
+  isImporting,
+  requestClose,
 })
 
 onBeforeUnmount(() => {
@@ -163,16 +248,31 @@ function resetState() {
 function onFileChange(event) {
   const file = event.target?.files?.[0]
   if (!file) return
+  if (!/\.txt$/i.test(file.name || '')) {
+    ElMessage.warning('请选择 TXT 文本文件')
+    event.target.value = ''
+    return
+  }
   fileName.value = file.name
+  rawText.value = ''
   previewReady.value = false
   previewChapters.value = []
   previewEpisodes.value = []
   const reader = new FileReader()
   reader.onload = (ev) => {
     rawText.value = String(ev.target?.result || '')
+    if (!rawText.value.trim()) {
+      fileName.value = ''
+      rawText.value = ''
+      event.target.value = ''
+      ElMessage.error('文件内容为空，请选择包含章节文本的 TXT 文件')
+    }
   }
   reader.onerror = () => {
-    ElMessage.error('读取文件失败')
+    fileName.value = ''
+    rawText.value = ''
+    event.target.value = ''
+    ElMessage.error('读取文件失败，请重新选择 TXT 文件')
   }
   reader.readAsText(file, 'utf-8')
 }
@@ -302,7 +402,10 @@ async function confirmImport() {
 .batch-import-tip-block { display: flex; flex-direction: column; gap: 8px; }
 .batch-import-tip { font-size: 0.82rem; color: #71717a; }
 .batch-import-code { color: #c084fc; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, Liberation Mono, Courier New, monospace; }
-.batch-import-empty { min-height: 320px; display: flex; align-items: center; justify-content: center; color: #71717a; border: 1px dashed #3f3f46; border-radius: 12px; }
+.batch-import-empty { min-height: 320px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 24px; color: #71717a; border: 1px dashed #3f3f46; border-radius: 12px; text-align: center; }
+.batch-import-empty strong { color: #e4e4e7; font-size: 0.95rem; }
+.batch-import-empty p { margin: 0; line-height: 1.6; }
+.batch-import-disabled-reason { font-size: 12px; color: #a1a1aa; line-height: 1.4; }
 .batch-import-preview-header { display: flex; align-items: center; justify-content: flex-end; gap: 12px; margin-bottom: 12px; color: #c084fc; font-size: 0.85rem; flex-wrap: wrap; }
 .batch-import-preview-table :deep(.el-table) { --el-table-bg-color: transparent; --el-table-tr-bg-color: transparent; --el-table-border-color: #3f3f46; --el-table-header-bg-color: rgba(39, 39, 42, 0.9); --el-table-row-hover-bg-color: rgba(139, 92, 246, 0.08); color: #e4e4e7; }
 .batch-import-preview-table :deep(.el-table__inner-wrapper::before) { display: none; }

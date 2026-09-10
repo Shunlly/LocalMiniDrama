@@ -14,7 +14,7 @@ import { useFilmCreateStoryboardReferences } from '../src/composables/filmCreate
 import { remainingImportedFunctionSource } from './helpers/remainingSourceBetween.js'
 
 const filmCreateSource = readFileSync(new URL('../src/views/FilmCreate.vue', import.meta.url), 'utf8')
-const storyboardPanelSource = readFileSync(new URL('../src/components/filmCreate/FilmCreateStoryboardPanel.vue', import.meta.url), 'utf8')
+const storyboardPanelSource = readFileSync(new URL('../src/components/filmCreate/FilmCreateStoryboardPanel.vue', import.meta.url), 'utf8') + '\n' + readFileSync(new URL('../src/components/filmCreate/FilmCreateStoryboardPanel.css', import.meta.url), 'utf8')
 const storyboardDialogsSource = readFileSync(new URL('../src/components/filmCreate/FilmCreateStoryboardDialogs.vue', import.meta.url), 'utf8')
 const mediaLibrarySource = readFileSync(new URL('../src/views/MediaLibrary.vue', import.meta.url), 'utf8')
 const pickerSource = readFileSync(new URL('../src/components/GlobalMediaPickerDialog.vue', import.meta.url), 'utf8')
@@ -119,7 +119,9 @@ test('FilmCreate wires the picker into storyboard free references with duplicate
     ElMessage.warning = originalWarning
   }
 
-  assert.match(filmCreateSource, /<GlobalMediaPickerDialog[\s\S]*@select="onGlobalMediaAssetSelected"[\s\S]*@open-library="openMediaLibraryFromPicker"/)
+  const workspaceDialogsSource = readFileSync(new URL('../src/components/filmCreate/FilmCreateWorkspaceDialogs.vue', import.meta.url), 'utf8')
+  assert.match(filmCreateSource, /<FilmCreateWorkspaceDialogs[\s\S]*@select="onGlobalMediaAssetSelected"[\s\S]*@open-library="openMediaLibraryFromPicker"/)
+  assert.match(workspaceDialogsSource, /<GlobalMediaPickerDialog/)
   assert.match(storyboardPanelSource, /:aria-label="`分镜 \$\{sb\.storyboard_number\} 视频预览`"/)
   assert.match(deliveryPanelSource, /aria-label="本集合成视频预览"/)
   assert.match(storyboardDialogsSource, /openGlobalMediaPicker\(videoParamsTarget, 'reference-primary'\)/)

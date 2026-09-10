@@ -4,6 +4,7 @@
 
 const { AsyncLocalStorage } = require('async_hooks');
 const { secureHttpFetch, validateHttpRequestTarget } = require('../secureHttpFetch');
+const { toUserFacingGatewayError } = require('../providerErrorSanitizer');
 const {
   classifyHttpFailure,
   createTimeoutController,
@@ -56,13 +57,11 @@ function abortableDelay(ms, signal) {
   });
 }
 
-function userFacingGatewayError(error) {
-  if (typeof error === 'string') {
-    const text = error.trim();
-    return text || '图片请求失败，请稍后重试';
-  }
-  if (error && typeof error.message === 'string' && error.message.trim()) return error.message;
-  return '图片请求失败，请稍后重试';
+function userFacingGatewayError(error, options = {}) {
+  return toUserFacingGatewayError(error, {
+    provider: options.provider || IMAGE_PROVIDER_LABEL,
+    operation: options.operation || 'image request',
+  }) || '图片请求失败，请稍后重试';
 }
 
 function resolveImageJsonTimeoutMs(timeoutMs) {
@@ -183,7 +182,7 @@ async function postJSONWithTimeout(url, headers, body, timeoutMs, networkOptions
 
 function imageProviderFailure(provider, operation, status, responseBody, code) {
   const error = classifyHttpFailure({ provider, operation, status, responseBody, code });
-  const result = { error: userFacingGatewayError(error) };
+  const result = { error: userFacingGatewayError(error, { provider, operation }) };
   if (error.retryable === true) result.retryable = true;
   return result;
 }
@@ -198,7 +197,7 @@ function imageProviderException(error, provider, operation, signal) {
 
 function imageProviderCaughtError(error, provider, operation, signal) {
   const classified = imageProviderException(error, provider, operation, signal);
-  const result = { error: userFacingGatewayError(classified) };
+  const result = { error: userFacingGatewayError(classified, { provider, operation }) };
   if (classified.retryable === true) result.retryable = true;
   return result;
 }

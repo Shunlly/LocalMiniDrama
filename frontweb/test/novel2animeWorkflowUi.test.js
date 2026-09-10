@@ -93,6 +93,8 @@ test('inferSourceTypeFromFilename detects common multi-source file names', () =>
   assert.equal(inferSourceTypeFromFilename('storyboard_shots.csv'), 'storyboard')
   assert.equal(inferSourceTypeFromFilename('episode-script.md'), 'script')
   assert.equal(inferSourceTypeFromFilename('captions.srt'), 'transcript')
+  assert.equal(inferSourceTypeFromFilename('interview.mp3'), 'transcript')
+  assert.equal(inferSourceTypeFromFilename('scene.mp4'), 'transcript')
   assert.equal(inferSourceTypeFromFilename('漫画-panels.txt'), 'comic')
   assert.equal(inferSourceTypeFromFilename('story.txt'), 'novel')
 })

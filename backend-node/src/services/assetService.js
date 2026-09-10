@@ -91,6 +91,7 @@ function parseNetworkSourceMetadata(value) {
   if (typeof value !== 'string' || !value.startsWith('{')) return null;
   try {
     const parsed = JSON.parse(value);
+    if (parsed?.kind === 'openverse') return parseOpenverseSourceMetadata(parsed);
     if (
       parsed?.kind !== 'wikimedia_commons'
       || parsed.source_provider !== 'Wikimedia Commons'
@@ -105,7 +106,34 @@ function parseNetworkSourceMetadata(value) {
   }
 }
 
+function parseOpenverseSourceMetadata(parsed) {
+  if (parsed.source_provider !== 'Openverse') return null;
+  if (!networkMediaService.isOpenverseId(parsed.openverse_id)) return null;
+  if (typeof parsed.source_url !== 'string' || typeof parsed.license !== 'string') return null;
+  const source = new URL(parsed.source_url);
+  if (source.protocol !== 'https:' || source.origin !== 'https://openverse.org' || source.username || source.password) {
+    return null;
+  }
+  return parsed;
+}
+
 function encodeNetworkSourceMetadata(item) {
+  if (item?.kind === 'openverse' || item?.source === 'openverse') {
+    return JSON.stringify({
+      kind: 'openverse',
+      source_provider: 'Openverse',
+      source_url: item.source_url,
+      author: item.author,
+      license: item.license,
+      license_url: item.license_url || '',
+      landing_page: item.landing_page || '',
+      openverse_id: item.openverse_id,
+      source_site: item.source_site || '',
+      indexed_on: item.indexed_on || '',
+      resolved_download_url: item.resolved_download_url || '',
+      content_sha256: item.content_sha256 || '',
+    });
+  }
   return JSON.stringify({
     kind: 'wikimedia_commons',
     source_provider: 'Wikimedia Commons',
@@ -122,12 +150,36 @@ function encodeNetworkSourceMetadata(item) {
   });
 }
 
-function findNetworkAssetBySource(db, dramaId, sourceUrl) {
+function findNetworkAssetBySource(db, dramaId, source) {
+  const sourceUrl = typeof source === 'string' ? source : source?.source_url;
+  const openverseId = typeof source === 'object' && source
+    ? String(source.openverse_id || '').trim().toLowerCase()
+    : '';
   const rows = dramaId == null
     ? db.prepare('SELECT id, category FROM assets WHERE drama_id IS NULL AND deleted_at IS NULL').all()
     : db.prepare('SELECT id, category FROM assets WHERE drama_id = ? AND deleted_at IS NULL').all(dramaId);
-  const match = rows.find((row) => parseNetworkSourceMetadata(row.category)?.source_url === sourceUrl);
+  const match = rows.find((row) => {
+    const meta = parseNetworkSourceMetadata(row.category);
+    if (!meta) return false;
+    if (openverseId && meta.kind === 'openverse' && String(meta.openverse_id || '').toLowerCase() === openverseId) {
+      return true;
+    }
+    return Boolean(sourceUrl) && meta.source_url === sourceUrl;
+  });
   return match ? getById(db, match.id) : null;
+}
+
+function isUnchangedNetworkSource(previous, next) {
+  if ((previous.kind || 'wikimedia_commons') === 'wikimedia_commons') {
+    return previous.commons_revision_timestamp === next.commons_revision_timestamp
+      && previous.commons_sha1 === next.commons_sha1
+      && previous.content_sha256 === next.content_sha256;
+  }
+  if (previous.kind === 'openverse') {
+    return String(previous.openverse_id || '').toLowerCase() === String(next.openverse_id || '').toLowerCase()
+      && previous.content_sha256 === next.content_sha256;
+  }
+  return previous.content_sha256 === next.content_sha256 && previous.source_url === next.source_url;
 }
 
 function getById(db, id) {
@@ -154,7 +206,7 @@ function resolveDramaScope(db, value, options = {}) {
     ? value
     : (typeof value === 'string' && /^\d+$/.test(value) ? Number(value) : value);
   if (!Number.isSafeInteger(normalized) || normalized <= 0) {
-    throw badRequest('drama_id 必须为正整数');
+    throw badRequest('项目 ID 必须是正整数');
   }
   dramaWriteGuard.assertDramaWritable(db, normalized);
   let drama;
@@ -168,18 +220,18 @@ function resolveDramaScope(db, value, options = {}) {
       'SELECT id, title, created_at, metadata, NULL AS trash_state FROM dramas WHERE id = ? AND deleted_at IS NULL'
     ).get(normalized);
   }
-  if (!drama) throw badRequest('drama_id 对应的项目不存在');
+  if (!drama) throw badRequest('项目不存在');
   return drama;
 }
 
 function normalizeLocalReference(value, field) {
   if (value === undefined || value === null || value === '') return null;
-  if (typeof value !== 'string') throw badRequest(`${field} 必须为安全的本地媒体引用`);
+  if (typeof value !== 'string') throw badRequest(`${field === 'local_path' ? '本地路径' : field === 'url' ? '媒体地址' : '媒体路径'} 必须为安全的本地媒体引用`);
   try {
     const relative = value.startsWith('/static/') ? value.slice('/static/'.length) : value;
     return uploadService.normalizeStorageRelativeReference(relative);
   } catch (_) {
-    throw badRequest(`${field} 必须为安全的本地媒体引用`);
+    throw badRequest(`${field === 'local_path' ? '本地路径' : field === 'url' ? '媒体地址' : '媒体路径'} 必须为安全的本地媒体引用`);
   }
 }
 
@@ -245,7 +297,7 @@ function normalizeAssetMedia(db, drama, req) {
     ? null
     : normalizeAssetUrlReference(req.url, localPath);
   if (localPath && urlPath && localPath !== urlPath) {
-    throw badRequest('url 与 local_path 必须引用同一本地素材');
+    throw badRequest('媒体地址与本地路径必须引用同一本地素材');
   }
   const canonicalPath = assertProjectPathScope(drama, localPath || urlPath, '媒体路径');
   return {
@@ -649,14 +701,12 @@ async function importFromNetwork(db, log, req, options = {}) {
     let reused = false;
     const persist = db.transaction(() => {
       if (drama) resolveDramaScope(db, drama.id, { strictDramaId: true });
-      const existing = findNetworkAssetBySource(db, drama?.id ?? null, prepared.item.source_url);
+      const existing = findNetworkAssetBySource(db, drama?.id ?? null, prepared.item);
       if (existing) {
         const previous = existing.source_metadata || {};
-        const unchanged = previous.commons_revision_timestamp === prepared.item.commons_revision_timestamp
-          && previous.commons_sha1 === prepared.item.commons_sha1
-          && previous.content_sha256 === prepared.item.content_sha256;
+        const unchanged = isUnchangedNetworkSource(previous, prepared.item);
         if (!unchanged) {
-          const error = new Error('该 Commons 来源已有本地素材，但远端修订或内容已经变化，请删除旧素材后重新导入');
+          const error = new Error('该网络来源已有本地素材，但远端修订或内容已经变化，请删除旧素材后重新导入');
           error.code = 'NETWORK_MEDIA_SOURCE_CHANGED';
           error.statusCode = 409;
           throw error;
@@ -681,7 +731,7 @@ async function importFromNetwork(db, log, req, options = {}) {
     if (reused) prepared.cleanup();
     log?.info?.('Network asset imported', {
       asset_id: asset.id,
-      source_provider: 'Wikimedia Commons',
+      source_provider: prepared.item.source_provider || (prepared.item.kind === 'openverse' ? 'Openverse' : 'Wikimedia Commons'),
       local_path: asset.local_path,
       reused,
     });
@@ -694,6 +744,11 @@ async function importFromNetwork(db, log, req, options = {}) {
     }
     throw error;
   }
+}
+
+
+async function proxyNetworkThumbnail(query, options = {}) {
+  return networkMediaService.proxyThumbnail(query, options.network || options);
 }
 
 function cleanupNetworkImportOrphans(db, log, options = {}) {
@@ -759,6 +814,7 @@ module.exports = {
   importFromVideo,
   searchNetwork,
   importFromNetwork,
+  proxyNetworkThumbnail,
   cleanupNetworkImportOrphans,
   startNetworkImportOrphanCleanup,
   storyboardReferencesForAsset,

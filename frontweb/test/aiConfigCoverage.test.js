@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import {
+  AI_EXTRACTION_COVERAGE_DEFINITIONS,
   AI_SERVICE_COVERAGE_DEFINITIONS,
   buildAiServiceCoverage,
   getAiServiceCoverageActions,
@@ -302,4 +303,19 @@ test('unknown status remains explicit when the API exposes no test fields', () =
     source: 'none',
     testedAt: null,
   })
+})
+
+test('missing OCR and transcription do not mark core production coverage unready', () => {
+  assert.deepEqual(AI_EXTRACTION_COVERAGE_DEFINITIONS.map((item) => item.type), ['ocr', 'transcription'])
+  const coverage = buildAiServiceCoverage([
+    { id: 1, service_type: 'text', provider: 'ollama', default_model: 'qwen3', is_active: true, is_default: true },
+    { id: 2, service_type: 'image', provider: 'ollama', default_model: 'img', is_active: true, is_default: true },
+    { id: 3, service_type: 'storyboard_image', provider: 'ollama', default_model: 'sb', is_active: true, is_default: true },
+    { id: 4, service_type: 'video', provider: 'ollama', default_model: 'vid', is_active: true, is_default: true },
+    { id: 5, service_type: 'tts', provider: 'ollama', default_model: 'voice', is_active: true, is_default: true },
+  ])
+  assert.equal(coverage.totalCount, 5)
+  assert.equal(coverage.ready, true)
+  assert.equal(coverage.extractionServices.length, 2)
+  assert.ok(coverage.extractionServices.every((item) => item.state === 'missing'))
 })

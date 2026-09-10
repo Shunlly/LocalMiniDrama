@@ -703,23 +703,10 @@ html.light .nav-sub-item:hover { color: #1e1b4b; background: rgba(99,102,241,0.0
 .project-load-state p { max-width: 620px; margin: 0; color: #a1a1aa; line-height: 1.65; }
 .project-load-state .project-load-state-assurance { color: #d4d4d8; }
 .project-load-state-actions { display: flex; gap: 10px; margin-top: 12px; }
-.project-dependency-warning {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 18px;
-  padding: 10px 12px;
-  border: 1px solid rgba(245, 158, 11, 0.38);
-  border-radius: 6px;
-  background: rgba(120, 53, 15, 0.15);
-  color: #fcd34d;
-}
-.project-dependency-warning span { flex: 1; line-height: 1.5; }
 html.light .project-load-state { background: #fff; border-color: #d4d4d8; }
 html.light .project-load-state--error { border-color: #fca5a5; }
 html.light .project-load-state h1 { color: #18181b; }
 html.light .project-load-state p { color: #52525b; }
-html.light .project-dependency-warning { background: #fffbeb; color: #92400e; border-color: #fcd34d; }
 .sidebar-collapsed .main {
   margin-left: var(--film-nav-width);
 }

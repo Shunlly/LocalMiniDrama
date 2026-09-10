@@ -65,23 +65,25 @@
                     <div class="asset-desc-full">{{ char.appearance || char.description || '暂无描述' }}</div>
                     <div class="asset-btns">
                       <el-button size="small" @click="emit('edit-character', char)">编辑</el-button>
-                      <ActionGate :reason="missingAssetImageReason(char)" label="加入本剧库">
+                      <ActionGate :reason="missingAssetImageReason(char, 'character')" label="加入本剧库">
                         <el-button size="small" :loading="addingCharToLibraryId === char.id" :disabled="!hasAssetImage(char)" @click="emit('add-character-to-library', char)">
                           加入本剧库
                         </el-button>
                       </ActionGate>
-                      <ActionGate :reason="missingAssetImageReason(char)" label="加入素材库">
+                      <ActionGate :reason="missingAssetImageReason(char, 'character')" label="加入素材库">
                         <el-button size="small" :loading="addingCharToMaterialId === char.id" :disabled="!hasAssetImage(char)" @click="emit('add-character-to-material', char)">
                           加入素材库
                         </el-button>
                       </ActionGate>
-                      <ActionGate :reason="missingAssetImageReason(char)" :label="sd2ActionLabel(char)">
+                      <ActionGate :reason="missingAssetImageReason(char, 'character')" :label="sd2ActionLabel(char)">
                         <el-button
                           size="small"
                           :type="char.seedance2_asset?.status === 'active' ? 'success' : 'warning'"
                           plain
                           :loading="sd2CertifyingId === char.id"
                           :disabled="!hasAssetImage(char)"
+                          :title="sd2CertActionTitle(char)"
+                          :aria-label="sd2ActionLabel(char)"
                           @click="emit('sd2-primary-action', char)"
                         >
                           {{ sd2ActionLabel(char) }}
@@ -97,6 +99,8 @@
                           size="small"
                           type="success"
                           plain
+                          title="试听角色音色"
+                          :aria-label="`试听${char.name || '角色'}音色`"
                           @click="emit('play-sd2-voice', char)"
                         >
                           <el-icon><VideoPlay /></el-icon>
@@ -107,6 +111,8 @@
                           type="primary"
                           plain
                           :loading="sd2VoiceUploadingId === char.id"
+                          title="更换角色音色"
+                          :aria-label="`更换${char.name || '角色'}音色`"
                           @click="emit('sd2-voice-replace', char)"
                         >
                           更换
@@ -119,6 +125,8 @@
                           :type="char.seedance2_voice_asset?.status === 'stale' ? 'warning' : 'info'"
                           plain
                           :loading="sd2VoiceUploadingId === char.id"
+                          :title="sd2VoiceActionLabel(char)"
+                          :aria-label="sd2VoiceActionLabel(char)"
                           @click="emit('sd2-voice-primary-action', char)"
                         >
                           {{ sd2VoiceActionLabel(char) }}
@@ -169,7 +177,7 @@
                       @drop="onResourceDrop($event, 'character', char.id)"
                     >
                       <img v-if="hasAssetImage(char)" :src="assetImageUrl(char)" class="cover-img" alt="" />
-                      <div v-else-if="char.error_msg || char.errorMsg" class="cover-placeholder error" :title="char.error_msg || char.errorMsg">{{ char.error_msg || char.errorMsg }}</div>
+                      <div v-else-if="char.error_msg || char.errorMsg" class="cover-placeholder error" :title="assetErrorText(char)">{{ assetErrorText(char) }}</div>
                       <div v-else class="cover-placeholder">暂无图</div>
                       <div v-if="dragOverResourceKey === 'char-' + char.id" class="asset-cover-drop-hint">松开上传</div>
                     </div>
@@ -197,7 +205,27 @@
                     </div>
                   </div>
                 </div>
-                <div v-if="characters.length === 0" class="empty-tip">暂无角色，可用「剧本自动提取角色」或「添加角色」</div>
+                <div
+                  v-if="characters.length === 0"
+                  class="empty-tip resource-empty-tip"
+                  role="status"
+                >
+                  <p class="resource-empty-copy">暂无角色，可用「剧本自动提取角色」或「添加角色」</p>
+                  <div class="resource-empty-actions">
+                    <template v-if="needsEpisode">
+                      <el-button v-if="!hasAnyEpisode" type="primary" size="small" aria-label="去创建剧集后再提取角色" @click="goCreateEpisode">去创建剧集</el-button>
+                      <el-button v-else type="primary" size="small" aria-label="去选择剧集后再提取角色" @click="goSelectEpisode">去选择剧集</el-button>
+                    </template>
+                    <template v-else>
+                      <ActionGate :reason="characterGenerationDisabledReason" label="剧本自动提取角色">
+                        <el-button type="primary" size="small" :loading="charactersGenerating" :disabled="Boolean(characterGenerationDisabledReason)" aria-label="剧本自动提取角色" @click="emit('generate-characters')">剧本自动提取角色</el-button>
+                      </ActionGate>
+                      <ActionGate :reason="projectActionDisabledReason" label="添加角色">
+                        <el-button size="small" :disabled="Boolean(projectActionDisabledReason)" aria-label="添加角色" @click="emit('add-character')">添加角色</el-button>
+                      </ActionGate>
+                    </template>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -241,12 +269,12 @@
                     <div class="asset-desc-full">{{ prop.description || prop.prompt || '暂无描述' }}</div>
                     <div class="asset-btns">
                       <el-button size="small" @click="emit('edit-prop', prop)">编辑</el-button>
-                      <ActionGate :reason="missingAssetImageReason(prop)" label="加入本剧库">
+                      <ActionGate :reason="missingAssetImageReason(prop, 'prop')" label="加入本剧库">
                         <el-button size="small" :loading="addingPropToLibraryId === prop.id" :disabled="!hasAssetImage(prop)" @click="emit('add-prop-to-library', prop)">
                           加入本剧库
                         </el-button>
                       </ActionGate>
-                      <ActionGate :reason="missingAssetImageReason(prop)" label="加入素材库">
+                      <ActionGate :reason="missingAssetImageReason(prop, 'prop')" label="加入素材库">
                         <el-button size="small" :loading="addingPropToMaterialId === prop.id" :disabled="!hasAssetImage(prop)" @click="emit('add-prop-to-material', prop)">
                           加入素材库
                         </el-button>
@@ -293,7 +321,7 @@
                       @drop="onResourceDrop($event, 'prop', prop.id)"
                     >
                       <img v-if="hasAssetImage(prop)" :src="assetImageUrl(prop)" class="cover-img" alt="" />
-                      <div v-else-if="prop.error_msg || prop.errorMsg" class="cover-placeholder error" :title="prop.error_msg || prop.errorMsg">{{ prop.error_msg || prop.errorMsg }}</div>
+                      <div v-else-if="prop.error_msg || prop.errorMsg" class="cover-placeholder error" :title="assetErrorText(prop)">{{ assetErrorText(prop) }}</div>
                       <div v-else class="cover-placeholder">暂无图</div>
                       <div v-if="dragOverResourceKey === 'prop-' + prop.id" class="asset-cover-drop-hint">松开上传</div>
                     </div>
@@ -322,7 +350,27 @@
                     </div>
                   </div>
                 </div>
-                <div v-if="propItems.length === 0" class="empty-tip">暂无道具，可用「从剧本提取道具」或「添加道具」</div>
+                <div
+                  v-if="propItems.length === 0"
+                  class="empty-tip resource-empty-tip"
+                  role="status"
+                >
+                  <p class="resource-empty-copy">暂无道具，可用「从剧本提取道具」或「添加道具」</p>
+                  <div class="resource-empty-actions">
+                    <template v-if="needsEpisode">
+                      <el-button v-if="!hasAnyEpisode" type="primary" size="small" aria-label="去创建剧集后再提取道具" @click="goCreateEpisode">去创建剧集</el-button>
+                      <el-button v-else type="primary" size="small" aria-label="去选择剧集后再提取道具" @click="goSelectEpisode">去选择剧集</el-button>
+                    </template>
+                    <template v-else>
+                      <ActionGate :reason="propsExtractionDisabledReason" label="从剧本提取道具">
+                        <el-button type="primary" size="small" :loading="propsExtracting" :disabled="Boolean(propsExtractionDisabledReason)" aria-label="从剧本提取道具" @click="emit('extract-props')">从剧本提取道具</el-button>
+                      </ActionGate>
+                      <ActionGate :reason="projectActionDisabledReason" label="添加道具">
+                        <el-button size="small" :disabled="Boolean(projectActionDisabledReason)" aria-label="添加道具" @click="emit('add-prop')">添加道具</el-button>
+                      </ActionGate>
+                    </template>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -368,12 +416,12 @@
                     <div class="asset-desc-full">{{ scene.description || scene.prompt || scene.time || '暂无描述' }}</div>
                     <div class="asset-btns">
                       <el-button size="small" @click="emit('edit-scene', scene)">编辑</el-button>
-                      <ActionGate :reason="missingAssetImageReason(scene)" label="加入本剧库">
+                      <ActionGate :reason="missingAssetImageReason(scene, 'scene')" label="加入本剧库">
                         <el-button size="small" :loading="addingSceneToLibraryId === scene.id" :disabled="!hasAssetImage(scene)" @click="emit('add-scene-to-library', scene)">
                           加入本剧库
                         </el-button>
                       </ActionGate>
-                      <ActionGate :reason="missingAssetImageReason(scene)" label="加入素材库">
+                      <ActionGate :reason="missingAssetImageReason(scene, 'scene')" label="加入素材库">
                         <el-button size="small" :loading="addingSceneToMaterialId === scene.id" :disabled="!hasAssetImage(scene)" @click="emit('add-scene-to-material', scene)">
                           加入素材库
                         </el-button>
@@ -420,7 +468,7 @@
                       @drop="onResourceDrop($event, 'scene', scene.id)"
                     >
                       <img v-if="hasAssetImage(scene)" :src="assetImageUrl(scene)" class="cover-img" alt="" />
-                      <div v-else-if="scene.error_msg || scene.errorMsg" class="cover-placeholder error" :title="scene.error_msg || scene.errorMsg">{{ scene.error_msg || scene.errorMsg }}</div>
+                      <div v-else-if="scene.error_msg || scene.errorMsg" class="cover-placeholder error" :title="assetErrorText(scene)">{{ assetErrorText(scene) }}</div>
                       <div v-else class="cover-placeholder">暂无图</div>
                       <div v-if="dragOverResourceKey === 'scene-' + scene.id" class="asset-cover-drop-hint">松开上传</div>
                     </div>
@@ -447,9 +495,60 @@
                         上传
                       </el-button>
                     </div>
+                    <div class="scene-panorama-row" aria-label="场景全景图">
+                      <ActionGate
+                        :reason="missingScenePanoramaReason(scene)"
+                        :label="(scene.panorama_local_path || scene.panorama_image_url) ? '重新生成全景图' : '生成全景图'"
+                      >
+                        <el-button
+                          size="small"
+                          :loading="generatingPanoramaIds.has(scene.id)"
+                          :disabled="Boolean(missingScenePanoramaReason(scene))"
+                          :aria-label="(scene.panorama_local_path || scene.panorama_image_url) ? `重新生成${scene.location || '场景'}全景图` : `生成${scene.location || '场景'}全景图`"
+                          @click="emit('generate-scene-panorama', scene)"
+                        >{{ (scene.panorama_local_path || scene.panorama_image_url) ? '重新生成全景图' : '生成全景图' }}</el-button>
+                      </ActionGate>
+                      <button
+                        v-if="scenePanoramaUrl(scene)"
+                        type="button"
+                        class="scene-panorama-thumb"
+                        :aria-label="`预览${scene.location || '场景'}全景图`"
+                        @click="emit('preview-image', scenePanoramaUrl(scene))"
+                      >
+                        <img :src="scenePanoramaUrl(scene)" alt="" />
+                      </button>
+                      <button
+                        v-if="scenePanoramaUrl(scene)"
+                        type="button"
+                        class="scene-panorama-preview-btn"
+                        :aria-label="`预览${scene.location || '场景'}全景图`"
+                        @click="emit('preview-image', scenePanoramaUrl(scene))"
+                      >预览全景</button>
+                      <span v-if="generatingPanoramaIds.has(scene.id)" class="scene-panorama-loading" role="status">生成全景图…</span>
+                    </div>
                   </div>
                 </div>
-                <div v-if="scenes.length === 0" class="empty-tip">暂无场景，可用「从剧本提取场景」或「添加场景」</div>
+                <div
+                  v-if="scenes.length === 0"
+                  class="empty-tip resource-empty-tip"
+                  role="status"
+                >
+                  <p class="resource-empty-copy">暂无场景，可用「从剧本提取场景」或「添加场景」</p>
+                  <div class="resource-empty-actions">
+                    <template v-if="needsEpisode">
+                      <el-button v-if="!hasAnyEpisode" type="primary" size="small" aria-label="去创建剧集后再提取场景" @click="goCreateEpisode">去创建剧集</el-button>
+                      <el-button v-else type="primary" size="small" aria-label="去选择剧集后再提取场景" @click="goSelectEpisode">去选择剧集</el-button>
+                    </template>
+                    <template v-else>
+                      <ActionGate :reason="scenesExtractionDisabledReason" label="从剧本提取场景">
+                        <el-button type="primary" size="small" :loading="scenesExtracting" :disabled="Boolean(scenesExtractionDisabledReason)" aria-label="从剧本提取场景" @click="emit('extract-scenes')">从剧本提取场景</el-button>
+                      </ActionGate>
+                      <ActionGate :reason="projectActionDisabledReason" label="添加场景">
+                        <el-button size="small" :disabled="Boolean(projectActionDisabledReason)" aria-label="添加场景" @click="emit('add-scene')">添加场景</el-button>
+                      </ActionGate>
+                    </template>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -459,10 +558,10 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { toUserFacingError } from '@/utils/userFacingError'
+import { computed, ref } from 'vue'
 import { ArrowDown, ArrowUp, Delete, MagicStick, Upload, VideoPlay, ZoomIn } from '@element-plus/icons-vue'
 import ActionGate from '@/components/filmCreate/ActionGate.vue'
-import { missingAssetImageReason as describeMissingAssetImageReason } from '@/utils/filmCreateActionState'
 
 defineOptions({ inheritAttrs: false })
 
@@ -481,6 +580,7 @@ const props = defineProps({
   generatingCharIds: { type: [Set, Object], default: () => new Set() },
   generatingPropIds: { type: [Set, Object], default: () => new Set() },
   generatingSceneIds: { type: [Set, Object], default: () => new Set() },
+  generatingPanoramaIds: { type: [Set, Object], default: () => new Set() },
   uploadingResourceId: { type: [String, null], default: null },
   addingCharToLibraryId: { type: [Number, String, null], default: null },
   addingCharToMaterialId: { type: [Number, String, null], default: null },
@@ -502,6 +602,9 @@ const props = defineProps({
   getSceneAffectedStoryboards: { type: Function, required: true },
   sd2ActionLabel: { type: Function, required: true },
   sd2VoiceActionLabel: { type: Function, required: true },
+  onAddEpisode: { type: Function, default: undefined },
+  onSelectEpisode: { type: Function, default: undefined },
+  hasAnyEpisode: { type: Boolean, default: false },
 })
 
 const resourcePanelCollapsed = defineModel('resourcePanelCollapsed', { type: Boolean, default: false })
@@ -512,10 +615,12 @@ const propUseQuadGrid = defineModel('propUseQuadGrid', { type: Boolean, default:
 const sceneUseQuadGrid = defineModel('sceneUseQuadGrid', { type: Boolean, default: false })
 
 const emit = defineEmits([
+  'add-episode',
+  'select-episode',
   'generate-characters', 'add-character', 'open-char-library',
   'extract-props', 'add-prop', 'open-prop-library',
   'extract-scenes', 'add-scene', 'open-scene-library',
-  'generate-character-image', 'generate-prop-image', 'generate-scene-image',
+  'generate-character-image', 'generate-prop-image', 'generate-scene-image', 'generate-scene-panorama',
   'edit-character', 'edit-prop', 'edit-scene',
   'delete-character', 'delete-prop', 'delete-scene',
   'add-character-to-library', 'add-character-to-material',
@@ -529,8 +634,57 @@ const emit = defineEmits([
 
 const { hasAssetImage, assetImageUrl, charRoleLabel, localPathToUrl, parseExtraImages, getCharAffectedStoryboards, getPropAffectedStoryboards, getSceneAffectedStoryboards, sd2ActionLabel, sd2VoiceActionLabel } = props
 
-function missingAssetImageReason(item) {
-  return describeMissingAssetImageReason(hasAssetImage(item))
+function missingAssetImageReason(item, kind) {
+  if (hasAssetImage(item)) return ''
+  if (kind === 'prop') return '请先为该道具生成或上传主图'
+  if (kind === 'scene') return '请先为该场景生成或上传主图'
+  return '请先为该角色生成或上传主图'
+}
+
+/** 认证按钮的悬停帮助文案 */
+function sd2CertActionTitle(char) {
+  const status = String(char?.seedance2_asset?.status || '').toLowerCase()
+  if (status === 'active') return '查看认证资产详情'
+  if (status === 'processing') return '刷新认证资产状态'
+  if (status === 'failed') return '重新提交认证资产'
+  return '将角色主图登记为认证资产'
+}
+
+function scenePanoramaUrl(scene) {
+  return assetImageUrl({
+    local_path: scene?.panorama_local_path,
+    image_url: scene?.panorama_image_url,
+  })
+}
+
+function assetErrorText(asset) {
+  return toUserFacingError(asset?.error_msg || asset?.errorMsg, '生成失败')
+}
+
+function missingScenePanoramaReason(scene) {
+  return hasAssetImage(scene) ? '' : '请先为该场景生成或上传主图'
+}
+
+const EPISODE_REQUIRED_REASON = '请先创建或选择剧集'
+const needsEpisode = computed(() => (
+  props.propsExtractionDisabledReason === EPISODE_REQUIRED_REASON
+  || props.scenesExtractionDisabledReason === EPISODE_REQUIRED_REASON
+))
+
+function goCreateEpisode() {
+  if (typeof props.onAddEpisode === 'function') {
+    props.onAddEpisode()
+    return
+  }
+  emit('add-episode')
+}
+
+function goSelectEpisode() {
+  if (typeof props.onSelectEpisode === 'function') {
+    props.onSelectEpisode()
+    return
+  }
+  emit('select-episode')
 }
 
 const resourceImageFileInput = ref(null)
@@ -895,6 +1049,56 @@ html.light .section-desc { color: #6b7280; }
 }
 .asset-cover-actions .el-button { flex: 1; justify-content: center; }
 html.light .asset-cover-actions { border-top-color: rgba(139,92,246,0.1); }
+.scene-panorama-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px 8px;
+  border-top: 1px solid rgba(255,255,255,0.06);
+}
+html.light .scene-panorama-row { border-top-color: rgba(139,92,246,0.1); }
+.scene-panorama-row .action-gate-wrap {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.scene-panorama-row .action-gate-reason {
+  flex: 1 1 100%;
+}
+.scene-panorama-thumb {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  overflow: hidden;
+  cursor: pointer;
+  background: rgba(0,0,0,0.25);
+}
+.scene-panorama-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.scene-panorama-preview-btn {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-size: 12px;
+  line-height: 1.4;
+  cursor: pointer;
+  padding: 0 4px;
+}
+.scene-panorama-preview-btn:focus-visible,
+.scene-panorama-thumb:focus-visible {
+  outline: 2px solid #818cf8;
+  outline-offset: 2px;
+}
+.scene-panorama-loading {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
 /* 额外参考图缩略图条 */
 .extra-images-strip {
   display: flex;
@@ -1002,6 +1206,26 @@ html.light .cover-placeholder {
 html.light .cover-placeholder.error {
   background: #fef2f2;
   color: #dc2626;
+}
+.empty-tip {
+  color: #5a5a66;
+  font-size: 0.9rem;
+  padding: 16px 0;
+}
+.resource-empty-tip {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+}
+.resource-empty-copy {
+  margin: 0;
+}
+.resource-empty-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 html.light .empty-tip {
   color: #9ca3af;

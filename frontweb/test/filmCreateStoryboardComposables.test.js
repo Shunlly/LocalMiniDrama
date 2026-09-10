@@ -163,7 +163,7 @@ describe('filmCreateStoryboardComposables', () => {
       loadDrama: async () => { loads.push('missing') },
     })
     await assert.doesNotReject(() => missingEpisode.onAddSingleStoryboard())
-    assert.equal(messages.warning.at(-1), '请先选择集')
+    assert.equal(messages.warning.at(-1), '请先选择剧集')
     assert.equal(creates.length, 0)
 
     const crud = useFilmCreateStoryboardCrud({

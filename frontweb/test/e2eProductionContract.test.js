@@ -2853,7 +2853,12 @@ test('backend container gives Node PID 1 and uses a stable maintenance lease sco
   assert.doesNotMatch(backendDockerfile, /CMD \["npm", "start"\]/)
   assert.match(backendDockerfile, /FROM runtime AS verification/)
   assert.match(backendDockerfile, /COPY --chown=node:node backend-node\/test \.\/test/)
-  assert.match(backendDockerfile, /FROM runtime AS production[\s\S]*CMD \["node", "src\/server\.js"\]/)
+  assert.match(backendDockerfile, /COPY --chown=node:node backend-node\/Dockerfile \.\/Dockerfile/)
+  assert.match(backendDockerfile, /cp \/usr\/local\/bin\/localminidrama-entrypoint \.\/docker-entrypoint\.sh/)
+  assert.match(backendDockerfile, /COPY --chown=node:node frontweb\/Dockerfile\.prod \/frontweb\/Dockerfile\.prod/)
+  assert.match(backendDockerfile, /FROM runtime AS production[\s\S]*HEALTHCHECK --interval=10s --timeout=5s --start-period=20s --retries=12[\s\S]*5679\/ready[\s\S]*CMD \["node", "src\/server\.js"\]/)
+  assert.match(productionDockerfile, /HEALTHCHECK --interval=10s --timeout=3s --start-period=10s --retries=12/)
+  assert.match(productionDockerfile, /wget -q -O - http:\/\/127\.0\.0\.1:3013\/healthz/)
   assert.match(backendEntrypoint, /exec setpriv --reuid=node --regid=node --init-groups -- "\$@"/)
   assert.doesNotMatch(backendEntrypoint, /exec runuser/)
   assert.match(
@@ -2862,4 +2867,19 @@ test('backend container gives Node PID 1 and uses a stable maintenance lease sco
   )
   assert.match(composeSource, /backend-verify:[\s\S]*target:\s*verification/)
   assert.match(composeSource, /frontend-verify:[\s\S]*NODE_ENV:\s*production/)
+})
+
+test('production E2E 串上关键 UI 合同：工作区入口、素材库空态、深链接往返、离开保护、整组取消、备份恢复、分镜空状态和中文 404', () => {
+  assert.match(productionSource, /require\('\.\/e2e-critical-contracts\.cjs'\)/)
+  assert.match(productionSource, /criticalUiContracts\.runCriticalUiContracts\(criticalPage/)
+  assert.match(productionSource, /workflow_groups: \[group\]/)
+  assert.ok(
+    productionSource.indexOf("stage('focused_desktop_acceptance', 'passed')")
+      < productionSource.indexOf("stage('critical_ui_contracts')"),
+  )
+  assert.ok(
+    productionSource.indexOf("stage('critical_ui_contracts', 'passed')")
+      < productionSource.indexOf("stage('browser_acceptance')"),
+  )
+  assert.doesNotMatch(productionSource, /criticalUiContracts\.runCriticalUiContracts\([\s\S]{0,200}PROVIDER_TOKEN/)
 })

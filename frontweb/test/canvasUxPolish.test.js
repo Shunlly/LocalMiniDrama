@@ -154,3 +154,26 @@ test('画布页用户 toast 不再直出 e.message', () => {
   assert.doesNotMatch(canvasSource, /ElMessage\.(error|warning)\((?:error\?\.message|`[^`]*\$\{error\?\.message)/)
   assert.match(canvasSource, /if \(isCanvasUserAbort\(e\)\) return/)
 })
+
+test('批量生成、素材参考图和剧本提取都有可点的取消按钮', () => {
+  assert.match(canvasSource, /aria-label="取消批量生成"/)
+  assert.match(canvasSource, /@click="cancelEpisodeGenerate"/)
+  assert.match(canvasSource, /abortEpisodeGenerate/)
+  assert.match(assetPanelSource, /aria-label="取消生成参考图"/)
+  assert.match(assetPanelSource, />取消<\/el-button>/)
+  assert.match(scriptPanelSource, /aria-label="取消提取"/)
+  assert.match(scriptPanelSource, />取消<\/el-button>/)
+  assert.match(scriptPanelSource, /isCanvasUserAbort/)
+})
+
+test('\u6574\u7ec4\u5de5\u4f5c\u6d41\u6267\u884c\u4e2d\u53ef\u4ece\u5de5\u5177\u6761\u53d6\u6d88', () => {
+  const workflowToolbarSource = read('../src/components/dramaCanvas/CanvasWorkflowToolbarGroup.vue')
+  const desktopToolbarSource = read('../src/components/dramaCanvas/CanvasDesktopToolbar.vue')
+  assert.match(canvasSource, /@cancel-workflow="cancelActiveWorkflow"/)
+  assert.match(desktopToolbarSource, /@cancel-workflow="emit\('cancel-workflow'\)"/)
+  assert.match(workflowToolbarSource, /aria-label="\u53d6\u6d88\u6267\u884c"/)
+  assert.match(workflowToolbarSource, />\s*\u53d6\u6d88\u6267\u884c\s*</)
+  assert.match(workflowToolbarSource, /props\.workflowRunning && props\.workflowProgress/)
+  assert.match(desktopToolbarSource, /<span v-if="workflowProgress">\{\{ workflowProgress \}\}<\/span>/)
+})
+

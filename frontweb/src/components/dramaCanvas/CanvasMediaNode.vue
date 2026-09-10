@@ -61,16 +61,6 @@
       </template>
       <div v-if="showMediaQueryWarning" class="unknown-pill">媒体未知</div>
     </div>
-    <CanvasMediaPanel
-      v-if="showPanel"
-      :node-id="id"
-      :kind="data.kind"
-      :storyboard="data.storyboard"
-      :summary="data.summary"
-      :url="validatedMediaUrl"
-      :audio-type="data.audioType"
-      :frame-kind="data.frameKind"
-    />
   </div>
 </template>
 
@@ -78,7 +68,6 @@
 import { computed, ref, watch } from 'vue'
 import { Handle, Position } from '@vue-flow/core'
 import { useCanvasContext } from '@/composables/useCanvasContext'
-import CanvasMediaPanel from './CanvasMediaPanel.vue'
 import CanvasNodeStatusOverlay from './CanvasNodeStatusOverlay.vue'
 
 const props = defineProps({
@@ -115,11 +104,6 @@ const pendingFrameCaption = computed(() => {
   return ''
 })
 
-const validatedMediaUrl = computed(() => (
-  props.data.kind === 'video'
-    ? (videoState.value === 'ready' ? props.data.url : '')
-    : imageUrl.value
-))
 
 const accessibleLabel = computed(() => {
   const storyboardNumber = props.data.storyboard?.storyboard_number

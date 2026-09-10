@@ -91,18 +91,34 @@ export default defineConfig({
     manifest: true,
     rollupOptions: {
       output: {
-        manualChunks(id) {
-          const normalizedId = id.replace(/\\/g, '/')
-          if (/\/src\/utils\/(?:canvasHistory|canvasLayout|canvasSaveCoordinator|canvasUiState|freeCanvasAdapter|freeCanvasConfigState|freeCanvasMedia|freeCanvasState)\.js$/.test(normalizedId)) {
-            return 'canvas-domain'
-          }
-          if (normalizedId.includes('/node_modules/vue/') || normalizedId.includes('/node_modules/@vue/')) {
-            return 'vue'
-          }
-          // 画布库只给画布路由用，避免和页面业务挤在同一个异步块里。
-          if (normalizedId.includes('/node_modules/@vue-flow/')) {
-            return 'vue-flow'
-          }
+        codeSplitting: {
+          // Rolldown 会把 manualChunks 转成递归打包依赖；制作页只拆自己的模块，避免把 Vue/axios 吸进首屏。
+          includeDependenciesRecursively: false,
+          groups: [
+            {
+              name: 'canvas-domain',
+              test: /[\\/]src[\\/]utils[\\/](?:canvasHistory|canvasLayout|canvasSaveCoordinator|canvasUiState|freeCanvasAdapter|freeCanvasConfigState|freeCanvasMedia|freeCanvasState)\.js$/,
+            },
+            {
+              // 制作页 composable 单独成块，避免和 FilmCreate 页面挤在同一个异步块里。
+              name: 'film-create-domain',
+              test: /[\\/]src[\\/]composables[\\/]filmCreate[\\/]/,
+            },
+            {
+              // 制作页工具函数单独成块，避免画布页因共用 filmCreateActionState 拉走全部 composable。
+              name: 'film-create-utils',
+              test: /[\\/]src[\\/]utils[\\/]filmCreate[^/\\]*\.js$/,
+            },
+            {
+              name: 'vue',
+              test: /[\\/]node_modules[\\/](?:vue|@vue)[\\/]/,
+            },
+            {
+              // 画布库只给画布路由用，避免和页面业务挤在同一个异步块里。
+              name: 'vue-flow',
+              test: /[\\/]node_modules[\\/]@vue-flow[\\/]/,
+            },
+          ],
         },
       },
     },

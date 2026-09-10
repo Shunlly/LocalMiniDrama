@@ -97,7 +97,9 @@ test('FilmCreate delivery panel owns export actions and imports split helpers', 
   })
   assert.equal(drama.id, 7)
 
-  assert.match(filmCreateSource, /<FilmCreateDeliveryPanel/)
+  const outputSectionSource = readFileSync(new URL('../src/components/filmCreate/FilmCreateOutputSection.vue', import.meta.url), 'utf8')
+  assert.match(filmCreateSource, /<FilmCreateOutputSection/)
+  assert.match(outputSectionSource, /<FilmCreateDeliveryPanel/)
   assert.doesNotMatch(filmCreateSource, /async function fetchVerifiedVideoBlob/)
   assert.doesNotMatch(filmCreateSource, /function normalizeVideoDownloadFilenamePart/)
   assert.match(deliveryPanelSource, /<section id="anchor-video" class="section card delivery-section">/)
@@ -115,4 +117,16 @@ test('router keeps axios request feedback out of the initial graph', () => {
   assert.doesNotMatch(routerSource, /from ['"]element-plus['"]/)
   assert.doesNotMatch(mainSource, /from ['"][^'"]*utils\/request/)
   assert.doesNotMatch(mainSource, /from ['"][^'"]*useBackupSettings/)
+})
+
+test('制作页与画布拆成独立异步块，且不把 Element Plus 打回全量共享块', () => {
+  assert.match(viteSource, /name: 'canvas-domain'/)
+  assert.match(viteSource, /name: 'vue-flow'/)
+  assert.match(viteSource, /name: 'film-create-domain'/)
+  assert.match(viteSource, /name: 'film-create-utils'/)
+  assert.match(viteSource, /includeDependenciesRecursively:\s*false/)
+  assert.match(viteSource, /composables/)
+  assert.match(viteSource, /filmCreate/)
+  assert.doesNotMatch(viteSource, /name: 'element-plus'/)
+  assert.doesNotMatch(viteSource, /return 'element-plus'/)
 })

@@ -609,17 +609,23 @@ function imageBadRequest(message) {
   return error;
 }
 
+const SCOPE_FIELD_LABELS = Object.freeze({
+  drama_id: '项目 ID',
+  storyboard_id: '分镜 ID',
+});
+
 function normalizeScopeId(rawValue, field, allowZero) {
+  const label = SCOPE_FIELD_LABELS[field] || '编号';
   let value;
   if (typeof rawValue === 'number') {
     value = rawValue;
   } else if (typeof rawValue === 'string' && /^\d+$/.test(rawValue.trim())) {
     value = Number(rawValue.trim());
   } else {
-    throw imageBadRequest(`${field} 无效`);
+    throw imageBadRequest(`${label} 无效`);
   }
   if (!Number.isSafeInteger(value) || (allowZero ? value < 0 : value <= 0)) {
-    throw imageBadRequest(`${field} 无效`);
+    throw imageBadRequest(`${label} 无效`);
   }
   return value;
 }
@@ -644,7 +650,7 @@ function resolveImageGenerationScope(db, req) {
         WHERE s.id = ? AND s.deleted_at IS NULL`
     ).get(storyboardId);
     if (!scope || (dramaId > 0 && Number(scope.drama_id) !== dramaId)) {
-      throw imageBadRequest('storyboard_id 必须属于当前 drama_id');
+      throw imageBadRequest('分镜不属于当前项目');
     }
     dramaId = Number(scope.drama_id);
   }

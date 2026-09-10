@@ -253,9 +253,14 @@ export function useFilmCreateStoryboardImageGeneration(deps = {}) {
       if (res?.task_id) {
         const pollRes = await pollTask(res.task_id, captureStoryboardMediaRefresh(sb.id), meta)
         if (pollRes?.status === 'failed') {
-          sb.errorMsg = pollRes.error || '生成失败'
+          sb.errorMsg = toUserFacingError(pollRes.error, '生成失败')
+        } else if (pollRes?.status === 'timeout') {
+          sb.errorMsg = toUserFacingError(pollRes?.error, '生成超时，请稍后重试')
+          ElMessage.warning(sb.errorMsg)
+        } else if (pollRes?.status === 'cancelled' || pollRes?.status === 'canceled') {
+          sb.errorMsg = toUserFacingError(pollRes?.error, '操作已取消')
         } else if (pollRes?.status !== 'completed') {
-          sb.errorMsg = pollRes?.error || '生成未完成'
+          sb.errorMsg = toUserFacingError(pollRes?.error, '生成未完成')
         } else {
           await loadDrama()
           restoreSelectionsFromBackend()
@@ -283,7 +288,8 @@ export function useFilmCreateStoryboardImageGeneration(deps = {}) {
         }
       }
     } catch (e) {
-      sb.errorMsg = e.message || '生成失败'
+      sb.errorMsg = toUserFacingError(e, '生成失败')
+      if (isUserFacingAbort(e)) return
       ElMessage.error(toUserFacingError(e, '生成失败'))
     } finally {
       loadingSet.delete(sb.id)
@@ -342,19 +348,25 @@ export function useFilmCreateStoryboardImageGeneration(deps = {}) {
       if (res?.task_id) {
         const pollRes = await pollTask(res.task_id, captureStoryboardMediaRefresh(sb.id), meta)
         if (pollRes?.status === 'failed') {
-          sb.errorMsg = pollRes.error || '生成失败'
+          sb.errorMsg = toUserFacingError(pollRes.error, '生成失败')
         } else if (pollRes?.status === 'completed') {
           ElMessage.success('分镜图生成完成')
+        } else if (pollRes?.status === 'timeout') {
+          sb.errorMsg = toUserFacingError(pollRes?.error, '生成超时，请稍后重试')
+          ElMessage.warning(sb.errorMsg)
+        } else if (pollRes?.status === 'cancelled' || pollRes?.status === 'canceled') {
+          sb.errorMsg = toUserFacingError(pollRes?.error, '操作已取消')
         } else {
-          sb.errorMsg = pollRes?.error || '分镜图生成未完成'
+          sb.errorMsg = toUserFacingError(pollRes?.error, '分镜图生成未完成')
           ElMessage.warning(sb.errorMsg)
         }
       } else {
         await refreshStoryboardMediaForCurrentContext(sb.id)
       }
     } catch (e) {
+      sb.errorMsg = toUserFacingError(e, '生成失败')
+      if (isUserFacingAbort(e)) return
       console.error(e)
-      sb.errorMsg = e.message || '生成失败'
       ElMessage.error(toUserFacingError(e, '生成失败'))
     } finally {
       generatingSbImageIds.delete(sb.id)

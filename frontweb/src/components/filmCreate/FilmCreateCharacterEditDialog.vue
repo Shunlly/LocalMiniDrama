@@ -81,12 +81,14 @@
         <div style="width:100%">
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
             <span style="font-size:12px;color:#909399">AI 从外貌描述提炼的6层视觉特征，用于保持生成图片角色一致性</span>
-            <el-button
-              size="small"
-              :loading="extractingAnchors"
-              :disabled="!editCharacterForm.appearance"
-              @click="extractIdentityAnchors"
-            >提炼视觉锚点</el-button>
+            <ActionGate :reason="editCharacterForm.appearance ? '' : '请先填写角色外貌描述'" label="提炼视觉锚点">
+              <el-button
+                size="small"
+                :loading="extractingAnchors"
+                :disabled="!editCharacterForm.appearance"
+                @click="extractIdentityAnchors"
+              >提炼视觉锚点</el-button>
+            </ActionGate>
           </div>
           <el-input
             v-if="editCharacterForm.identity_anchors"
@@ -130,6 +132,7 @@
 
 <script setup>
 import { ref } from 'vue'
+import ActionGate from './ActionGate.vue'
 
 defineOptions({ inheritAttrs: false })
 

@@ -33,7 +33,7 @@ const router = useRouter()
 const route = useRoute()
 const aiConfigContentRef = ref(null)
 let skipNextRouteGuard = false
-const filterableServiceTypes = new Set(['text', 'image', 'storyboard_image', 'video', 'tts'])
+const filterableServiceTypes = new Set(['text', 'image', 'storyboard_image', 'video', 'tts', 'ocr', 'transcription'])
 const initialServiceType = computed(() => {
   const raw = Array.isArray(route.query.service_type)
     ? route.query.service_type[0]

@@ -2,6 +2,7 @@
   <div class="film-create" :class="{ 'sidebar-collapsed': navCollapsed, 'project-state-active': projectLoadState !== 'ready' }">
     <!-- 顶部 -->
     <FilmCreateHeader
+      ref="filmCreateHeaderRef"
       :project-page-title="projectPageTitle"
       :project-load-state="projectLoadState"
       :drama-id="dramaId"
@@ -48,18 +49,12 @@
     />
 
     <main v-else class="main">
-      <section
-        v-if="projectDependencyWarning || storyboardMediaLoadError"
-        class="project-dependency-warning"
-        :role="storyboardMediaLoadError ? 'alert' : 'status'"
-        aria-live="polite"
-      >
-        <el-icon><WarningFilled /></el-icon>
-        <span>{{ [storyboardMediaLoadError, projectDependencyWarning].filter(Boolean).join('；') }}</span>
-        <el-button size="small" :loading="projectDependencyLoading" @click="retryProjectDependencies">
-          <el-icon><Refresh /></el-icon>重试加载素材
-        </el-button>
-      </section>
+      <FilmCreateProjectDependencyWarning
+        :media-error="storyboardMediaLoadError"
+        :dependency-warning="projectDependencyWarning"
+        :loading="projectDependencyLoading"
+        @retry="retryProjectDependencies"
+      />
 
       <FilmCreatePipelinePanel
         ref="pipelinePanelRef"
@@ -101,267 +96,31 @@
       <!-- 剧本工作台：单卡片 + 选项卡（创作 / 选择） -->
       <FilmCreateScriptWorkbench
         class="section card script-workbench-unified"
-        v-model:script-workbench-mode="scriptWorkbenchMode"
+        v-bind="scriptWorkbenchBindings"
         v-model:story-input="storyInput"
-        v-model:story-style="storyStyle"
-        v-model:story-type="storyType"
-        v-model:story-episode-count="storyEpisodeCount"
-        v-model:script-title="scriptTitle"
-        v-model:script-content="scriptContent"
-        v-model:show-select-script-dialog="showSelectScriptDialog"
-        v-model:select-preview-episode-id="selectPreviewEpisodeId"
-        :is-story-gen-running="isStoryGenRunning"
-        :drama-id="dramaId"
-        :has-any-episode="hasAnyEpisode"
-        :script-generating="scriptGenerating"
-        :current-episode-id="currentEpisodeId"
-        :episodes="store.drama?.episodes || []"
-        :script-draft-status="scriptDraftStatus"
-        :script-draft-status-label="scriptDraftStatusLabel"
-        :select-script-loading="selectScriptLoading"
-        :select-script-importing="selectScriptImporting"
-        :selectable-script-dramas="selectableScriptDramas"
-        :select-script-dramas="selectScriptDramas"
-        @save-settings="saveProjectSettings(false)"
         @generate-story="onGenerateStory"
-        @open-novel-import="showNovelImport = true"
-        @add-episode="onAddEpisode"
-        @go-to-drama="router.push('/drama/' + dramaId)"
-        @generate-script="onGenerateScript"
-        @open-select-script="openSelectScriptDialog"
-        @load-select-script-list="loadSelectScriptList"
-        @pick-script="onPickScriptFromDialog"
         @return-to-creation="returnToScriptCreation"
       />
 
       <!-- 资源管理：角色 / 道具 / 场景 -->
       <FilmCreateResourcePanel
         class="section card resource-panel"
-        v-model:resource-panel-collapsed="resourcePanelCollapsed"
-        v-model:characters-block-collapsed="charactersBlockCollapsed"
-        v-model:props-block-collapsed="propsBlockCollapsed"
-        v-model:scenes-block-collapsed="scenesBlockCollapsed"
-        v-model:prop-use-quad-grid="propUseQuadGrid"
-        v-model:scene-use-quad-grid="sceneUseQuadGrid"
-        :characters="characters"
-        :prop-items="props"
-        :scenes="scenes"
+        v-bind="resourcePanelBindings"
         :character-generation-disabled-reason="characterGenerationDisabledReason"
-        :project-action-disabled-reason="projectActionDisabledReason"
-        :props-extraction-disabled-reason="propsExtractionDisabledReason"
-        :scenes-extraction-disabled-reason="scenesExtractionDisabledReason"
-        :storyboard-media-action-reason="storyboardMediaActionReason"
-        :characters-generating="charactersGenerating"
-        :props-extracting="propsExtracting"
-        :scenes-extracting="scenesExtracting"
-        :generating-char-ids="generatingCharIds"
-        :generating-prop-ids="generatingPropIds"
-        :generating-scene-ids="generatingSceneIds"
-        :uploading-resource-id="uploadingResourceId"
-        :adding-char-to-library-id="addingCharToLibraryId"
-        :adding-char-to-material-id="addingCharToMaterialId"
-        :adding-prop-to-library-id="addingPropToLibraryId"
-        :adding-prop-to-material-id="addingPropToMaterialId"
-        :adding-scene-to-library-id="addingSceneToLibraryId"
-        :adding-scene-to-material-id="addingSceneToMaterialId"
-        :regen-sb-images-for-asset="regenSbImagesForAsset"
-        :regen-sb-images-progress="regenSbImagesProgress"
-        :sd2-certifying-id="sd2CertifyingId"
-        :sd2-voice-uploading-id="sd2VoiceUploadingId"
-        :has-asset-image="hasAssetImage"
-        :asset-image-url="assetImageUrl"
-        :char-role-label="charRoleLabel"
-        :local-path-to-url="localPathToUrl"
-        :parse-extra-images="parseExtraImages"
-        :get-char-affected-storyboards="getCharAffectedStoryboards"
-        :get-prop-affected-storyboards="getPropAffectedStoryboards"
-        :get-scene-affected-storyboards="getSceneAffectedStoryboards"
-        :sd2-action-label="sd2ActionLabel"
-        :sd2-voice-action-label="sd2VoiceActionLabel"
-        @generate-characters="onGenerateCharacters"
-        @add-character="openAddCharacter"
-        @open-char-library="showCharLibrary = true"
-        @extract-props="onExtractProps"
-        @add-prop="showAddProp = true"
-        @open-prop-library="showPropLibrary = true"
-        @extract-scenes="onExtractScenes"
-        @add-scene="openAddScene"
-        @open-scene-library="showSceneLibrary = true"
-        @generate-character-image="onGenerateCharacterImage"
-        @generate-prop-image="onGeneratePropImage"
-        @generate-scene-image="onGenerateSceneImage"
-        @edit-character="editCharacter"
-        @edit-prop="editProp"
-        @edit-scene="editScene"
-        @delete-character="onDeleteCharacter"
-        @delete-prop="onDeleteProp"
-        @delete-scene="onDeleteScene"
-        @add-character-to-library="onAddCharacterToLibrary"
-        @add-character-to-material="onAddCharacterToMaterialLibrary"
-        @add-prop-to-library="onAddPropToLibrary"
-        @add-prop-to-material="onAddPropToMaterialLibrary"
-        @add-scene-to-library="onAddSceneToLibrary"
-        @add-scene-to-material="onAddSceneToMaterialLibrary"
-        @regen-affected-sb-images="onRegenAffectedSbImages"
-        @upload-resource-image="doUploadResourceImage"
-        @set-primary-image="onSetPrimaryImage"
-        @remove-extra-image="onRemoveExtraImage"
-        @preview-image="openImagePreview"
-        @scroll-to-storyboard="scrollToStoryboard"
-        @sd2-primary-action="onSd2PrimaryAction"
-        @sd2-voice-primary-action="onSd2VoicePrimaryAction"
-        @sd2-voice-replace="onSd2VoiceReplace"
-        @play-sd2-voice="playSd2Voice"
       />
       <!-- 分镜生成 -->
       <FilmCreateStoryboardPanel
         class="section card"
         id="anchor-storyboard"
-        v-model:storyboard-count="storyboardCount"
-        v-model:video-duration="videoDuration"
-        v-model:grid-mode="gridMode"
-        v-model:storyboard-use-first-last-frame="storyboardUseFirstLastFrame"
-        v-model:storyboard-universal-omni="storyboardUniversalOmni"
-        v-model:storyboard-include-narration="storyboardIncludeNarration"
-        v-model:last-frame-use-first-layout-lock="lastFrameUseFirstLayoutLock"
-        v-model:video-frame-contiguity="videoFrameContiguity"
-        v-model:sb-truncated-dismissed="sbTruncatedDismissed"
-        v-model:batch-image-stopping="batchImageStopping"
-        v-model:batch-video-stopping="batchVideoStopping"
-        v-model:drag-over-sb-id="dragOverSbId"
-        :storyboards="storyboards"
-        :characters="characters"
-        :scenes="scenes"
-        :sb-scene-id="sbSceneId"
-        :sb-narration="sbNarration"
-        :sb-universal-segment-text="sbUniversalSegmentText"
-        :batch-image-errors="batchImageErrors"
-        :batch-video-errors="batchVideoErrors"
-        :batch-image-progress="batchImageProgress"
-        :batch-video-progress="batchVideoProgress"
-        :generating-sb-image-ids="generatingSbImageIds"
-        :generating-sb-first-image-ids="generatingSbFirstImageIds"
-        :generating-sb-last-image-ids="generatingSbLastImageIds"
-        :generating-universal-segment-ids="generatingUniversalSegmentIds"
-        :linking-tail-frame-ids="linkingTailFrameIds"
-        :using-prev-tail-as-first-ids="usingPrevTailAsFirstIds"
-        :tts-sb-ids="ttsSbIds"
-        :tts-sb-narration-ids="ttsSbNarrationIds"
-        :upscaling-sb-ids="upscalingSbIds"
-        :universal-omni-polish-progress="universalOmniPolishProgress"
-        :has-any-episode="hasAnyEpisode"
-        :current-episode-id="currentEpisodeId"
-        :storyboard-generating="storyboardGenerating"
-        :universal-omni-polish-running="universalOmniPolishRunning"
-        :exporting-storyboard-sheet="exportingStoryboardSheet"
-        :batch-image-running="batchImageRunning"
-        :batch-video-running="batchVideoRunning"
-        :sb-truncated-warning="sbTruncatedWarning"
-        :uploading-sb-image-id="uploadingSbImageId"
-        :uploading-sb-image-slot="uploadingSbImageSlot"
-        :storyboard-action-disabled-reason="storyboardActionDisabledReason"
-        :episode-action-disabled-reason="episodeActionDisabledReason"
+        v-bind="storyboardPanelBindings"
         :batch-action-disabled-reason="batchActionDisabledReason"
-        :batch-video-action-disabled-reason="batchVideoActionDisabledReason"
-        :video-capability-reason="videoCapabilityReason"
-        :script-estimate-storyboard-hint="scriptEstimateStoryboardHint"
-        :script-estimate-storyboard-title="scriptEstimateStoryboardTitle"
-        :script-estimate-video-duration-hint="scriptEstimateVideoDurationHint"
-        :script-estimate-video-duration-title="scriptEstimateVideoDurationTitle"
-        :prop-items="props"
-        :asset-image-url="assetImageUrl"
-        :asset-video-url="assetVideoUrl"
-        :can-use-prev-tail-as-first="canUsePrevTailAsFirst"
-        :characters-available-to-add-to-sb="charactersAvailableToAddToSb"
-        :get-movement-label="getMovementLabel"
-        :get-next-storyboard="getNextStoryboard"
-        :get-sb-character-ids="getSbCharacterIds"
-        :get-sb-first-image="getSbFirstImage"
-        :get-sb-image="getSbImage"
-        :get-sb-last-image="getSbLastImage"
-        :get-sb-local-image="getSbLocalImage"
-        :get-sb-prop-ids="getSbPropIds"
-        :get-sb-selected-characters="getSbSelectedCharacters"
-        :get-sb-selected-props="getSbSelectedProps"
-        :get-sb-selected-scene="getSbSelectedScene"
-        :get-sb-universal-omni-ref-slots="getSbUniversalOmniRefSlots"
-        :get-sb-video="getSbVideo"
-        :get-sb-video-error="getSbVideoError"
-        :get-strip-items="getStripItems"
-        :get-video-strip-items="getVideoStripItems"
-        :has-asset-image="hasAssetImage"
-        :has-sb-draft-image-placeholder="hasSbDraftImagePlaceholder"
-        :has-sb-first-last-pair="hasSbFirstLastPair"
-        :has-sb-image="hasSbImage"
-        :history-image-label="historyImageLabel"
-        :is-sb-universal-mode="isSbUniversalMode"
-        :is-sb-video-generating="isSbVideoGenerating"
-        :on-add-single-storyboard="onAddSingleStoryboard"
-        :on-delete-single-storyboard="onDeleteSingleStoryboard"
-        :on-export-narration-srt="onExportNarrationSrt"
-        :on-export-storyboard-sheet="onExportStoryboardSheet"
-        :on-generate-sb-frame-image="onGenerateSbFrameImage"
-        :on-generate-sb-frame-pair="onGenerateSbFramePair"
-        :on-generate-sb-image="onGenerateSbImage"
-        :on-generate-sb-video="onGenerateSbVideo"
-        :on-generate-storyboard="onGenerateStoryboard"
-        :on-insert-storyboard-before="onInsertStoryboardBefore"
-        :on-last-frame-layout-lock-change="onLastFrameLayoutLockChange"
-        :on-link-tail-frame-to-next="onLinkTailFrameToNext"
-        :on-open-sb-prompt-dialog="onOpenSbPromptDialog"
-        :on-open-video-params-dialog="onOpenVideoParamsDialog"
-        :on-remove-sb-history-image="onRemoveSbHistoryImage"
-        :on-save-sb-narration-field="onSaveSbNarrationField"
-        :on-save-universal-segment-field="onSaveUniversalSegmentField"
-        :on-sb-add-character-command="onSbAddCharacterCommand"
-        :on-sb-image-drag-leave="onSbImageDragLeave"
-        :on-sb-image-drag-over="onSbImageDragOver"
-        :on-sb-image-drop="onSbImageDrop"
-        :on-select-sb-main-video="onSelectSbMainVideo"
-        :on-select-strip-item="onSelectStripItem"
-        :on-storyboard-scene-change="onStoryboardSceneChange"
-        :on-storyboard-use-first-last-frame-change="onStoryboardUseFirstLastFrameChange"
-        :on-strip-item-click="onStripItemClick"
-        :on-toggle-sb-universal-mode="onToggleSbUniversalMode"
-        :on-tts-sb-dialogue="onTtsSbDialogue"
-        :on-tts-sb-narration="onTtsSbNarration"
-        :on-universal-segment-prompt-menu="onUniversalSegmentPromptMenu"
-        :prepare-sb-image-upload="onUploadSbImageClick"
-        :on-upscale-sb-image="onUpscaleSbImage"
-        :on-use-prev-tail-as-first="onUsePrevTailAsFirst"
-        :open-ai-config="openAiConfig"
-        :open-image-preview="openImagePreview"
-        :play-sb-dialogue-tts="playSbDialogueTts"
-        :play-sb-narration-tts="playSbNarrationTts"
-        :sb-can-submit-video="sbCanSubmitVideo"
-        :sb-dialogue-audio-rel-path="sbDialogueAudioRelPath"
-        :sb-main-video-player-key="sbMainVideoPlayerKey"
-        :sb-narration-audio-rel-path="sbNarrationAudioRelPath"
-        :sb-universal-segment-trimmed="sbUniversalSegmentTrimmed"
-        :sb-video-generation-disabled-reason="sbVideoGenerationDisabledReason"
-        :set-sb-character-ids="setSbCharacterIds"
-        :set-sb-prop-ids="setSbPropIds"
-        :show-sb-frame-prompt-preview="showSbFramePromptPreview"
-        :start-batch-image-generation="startBatchImageGeneration"
-        :start-batch-video-generation="startBatchVideoGeneration"
-        :storyboard-image-url="storyboardImageUrl"
-        :strip-item-title="stripItemTitle"
-        :tts-generation-disabled-reason="ttsGenerationDisabledReason"
-        @save-settings="saveProjectSettings(false)"
-        @upload-sb-image="doUploadSbImage"
       />
-      <!-- 7. 视频配置 + AI 模型配置 -->
-      <FilmCreateVideoSettingsPanel
+      <FilmCreateOutputSection
         v-model:resolution="videoResolution"
         v-model:subtitle="videoSubtitle"
         v-model:burn-dialogue="videoBurnDialogue"
         v-model:watermark="videoWatermark"
         v-model:watermark-text="videoWatermarkText"
-        @open-ai-config="openAiConfig"
-      />
-
-      <!-- 8. 交付与导出 -->
-      <FilmCreateDeliveryPanel
         :playable-storyboard-video-count="playableStoryboardVideoCount"
         :storyboard-count="storyboards.length"
         :delivery-composite-status-label="deliveryCompositeStatusLabel"
@@ -379,6 +138,7 @@
         :video-error-msg="videoErrorMsg"
         :delivery-export-feedback="deliveryExportFeedback"
         :delivery-export-has-error="deliveryExportHasError"
+        @open-ai-config="openAiConfig"
         @generate-video="onGenerateVideo"
         @download-video="downloadCurrentEpisodeVideo"
         @download-subtitle="downloadCurrentEpisodeSubtitle"
@@ -386,209 +146,11 @@
       />
     </main>
 
-    <template v-if="projectLoadState === 'ready'">
-    <FilmCreateResourceDialogs
-        v-model:show-add-prop="showAddProp"
-        v-model:show-char-library="showCharLibrary"
-        v-model:show-char-sd2-cert="showCharSd2Cert"
-        v-model:show-edit-char-library="showEditCharLibrary"
-        v-model:show-edit-character="showEditCharacter"
-        v-model:show-edit-prop="showEditProp"
-        v-model:show-edit-prop-library="showEditPropLibrary"
-        v-model:show-edit-scene="showEditScene"
-        v-model:show-edit-scene-library="showEditSceneLibrary"
-        v-model:show-prop-library="showPropLibrary"
-        v-model:show-scene-library="showSceneLibrary"
-        v-model:char-library-keyword="charLibraryKeyword"
-        v-model:char-library-page="charLibraryPage"
-        v-model:char-library-page-size="charLibraryPageSize"
-        v-model:char-library-tab="charLibraryTab"
-        v-model:drama-all-char-keyword="dramaAllCharKeyword"
-        v-model:drama-all-char-page="dramaAllCharPage"
-        v-model:drama-all-char-page-size="dramaAllCharPageSize"
-        v-model:drama-all-prop-keyword="dramaAllPropKeyword"
-        v-model:drama-all-prop-page="dramaAllPropPage"
-        v-model:drama-all-prop-page-size="dramaAllPropPageSize"
-        v-model:drama-all-scene-keyword="dramaAllSceneKeyword"
-        v-model:drama-all-scene-page="dramaAllScenePage"
-        v-model:drama-all-scene-page-size="dramaAllScenePageSize"
-        v-model:prop-library-keyword="propLibraryKeyword"
-        v-model:prop-library-page="propLibraryPage"
-        v-model:prop-library-page-size="propLibraryPageSize"
-        v-model:prop-library-tab="propLibraryTab"
-        v-model:scene-library-keyword="sceneLibraryKeyword"
-        v-model:scene-library-page="sceneLibraryPage"
-        v-model:scene-library-page-size="sceneLibraryPageSize"
-        v-model:scene-library-tab="sceneLibraryTab"
-        v-model:add-char-ref-image="addCharRefImage"
-        v-model:add-prop-add-ref-image="addPropAddRefImage"
-        v-model:add-prop-form="addPropForm"
-        v-model:add-prop-ref-image="addPropRefImage"
-        :add-prop-saving="addPropSaving"
-        v-model:add-scene-ref-image="addSceneRefImage"
-        :char-library-list="charLibraryList"
-        :char-library-loading="charLibraryLoading"
-        :char-library-total="charLibraryTotal"
-        :char-sd2-cert-payload="charSd2CertPayload"
-        :current-episode-id="currentEpisodeId"
-        :drama-all-char-list="dramaAllCharList"
-        :drama-all-char-loading="dramaAllCharLoading"
-        :drama-all-char-total="dramaAllCharTotal"
-        :drama-all-prop-list="dramaAllPropList"
-        :drama-all-prop-loading="dramaAllPropLoading"
-        :drama-all-prop-total="dramaAllPropTotal"
-        :drama-all-scene-list="dramaAllSceneList"
-        :drama-all-scene-loading="dramaAllSceneLoading"
-        :drama-all-scene-total="dramaAllSceneTotal"
-        v-model:edit-char-library-form="editCharLibraryForm"
-        :edit-char-library-saving="editCharLibrarySaving"
-        :edit-character-form="editCharacterForm"
-        :edit-character-prompt-generating="editCharacterPromptGenerating"
-        :edit-character-saving="editCharacterSaving"
-        :edit-prop-form="editPropForm"
-        v-model:edit-prop-library-form="editPropLibraryForm"
-        :edit-prop-library-saving="editPropLibrarySaving"
-        :edit-prop-prompt-generating="editPropPromptGenerating"
-        :edit-prop-saving="editPropSaving"
-        :edit-scene-form="editSceneForm"
-        v-model:edit-scene-library-form="editSceneLibraryForm"
-        :edit-scene-library-saving="editSceneLibrarySaving"
-        :edit-scene-prompt-generating="editScenePromptGenerating"
-        :edit-scene-saving="editSceneSaving"
-        :extracting-anchors="extractingAnchors"
-        :extracting-char-appearance="extractingCharAppearance"
-        :extracting-prop-add-desc="extractingPropAddDesc"
-        :extracting-prop-desc="extractingPropDesc"
-        :extracting-scene-desc="extractingSceneDesc"
-        :prop-library-list="propLibraryList"
-        :prop-library-loading="propLibraryLoading"
-        :prop-library-total="propLibraryTotal"
-        :scene-library-list="sceneLibraryList"
-        :scene-library-loading="sceneLibraryLoading"
-        :scene-library-total="sceneLibraryTotal"
-        :asset-image-url="assetImageUrl"
-        :char-role-label="charRoleLabel"
-        :clear-char-ref-image="clearCharRefImage"
-        :clear-prop-ref-image="clearPropRefImage"
-        :clear-scene-ref-image="clearSceneRefImage"
-        :debounced-load-char-library="debouncedLoadCharLibrary"
-        :debounced-load-drama-all-char-list="debouncedLoadDramaAllCharList"
-        :debounced-load-drama-all-prop-list="debouncedLoadDramaAllPropList"
-        :debounced-load-drama-all-scene-list="debouncedLoadDramaAllSceneList"
-        :debounced-load-prop-library="debouncedLoadPropLibrary"
-        :debounced-load-scene-library="debouncedLoadSceneLibrary"
-        :do-extract-char-from-image="doExtractCharFromImage"
-        :do-extract-from-ref="doExtractFromRef"
-        :do-extract-from-ref2="doExtractFromRef2"
-        :do-extract-prop-from-image="doExtractPropFromImage"
-        :do-extract-scene-from-image="doExtractSceneFromImage"
-        :do-generate-character-prompt="doGenerateCharacterPrompt"
-        :do-generate-prop-prompt="doGeneratePropPrompt"
-        :do-generate-scene-prompt="doGenerateScenePrompt"
-        :do-generate-scene-single-prompt="doGenerateSceneSinglePrompt"
-        :extract-identity-anchors="extractIdentityAnchors"
-        :is-char-add-to-episode-loading="isCharAddToEpisodeLoading"
-        :is-prop-add-to-episode-loading="isPropAddToEpisodeLoading"
-        :is-scene-add-to-episode-loading="isSceneAddToEpisodeLoading"
-        :load-char-library-list="loadCharLibraryList"
-        :load-drama-all-char-list="loadDramaAllCharList"
-        :load-drama-all-prop-list="loadDramaAllPropList"
-        :load-drama-all-scene-list="loadDramaAllSceneList"
-        :load-prop-library-list="loadPropLibraryList"
-        :load-scene-library-list="loadSceneLibraryList"
-        :on-add-char-from-library="onAddCharFromLibrary"
-        :on-add-drama-char-to-episode="onAddDramaCharToEpisode"
-        :on-add-drama-prop-to-episode="onAddDramaPropToEpisode"
-        :on-add-drama-scene-to-episode="onAddDramaSceneToEpisode"
-        :on-add-prop-from-library="onAddPropFromLibrary"
-        :on-add-scene-from-library="onAddSceneFromLibrary"
-        :on-char-library-dialog-open="onCharLibraryDialogOpen"
-        :on-char-library-tab-change="onCharLibraryTabChange"
-        :on-close-char-dialog="onCloseCharDialog"
-        :on-close-prop-dialog="onClosePropDialog"
-        :on-close-scene-dialog="onCloseSceneDialog"
-        :on-delete-char-library="onDeleteCharLibrary"
-        :on-delete-prop-library="onDeletePropLibrary"
-        :on-delete-scene-library="onDeleteSceneLibrary"
-        :on-prop-library-dialog-open="onPropLibraryDialogOpen"
-        :on-prop-library-tab-change="onPropLibraryTabChange"
-        :on-ref-image-drop="onRefImageDrop"
-        :on-ref-image-drop2="onRefImageDrop2"
-        :on-ref-image-file-change="onRefImageFileChange"
-        :on-ref-image-file-change2="onRefImageFileChange2"
-        :on-scene-library-dialog-open="onSceneLibraryDialogOpen"
-        :on-scene-library-tab-change="onSceneLibraryTabChange"
-        :open-edit-char-library="openEditCharLibrary"
-        :open-edit-prop-library="openEditPropLibrary"
-        :open-edit-scene-library="openEditSceneLibrary"
-        :open-image-preview="openImagePreview"
-        :return-to-character-panel="returnToCharacterPanel"
-        :submit-add-prop="submitAddProp"
-        :submit-edit-char-library="submitEditCharLibrary"
-        :submit-edit-character="submitEditCharacter"
-        :submit-edit-prop="submitEditProp"
-        :submit-edit-prop-library="submitEditPropLibrary"
-        :submit-edit-scene="submitEditScene"
-        :submit-edit-scene-library="submitEditSceneLibrary"
-    />
-    <FilmCreateStoryboardDialogs
-        v-model:show-sb-prompt-dialog="showSbPromptDialog"
-        v-model:show-frame-prompt-editor="showFramePromptEditor"
-        v-model:show-video-params-dialog="showVideoParamsDialog"
-        v-model:editing-frame-prompt-text="editingFramePromptText"
-        v-model:sb-prompt-image-text="sbPromptImageText"
-        v-model:sb-prompt-polished-text="sbPromptPolishedText"
-        v-model:sb-prompt-video-text="sbPromptVideoText"
-        :editing-frame-prompt-regenerating="editingFramePromptRegenerating"
-        :editing-frame-prompt-saving="editingFramePromptSaving"
-        :editing-frame-prompt-sb="editingFramePromptSb"
-        :editing-frame-prompt-slot="editingFramePromptSlot"
-        :regenerating-layout-sb-ids="regeneratingLayoutSbIds"
-        :sb-action="sbAction"
-        :sb-angle-h="sbAngleH"
-        :sb-angle-s="sbAngleS"
-        :sb-angle-v="sbAngleV"
-        :sb-atmosphere="sbAtmosphere"
-        :sb-creation-mode="sbCreationMode"
-        :sb-dialogue="sbDialogue"
-        :sb-dof="sbDof"
-        :sb-duration="sbDuration"
-        :sb-layout-description="sbLayoutDescription"
-        :sb-lighting="sbLighting"
-        :sb-location="sbLocation"
-        :sb-movement="sbMovement"
-        :sb-narration="sbNarration"
-        :sb-prompt-polishing="sbPromptPolishing"
-        :sb-prompt-saving="sbPromptSaving"
-        v-model:sb-prompt-target="sbPromptTarget"
-        :sb-result="sbResult"
-        :sb-shot-type="sbShotType"
-        :sb-time="sbTime"
-        :sb-title="sbTitle"
-        :sb-video-reference-image-id="sbVideoReferenceImageId"
-        :split-by-audio-loading="splitByAudioLoading"
-        :video-params-saving="videoParamsSaving"
-        :video-params-target="videoParamsTarget"
-        :angle-to-prompt-fragment="angleToPromptFragment"
-        :asset-image-url="assetImageUrl"
-        :can-split-sb-by-audio="canSplitSbByAudio"
-        :get-sb-free-reference-items="getSbFreeReferenceItems"
-        :get-sb-grid-images="getSbGridImages"
-        :on-polish-sb-prompt="onPolishSbPrompt"
-        :on-promote-sb-free-reference-image="onPromoteSbFreeReferenceImage"
-        :on-regenerate-layout-description="onRegenerateLayoutDescription"
-        :on-remove-sb-free-reference-image="onRemoveSbFreeReferenceImage"
-        :on-save-sb-prompt-dialog="onSaveSbPromptDialog"
-        :on-save-video-params="onSaveVideoParams"
-        :on-split-sb-by-audio="onSplitSbByAudio"
-        :on-video-params-dialog-closed="onVideoParamsDialogClosed"
-        :open-global-media-picker="openGlobalMediaPicker"
-        :open-image-preview="openImagePreview"
-        :regenerate-editing-frame-prompt="regenerateEditingFramePrompt"
-        :save-editing-frame-prompt="saveEditingFramePrompt"
-        :set-sb-creation-mode-id="setSbCreationModeId"
-    />
-    <FilmCreateNovelImportDialog
+    <FilmCreateWorkspaceDialogs
+      v-if="projectLoadState === 'ready'"
+      ref="aiConfigContentRef"
+      :resource-dialogs="resourceDialogsBindings"
+      :storyboard-dialogs="storyboardDialogsBindings"
       v-model:visible="showNovelImport"
       v-model:mode="novelImportMode"
       v-model:text="novelText"
@@ -599,32 +161,20 @@
       @reset="novelImportReset"
       @file-change="onNovelFileChange"
       @import="onImportNovel"
-    />
-
-    <FilmCreateAiConfigDialog
-      ref="aiConfigContentRef"
       v-model="showAiConfigDialog"
       :initial-service-type="aiConfigInitialServiceType"
       :before-close="confirmAiConfigWorkspaceClose"
       @back="requestAiConfigWorkspaceClose"
       @configuration-changed="onAiConfigurationChanged"
-    />
-
-    <ImagePreviewDialog
-      :model-value="Boolean(previewImageUrl)"
-      :src="previewImageUrl || ''"
-      title="制作资源图片预览"
-      @update:model-value="(visible) => { if (!visible) closeImagePreview() }"
-    />
-    <GlobalMediaPickerDialog
-      v-model="showGlobalMediaPicker"
-      :title="globalMediaPickerTitle"
-      :accept="globalMediaPickerAccept"
-      :context="globalMediaPickerContext"
+      :preview-image-url="previewImageUrl || ''"
+      @close-image-preview="closeImagePreview"
+      v-model:show-global-media-picker="showGlobalMediaPicker"
+      :global-media-picker-title="globalMediaPickerTitle"
+      :global-media-picker-accept="globalMediaPickerAccept"
+      :global-media-picker-context="globalMediaPickerContext"
       @select="onGlobalMediaAssetSelected"
       @open-library="openMediaLibraryFromPicker"
     />
-    </template>
   </div>
 </template>
 
@@ -633,7 +183,6 @@ import { ref, computed, onMounted, onBeforeUnmount, watch, reactive, nextTick } 
 import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { ElMessage as RawElMessage, ElMessageBox } from 'element-plus'
-import { WarningFilled, Refresh } from '@element-plus/icons-vue'
 import { useTheme } from '@/composables/useTheme'
 import { useFilmStore } from '@/stores/film'
 import { useGenerationTaskStore, GEN_RESOURCE } from '@/stores/generationTaskStore'
@@ -656,26 +205,23 @@ import {
   createEpisodeSwitchController,
 } from '@/utils/scriptDraft'
 import { isPlaceholderMediaUrl, storyboardImageUrl } from '@/utils/mediaUrl'
-import FilmCreateAiConfigDialog from '@/components/filmCreate/FilmCreateAiConfigDialog.vue'
 import FilmCreateHeader from '@/components/filmCreate/FilmCreateHeader.vue'
 import FilmCreateProjectLoadState from '@/components/filmCreate/FilmCreateProjectLoadState.vue'
 import FilmCreateQuickNav from '@/components/filmCreate/FilmCreateQuickNav.vue'
-import GlobalMediaPickerDialog from '@/components/GlobalMediaPickerDialog.vue'
-import ImagePreviewDialog from '@/components/ImagePreviewDialog.vue'
-import UniversalSegmentOmniAtEditor from '@/components/UniversalSegmentOmniAtEditor.vue'
-import ActionGate from '@/components/filmCreate/ActionGate.vue'
-import FilmCreateDeliveryPanel from '@/components/filmCreate/FilmCreateDeliveryPanel.vue'
-import FilmCreateVideoSettingsPanel from '@/components/filmCreate/FilmCreateVideoSettingsPanel.vue'
 import FilmCreatePipelinePanel from '@/components/filmCreate/FilmCreatePipelinePanel.vue'
 import FilmCreateScriptWorkbench from '@/components/filmCreate/FilmCreateScriptWorkbench.vue'
 import FilmCreateResourcePanel from '@/components/filmCreate/FilmCreateResourcePanel.vue'
 import FilmCreateStoryboardPanel from '@/components/filmCreate/FilmCreateStoryboardPanel.vue'
-import FilmCreateResourceDialogs from '@/components/filmCreate/FilmCreateResourceDialogs.vue'
-import FilmCreateStoryboardDialogs from '@/components/filmCreate/FilmCreateStoryboardDialogs.vue'
-import FilmCreateNovelImportDialog from '@/components/filmCreate/FilmCreateNovelImportDialog.vue'
+import FilmCreateProjectDependencyWarning from '@/components/filmCreate/FilmCreateProjectDependencyWarning.vue'
+import FilmCreateOutputSection from '@/components/filmCreate/FilmCreateOutputSection.vue'
+import FilmCreateWorkspaceDialogs from '@/components/filmCreate/FilmCreateWorkspaceDialogs.vue'
 import {
   userFacingVideoGenerationError,
 } from '@/utils/filmCreateActionState'
+import {
+  FILM_CREATE_RESOURCE_DIALOG_MODEL_KEYS,
+  FILM_CREATE_STORYBOARD_DIALOG_MODEL_KEYS,
+} from '@/utils/filmCreateTemplateBindings'
 import { normalizeProjectListReturnTo } from '@/utils/projectListRoute'
 import {
   generationStyleOptions,
@@ -709,6 +255,7 @@ import { useFilmCreateStoryboardExport } from '@/composables/filmCreate/useFilmC
 import { useFilmCreateEpisodeCompose } from '@/composables/filmCreate/useFilmCreateEpisodeCompose'
 import { useFilmCreateProductionReadiness } from '@/composables/filmCreate/useFilmCreateProductionReadiness'
 import { useFilmCreateRouteSync } from '@/composables/filmCreate/useFilmCreateRouteSync'
+import { useFilmCreateWorkspaceBootstrap } from '@/composables/filmCreate/useFilmCreateWorkspaceBootstrap'
 import { useFilmCreateTaskPolling } from '@/composables/filmCreate/useFilmCreateTaskPolling'
 import { useFilmCreateMediaPreview } from '@/composables/filmCreate/useFilmCreateMediaPreview'
 import { useFilmCreateTaskRecovery } from '@/composables/filmCreate/useFilmCreateTaskRecovery'
@@ -956,6 +503,13 @@ const {
   globalMediaPickerTarget,
 } = useFilmCreateMediaPickerState()
 
+const filmCreateHeaderRef = ref(null)
+function onSelectEpisode() {
+  if (filmCreateHeaderRef.value?.focusEpisodeSelect?.()) return
+  if (typeof document === 'undefined') return
+  document.querySelector('.header')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
+
 const {
   goList,
   goCanvasMode,
@@ -1181,6 +735,7 @@ const {
   showEditScene, editSceneForm, editSceneSaving, editScenePromptGenerating,
   extractingSceneDesc, addSceneRefImage, addSceneRefFileInput,
   scenesExtracting, generatingSceneIds,
+  generatingPanoramaIds,
   // 场景多视角额外 state（由 FilmCreate 管理）
   showSceneLibrary, sceneLibraryList, sceneLibraryLoading, sceneLibraryPage, sceneLibraryPageSize,
   sceneLibraryTotal, sceneLibraryKeyword, sceneLibraryTab,
@@ -1190,6 +745,7 @@ const {
   onExtractScenes: onExtractScenesRaw, openAddScene, stopScenePromptPoll, editScene, doGenerateScenePrompt, doGenerateSceneSinglePrompt,
   saveSceneRefImageIfAny, clearSceneRefImage, doExtractSceneFromImage, submitEditScene,
   onCloseSceneDialog, onDeleteScene, onGenerateSceneImage,
+  onGenerateScenePanorama,
   loadSceneLibraryList, debouncedLoadSceneLibrary, loadDramaAllSceneList, debouncedLoadDramaAllSceneList,
   onSceneLibraryDialogOpen, onSceneLibraryTabChange, isSceneAddToEpisodeLoading,
   openEditSceneLibrary, submitEditSceneLibrary,
@@ -1891,6 +1447,8 @@ const {
   openSelectScriptDialog,
   returnToScriptCreation,
   returnToCharacterPanel,
+  returnToPropPanel,
+  returnToScenePanel,
   loadSelectScriptList,
   onPickScriptFromDialog,
   novelImportReset,
@@ -1918,8 +1476,12 @@ const {
   showSelectScriptDialog,
   scriptWorkbenchMode,
   showCharLibrary,
+  showPropLibrary,
+  showSceneLibrary,
   resourcePanelCollapsed,
   charactersBlockCollapsed,
+  propsBlockCollapsed,
+  scenesBlockCollapsed,
   selectScriptLoading,
   selectScriptDramas,
   selectScriptImporting,
@@ -2217,6 +1779,14 @@ const {
   onAddSingleStoryboard,
   onDeleteSingleStoryboard,
   onInsertStoryboardBefore,
+  storyboardReorderBusy,
+  dropTargetStoryboardIndex,
+  onMoveStoryboardUp,
+  onMoveStoryboardDown,
+  onReorderDragStart,
+  onReorderDragOver,
+  onReorderDragEnd,
+  onReorderDrop,
 } = useFilmCreateStoryboardCrud({
   currentEpisodeId,
   dramaId,
@@ -2429,13 +1999,6 @@ const {
 onBeforeRouteLeave(allowNavigationAfterDraftFlush)
 onBeforeRouteUpdate(allowNavigationAfterDraftFlush)
 
-onBeforeUnmount(() => {
-  invalidateProjectLoads()
-  projectLifecycle.dispose()
-  window.removeEventListener('beforeunload', handleBeforeUnload)
-  scriptDraftController.dispose()
-})
-
 const {
   applyRouteToStore,
   syncEpisodeRouteQuery,
@@ -2466,17 +2029,146 @@ const {
   onEpisodeSelect,
 })
 
-onMounted(async () => {
-  window.addEventListener('beforeunload', handleBeforeUnload)
-  applyRouteToStore()
-  if (!route.params.id || route.params.id === 'new') {
-    Promise.allSettled([
-      loadPipelineConcurrency(),
-      refreshVideoGenerationCapability(),
-      refreshProductionReadiness(),
-    ])
-  }
+const {
+  scriptWorkbenchBindings,
+  resourcePanelBindings,
+  storyboardPanelBindings,
+  resourceDialogsBindings,
+  storyboardDialogsBindings,
+  mountWorkspace,
+  unmountWorkspace,
+} = useFilmCreateWorkspaceBootstrap({
+  resourceDialogModelKeys: FILM_CREATE_RESOURCE_DIALOG_MODEL_KEYS,
+  storyboardDialogModelKeys: FILM_CREATE_STORYBOARD_DIALOG_MODEL_KEYS,
+  scriptWorkbench: {
+    scriptWorkbenchMode, storyInput, storyStyle, storyType, storyEpisodeCount,
+    scriptTitle, scriptContent, showSelectScriptDialog, selectPreviewEpisodeId,
+    isStoryGenRunning, dramaId, hasAnyEpisode, scriptGenerating, currentEpisodeId,
+    episodes: computed(() => store.drama?.episodes || []),
+    scriptDraftStatus, scriptDraftStatusLabel, selectScriptLoading, selectScriptImporting,
+    selectableScriptDramas, selectScriptDramas, saveProjectSettings, showNovelImport,
+    router, onGenerateStory, onAddEpisode, onGenerateScript, openSelectScriptDialog,
+    loadSelectScriptList, onPickScriptFromDialog, returnToScriptCreation,
+  },
+  resourcePanel: {
+    resourcePanelCollapsed, charactersBlockCollapsed, propsBlockCollapsed, scenesBlockCollapsed,
+    propUseQuadGrid, sceneUseQuadGrid, characters, propItems: props, scenes,
+    characterGenerationDisabledReason, projectActionDisabledReason, propsExtractionDisabledReason,
+    scenesExtractionDisabledReason, storyboardMediaActionReason, charactersGenerating,
+    propsExtracting, scenesExtracting, generatingCharIds, generatingPropIds, generatingSceneIds, generatingPanoramaIds,
+    uploadingResourceId, addingCharToLibraryId, addingCharToMaterialId, addingPropToLibraryId,
+    addingPropToMaterialId, addingSceneToLibraryId, addingSceneToMaterialId, regenSbImagesForAsset,
+    regenSbImagesProgress, sd2CertifyingId, sd2VoiceUploadingId, hasAssetImage, assetImageUrl,
+    charRoleLabel, localPathToUrl, parseExtraImages, getCharAffectedStoryboards,
+    getPropAffectedStoryboards, getSceneAffectedStoryboards, sd2ActionLabel, sd2VoiceActionLabel,
+    hasAnyEpisode, onAddEpisode, onSelectEpisode, onGenerateCharacters, openAddCharacter, showCharLibrary, onExtractProps, showAddProp,
+    showPropLibrary, onExtractScenes, openAddScene, showSceneLibrary, onGenerateCharacterImage,
+    onGeneratePropImage, onGenerateSceneImage, onGenerateScenePanorama, editCharacter, editProp, editScene,
+    onDeleteCharacter, onDeleteProp, onDeleteScene, onAddCharacterToLibrary,
+    onAddCharacterToMaterialLibrary, onAddPropToLibrary, onAddPropToMaterialLibrary,
+    onAddSceneToLibrary, onAddSceneToMaterialLibrary, onRegenAffectedSbImages, doUploadResourceImage,
+    onSetPrimaryImage, onRemoveExtraImage, openImagePreview, scrollToStoryboard,
+    onSd2PrimaryAction, onSd2VoicePrimaryAction, onSd2VoiceReplace, playSd2Voice,
+  },
+  storyboardPanel: {
+    storyboardCount, videoDuration, gridMode, storyboardUseFirstLastFrame, storyboardUniversalOmni,
+    storyboardIncludeNarration, lastFrameUseFirstLayoutLock, videoFrameContiguity, sbTruncatedDismissed,
+    batchImageStopping, batchVideoStopping, dragOverSbId, storyboards, characters, scenes, sbSceneId,
+    sbNarration, sbUniversalSegmentText, batchImageErrors, batchVideoErrors, batchImageProgress,
+    batchVideoProgress, generatingSbImageIds, generatingSbFirstImageIds, generatingSbLastImageIds,
+    generatingUniversalSegmentIds, linkingTailFrameIds, usingPrevTailAsFirstIds, ttsSbIds,
+    ttsSbNarrationIds, upscalingSbIds, universalOmniPolishProgress, hasAnyEpisode, currentEpisodeId,
+    storyboardGenerating, universalOmniPolishRunning, exportingStoryboardSheet, batchImageRunning,
+    batchVideoRunning, sbTruncatedWarning, uploadingSbImageId, uploadingSbImageSlot,
+    storyboardActionDisabledReason, episodeActionDisabledReason, batchActionDisabledReason,
+    batchVideoActionDisabledReason, storyboardMediaActionReason, videoCapabilityReason, scriptEstimateStoryboardHint,
+    scriptEstimateStoryboardTitle, scriptEstimateVideoDurationHint, scriptEstimateVideoDurationTitle,
+    propItems: props, assetImageUrl, assetVideoUrl, canUsePrevTailAsFirst, charactersAvailableToAddToSb,
+    getMovementLabel, getNextStoryboard, getSbCharacterIds, getSbFirstImage, getSbImage, getSbLastImage,
+    getSbLocalImage, getSbPropIds, getSbSelectedCharacters, getSbSelectedProps, getSbSelectedScene,
+    getSbFreeReferenceItems, getSbGridImages, getSbUniversalOmniRefSlots, getSbVideo, getSbVideoError, getSbVideoReferenceGrid, getStripItems, getVideoStripItems,
+    hasAssetImage, hasSbDraftImagePlaceholder, hasSbFirstLastPair, hasSbImage, historyImageLabel,
+    isSbUniversalMode, isSbVideoGenerating, onAddEpisode, onAddSingleStoryboard, onDeleteSingleStoryboard,
+    onExportNarrationSrt, onExportStoryboardSheet, onGenerateSbFrameImage, onGenerateSbFramePair,
+    onGenerateSbImage, onGenerateSbVideo, onGenerateStoryboard, onInsertStoryboardBefore, storyboardsAPI, storyboardReorderBusy, dropTargetStoryboardIndex, onMoveStoryboardUp, onMoveStoryboardDown, onReorderDragStart, onReorderDragOver, onReorderDragEnd, onReorderDrop,
+    onLastFrameLayoutLockChange, onLinkTailFrameToNext, onOpenSbPromptDialog, onOpenVideoParamsDialog, onPromoteSbFreeReferenceImage, onRemoveSbFreeReferenceImage,
+    onRemoveSbHistoryImage, onSaveSbNarrationField, onSaveUniversalSegmentField, onSbAddCharacterCommand,
+    onSbImageDragLeave, onSbImageDragOver, onSbImageDrop, onSelectSbMainVideo, onSelectStripItem,
+    onStoryboardSceneChange, onStoryboardUseFirstLastFrameChange, onStripItemClick, onToggleSbUniversalMode,
+    onTtsSbDialogue, onTtsSbNarration, onUniversalSegmentPromptMenu, onUploadSbImageClick, onUpscaleSbImage,
+    onUsePrevTailAsFirst, openAiConfig, openGlobalMediaPicker, openImagePreview, playSbDialogueTts, playSbNarrationTts,
+    sbCanSubmitVideo, sbDialogueAudioRelPath, sbMainVideoPlayerKey, sbNarrationAudioRelPath,
+    sbUniversalSegmentTrimmed, sbVideoGenerationDisabledReason, setSbCharacterIds, setSbPropIds,
+    showSbFramePromptPreview, startBatchImageGeneration, startBatchVideoGeneration, storyboardImageUrl,
+    stripItemTitle, ttsGenerationDisabledReason, saveProjectSettings, doUploadSbImage,
+  },
+  resourceDialogs: {
+    showAddProp, showCharLibrary, showCharSd2Cert, showEditCharLibrary,
+    showEditCharacter, showEditProp, showEditPropLibrary, showEditScene,
+    showEditSceneLibrary, showPropLibrary, showSceneLibrary, charLibraryKeyword,
+    charLibraryPage, charLibraryPageSize, charLibraryTab, dramaAllCharKeyword,
+    dramaAllCharPage, dramaAllCharPageSize, dramaAllPropKeyword, dramaAllPropPage,
+    dramaAllPropPageSize, dramaAllSceneKeyword, dramaAllScenePage, dramaAllScenePageSize,
+    propLibraryKeyword, propLibraryPage, propLibraryPageSize, propLibraryTab,
+    sceneLibraryKeyword, sceneLibraryPage, sceneLibraryPageSize, sceneLibraryTab,
+    addCharRefImage, addPropAddRefImage, addPropForm, addPropRefImage,
+    addSceneRefImage, editCharLibraryForm, editPropLibraryForm, editSceneLibraryForm,
+    addPropSaving, charLibraryList, charLibraryLoading, charLibraryTotal,
+    charSd2CertPayload, currentEpisodeId, dramaAllCharList, dramaAllCharLoading,
+    dramaAllCharTotal, dramaAllPropList, dramaAllPropLoading, dramaAllPropTotal,
+    dramaAllSceneList, dramaAllSceneLoading, dramaAllSceneTotal, editCharLibrarySaving,
+    editCharacterForm, editCharacterPromptGenerating, editCharacterSaving, editPropForm,
+    editPropLibrarySaving, editPropPromptGenerating, editPropSaving, editSceneForm,
+    editSceneLibrarySaving, editScenePromptGenerating, editSceneSaving, extractingAnchors,
+    extractingCharAppearance, extractingPropAddDesc, extractingPropDesc, extractingSceneDesc,
+    propLibraryList, propLibraryLoading, propLibraryTotal, sceneLibraryList,
+    sceneLibraryLoading, sceneLibraryTotal, assetImageUrl, charRoleLabel,
+    clearCharRefImage, clearPropRefImage, clearSceneRefImage, debouncedLoadCharLibrary,
+    debouncedLoadDramaAllCharList, debouncedLoadDramaAllPropList, debouncedLoadDramaAllSceneList, debouncedLoadPropLibrary,
+    debouncedLoadSceneLibrary, doExtractCharFromImage, doExtractFromRef, doExtractFromRef2,
+    doExtractPropFromImage, doExtractSceneFromImage, doGenerateCharacterPrompt, doGeneratePropPrompt,
+    doGenerateScenePrompt, doGenerateSceneSinglePrompt, extractIdentityAnchors, isCharAddToEpisodeLoading,
+    isPropAddToEpisodeLoading, isSceneAddToEpisodeLoading, loadCharLibraryList, loadDramaAllCharList,
+    loadDramaAllPropList, loadDramaAllSceneList, loadPropLibraryList, loadSceneLibraryList,
+    onAddCharFromLibrary, onAddDramaCharToEpisode, onAddDramaPropToEpisode, onAddDramaSceneToEpisode,
+    onAddPropFromLibrary, onAddSceneFromLibrary, onCharLibraryDialogOpen, onCharLibraryTabChange,
+    onCloseCharDialog, onClosePropDialog, onCloseSceneDialog, onDeleteCharLibrary,
+    onDeletePropLibrary, onDeleteSceneLibrary, onPropLibraryDialogOpen, onPropLibraryTabChange,
+    onRefImageDrop, onRefImageDrop2, onRefImageFileChange, onRefImageFileChange2,
+    onSceneLibraryDialogOpen, onSceneLibraryTabChange, openEditCharLibrary, openEditPropLibrary,
+    openEditSceneLibrary, openImagePreview, returnToCharacterPanel, returnToPropPanel, returnToScenePanel, submitAddProp,
+    submitEditCharLibrary, submitEditCharacter, submitEditProp, submitEditPropLibrary,
+    submitEditScene, submitEditSceneLibrary,
+  },
+  storyboardDialogs: {
+    showSbPromptDialog, showFramePromptEditor, showVideoParamsDialog, editingFramePromptText,
+    sbPromptImageText, sbPromptPolishedText, sbPromptVideoText, sbPromptTarget,
+    editingFramePromptRegenerating, editingFramePromptSaving, editingFramePromptSb, editingFramePromptSlot,
+    regeneratingLayoutSbIds, sbAction, sbAngleH, sbAngleS,
+    sbAngleV, sbAtmosphere, sbCreationMode, sbDialogue,
+    sbDof, sbDuration, sbLayoutDescription, sbLighting,
+    sbLocation, sbMovement, sbNarration, sbPromptPolishing,
+    sbPromptSaving, sbResult, sbShotType, sbTime,
+    sbTitle, sbVideoReferenceImageId, splitByAudioLoading, videoParamsSaving,
+    videoParamsTarget, angleToPromptFragment, assetImageUrl, canSplitSbByAudio,
+    getSbFreeReferenceItems, getSbGridImages, onPolishSbPrompt, onPromoteSbFreeReferenceImage,
+    onRegenerateLayoutDescription, onRemoveSbFreeReferenceImage, onSaveSbPromptDialog, onSaveVideoParams,
+    onSplitSbByAudio, onVideoParamsDialogClosed, openGlobalMediaPicker, openImagePreview,
+    regenerateEditingFramePrompt, saveEditingFramePrompt, setSbCreationModeId,
+  },
+  route,
+  handleBeforeUnload,
+  applyRouteToStore,
+  loadPipelineConcurrency,
+  refreshVideoGenerationCapability,
+  refreshProductionReadiness,
+  invalidateProjectLoads,
+  projectLifecycle,
+  scriptDraftController,
 })
+
+onMounted(mountWorkspace)
+onBeforeUnmount(unmountWorkspace)
 
 </script>
 

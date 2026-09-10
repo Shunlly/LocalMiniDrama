@@ -71,7 +71,10 @@
         </el-button>
         <el-button
           v-if="configRuntime.canCancel"
+          type="warning"
+          plain
           :disabled="readonly || busy"
+          aria-label="停止等待"
           title="停止当前页面等待；已提交任务可能继续执行或计费"
           @click="emit('cancel-config', node.id)"
         >

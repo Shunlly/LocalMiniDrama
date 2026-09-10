@@ -16,10 +16,10 @@ const sourceIntakeSource = read('../src/components/SourceIntakeWorkflowPanel.vue
 const readinessSource = read('../src/components/ProjectReadinessPanel.vue')
 const filmListSource = read('../src/views/FilmList.vue')
 const freeCreateSource = read('../src/views/FreeCreate.vue')
-const canvasSource = read('../src/views/DramaCanvas.vue') + '\n' + read('../src/composables/useDramaCanvasFreeCanvas.js') + '\n' + read('../src/composables/useDramaCanvasPersist.js')
+const canvasSource = read('../src/views/DramaCanvas.vue') + '\n' + read('../src/composables/useDramaCanvasFreeCanvas.js') + '\n' + read('../src/composables/useDramaCanvasPersist.js') + '\n' + read('../src/composables/useDramaCanvasProjectLoad.js') + '\n' + read('../src/composables/useDramaCanvasWorkflow.js')
 const filmCreateSource = read('../src/views/FilmCreate.vue')
 const filmCreateStyleSource = read('../src/views/FilmCreate.css')
-const storyboardPanelSource = read('../src/components/filmCreate/FilmCreateStoryboardPanel.vue')
+const storyboardPanelSource = read('../src/components/filmCreate/FilmCreateStoryboardPanel.vue') + '\n' + read('../src/components/filmCreate/FilmCreateStoryboardPanel.css')
 const storyboardConfigBarSource = read('../src/components/filmCreate/FilmCreateStoryboardConfigBar.vue')
 const filmCreatePipelineSource = read('../src/components/filmCreate/FilmCreatePipelinePanel.vue')
 const mediaLibrarySource = read('../src/views/MediaLibrary.vue')
@@ -106,7 +106,7 @@ test('media library returnTo safely preserves the current film workspace', async
     assert.equal(normalizeMediaLibraryReturnTo(value), '', String(value))
   }
   assert.match(routerSource, /name: 'media-library'[\s\S]*normalizeReturnTo: normalizeMediaLibraryReturnTo/)
-  assert.match(mediaLibrarySource, /router\.push\(returnTo\.value \|\| '\/'\)/)
+  assert.match(mediaLibrarySource, /if \(returnTo\.value\) router\.push\(returnTo\.value\)[\s\S]*openWorkspaceNavItem\(router, 'list'\)/)
   assert.match(remainingImportedFunctionSource(useFilmCreateWorkspaceNav), /returnTo: route\.fullPath/)
   assert.match(
     filmListSource,
@@ -114,24 +114,30 @@ test('media library returnTo safely preserves the current film workspace', async
   )
 })
 
-test('source intake advertises text uploads and keeps deferred media as a rejected fallback', () => {
+test('source intake accepts PDF/image/audio/video uploads and keeps Chinese extraction guidance', () => {
   const extensions = [
     '.txt', '.md', '.csv', '.tsv', '.srt', '.vtt', '.ass', '.json',
+    '.pdf', '.png', '.jpg', '.jpeg', '.webp', '.gif',
+    '.mp3', '.wav', '.m4a', '.aac', '.flac', '.ogg', '.oga',
+    '.mp4', '.mov', '.mkv', '.avi', '.webm', '.ogv',
   ]
   for (const extension of extensions) {
-    assert.match(sourceIntakeSource, new RegExp(`['\"]${extension.replace('.', '\\.') }['\"]`), extension)
+    assert.match(sourceIntakeSource, new RegExp(`['"]${extension.replace('.', '\\.') }['"]`), extension)
   }
 
   assert.match(sourceIntakeSource, /:accept="SOURCE_FILE_ACCEPT"/)
   assert.match(sourceIntakeSource, /本地素材文件/)
-  assert.match(sourceIntakeSource, /支持 txt、md、csv、tsv、srt、vtt、ass、json，单文件最大 20MB/)
-  assert.match(sourceIntakeSource, /PDF、图片、音频和视频暂不支持自动抽取/)
-  assert.match(sourceIntakeSource, /isDeferredAutoExtractionSource\(file\)/)
-  assert.doesNotMatch(sourceIntakeSource, /SOURCE_FILE_EXTENSIONS = Object\.freeze\(\[[\s\S]*'\.pdf'/)
+  assert.match(sourceIntakeSource, /支持文本、PDF、图片、音频和视频，单文件最大 20MB/)
+  assert.match(sourceIntakeSource, /SOURCE_INTAKE_MEDIA_HELP/)
+  assert.match(sourceIntakeSource, /SOURCE_FILE_EXTENSIONS = Object\.freeze\(\[[\s\S]*'\.pdf'/)
+  assert.doesNotMatch(sourceIntakeSource, /暂不支持自动抽取/)
+  assert.doesNotMatch(sourceIntakeSource, /isDeferredAutoExtractionSource\(file\)/)
+  assert.doesNotMatch(sourceIntakeSource, /throw new Error\(SOURCE_AUTO_EXTRACTION_UNSUPPORTED_MESSAGE\)/)
 
   assert.match(sourceIntakeSource, /file\.size > MAX_SOURCE_FILE_BYTES/)
   assert.match(sourceIntakeSource, /SOURCE_FILE_EXTENSION_SET\.has\(extension\)/)
   assert.match(sourceIntakeSource, /TEXT_SOURCE_FILE_EXTENSIONS\.has\(extension\) && file\.size <= 2 \* 1024 \* 1024/)
+  assert.match(sourceIntakeSource, /sourceIntakeAPI\.uploadForDrama/)
   assert.match(sourceIntakeSource, /正在上传并解析/)
   assert.match(sourceIntakeSource, /role="status" aria-live="polite"/)
   assert.match(sourceIntakeSource, /role="alert"/)
@@ -188,7 +194,7 @@ test('desktop creation surfaces keep focused tasks readable and user-facing', ()
   assert.match(freeCreateSource, /getServiceConfigReadiness\(activeServiceConfig\.value\)/)
   assert.match(freeCreateSource, /:disabled="generateDisabled"/)
   assert.match(freeCreateSource, /service_type: activeServiceType\.value/)
-  assert.match(filmListSource, /router\.push\(\{ name: 'free-create' \}\)/)
+  assert.match(filmListSource, /openWorkspaceNavItem\(router, 'free-create'\)/)
   assert.doesNotMatch(freeCreateSource, /🎨|🎬/)
   assert.doesNotMatch(filmCreateSource, /经典模式双槽；图生前先走专业帧提示词模块/)
   assert.doesNotMatch(filmCreateSource, /每镜输出多子分镜段落式/)

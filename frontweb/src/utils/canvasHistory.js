@@ -1,4 +1,4 @@
-const SNAPSHOT_ERROR = 'Canvas history snapshots must be JSON-compatible and acyclic.'
+const SNAPSHOT_ERROR = '画布历史快照必须可 JSON 序列化，且不能包含循环引用。'
 
 function snapshotError() {
   return new TypeError(SNAPSHOT_ERROR)

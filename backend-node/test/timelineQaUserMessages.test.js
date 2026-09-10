@@ -179,7 +179,7 @@ test('时间线路由返回可操作的简体中文错误', () => {
         invoke(timelines.getEpisodeTimeline, { params: { episode_id: 1 } }),
         400,
         'BAD_REQUEST',
-        'drama_id 必填'
+        '请求参数无效，请检查项目或分集 ID 后重试'
       );
       assertUserError(
         invoke(timelines.exportEpisodeSrt, { params: { episode_id: 1 } }),
@@ -213,7 +213,7 @@ test('QA 报告路由返回可操作的简体中文错误并保留错误码', ()
       [qaService, 'getQaReportById', () => { throw codedError('项目不存在或已移入回收站', 'DRAMA_NOT_FOUND'); }],
       [qaService, 'auditDrama', () => { throw codedError('请先选择项目', 'BAD_REQUEST'); }],
       [qaService, 'remediateQaReport', () => {
-        throw codedError('Production 启动条件未满足：文本模型', 'WORKFLOW_NOT_READY', {
+        throw codedError('正式制作启动条件未满足：文本模型', 'WORKFLOW_NOT_READY', {
           details: { ready: false },
         });
       }],
@@ -237,7 +237,7 @@ test('QA 报告路由返回可操作的简体中文错误并保留错误码', ()
         '请先选择项目'
       );
       const ready = invoke(qa.remediate, { params: { report_id: 1 }, body: {} });
-      assertUserError(ready, 409, 'WORKFLOW_NOT_READY', 'Production 启动条件未满足：文本模型');
+      assertUserError(ready, 409, 'WORKFLOW_NOT_READY', '正式制作启动条件未满足：文本模型');
       assert.deepEqual(ready.body.error.details, { ready: false });
     });
 

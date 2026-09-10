@@ -23,20 +23,26 @@
 
 ## 当前运行建议
 
-包版本为 `1.3.3`。当前从源码或 Docker 运行，不要按发版下载使用。仓库是纯 JavaScript，没有 TypeScript。
+包版本为 `1.3.3`。这是仓库 `package.json` 版本号，不是 GitHub Release / tag，也没有把发版合并到 `main`。当前从源码或 Docker 运行，不要按发版下载使用。当前分支和脏工作树不能当作发布完成。仓库是纯 JavaScript，没有 TypeScript。
 
 - 后端端口 **5679**，前端 Vite 端口 **3013**；开发时前端代理 `/api` 与 `/static`
 - 后端 CORS 只允许 `http://localhost:3013` 与 `http://127.0.0.1:3013`
+- 测试、CI 与 Docker 生产镜像使用 Node.js 20.x；桌面依赖安装、原生重建和打包使用 Node.js 22.12.0（`desktop/.npmrc` 启用 `engine-strict`）
 - `configs/config.yaml` 已随仓库提供；启动时执行 `runMigrationsAndEnsure`，一般不必手动 `npm run migrate`
-- 未配置外部 API Key 也可以启动和开发界面；真正生成内容到「AI 配置」页填写
-- PDF/图片 OCR、音视频转写、真实厂商账号深度联调、移动端都不在当前完成范围
+- 未配置外部 API Key 也可以启动和开发界面；真正生成内容到「AI 配置」页填写。厂商预设填表不等于真实图片/视频/TTS 接入已跑通
+- 故事素材可上传 PDF/图片/音视频：文本可直接导入；PDF/图片需要图片识别（可本机 Tesseract 或 AI 配置 OCR）；音视频需要语音转写配置。OCR/转写是素材抽取扩展，不是成片就绪条件
+- 正式制作仍以文本、素材图、分镜图、视频、TTS 五类服务为成片就绪条件。真实云 OCR/Whisper 账号联调、真实图片/视频/TTS 厂商接入、移动端仍不在当前完成范围
 - Docker Compose **不挂载应用源码**。改完代码后执行 `docker compose up -d --build --wait`，容器级校验用根目录 `npm run verify:docker`
+- 生产 E2E 必须在干净工作树执行（证据要求 `working_tree_dirty=false`），不要凭历史 SHA 宣称当前工作树已通过
+- 页面、API 与 CLI 的用户可见错误为简体中文；`/ready` 可接业务，失败时 `checks.*.error` 为简体中文；`/health` 只表示进程存活
+- 备份/恢复/维护恢复 CLI 的 `--help` 和失败输出为简体中文
 
 ### 当前能力与延期边界
 
-- 素材中心支持本地图片/视频上传，以及从 Wikimedia Commons 搜索公开图片/视频、查看作者和许可来源、预览并安全下载到项目或全局素材库；网页 URL 入口用于提取故事正文并写入项目。使用者仍需自行确认素材许可是否满足具体用途，其他第三方素材平台暂未接入。
-- AI 配置当前支持厂商预设、自定义 OpenAI 兼容厂商和手工模型列表；Google Gemini 文本使用官方 Gemini OpenAI 兼容端点 `https://generativelanguage.googleapis.com/v1beta/openai`。连接测试会探测配置端点，但不会通过通用 `/v1/models` 自动发现或导入远端模型，真实 Google 账号、模型和额度仍需单独连接测试。
-- 外部真实 Provider 的厂商、账户、模型版本、额度、计费和长耗时行为仍需每个部署自行连接测试和非敏感样例验收；仓库测试不得使用真实凭据。
+- 素材中心支持本地图片/视频上传，以及从 Wikimedia Commons 搜索公开图片/视频、查看作者和许可来源、预览并安全下载到项目或全局素材库；网页 URL 入口用于提取故事正文并写入项目。素材中心还可从 Openverse 搜索公开图片并经本机代理预览入库；使用者仍需自行确认素材许可是否满足具体用途。
+- AI 配置当前支持厂商预设、自定义 OpenAI 兼容厂商和手工模型列表；Google Gemini 文本使用官方 Gemini OpenAI 兼容端点 `https://generativelanguage.googleapis.com/v1beta/openai`。连接测试会探测配置端点；OpenAI 兼容厂商还可按需读取 `/v1/models` 并合并进模型列表，不会自动覆盖已有模型名。厂商预设填表不等于真实图片/视频/TTS 接入已跑通；真实 Google 账号、模型和额度仍需单独连接测试。
+- 故事素材可上传 PDF/图片/音视频：文本可直接导入；PDF/图片需要图片识别（可本机 Tesseract 或 AI 配置 OCR）；音视频需要语音转写配置。这是素材抽取扩展，不能替代正式制作所需的五类服务。真实云 OCR/Whisper 账号联调仍后置。
+- 真实图片/视频/TTS 厂商接入，以及外部真实 Provider 的厂商、账户、模型版本、额度、计费和长耗时行为仍需每个部署自行连接测试和非敏感样例验收；仓库测试不得使用真实凭据。真实云 OCR/Whisper 账号联调仍后置，不能写成每个云账号都已联调。
 - 移动端重排、触控行为和移动画布/列表降级后置；当前只按桌面矩阵验收。
 
 ---
@@ -78,6 +84,8 @@ npm start
 ```bash
 curl.exe --fail http://127.0.0.1:5679/ready
 ```
+
+未就绪时 JSON 里的 `checks.database.error`、`checks.storage.error`、`checks.maintenance.error` 为简体中文（如「数据库不可用」）。`/health` 只是存活探针，不代表可以接业务。
 
 ---
 
@@ -139,6 +147,8 @@ npm run dist:cn
 - `LocalMiniDrama-Portable-x.x.x-x64.exe` — 便携版
 - `win-unpacked/` — 未压缩目录
 
+本地 `npm run dist` 会生成 Setup、Portable 与 `win-unpacked`，只供本机使用，不是发版。当前请从源码或 Docker 运行。若将来发版，正式发布顺序是：分支 CI 通过后创建 annotated tag，再由工作流生成草稿 Release 并人工发布。
+
 **打包原理：**
 1. 构建前端静态文件
 2. 复制后端代码与前端产物到 `desktop/`
@@ -199,6 +209,8 @@ AI 服务配置通过软件内「AI 配置」页面管理，无需手动编辑 Y
 
 ## 测试与校验
 
+以下命令使用 Node.js 20.x（不要用本机 Node 24 跑门禁）。桌面安装/打包仍用 Node.js 22.12.0。
+
 ```bash
 # 后端（Node.js 内置测试运行器）
 npm --prefix backend-node test
@@ -217,7 +229,7 @@ npm run verify
 npm run verify:docker
 ```
 
-`npm run verify:docker` 不验证当前正在运行的 Compose 服务。没有 ESLint。仓库测试使用本地协议兼容 Provider，不得填入真实凭据，也不代表真实厂商账号已联调。
+`npm run verify:docker` 不验证当前正在运行的 Compose 服务。没有 ESLint。仓库测试使用本地协议兼容 Provider，不得填入真实凭据，也不代表真实厂商账号已联调。页面、API 与 CLI 的用户可见错误为简体中文。
 
 ---
 
@@ -232,13 +244,13 @@ docker compose ps
 
 启动后访问：
 
-| 服务 | 地址 |
-|------|------|
-| 前端 | `http://127.0.0.1:3013` |
-| 前端 Docker 健康检查 | `http://127.0.0.1:3013/healthz`（代理后端 `/ready`） |
-| 后端健康检查 | `http://127.0.0.1:5679/health` |
-| 后端就绪检查 | `http://127.0.0.1:5679/ready` |
-| API 路径前缀 | `http://127.0.0.1:5679/api/v1`（该前缀本身不是可访问资源） |
+| 探针 | 地址 | Compose 用途 |
+|------|------|------|
+| 前端页面 | `http://127.0.0.1:3013` | 页面入口 |
+| 前端 `/healthz` | `http://127.0.0.1:3013/healthz` | 健康检查；Nginx 代理后端 `/ready` |
+| 后端 `/ready` | `http://127.0.0.1:5679/ready` | 健康检查；可接业务才 200，失败信息为简体中文，`docker compose --wait` 等这个 |
+| 后端 `/health` | `http://127.0.0.1:5679/health` | 不是健康检查；只表示进程存活 |
+| API 路径前缀 | `http://127.0.0.1:5679/api/v1` | 该前缀本身不是可访问资源 |
 
 Docker 镜像固定使用 Node.js 20，并在后端容器内安装 `ffmpeg`；编译工具只存在于依赖构建阶段。容器默认把 `backend-node/data` 挂载到 `/app/data`，数据库和生成素材会保留在本机项目目录下。前端容器使用 Nginx 提供 Vite 的生产构建产物。生产容器启用只读根文件系统、`no-new-privileges`、能力裁剪和受限临时目录。
 
@@ -250,9 +262,9 @@ Docker 镜像固定使用 Node.js 20，并在后端容器内安装 `ffmpeg`；�
 npm run verify:docker
 ```
 
-该命令在临时验证容器中运行前后端检查，不验证当前正在运行的 Compose 服务。运行态还需探测前端 `/healthz`、后端 `/health` 与 `/ready`。前端 `/healthz` 会代理后端 `/ready`，因此返回 200 同时证明 Nginx 和后端依赖已就绪。前后端均使用 `unless-stopped` 自动恢复策略；人工停止后不会自行重启。
+该命令在临时验证容器中运行前后端检查，不验证当前正在运行的 Compose 服务。Compose 健康检查：后端探测 `/ready`，前端探测 `/healthz`（代理 `/ready`）。`/health` 只是存活探针，`docker compose --wait` 不会等它。验收时仍可同时看 `/health` 与 `/ready`。前后端均使用 `unless-stopped` 自动恢复策略；人工停止后不会自行重启。
 
-单独运行 `npm run verify:e2e` 不会自动启动测试服务；下面的 `npm run docker:e2e:up` 会显式启动本地协议兼容测试服务。它还要求 `LOCALMINIDRAMA_DATA_DIR` 指向仓库外新建的绝对空目录，以免 E2E 污染开发数据。必须在干净工作树按顺序执行：
+单独运行 `npm run verify:e2e` 不会自动启动测试服务；下面的 `npm run docker:e2e:up` 会显式启动本地协议兼容测试服务。它还要求 `LOCALMINIDRAMA_DATA_DIR` 指向仓库外新建的绝对空目录，以免 E2E 污染开发数据。必须在干净工作树按顺序执行（证据要求 `working_tree_dirty=false`；当前脏工作树不能当作已通过）：
 
 ```powershell
 $e2eDataDir = Join-Path ([IO.Path]::GetTempPath()) ("localminidrama-e2e-" + [guid]::NewGuid().ToString("N"))
@@ -359,6 +371,8 @@ npm --prefix backend-node run backup:data -- --output D:\backup\localminidrama.z
 npm --prefix backend-node run restore:data -- --input D:\backup\localminidrama.zip --yes
 ```
 
+`backup:data`、`restore:data`、`maintenance:recover` 的 `--help` 和失败输出为简体中文。
+
 使用 `LOCALMINIDRAMA_DATA_DIR` 自定义 Docker 数据目录时，必须先从实际后端容器读取 bind source，再停止服务并把该目录显式传给备份和恢复命令，不能省略 `--data-root`：
 
 ```powershell
@@ -384,7 +398,7 @@ npm run maintenance:recover -- --inspect
 npm run maintenance:recover -- --owner-scope "<检查到的作用域>" --pid <检查到的PID> --yes
 ```
 
-该命令不会输出租约令牌；租约仍新鲜、本机 PID 仍活跃、锁已被替换，或作用域/PID 与检查结果不一致时都会失败关闭。恢复完成后再运行 `npm run docker:up`。如果无法证明锁的归属，保留锁和数据目录，先查明仍在运行的进程，不要强制接管。
+该命令不会输出租约令牌；租约仍新鲜、本机 PID 仍活跃、锁已被替换，或作用域/PID 与检查结果不一致时都会失败关闭。恢复完成后再启动：干净工作树用 `npm run docker:up`，未提交改动用 `docker compose up -d --build --wait`。如果无法证明锁的归属，保留锁和数据目录，先查明仍在运行的进程，不要强制接管。
 
 如果锁文件内容的 schema 是 `localminidrama.maintenance-quarantine.v1`，说明释放锁时发现目录、符号链接或其他非普通文件替身。公开路径上的隔离标记用于阻止新进程误启动，`claimDirectory` 与 `claimEntry` 指向同目录下保留的原替身。此时不要运行自动恢复，也不要删除标记或 claim；先停止全部源码、桌面和 Docker 后端，保全两者并查明替换来源，再在独占维护窗口人工处理。系统不会自动把 claim 移回公开路径，因为跨平台 rename 无法同时保证“不覆盖恢复窗口中新出现的对象”。
 

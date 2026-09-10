@@ -8,7 +8,13 @@ import { normalizeFreeCanvas, serializeFreeCanvas } from '../src/utils/freeCanva
 
 const canvasSource = [
   readFileSync(new URL('../src/views/DramaCanvas.vue', import.meta.url), 'utf8'),
+  readFileSync(new URL('../src/views/DramaCanvas.css', import.meta.url), 'utf8'),
+  readFileSync(new URL('../src/composables/useDramaCanvasFreeCanvas.js', import.meta.url), 'utf8'),
   readFileSync(new URL('../src/composables/useDramaCanvasPersist.js', import.meta.url), 'utf8'),
+  readFileSync(new URL('../src/composables/useDramaCanvasProjectLoad.js', import.meta.url), 'utf8'),
+  readFileSync(new URL('../src/composables/useDramaCanvasWorkflow.js', import.meta.url), 'utf8'),
+  readFileSync(new URL('../src/composables/useDramaCanvasGraph.js', import.meta.url), 'utf8'),
+  readFileSync(new URL('../src/composables/useDramaCanvasViewport.js', import.meta.url), 'utf8'),
 ].join('\n')
 
 test('production graph remains intact when the hybrid free layer is merged', () => {

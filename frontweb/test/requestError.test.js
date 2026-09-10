@@ -55,6 +55,33 @@ test('service load errors prefer backend copy and localize timeout/network', () 
   )
 })
 
+test('Failed to fetch 视为网络错误，英文 HTTP 500 和 drama_id 不会直出', () => {
+  assert.equal(isRequestNetworkError({ message: 'Failed to fetch' }), true)
+  assert.equal(isRequestNetworkError({ message: 'fetch failed' }), true)
+  assert.equal(classifyRequestError({ message: 'Failed to fetch' }), REQUEST_ERROR_CATEGORY.NETWORK)
+  assert.equal(
+    describeServiceLoadError({ message: 'Failed to fetch' }, { serviceLabel: '项目服务' }),
+    '无法连接项目服务，请检查服务是否已启动',
+  )
+  assert.equal(
+    describeServiceLoadError(
+      { response: { status: 500, data: { error: { message: 'Internal Server Error' } } } },
+      { serviceLabel: '项目服务' },
+    ),
+    '项目服务暂时不可用（HTTP 500）',
+  )
+  const dramaIdError = describeServiceLoadError(
+    { response: { status: 400, data: { error: { message: '缺少 drama_id' } } } },
+    { serviceLabel: '项目服务' },
+  )
+  assert.equal(dramaIdError, '项目服务暂时不可用（HTTP 400）')
+  assert.doesNotMatch(dramaIdError, /drama_id/)
+  assert.equal(
+    describeServiceLoadError({ name: 'AbortError', message: 'The user aborted a request.' }, { serviceLabel: '项目服务' }),
+    '项目服务请求已取消',
+  )
+})
+
 test('withRequestRetry retries timeout once then succeeds, and never retries cancel', async () => {
   let attempts = 0
   const result = await withRequestRetry(async () => {

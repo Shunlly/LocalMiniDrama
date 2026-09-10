@@ -66,10 +66,12 @@ test.after(() => {
 })
 
 test('制作页仍把媒体失败横幅和关联重绘闸接到中文入口', () => {
-  assert.match(
-    filmCreateSource,
-    /v-if="projectDependencyWarning \|\| storyboardMediaLoadError"[\s\S]*storyboardMediaLoadError[\s\S]*@click="retryProjectDependencies"/,
-  )
+  const warningSource = readFileSync(new URL('../src/components/filmCreate/FilmCreateProjectDependencyWarning.vue', import.meta.url), 'utf8')
+  assert.match(filmCreateSource, /<FilmCreateProjectDependencyWarning/)
+  assert.match(filmCreateSource, /:media-error="storyboardMediaLoadError"/)
+  assert.match(filmCreateSource, /:dependency-warning="projectDependencyWarning"/)
+  assert.match(filmCreateSource, /@retry="retryProjectDependencies"/)
+  assert.match(warningSource, /重试加载素材/)
   assert.match(
     resourcePanelSource,
     /<ActionGate :reason="storyboardMediaActionReason" label="重新生成关联分镜图">/,

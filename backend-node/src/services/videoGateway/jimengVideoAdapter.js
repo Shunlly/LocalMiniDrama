@@ -4,8 +4,9 @@ const fs = require('fs');
 const path = require('path');
 const uploadService = require('../uploadService');
 const { uploadLocalImageToProxy } = uploadService;
-const { summarizeProviderResponse } = require('../providerErrorSanitizer');
+const { summarizeProviderResponse, toUserFacingGatewayError } = require('../providerErrorSanitizer');
 const { resolveVideoTimeoutMs } = require('./providerRuntime');
+const { normalizeProviderRequestError } = require('./requestError');
 const {
   fetchVideoWithTimeout,
   videoProviderFailure,
@@ -64,26 +65,28 @@ async function resolveJimengApiImageBuffer(rawUrl, files_base_url, storage_local
   }
   const isPublicHttp = /^https?:\/\//i.test(raw) && !/localhost|127\.0\.0\.1/i.test(raw);
   if (isPublicHttp) {
-    const downloaded = await uploadService.downloadBufferViaNodeHttp(raw, resolveVideoTimeoutMs('media'), 0, {
-      maxBytes: VIDEO_REFERENCE_MAX_BYTES,
-      accept: 'image/*,application/octet-stream',
-    });
-    const res = { ok: true, status: 200, arrayBuffer: async () => downloaded.buffer };
-    if (!res.ok) throw new Error('拉取参考图失败 HTTP ' + res.status);
-    const ab = await res.arrayBuffer();
-    return { buffer: Buffer.from(ab), filename: 'ref_' + index + '.jpg' };
+    try {
+      const downloaded = await uploadService.downloadBufferViaNodeHttp(raw, resolveVideoTimeoutMs('media'), 0, {
+        maxBytes: VIDEO_REFERENCE_MAX_BYTES,
+        accept: 'image/*,application/octet-stream',
+      });
+      return { buffer: downloaded.buffer, filename: 'ref_' + index + '.jpg' };
+    } catch (error) {
+      throw normalizeProviderRequestError(error, { provider: '即梦', operation: 'video request' });
+    }
   }
   if (storage_local_path) {
     const proxyUrl = await uploadLocalImageToProxy(storage_local_path, raw, log, 'jimeng_ai_vg' + video_gen_id + '_' + index);
     if (proxyUrl) {
-      const downloaded = await uploadService.downloadBufferViaNodeHttp(proxyUrl, resolveVideoTimeoutMs('media'), 0, {
-        maxBytes: VIDEO_REFERENCE_MAX_BYTES,
-        accept: 'image/*,application/octet-stream',
-      });
-      const res = { ok: true, status: 200, arrayBuffer: async () => downloaded.buffer };
-      if (!res.ok) throw new Error('图床参考图拉取失败 HTTP ' + res.status);
-      const ab = await res.arrayBuffer();
-      return { buffer: Buffer.from(ab), filename: 'ref_' + index + '.jpg' };
+      try {
+        const downloaded = await uploadService.downloadBufferViaNodeHttp(proxyUrl, resolveVideoTimeoutMs('media'), 0, {
+          maxBytes: VIDEO_REFERENCE_MAX_BYTES,
+          accept: 'image/*,application/octet-stream',
+        });
+        return { buffer: downloaded.buffer, filename: 'ref_' + index + '.jpg' };
+      } catch (error) {
+        throw normalizeProviderRequestError(error, { provider: '即梦', operation: 'video request' });
+      }
     }
   }
   return null;
@@ -96,12 +99,12 @@ async function resolveJimengApiImageBuffer(rawUrl, files_base_url, storage_local
 async function callJimengAiApiVideo(config, log, opts) {
   const base = (config.base_url || '').toString().replace(/\/$/, '').trim();
   if (!base) {
-    return { error: 'Jimeng AI API 未配置 Base URL（请填写自建服务地址，如 http://127.0.0.1:8000）' };
+    return { error: '即梦视频未配置接口地址，请填写自建服务地址' };
   }
   let apiKey = (config.api_key || '').trim();
   if (/^bearer\s+/i.test(apiKey)) apiKey = apiKey.replace(/^bearer\s+/i, '').trim();
   if (!apiKey) {
-    return { error: 'Jimeng AI API 未配置 Session（填入 API Key 字段，多个用英文逗号分隔）' };
+    return { error: '即梦视频未配置会话密钥，请填入密钥字段，多个用逗号分隔' };
   }
 
   const model = getModelFromConfig(config, opts.model);
@@ -155,7 +158,7 @@ async function callJimengAiApiVideo(config, log, opts) {
   }
 
   if (seedance && fileParts.length === 0) {
-    return { error: 'Jimeng Seedance 需要至少一张参考图（请设置分镜参考图或 image_url）' };
+    return { error: '即梦 Seedance 需要至少一张参考图，请设置分镜参考图' };
   }
 
   const prompt = (opts.prompt || '').toString();
@@ -206,7 +209,7 @@ async function callJimengAiApiVideo(config, log, opts) {
   } catch (e) {
     const safeError = videoProviderException(e, 'JimengAI', 'video request', opts.signal);
     log.error('[JimengAI] 请求失败', { video_gen_id, error: safeError });
-    return { error: safeError };
+    return { error: toUserFacingGatewayError(safeError, { provider: '即梦', operation: 'video request' }) };
   }
 
   const raw = await res.text();

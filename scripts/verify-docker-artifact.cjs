@@ -1,3 +1,6 @@
+// 生产 Compose 不挂载应用源码。本脚本会执行 docker compose build backend 检查制品边界；
+// 容器测试必须走 npm run verify:docker:containers（带 --build）。
+// 不要把宿主机 23013/25679 上的旧 candidate 当成当前脏树镜像。
 const { spawnSync } = require('node:child_process')
 const fs = require('node:fs')
 const os = require('node:os')

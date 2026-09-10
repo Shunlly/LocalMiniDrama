@@ -1,4 +1,10 @@
 const response = require('../response');
+const { sendMappedServiceFailure } = require('./serviceFailure');
+
+function sendLibraryFailure(res, err, fallback) {
+  sendMappedServiceFailure(res, { ok: false, error: err && err.message }, { fallback });
+}
+
 const characterLibraryService = require('../services/characterLibraryService');
 
 function routes(db, cfg, log) {
@@ -10,7 +16,7 @@ function routes(db, cfg, log) {
         response.successWithPagination(res, items, total, page, pageSize);
       } catch (err) {
         log.error('character-library list', { error: err.message });
-        response.internalError(res, err.message);
+        sendLibraryFailure(res, err, '角色库操作失败，请稍后重试');
       }
     },
     create: (req, res) => {
@@ -19,7 +25,7 @@ function routes(db, cfg, log) {
         response.created(res, item);
       } catch (err) {
         log.error('character-library create', { error: err.message });
-        response.internalError(res, err.message);
+        sendLibraryFailure(res, err, '角色库操作失败，请稍后重试');
       }
     },
     get: (req, res) => {
@@ -29,7 +35,7 @@ function routes(db, cfg, log) {
         response.success(res, item);
       } catch (err) {
         log.error('character-library get', { error: err.message });
-        response.internalError(res, err.message);
+        sendLibraryFailure(res, err, '角色库操作失败，请稍后重试');
       }
     },
     update: (req, res) => {
@@ -39,7 +45,7 @@ function routes(db, cfg, log) {
         response.success(res, item);
       } catch (err) {
         log.error('character-library update', { error: err.message });
-        response.internalError(res, err.message);
+        sendLibraryFailure(res, err, '角色库操作失败，请稍后重试');
       }
     },
     delete: (req, res) => {
@@ -49,7 +55,7 @@ function routes(db, cfg, log) {
         response.success(res, { message: '删除成功' });
       } catch (err) {
         log.error('character-library delete', { error: err.message });
-        response.internalError(res, err.message);
+        sendLibraryFailure(res, err, '角色库操作失败，请稍后重试');
       }
     },
   };

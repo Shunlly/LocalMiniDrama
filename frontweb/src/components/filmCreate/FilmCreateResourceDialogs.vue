@@ -62,23 +62,23 @@
 
     <AccessibleDialog
       v-model="showCharSd2Cert"
-      title="SD2 认证详情"
+      title="认证资产详情"
       width="min(720px, 92vw)"
       destroy-on-close
       class="sd2-cert-dialog"
     >
       <template v-if="charSd2CertPayload">
         <el-descriptions :column="1" border size="small" class="sd2-cert-desc">
-          <el-descriptions-item label="素材 ID">
+          <el-descriptions-item label="素材编号">
             <span class="sd2-cert-value">{{ charSd2CertPayload.hub_asset_id || '—' }}</span>
           </el-descriptions-item>
-          <el-descriptions-item label="asset_url">
+          <el-descriptions-item label="素材地址">
             <code class="sd2-cert-value">{{ charSd2CertPayload.asset_url || '—' }}</code>
           </el-descriptions-item>
           <el-descriptions-item label="状态">
             <span class="sd2-cert-value">{{ charSd2CertPayload.status || '—' }}</span>
           </el-descriptions-item>
-          <el-descriptions-item label="注册图片 URL">
+          <el-descriptions-item label="来源图">
             <span class="sd2-cert-value">{{ charSd2CertPayload.source_image_url || '—' }}</span>
           </el-descriptions-item>
           <el-descriptions-item v-if="charSd2CertPayload.sd2_provider" label="认证提供方">
@@ -253,7 +253,9 @@
                 <div class="library-item-name">{{ item.name || '未命名' }}</div>
                 <div class="library-item-desc">{{ (item.description || '').slice(0, 60) }}{{ (item.description || '').length > 60 ? '…' : '' }}</div>
                 <div class="library-item-actions">
-                  <el-button size="small" type="primary" :loading="isCharAddToEpisodeLoading('library', item.id)" :disabled="!currentEpisodeId" @click="onAddCharFromLibrary(item)">加入本集</el-button>
+                  <ActionGate :reason="addToEpisodeDisabledReason" label="加入本集">
+                    <el-button size="small" type="primary" :loading="isCharAddToEpisodeLoading('library', item.id)" :disabled="Boolean(addToEpisodeDisabledReason)" @click="onAddCharFromLibrary(item)">加入本集</el-button>
+                  </ActionGate>
                   <el-button size="small" @click="openEditCharLibrary(item)">编辑</el-button>
                   <el-button size="small" type="danger" plain @click="onDeleteCharLibrary(item)">删除</el-button>
                 </div>
@@ -294,7 +296,9 @@
                 </div>
                 <div class="library-item-desc">{{ (item.description || item.appearance || '').slice(0, 60) }}{{ (item.description || item.appearance || '').length > 60 ? '…' : '' }}</div>
                 <div class="library-item-actions">
-                  <el-button size="small" type="primary" :loading="isCharAddToEpisodeLoading('drama', item.id)" :disabled="!currentEpisodeId" @click="onAddDramaCharToEpisode(item)">加入本集</el-button>
+                  <ActionGate :reason="addToEpisodeDisabledReason" label="加入本集">
+                    <el-button size="small" type="primary" :loading="isCharAddToEpisodeLoading('drama', item.id)" :disabled="Boolean(addToEpisodeDisabledReason)" @click="onAddDramaCharToEpisode(item)">加入本集</el-button>
+                  </ActionGate>
                 </div>
               </div>
             </div>
@@ -360,13 +364,18 @@
                 <div class="library-item-name">{{ item.name || '未命名' }}</div>
                 <div class="library-item-desc">{{ (item.description || item.prompt || '').slice(0, 60) }}{{ (item.description || item.prompt || '').length > 60 ? '…' : '' }}</div>
                 <div class="library-item-actions">
-                  <el-button size="small" type="primary" :loading="isPropAddToEpisodeLoading('library', item.id)" :disabled="!currentEpisodeId" @click="onAddPropFromLibrary(item)">加入本集</el-button>
+                  <ActionGate :reason="addToEpisodeDisabledReason" label="加入本集">
+                    <el-button size="small" type="primary" :loading="isPropAddToEpisodeLoading('library', item.id)" :disabled="Boolean(addToEpisodeDisabledReason)" @click="onAddPropFromLibrary(item)">加入本集</el-button>
+                  </ActionGate>
                   <el-button size="small" @click="openEditPropLibrary(item)">编辑</el-button>
                   <el-button size="small" type="danger" plain @click="onDeletePropLibrary(item)">删除</el-button>
                 </div>
               </div>
             </div>
-            <div v-if="!propLibraryLoading && propLibraryList.length === 0" class="library-empty">暂无本剧道具库记录，可将本剧道具「加入本剧库」后在此查看</div>
+            <div v-if="!propLibraryLoading && propLibraryList.length === 0" class="library-empty">
+              <p>暂无本剧道具库记录，可将本剧道具「加入本剧库」后在此查看</p>
+              <el-button type="primary" @click="returnToPropPanel">去道具面板</el-button>
+            </div>
           </div>
           <div class="library-pagination">
             <el-pagination v-model:current-page="propLibraryPage" v-model:page-size="propLibraryPageSize" :total="propLibraryTotal" :page-sizes="[10, 20, 50]" layout="total, sizes, prev, pager, next" @current-change="loadPropLibraryList" @size-change="loadPropLibraryList" />
@@ -386,11 +395,16 @@
                 <div class="library-item-name">{{ item.name || '未命名' }}</div>
                 <div class="library-item-desc">{{ (item.description || item.prompt || '').slice(0, 60) }}{{ (item.description || item.prompt || '').length > 60 ? '…' : '' }}</div>
                 <div class="library-item-actions">
-                  <el-button size="small" type="primary" :loading="isPropAddToEpisodeLoading('drama', item.id)" :disabled="!currentEpisodeId" @click="onAddDramaPropToEpisode(item)">加入本集</el-button>
+                  <ActionGate :reason="addToEpisodeDisabledReason" label="加入本集">
+                    <el-button size="small" type="primary" :loading="isPropAddToEpisodeLoading('drama', item.id)" :disabled="Boolean(addToEpisodeDisabledReason)" @click="onAddDramaPropToEpisode(item)">加入本集</el-button>
+                  </ActionGate>
                 </div>
               </div>
             </div>
-            <div v-if="!dramaAllPropLoading && dramaAllPropList.length === 0" class="library-empty">本剧暂无制作道具，请先在道具面板创建</div>
+            <div v-if="!dramaAllPropLoading && dramaAllPropList.length === 0" class="library-empty">
+              <p>本剧暂无制作道具，请先在道具面板创建</p>
+              <el-button type="primary" @click="returnToPropPanel">创建道具</el-button>
+            </div>
           </div>
           <div class="library-pagination">
             <el-pagination v-model:current-page="dramaAllPropPage" v-model:page-size="dramaAllPropPageSize" :total="dramaAllPropTotal" :page-sizes="[10, 20, 50]" layout="total, sizes, prev, pager, next" @current-change="loadDramaAllPropList" @size-change="loadDramaAllPropList" />
@@ -440,13 +454,18 @@
                 <div class="library-item-name">{{ item.location || item.time || '未命名' }}</div>
                 <div class="library-item-desc">{{ (item.description || item.prompt || '').slice(0, 60) }}{{ (item.description || item.prompt || '').length > 60 ? '…' : '' }}</div>
                 <div class="library-item-actions">
-                  <el-button size="small" type="primary" :loading="isSceneAddToEpisodeLoading('library', item.id)" :disabled="!currentEpisodeId" @click="onAddSceneFromLibrary(item)">加入本集</el-button>
+                  <ActionGate :reason="addToEpisodeDisabledReason" label="加入本集">
+                    <el-button size="small" type="primary" :loading="isSceneAddToEpisodeLoading('library', item.id)" :disabled="Boolean(addToEpisodeDisabledReason)" @click="onAddSceneFromLibrary(item)">加入本集</el-button>
+                  </ActionGate>
                   <el-button size="small" @click="openEditSceneLibrary(item)">编辑</el-button>
                   <el-button size="small" type="danger" plain @click="onDeleteSceneLibrary(item)">删除</el-button>
                 </div>
               </div>
             </div>
-            <div v-if="!sceneLibraryLoading && sceneLibraryList.length === 0" class="library-empty">暂无本剧场景库记录，可将本剧场景「加入本剧库」后在此查看</div>
+            <div v-if="!sceneLibraryLoading && sceneLibraryList.length === 0" class="library-empty">
+              <p>暂无本剧场景库记录，可将本剧场景「加入本剧库」后在此查看</p>
+              <el-button type="primary" @click="returnToScenePanel">去场景面板</el-button>
+            </div>
           </div>
           <div class="library-pagination">
             <el-pagination v-model:current-page="sceneLibraryPage" v-model:page-size="sceneLibraryPageSize" :total="sceneLibraryTotal" :page-sizes="[10, 20, 50]" layout="total, sizes, prev, pager, next" @current-change="loadSceneLibraryList" @size-change="loadSceneLibraryList" />
@@ -466,11 +485,16 @@
                 <div class="library-item-name">{{ item.location || '未命名' }}<span v-if="item.time" class="library-item-sub"> · {{ item.time }}</span></div>
                 <div class="library-item-desc">{{ (item.description || item.prompt || '').slice(0, 60) }}{{ (item.description || item.prompt || '').length > 60 ? '…' : '' }}</div>
                 <div class="library-item-actions">
-                  <el-button size="small" type="primary" :loading="isSceneAddToEpisodeLoading('drama', item.id)" :disabled="!currentEpisodeId" @click="onAddDramaSceneToEpisode(item)">加入本集</el-button>
+                  <ActionGate :reason="addToEpisodeDisabledReason" label="加入本集">
+                    <el-button size="small" type="primary" :loading="isSceneAddToEpisodeLoading('drama', item.id)" :disabled="Boolean(addToEpisodeDisabledReason)" @click="onAddDramaSceneToEpisode(item)">加入本集</el-button>
+                  </ActionGate>
                 </div>
               </div>
             </div>
-            <div v-if="!dramaAllSceneLoading && dramaAllSceneList.length === 0" class="library-empty">本剧暂无制作场景，请先在场景面板创建</div>
+            <div v-if="!dramaAllSceneLoading && dramaAllSceneList.length === 0" class="library-empty">
+              <p>本剧暂无制作场景，请先在场景面板创建</p>
+              <el-button type="primary" @click="returnToScenePanel">创建场景</el-button>
+            </div>
           </div>
           <div class="library-pagination">
             <el-pagination v-model:current-page="dramaAllScenePage" v-model:page-size="dramaAllScenePageSize" :total="dramaAllSceneTotal" :page-sizes="[10, 20, 50]" layout="total, sizes, prev, pager, next" @current-change="loadDramaAllSceneList" @size-change="loadDramaAllSceneList" />
@@ -509,7 +533,8 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
+import ActionGate from './ActionGate.vue'
 import FilmCreateCharacterEditDialog from './FilmCreateCharacterEditDialog.vue'
 
 defineOptions({ inheritAttrs: false })
@@ -610,6 +635,8 @@ const props = defineProps({
   openEditSceneLibrary: { type: Function, required: true },
   openImagePreview: { type: Function, required: true },
   returnToCharacterPanel: { type: Function, required: true },
+  returnToPropPanel: { type: Function, default: () => {} },
+  returnToScenePanel: { type: Function, default: () => {} },
   submitAddProp: { type: Function, required: true },
   submitEditCharLibrary: { type: Function, required: true },
   submitEditCharacter: { type: Function, required: true },
@@ -718,6 +745,8 @@ openEditPropLibrary,
 openEditSceneLibrary,
 openImagePreview,
 returnToCharacterPanel,
+returnToPropPanel,
+returnToScenePanel,
 submitAddProp,
 submitEditCharLibrary,
 submitEditCharacter,
@@ -726,6 +755,12 @@ submitEditPropLibrary,
 submitEditScene,
 submitEditSceneLibrary
 } = props
+
+function describeAddToEpisodeDisabledReason(episodeId) {
+  return episodeId ? '' : '请先创建或选择剧集'
+}
+
+const addToEpisodeDisabledReason = computed(() => describeAddToEpisodeDisabledReason(props.currentEpisodeId))
 
 const addSceneRefFileInput = ref(null)
 const addPropRefFileInput = ref(null)

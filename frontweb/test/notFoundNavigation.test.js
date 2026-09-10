@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { resolveNotFoundFromPath, resolveNotFoundNavigation } from '../src/utils/notFoundNavigation.js'
+import { resolveCatchallNotFoundLocation, resolveNotFoundFromPath, resolveNotFoundNavigation } from '../src/utils/notFoundNavigation.js'
 
 const notFoundSource = readFileSync(new URL('../src/views/NotFound.vue', import.meta.url), 'utf8')
 
@@ -23,6 +23,8 @@ test('404 页焦点落在标题并按历史决定主按钮', () => {
   assert.match(notFoundSource, /titleRef\.value\?\.focus/)
   assert.match(notFoundSource, /v-if="canGoBack"[\s\S]*返回上一页/)
   assert.match(notFoundSource, /type="primary"[\s\S]*项目列表/)
+  assert.match(notFoundSource, /aria-label="返回上一页"/)
+  assert.match(notFoundSource, /aria-label="返回项目列表"/)
 })
 
 test('失效地址和未知路径不会被当成可返回的上一页', () => {
@@ -32,6 +34,8 @@ test('失效地址和未知路径不会被当成可返回的上一页', () => {
   assert.deepEqual(resolveNotFoundNavigation({ back: '/film/12' }, '/not-found'), { type: 'back' })
   assert.deepEqual(resolveNotFoundNavigation({ back: '/film/12/canvas?episode=3' }, '/not-found'), { type: 'back' })
   assert.deepEqual(resolveNotFoundNavigation({ back: '/ai-config' }, '/not-found'), { type: 'back' })
+  assert.deepEqual(resolveNotFoundNavigation({ back: '/backup' }, '/not-found'), { type: 'back' })
+  assert.deepEqual(resolveNotFoundNavigation({ back: '/backup?returnTo=/' }, '/not-found'), { type: 'back' })
 })
 
 test('404 页会展示被拦截的原地址', () => {
@@ -41,4 +45,19 @@ test('404 页会展示被拦截的原地址', () => {
   assert.equal(resolveNotFoundFromPath('//evil.test'), '')
   assert.match(notFoundSource, /resolveNotFoundFromPath\(route\.query\.from\)/)
   assert.match(notFoundSource, /无法打开地址 \{\{ fromPath \}\}/)
+})
+
+test('直接打开未知地址会替换进 404，站内跳转则保留上一页', () => {
+  assert.deepEqual(
+    resolveCatchallNotFoundLocation('/missing-internal-page', '/'),
+    { name: 'not-found', replace: false, query: { from: '/missing-internal-page' } },
+  )
+  assert.deepEqual(
+    resolveCatchallNotFoundLocation('/ghost', ''),
+    { name: 'not-found', replace: true, query: { from: '/ghost' } },
+  )
+  assert.deepEqual(
+    resolveCatchallNotFoundLocation('/backup/../evil', '/backup'),
+    { name: 'not-found', replace: false, query: { from: '/backup/../evil' } },
+  )
 })

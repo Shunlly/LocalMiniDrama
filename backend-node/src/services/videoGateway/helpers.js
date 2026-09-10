@@ -8,6 +8,7 @@ const {
 const {
   createSafeProviderLogger,
   sanitizeLogValue,
+  toUserFacingGatewayError,
 } = require('../providerErrorSanitizer');
 const {
   classifyHttpFailure,
@@ -44,7 +45,7 @@ function videoProviderFailure(provider, operation, status, responseBody, code) {
     throw operationCancelledError('视频生成已取消');
   }
   const error = classifyHttpFailure({ provider, operation, status, responseBody, code });
-  const result = { error };
+  const result = { error: toUserFacingGatewayError(error, { provider, operation }) };
   if (error.retryable === true) result.retryable = true;
   return result;
 }

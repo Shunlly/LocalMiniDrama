@@ -1,17 +1,13 @@
 const response = require('../response');
 const timelineService = require('../services/timelineService');
 
-function toUserMessage(err, fallback) {
-  const message = String(err && err.message || '').trim();
-  if (message && /[\u4e00-\u9fff]/.test(message)) return message;
-  return fallback;
-}
+const { publicErrorMessage } = require('./serviceFailure');
 
 function badRequestOrInternal(res, err) {
   if (err && err.code === 'BAD_REQUEST') {
-    return response.badRequest(res, toUserMessage(err, '请求参数无效，请检查项目或分集 ID 后重试'));
+    return response.badRequest(res, publicErrorMessage(err, '请求参数无效，请检查项目或分集 ID 后重试'));
   }
-  return response.internalError(res, toUserMessage(err, '时间线操作失败，请稍后重试'));
+  return response.internalError(res, publicErrorMessage(err, '时间线操作失败，请稍后重试'));
 }
 
 module.exports = function timelineRoutes(db, log) {

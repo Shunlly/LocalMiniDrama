@@ -254,7 +254,7 @@ async function callGeminiImageApi(db, config, log, opts) {
     total_elapsed: elapsed(),
     ...summarizeProviderResponse(data),
   });
-  return { error: 'Gemini 未返回图片内容，请检查模型名称或 API Key 权限' };
+  return { error: 'Gemini 未返回图片内容，请检查模型名称或密钥权限' };
 }
 
 module.exports = {

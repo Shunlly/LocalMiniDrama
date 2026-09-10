@@ -123,7 +123,7 @@ export function useCharacters(deps) {
     if (!store.dramaId) return
     const epId = currentEpisodeId.value
     if (!epId) {
-      ElMessage.warning('请先选择集次')
+      ElMessage.warning('请先选择剧集')
       return
     }
     const meta = buildExtractTaskMeta(store, dramaId.value, epId, GEN_RESOURCE.EXTRACT_CHARACTERS, '提取角色')
@@ -140,8 +140,12 @@ export function useCharacters(deps) {
         const pollRes = await pollTask(taskId, () => loadDrama(), meta)
         if (pollRes?.status === 'completed') {
           ElMessage.success('角色生成完成')
+        } else if (pollRes?.status === 'timeout') {
+          ElMessage.warning(toUserFacingError(pollRes?.error, '角色生成超时，请稍后重试'))
+        } else if (pollRes?.status === 'cancelled' || pollRes?.status === 'canceled') {
+          ElMessage.info(toUserFacingError(pollRes?.error, '操作已取消'))
         } else {
-          ElMessage.warning(pollRes?.error || '角色生成未完成')
+          ElMessage.warning(toUserFacingError(pollRes?.error, '角色生成未完成'))
         }
       } else {
         await loadDrama()
@@ -329,7 +333,8 @@ export function useCharacters(deps) {
       form.ref_image = ''
       ElMessage.success('参考图已移除')
     } catch (e) {
-      ElMessage.error('移除失败')
+      if (isUserFacingAbort(e)) return
+      ElMessage.error(toUserFacingError(e, '移除失败'))
     }
   }
 
@@ -368,11 +373,16 @@ export function useCharacters(deps) {
       if (taskId) {
         const pollRes = await pollTask(taskId, () => loadDrama(), meta)
         if (pollRes?.status === 'failed') {
-          char.errorMsg = pollRes.error || '生成失败'
+          char.errorMsg = toUserFacingError(pollRes.error, '生成失败')
         } else if (pollRes?.status === 'completed') {
           ElMessage.success('角色图片已生成')
+        } else if (pollRes?.status === 'timeout') {
+          char.errorMsg = toUserFacingError(pollRes?.error, '生成超时，请稍后重试')
+          ElMessage.warning(char.errorMsg)
+        } else if (pollRes?.status === 'cancelled' || pollRes?.status === 'canceled') {
+          char.errorMsg = toUserFacingError(pollRes?.error, '操作已取消')
         } else {
-          char.errorMsg = pollRes?.error || '角色图片生成未完成'
+          char.errorMsg = toUserFacingError(pollRes?.error, '角色图片生成未完成')
           ElMessage.warning(char.errorMsg)
         }
       } else {
@@ -385,8 +395,9 @@ export function useCharacters(deps) {
         ElMessage.success('角色图片已生成')
       }
     } catch (e) {
+      char.errorMsg = toUserFacingError(e, '生成失败')
+      if (isUserFacingAbort(e)) return
       console.error(e)
-      char.errorMsg = e.message || '生成失败'
       ElMessage.error(toUserFacingError(e, '提交失败'))
     } finally {
       generatingCharIds.delete(char.id)
@@ -663,27 +674,28 @@ export function useCharacters(deps) {
   async function onSd2CertifyCharacter(char) {
     if (!char?.id) return
     if (!hasAssetImage(char)) {
-      ElMessage.warning('请先为该角色生成或上传图片')
+      ElMessage.warning('请先为该角色生成或上传主图')
       return
     }
     sd2CertifyingId.value = char.id
     try {
       await characterAPI.sd2Certify(char.id)
       await loadDrama()
-      ElMessage.success('SD2 认证请求已提交')
+      ElMessage.success('认证资产请求已提交')
     } catch (e) {
+      if (isUserFacingAbort(e)) return
       const msg = e?.message || ''
       if (/已存在|已认证|already/i.test(msg)) {
         try {
           await characterAPI.sd2CertifyRefresh(char.id)
           await loadDrama()
-          ElMessage.success('SD2 认证状态已刷新')
+          ElMessage.success('认证资产状态已刷新')
           return
         } catch (_) {
           // fall through
         }
       }
-      ElMessage.error(msg || 'SD2 认证失败')
+      ElMessage.error(toUserFacingError(e, '认证资产失败'))
     } finally {
       sd2CertifyingId.value = null
     }
@@ -695,7 +707,7 @@ export function useCharacters(deps) {
     try {
       await characterAPI.sd2CertifyRefresh(char.id)
       await loadDrama()
-      ElMessage.success('SD2 认证状态已刷新')
+      ElMessage.success('认证资产状态已刷新')
     } catch (e) {
       if (isUserFacingAbort(e)) return
       ElMessage.error(toUserFacingError(e, '刷新失败'))
@@ -709,7 +721,7 @@ export function useCharacters(deps) {
     if (status === 'active') return '查看认证'
     if (status === 'processing') return '刷新认证'
     if (status === 'failed') return '重新认证'
-    return 'sd2认证'
+    return '认证资产'
   }
 
   async function onSd2PrimaryAction(char) {
@@ -763,7 +775,7 @@ export function useCharacters(deps) {
     try {
       const res = await characterAPI.sd2VoiceRefresh(char.id)
       await loadDrama()
-      ElMessage.success(res?.data?.message || '音色状态已刷新')
+      ElMessage.success(toUserFacingError(res?.data?.message, '音色状态已刷新'))
     } catch (e) {
       if (isUserFacingAbort(e)) return
       ElMessage.error(toUserFacingError(e, '刷新失败'))

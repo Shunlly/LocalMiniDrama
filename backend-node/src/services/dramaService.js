@@ -1649,12 +1649,13 @@ function finalizeEpisode(db, log, episodeId, baseUrl, body = {}) {
   } catch (error) {
     const now = new Date().toISOString();
     const failUnscheduledMerge = db.transaction(() => {
+      const userError = require('./providerErrorSanitizer').toUserFacingProcessError(error, '视频合成任务创建失败，请稍后重试');
       db.prepare(
         `UPDATE video_merges
             SET status = 'failed', completed_at = ?, error_msg = ?
           WHERE id = ?`
-      ).run(now, String(error?.message || error).slice(0, 4000), mergeId);
-      require('./taskService').updateTaskError(db, created.task_id, error?.message || String(error));
+      ).run(now, userError.slice(0, 4000), mergeId);
+      require('./taskService').updateTaskError(db, created.task_id, userError);
       db.prepare(
         `UPDATE episodes
             SET status = ?, video_url = ?, updated_at = ?

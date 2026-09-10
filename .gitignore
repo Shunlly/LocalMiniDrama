@@ -63,3 +63,15 @@ desktop/dist/
 
 # Local provider import dumps filled with user keys must never be committed.
 /各大平台中转站配置/*.local.json
+
+# Local agent scratch files must never be committed.
+.tmp-*
+**/.tmp-*
+_patch_*.py
+_patch_*.js
+_extract_*.py
+_fix_*.py
+frontweb/_patch_*.py
+
+tmp_extract_msgs.js
+

@@ -113,7 +113,7 @@ async function callVeo3VideoApi(config, log, opts) {
     video_gen_id,
     ...summarizeProviderResponse(data),
   });
-  return { error: 'Veo3 未返回 task_id 或 video_url' };
+  return { error: 'Veo3 未返回任务编号或视频地址' };
 }
 
 module.exports = {

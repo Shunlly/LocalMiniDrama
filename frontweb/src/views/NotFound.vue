@@ -1,7 +1,10 @@
 <template>
   <main class="not-found-page">
     <section class="not-found-content" aria-labelledby="not-found-title">
-      <p class="product-name">LocalMiniDrama</p>
+      <p class="product-name">
+        <span class="logo-main">本地短剧助手</span>
+        <span class="logo-sub">LocalMiniDrama</span>
+      </p>
       <p class="status-code" aria-hidden="true">404</p>
       <h1 id="not-found-title" ref="titleRef" tabindex="-1">页面不存在</h1>
       <p class="description">
@@ -9,8 +12,8 @@
         <template v-else>地址可能已失效，或项目编号不正确。</template>
       </p>
       <div class="actions">
-        <el-button v-if="canGoBack" :icon="ArrowLeft" @click="goBack">返回上一页</el-button>
-        <el-button type="primary" :icon="HomeFilled" @click="goHome">项目列表</el-button>
+        <el-button v-if="canGoBack" :icon="ArrowLeft" aria-label="返回上一页" @click="goBack">返回上一页</el-button>
+        <el-button type="primary" :icon="HomeFilled" aria-label="返回项目列表" @click="goHome">项目列表</el-button>
       </div>
     </section>
   </main>
@@ -28,7 +31,7 @@ const titleRef = ref(null)
 
 const navigation = computed(() => resolveNotFoundNavigation(router.options.history.state, route.fullPath))
 const canGoBack = computed(() => navigation.value.type === 'back')
-const fromPath = computed(() => resolveNotFoundFromPath(route.query.from))
+const fromPath = computed(() => resolveNotFoundFromPath(route.query.from) || (route.name === 'not-found-catchall' ? resolveNotFoundFromPath(route.fullPath) : ''))
 
 function goBack() {
   if (canGoBack.value) router.back()
@@ -61,9 +64,21 @@ onMounted(() => {
 
 .product-name {
   margin: 0 0 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  line-height: 1.2;
+}
+.logo-main {
   color: var(--accent-text);
   font-size: 15px;
   font-weight: 700;
+}
+.logo-sub {
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 400;
 }
 
 .status-code {

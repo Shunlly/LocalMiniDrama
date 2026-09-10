@@ -48,15 +48,23 @@
       <el-button size="small" :loading="extracting" @click.stop="onExtractScenes">提取场景</el-button>
       <el-button size="small" :loading="extracting" @click.stop="onExtractProps">提取道具</el-button>
       <el-button size="small" type="warning" :loading="extracting" @click.stop="onExtractAll">一键提取</el-button>
+      <el-button
+        v-if="extracting"
+        size="small"
+        type="warning"
+        plain
+        aria-label="取消提取"
+        @click.stop="abortExtract"
+      >取消</el-button>
     </div>
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useCanvasContext } from '@/composables/useCanvasContext'
-import { canvasUserError } from '@/composables/useCanvasUserError'
+import { canvasUserError, isCanvasUserAbort } from '@/composables/useCanvasUserError'
 
 const props = defineProps({
   episode: { type: Object, required: true },
@@ -71,6 +79,7 @@ const form = reactive({
   title: '',
   scriptContent: '',
 })
+let extractRun = null
 
 const charCount = computed(() => (ctx?.drama?.value?.characters || []).length)
 const sceneCount = computed(() => (ctx?.drama?.value?.scenes || []).length)
@@ -93,9 +102,18 @@ onMounted(() => {
 
 watch(() => props.episode, (ep) => syncForm(ep), { immediate: true, deep: true })
 
+function abortExtract() {
+  extractRun?.abort()
+}
+
 function closePanel() {
+  abortExtract()
   ctx?.clearFocusedNode?.()
 }
+
+onBeforeUnmount(() => {
+  abortExtract()
+})
 
 function getScriptApi() {
   return ctx?.scriptActions
@@ -120,28 +138,35 @@ async function onSave() {
 }
 
 async function runExtract(fn) {
+  extractRun?.abort()
+  const controller = new AbortController()
+  extractRun = controller
   extracting.value = true
   try {
-    await fn()
+    await fn(controller.signal)
   } catch (e) {
+    if (isCanvasUserAbort(e) || controller.signal.aborted) return
     ElMessage.error(canvasUserError(e, '提取失败'))
   } finally {
-    extracting.value = false
+    if (extractRun === controller) {
+      extractRun = null
+      extracting.value = false
+    }
   }
 }
 
 async function onExtractChars() {
-  await runExtract(() =>
-    getScriptApi()?.extractCharacters?.(props.episode.id, form.scriptContent)
+  await runExtract((signal) =>
+    getScriptApi()?.extractCharacters?.(props.episode.id, form.scriptContent, { signal })
   )
 }
 
 async function onExtractScenes() {
-  await runExtract(() => getScriptApi()?.extractScenes?.(props.episode.id))
+  await runExtract((signal) => getScriptApi()?.extractScenes?.(props.episode.id, { signal }))
 }
 
 async function onExtractProps() {
-  await runExtract(() => getScriptApi()?.extractProps?.(props.episode.id))
+  await runExtract((signal) => getScriptApi()?.extractProps?.(props.episode.id, { signal }))
 }
 
 async function onExtractAll() {
@@ -149,8 +174,8 @@ async function onExtractAll() {
     ElMessage.warning('请先填写剧本')
     return
   }
-  await runExtract(() =>
-    getScriptApi()?.extractAll?.(props.episode.id, form.scriptContent)
+  await runExtract((signal) =>
+    getScriptApi()?.extractAll?.(props.episode.id, form.scriptContent, { signal })
   )
 }
 </script>

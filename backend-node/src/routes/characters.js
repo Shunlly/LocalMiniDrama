@@ -1,5 +1,7 @@
 const path = require('path');
 const response = require('../response');
+const { sendMappedServiceFailure } = require('./serviceFailure');
+const { toUserFacingProcessError } = require('../services/providerErrorSanitizer');
 const characterLibraryService = require('../services/characterLibraryService');
 const storageLayout = require('../services/storageLayout');
 const seedance2AssetGuards = require('../utils/seedance2AssetGuards');
@@ -82,48 +84,39 @@ function removePreviousVoiceFile(uploadService, storageRoot, previousAsset, char
   }
 }
 
+
+function sendCaughtInternalError(res, error, fallback = '操作失败，请稍后重试') {
+  response.internalError(res, toUserFacingProcessError(error, fallback));
+}
+
 function sendVoiceUploadFailure(res, error, uploadService) {
   if (uploadService.isUploadStorageError(error)) {
     response.error(res, 507, 'INSUFFICIENT_STORAGE', '存储空间不足，请清理磁盘后重试');
     return true;
   }
   if (error?.code === 'MEDIA_VALIDATION_UNAVAILABLE') {
-    response.error(res, 503, error.code, error.message);
+    response.error(res, 503, error.code, toUserFacingProcessError(error, '媒体校验服务暂不可用'));
     return true;
   }
   if (uploadService.isUploadValidationError(error)) {
-    response.error(res, 400, error.code, error.message);
+    response.error(res, 400, error.code, toUserFacingProcessError(error, '音频文件校验失败'));
     return true;
   }
   return false;
 }
 
 function sendCharacterServiceFailure(res, out) {
-  if (!out || out.ok !== false) return false;
-  if (out.error === 'character not found') {
-    response.notFound(res, '角色不存在');
-    return true;
-  }
-  if (out.error === 'unauthorized') {
-    response.notFound(res, '剧集不存在或无权限');
-    return true;
-  }
-  if (out.error === 'library item not found') {
-    response.notFound(res, '角色库项不存在');
-    return true;
-  }
-  response.badRequest(res, out.error);
-  return true;
+  return sendMappedServiceFailure(res, out);
 }
 
 function sendDramaBoundaryFailure(res, error) {
   if (!isBoundaryError(error)) return false;
   if (error.code === 'BAD_REQUEST' || error.code === 'CROSS_PROJECT_REFERENCE') {
-    response.badRequest(res, error.message);
+    response.badRequest(res, toUserFacingProcessError(error, '请求无效'));
     return true;
   }
   if (error.code === 'DRAMA_RECYCLE_IN_PROGRESS') {
-    response.error(res, 409, error.code, error.message);
+    response.error(res, 409, error.code, toUserFacingProcessError(error, '项目正在回收，请稍后重试'));
     return true;
   }
   response.notFound(res, '角色不存在或所属项目不可用');
@@ -161,7 +154,7 @@ function routes(db, cfg, log, uploadService) {
       } catch (err) {
         if (sendDramaBoundaryFailure(res, err)) return;
         log.error('characters getOne', { error: err.message });
-        response.internalError(res, err.message);
+        sendCaughtInternalError(res, err);
       }
     },
     update: (req, res) => {
@@ -176,7 +169,7 @@ function routes(db, cfg, log, uploadService) {
       } catch (err) {
         if (sendDramaBoundaryFailure(res, err)) return;
         log.error('characters update', { error: err.message });
-        response.internalError(res, err.message);
+        sendCaughtInternalError(res, err);
       }
     },
     delete: (req, res) => {
@@ -191,7 +184,7 @@ function routes(db, cfg, log, uploadService) {
       } catch (err) {
         if (sendDramaBoundaryFailure(res, err)) return;
         log.error('characters delete', { error: err.message });
-        response.internalError(res, err.message);
+        sendCaughtInternalError(res, err);
       }
     },
     batchGenerateImages: (req, res) => {
@@ -224,7 +217,7 @@ function routes(db, cfg, log, uploadService) {
       } catch (err) {
         if (sendDramaBoundaryFailure(res, err)) return;
         log.error('characters batch-generate-images', { error: err.message });
-        response.internalError(res, err.message);
+        sendCaughtInternalError(res, err);
       }
     },
     generateImage: async (req, res) => {
@@ -249,7 +242,7 @@ function routes(db, cfg, log, uploadService) {
       } catch (err) {
         if (sendDramaBoundaryFailure(res, err)) return;
         log.error('characters generate-image', { error: err.message });
-        response.internalError(res, err.message);
+        sendCaughtInternalError(res, err);
       }
     },
     uploadImage: (req, res) => {
@@ -292,7 +285,7 @@ function routes(db, cfg, log, uploadService) {
         if (persisted && !databaseUpdated) uploadService.removeFile(persisted.absolute_path, log);
         if (sendDramaBoundaryFailure(res, err)) return;
         log.error('characters upload-image', { error: err.message });
-        response.internalError(res, err.message);
+        sendCaughtInternalError(res, err);
       }
     },
     putImage: (req, res) => {
@@ -336,7 +329,7 @@ function routes(db, cfg, log, uploadService) {
       } catch (err) {
         if (sendDramaBoundaryFailure(res, err)) return;
         log.error('characters put image', { error: err.message });
-        response.internalError(res, err.message);
+        sendCaughtInternalError(res, err);
       }
     },
     imageFromLibrary: (req, res) => {
@@ -353,7 +346,7 @@ function routes(db, cfg, log, uploadService) {
       } catch (err) {
         if (sendDramaBoundaryFailure(res, err)) return;
         log.error('characters image-from-library', { error: err.message });
-        response.internalError(res, err.message);
+        sendCaughtInternalError(res, err);
       }
     },
     addToLibrary: (req, res) => {
@@ -369,7 +362,7 @@ function routes(db, cfg, log, uploadService) {
       } catch (err) {
         if (sendDramaBoundaryFailure(res, err)) return;
         log.error('characters add-to-library', { error: err.message });
-        response.internalError(res, err.message);
+        sendCaughtInternalError(res, err);
       }
     },
     addToMaterialLibrary: (req, res) => {
@@ -384,7 +377,7 @@ function routes(db, cfg, log, uploadService) {
       } catch (err) {
         if (sendDramaBoundaryFailure(res, err)) return;
         log.error('characters add-to-material-library', { error: err.message });
-        response.internalError(res, err.message);
+        sendCaughtInternalError(res, err);
       }
     },
     extractAnchors: (req, res) => {
@@ -412,7 +405,7 @@ function routes(db, cfg, log, uploadService) {
       } catch (err) {
         if (sendDramaBoundaryFailure(res, err)) return;
         log.error('characters extract-anchors', { error: err.message });
-        response.internalError(res, err.message);
+        sendCaughtInternalError(res, err);
       }
     },
     generateFourViewImage: async (req, res) => {
@@ -429,7 +422,7 @@ function routes(db, cfg, log, uploadService) {
       } catch (err) {
         if (sendDramaBoundaryFailure(res, err)) return;
         log.error('characters generate-four-view-image', { error: err.message });
-        response.internalError(res, err.message);
+        sendCaughtInternalError(res, err);
       }
     },
     generatePrompt: async (req, res) => {
@@ -446,7 +439,7 @@ function routes(db, cfg, log, uploadService) {
       } catch (err) {
         if (sendDramaBoundaryFailure(res, err)) return;
         log.error('characters generate-prompt', { error: err.message });
-        response.internalError(res, err.message);
+        sendCaughtInternalError(res, err);
       }
     },
     extractFromImage: async (req, res) => {
@@ -460,7 +453,7 @@ function routes(db, cfg, log, uploadService) {
       } catch (err) {
         if (sendDramaBoundaryFailure(res, err)) return;
         log.error('characters extract-from-image', { error: err.message });
-        response.internalError(res, err.message);
+        sendCaughtInternalError(res, err);
       }
     },
     /** 即梦素材库 asset 注册（Seedance 2.0 等视频引用 asset://） */
@@ -475,7 +468,7 @@ function routes(db, cfg, log, uploadService) {
       } catch (err) {
         if (sendDramaBoundaryFailure(res, err)) return;
         log.error('characters sd2-certify', { error: err.message });
-        response.internalError(res, err.message);
+        sendCaughtInternalError(res, err);
       }
     },
     sd2CertifyRefresh: async (req, res) => {
@@ -489,7 +482,7 @@ function routes(db, cfg, log, uploadService) {
       } catch (err) {
         if (sendDramaBoundaryFailure(res, err)) return;
         log.error('characters sd2-certify-refresh', { error: err.message });
-        response.internalError(res, err.message);
+        sendCaughtInternalError(res, err);
       }
     },
     /** Seedance 2.0 角色音色参考音频上传 */
@@ -566,7 +559,7 @@ function routes(db, cfg, log, uploadService) {
         if (err?.code === 'CHARACTER_NOT_FOUND') return response.notFound(res, '角色不存在');
         if (sendVoiceUploadFailure(res, err, uploadService)) return;
         log.error('characters sd2-voice-upload', { error: err.message });
-        response.internalError(res, err.message);
+        sendCaughtInternalError(res, err);
       } finally {
         if (req.file?.path) uploadService.removeFile(req.file.path, log);
       }
@@ -591,7 +584,7 @@ function routes(db, cfg, log, uploadService) {
       } catch (err) {
         if (sendDramaBoundaryFailure(res, err)) return;
         log.error('characters sd2-voice-refresh', { error: err.message });
-        response.internalError(res, err.message);
+        sendCaughtInternalError(res, err);
       }
     },
   };

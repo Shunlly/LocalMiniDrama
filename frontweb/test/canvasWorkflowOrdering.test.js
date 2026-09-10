@@ -146,11 +146,15 @@ test('workflow sidebar template compiles with drag handle and keyboard ordering 
   assert.match(sidebarSource, /<ArrowUp\s*\/>/)
   assert.match(sidebarSource, /<ArrowDown\s*\/>/)
   assert.match(sidebarSource, /:aria-label="dragHandleLabel/)
+  assert.match(sidebarSource, /workflowMoveDisabledReason/)
+  assert.match(sidebarSource, /已经是第一条分镜/)
+  assert.match(sidebarSource, /当前不能调整工作流分镜顺序/)
 })
 
 test('drama canvas enables Vue Flow visibility rendering outside the focused inspector and persists sidebar ordering', () => {
   assert.equal(Boolean(VueFlow.props?.onlyRenderVisibleElements), true)
-  assert.match(canvasSource, /:only-render-visible-elements="!focusedNodeId && !selectedFreeNodeId"/)
+  assert.match(canvasSource, /:only-render-visible-elements="true"/)
+  assert.doesNotMatch(canvasSource, /only-render-visible-elements="!focusedNodeId/)
   assert.match(canvasSource, /@reorder-storyboards="reorderWorkflowStoryboards"/)
   assert.match(canvasSource, /persist: \(\) => persistCanvasState\(\{ groupsOnly: true, reportError: false \}\)/)
   assert.match(canvasSource, /分镜排序保存失败，已恢复原顺序/)

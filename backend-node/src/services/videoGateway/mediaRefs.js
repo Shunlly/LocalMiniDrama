@@ -379,8 +379,9 @@ function createProviderNetworkOptions(config, options = {}) {
     policy = aiConfigService.getProviderNetworkOptions(config, networkOptions);
   } catch (error) {
     // 兼容已保存的历史私有配置；来源仍只信任这一条已启用的精确 origin。
+    const privateLocalMode = /私有或本地服务地址需要使用已识别的本地|Private or local provider URLs require an explicitly recognized local provider mode/;
     if (error?.code !== 'INVALID_PROVIDER_URL'
-      || error.message !== 'Private or local provider URLs require an explicitly recognized local provider mode'
+      || !privateLocalMode.test(String(error.message || ''))
       || !isEnabledSavedProvider(config)) {
       throw error;
     }

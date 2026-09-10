@@ -13,9 +13,14 @@ const assetSidebarSource = read('../src/components/dramaCanvas/FreeCanvasAssetSi
 const desktopToolbarSource = read('../src/components/dramaCanvas/CanvasDesktopToolbar.vue')
 const contextMenuSource = read('../src/components/dramaCanvas/CanvasContextMenu.vue')
 const dramaCanvasViewSource = read('../src/views/DramaCanvas.vue')
+const dramaCanvasStyleSource = read('../src/views/DramaCanvas.css')
 const freeCanvasLogicSource = read('../src/composables/useDramaCanvasFreeCanvas.js')
 const persistLogicSource = read('../src/composables/useDramaCanvasPersist.js')
-const dramaCanvasSource = `${dramaCanvasViewSource}\n${freeCanvasLogicSource}\n${persistLogicSource}`
+const projectLoadLogicSource = read('../src/composables/useDramaCanvasProjectLoad.js')
+const workflowLogicSource = read('../src/composables/useDramaCanvasWorkflow.js')
+const graphLogicSource = read('../src/composables/useDramaCanvasGraph.js')
+const viewportLogicSource = read('../src/composables/useDramaCanvasViewport.js')
+const dramaCanvasSource = `${dramaCanvasViewSource}\n${dramaCanvasStyleSource}\n${freeCanvasLogicSource}\n${persistLogicSource}\n${projectLoadLogicSource}\n${workflowLogicSource}\n${graphLogicSource}\n${viewportLogicSource}`
 
 test('free canvas toolbar names every icon-only action and exposes mode selection', () => {
   for (const label of ['撤销', '重做', '适配视图', '切换背景']) {
@@ -183,6 +188,10 @@ test('multi-selection has stable copy and delete actions wired to shared command
   assert.match(toolbarSource, /已选 \{\{ selectionCount \}\} 项/)
   assert.match(toolbarSource, /aria-label="复制所选节点"[\s\S]*?emit\('copy-selection'\)/)
   assert.match(toolbarSource, /aria-label="删除所选节点"[\s\S]*?emit\('delete-selection'\)/)
+  assert.match(toolbarSource, /getFreeCanvasAlignDisabledReason/)
+  assert.match(toolbarSource, /画布是空的，下一步可直接开始/)
+  assert.match(toolbarSource, /densityHint/)
+  assert.match(toolbarSource, /aria-label="新建文本"/)
   assert.match(dramaCanvasSource, /@copy-selection="copyFreeCanvasSelection"/)
   assert.match(dramaCanvasSource, /@delete-selection="deleteFreeCanvasSelection"/)
 })
@@ -261,9 +270,11 @@ test('project-list return actions keep list-mode and project-list destinations d
 })
 
 test('delete shortcut ignores inspector and other editable chrome', () => {
+  assert.match(dramaCanvasSource, /function isFreeCanvasDeleteShortcutBlocked/)
+  assert.match(dramaCanvasSource, /free-canvas-inspector-dock/)
   assert.match(
     dramaCanvasSource,
-    /event\.key === 'Delete' \|\| event\.key === 'Backspace'[\s\S]*free-canvas-inspector-dock[\s\S]*deleteFreeCanvasSelection\(\)/,
+    /event\.key === 'Delete' \|\| event\.key === 'Backspace'[\s\S]*isFreeCanvasDeleteShortcutBlocked\(event\)[\s\S]*deleteFreeCanvasSelection\(\)/,
   )
 })
 
@@ -281,4 +292,9 @@ test('first and last frame generation remains reachable from media and storyboar
   assert.match(storyboardPanelSource, /runStep\('last-frame'\)/)
   assert.match(storyboardPanelSource, /runFrameImageStep/)
   assert.match(storyboardPanelSource, /dramaUsesFirstLastFrame/)
+  assert.match(storyboardPanelSource, /class="frame-preview-row"/)
+  assert.match(storyboardPanelSource, /resolveSbFirstImageRecord/)
+  assert.match(storyboardPanelSource, /resolveSbLastImageRecord/)
+  assert.match(storyboardPanelSource, /暂无首帧/)
+  assert.match(storyboardPanelSource, /暂无尾帧/)
 })

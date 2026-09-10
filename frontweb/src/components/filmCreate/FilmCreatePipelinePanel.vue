@@ -23,6 +23,8 @@
           class="pipeline-compact-action"
           data-testid="film-pipeline-action"
           :disabled="starting || stopping"
+          :title="compactDisabledReason"
+          :aria-label="compactActionAriaLabel"
           @click="runCompactAction"
         >
           <span>{{ compactAction.label }}</span>
@@ -192,9 +194,9 @@
     </div>
 
     <div v-if="running || errorLog.length > 0" class="pipeline-status" aria-live="polite">
-      <div v-if="currentStep" class="pipeline-current-step">
+      <div v-if="progressStatusText || currentStep" class="pipeline-current-step">
         <span v-if="stepIndex > 0" class="pipeline-step-badge">{{ stepIndex }}/{{ stepTotal }}</span>
-        {{ cleanCurrentStep }}
+        {{ progressStatusText || cleanCurrentStep }}
       </div>
       <div v-if="countdown > 0" class="pipeline-countdown">
         <div class="pipeline-countdown-ring" aria-hidden="true">
@@ -229,9 +231,15 @@
         </ActionGate>
       </div>
     </div>
-    <p v-else-if="hasEpisode === false" class="pipeline-empty" role="status">
-      还没有剧集。添加一集后即可保存剧本或启动全流程生成。
-    </p>
+    <div v-else-if="hasEpisode === false" class="pipeline-empty" role="status" data-testid="film-pipeline-empty">
+      <p>{{ emptyGuidanceText }}</p>
+      <el-button
+        type="primary"
+        data-testid="film-pipeline-empty-action"
+        :aria-label="emptyActionAriaLabel"
+        @click="$emit('add-episode')"
+      >{{ emptyActionLabel }}</el-button>
+    </div>
     </div>
   </section>
 </template>
@@ -243,6 +251,65 @@ import StylePickerButton from '@/components/StylePickerButton.vue'
 import ActionGate from '@/components/filmCreate/ActionGate.vue'
 import { useDisclosureState } from '@/composables/useDisclosureState'
 import { getPipelineCompactAction, getPipelineControlReasons, isPipelineLocallyStopped } from '@/utils/filmPipelineAction'
+
+/** 把暂停/继续/停止禁用原因收成中文，并描述进行中状态与空状态下一步。 */
+function toPipelineDisabledReason(value, fallback = '当前不可用') {
+  const text = String(value || '').trim()
+  if (!text) return ''
+  const technicalEnglish = /network error|http\s*error|failed to fetch|fetch failed|internal server error|econnrefused|err_network|status code|axioserror/i
+  if (technicalEnglish.test(text) || !/[\u4e00-\u9fff]/.test(text)) {
+    return String(fallback || '当前不可用')
+  }
+  return text
+}
+
+function describePipelinePanelUx(input = {}) {
+  const running = Boolean(input.running)
+  const paused = Boolean(input.paused)
+  const stopping = Boolean(input.stopping)
+  const stopRequired = Boolean(input.stopRequired)
+  const starting = Boolean(input.starting)
+  const controlReasons = input.controlReasons || getPipelineControlReasons({
+    running,
+    paused,
+    stopping,
+    stopRequired,
+    productionReason: input.productionReason,
+  })
+  const pauseDisabledReason = running && !stopRequired && !paused
+    ? toPipelineDisabledReason(controlReasons.pause, '当前不能暂停全流程')
+    : ''
+  const resumeDisabledReason = running && !stopRequired && paused
+    ? toPipelineDisabledReason(controlReasons.resume, '当前不能继续全流程')
+    : ''
+  const cancelDisabledReason = running
+    ? toPipelineDisabledReason(controlReasons.cancel, '当前不能停止全流程')
+    : ''
+  const compactDisabledReason = stopping
+    ? toPipelineDisabledReason(controlReasons.cancel || '正在停止全流程，请稍候。', '正在停止全流程，请稍候。')
+    : (starting ? '正在确认完整成片的运行条件' : '')
+  const cleanCurrentStep = String(input.currentStep || '').replace(/^\[步骤 \d+\/\d+\] /, '')
+  let progressKicker = ''
+  if (stopRequired) progressKicker = '停止受阻'
+  else if (running) progressKicker = paused ? '已暂停' : '进行中'
+  else if (starting) progressKicker = '进行中'
+  let progressStatusText = ''
+  if (running) {
+    progressStatusText = cleanCurrentStep || (paused ? '全流程生成已暂停' : '正在执行全流程生成')
+  }
+  const isEmpty = input.hasEpisode === false
+  return {
+    pauseDisabledReason,
+    resumeDisabledReason,
+    cancelDisabledReason,
+    compactDisabledReason,
+    progressKicker,
+    progressStatusText,
+    emptyNextStep: isEmpty ? '添加一集后再保存剧本或启动生成' : '',
+    emptyGuidanceText: isEmpty ? '还没有剧集。下一步：添加一集后再保存剧本或启动生成。' : '',
+    emptyActionLabel: isEmpty ? '添加一集' : '',
+  }
+}
 
 const props = defineProps({
   aspectRatio: { type: String, default: '16:9' },
@@ -312,9 +379,25 @@ const controlReasons = computed(() => getPipelineControlReasons({
   stopRequired: props.stopRequired,
   productionReason: productionReason.value,
 }))
-const pauseDisabledReason = computed(() => (props.running && !props.stopRequired && !props.paused ? controlReasons.value.pause : ''))
-const resumeDisabledReason = computed(() => (props.running && !props.stopRequired && props.paused ? controlReasons.value.resume : ''))
-const cancelDisabledReason = computed(() => (props.running ? controlReasons.value.cancel : ''))
+const panelUx = computed(() => describePipelinePanelUx({
+  running: props.running,
+  paused: props.paused,
+  stopping: props.stopping,
+  stopRequired: props.stopRequired,
+  starting: props.starting,
+  currentStep: props.currentStep,
+  hasEpisode: props.hasEpisode,
+  productionReason: productionReason.value,
+  controlReasons: controlReasons.value,
+}))
+const pauseDisabledReason = computed(() => panelUx.value.pauseDisabledReason)
+const resumeDisabledReason = computed(() => panelUx.value.resumeDisabledReason)
+const cancelDisabledReason = computed(() => panelUx.value.cancelDisabledReason)
+const compactDisabledReason = computed(() => panelUx.value.compactDisabledReason)
+const progressStatusText = computed(() => panelUx.value.progressStatusText)
+const emptyGuidanceText = computed(() => panelUx.value.emptyGuidanceText)
+const emptyActionLabel = computed(() => panelUx.value.emptyActionLabel)
+const emptyActionAriaLabel = computed(() => panelUx.value.emptyNextStep || panelUx.value.emptyActionLabel)
 const retryDisabledReason = computed(() => controlReasons.value.retry)
 const focusReason = computed(() => props.running ? '' : productionReason.value)
 const longFocusReason = computed(() => focusReason.value.length > 56)
@@ -329,8 +412,7 @@ const focusState = computed(() => {
   return focusReason.value ? 'blocked' : 'ready'
 })
 const focusKicker = computed(() => {
-  if (props.stopRequired) return '停止受阻'
-  if (props.running) return focusReason.value ? '当前阻断' : '当前任务'
+  if (panelUx.value.progressKicker) return panelUx.value.progressKicker
   if (locallyStopped.value) return '已停止'
   if (hasPipelineError.value) return '执行失败'
   if (!draftReason.value && props.productionReadinessState === 'checking') return '能力检查'
@@ -382,6 +464,12 @@ const compactAction = computed(() => getPipelineCompactAction({
   productionReason: productionReason.value,
   hasError: hasPipelineError.value,
 }))
+const compactActionAriaLabel = computed(() => {
+  const action = compactAction.value
+  if (!action) return ''
+  const reason = compactDisabledReason.value
+  return reason ? `${action.label}不可用：${reason}` : action.label
+})
 
 function runCompactAction() {
   if (props.starting || props.stopping) return
@@ -427,17 +515,13 @@ function updateSetting(name, value) {
   font-size: 12px;
 }
 
-.pipeline-compact-copy strong,
-.pipeline-compact-copy > span:last-child {
+.pipeline-compact-copy strong {
   min-width: 0;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.pipeline-compact-copy strong {
   color: var(--el-text-color-primary);
   font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .pipeline-compact-copy:focus-visible {
@@ -447,7 +531,12 @@ function updateSetting(name, value) {
 
 .pipeline-compact-next {
   display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
   gap: 6px;
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .pipeline-compact-next > span {
@@ -788,6 +877,9 @@ function updateSetting(name, value) {
 }
 
 .pipeline-empty {
+  display: grid;
+  gap: 8px;
+  justify-items: start;
   margin: 12px 0 0;
   color: var(--el-text-color-secondary);
   font-size: 13px;

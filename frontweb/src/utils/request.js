@@ -9,6 +9,7 @@ import {
   isRequestCanceled,
   REQUEST_ERROR_CATEGORY,
 } from './requestError.js'
+import { toUserFacingError } from './userFacingError.js'
 
 const request = axios.create({
   baseURL: '/api/v1',
@@ -95,7 +96,7 @@ function userFacingFallback(error) {
   }
   const message = String(error?.message || '').trim()
   if (!message) return undefined
-  if (/^(Network Error|canceled|timeout of \d+ms exceeded|Request failed with status code \d+)$/i.test(message)) {
+  if (/^(Network Error|canceled|timeout of \d+ms exceeded|Request failed with status code \d+|Failed to fetch|fetch failed|Load failed|HTTP\s*\d+)$/i.test(message)) {
     return undefined
   }
   return message
@@ -142,12 +143,15 @@ request.interceptors.request.use(
 
 function finalizeTransportError(error) {
   applyRequestFailure(error)
-  // 提取后端实际错误信息（优先 API 返回的 message，而非 axios 通用 "status code 500"）
-  const backendMsg = error.response?.data?.error?.message
-  const userMsg = backendMsg || describeServiceLoadError(error, {
+  const signal = error.config?.signal
+  const described = describeServiceLoadError(error, {
     serviceLabel: '服务',
-    signal: error.config?.signal,
+    signal,
     fallback: userFacingFallback(error),
+  })
+  const userMsg = toUserFacingError(error, described, {
+    serviceLabel: '服务',
+    signal,
   })
   logRequestFailure(error, userMsg)
   let msg = userMsg
@@ -162,9 +166,7 @@ function finalizeTransportError(error) {
     msg = `${userMsg}（请求号 ${error.requestId}）`
   }
   if (shouldShowRequestErrorToast(error)) ElMessage.error(msg)
-  // 将真实错误信息写回 message，使组件 catch 块可直接用 e.message 获取可读内容
-  if (backendMsg) error.message = backendMsg
-  else if (userMsg && userMsg !== error.message) error.message = userMsg
+  if (userMsg && userMsg !== error.message) error.message = userMsg
   return Promise.reject(error)
 }
 

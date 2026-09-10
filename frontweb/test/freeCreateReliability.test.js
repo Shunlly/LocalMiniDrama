@@ -7,16 +7,13 @@ import {
   buildFreeCreateGenerationPayload,
   createFreeCreateTaskOwner,
   getFreeCreateAspectRatioOptions,
+  getFreeCreateCapabilityNotice,
+  getFreeCreateReadyMessage,
   getReferenceUploadBlockReason,
   normalizeFreeCreateAspectRatio,
   parseFreeCreateTaskResult,
+  toFreeCreateUserError,
 } from '../src/utils/freeCreate.js'
-import {
-  describeServiceLoadError,
-  isRequestCanceled,
-  isRequestTimeout,
-} from '../src/utils/requestError.js'
-
 const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8')
 
 const freeCreateSource = read('../src/views/FreeCreate.vue')
@@ -46,6 +43,8 @@ test('video aspect ratios stay within the supported set', () => {
 test('generation payload blocks broken uploads and normalizes reference media', () => {
   assert.equal(getReferenceUploadBlockReason('uploading', '', ''), '参考图正在上传，请等待上传完成')
   assert.equal(getReferenceUploadBlockReason('error', '上传失败', ''), '上传失败')
+  assert.equal(getReferenceUploadBlockReason('error', 'Network Error', ''), '参考图上传失败，请重试或移除')
+  assert.equal(getReferenceUploadBlockReason('error', 'api_key=sk-test 无效', ''), '参考图上传失败，请重试或移除')
   assert.equal(getReferenceUploadBlockReason('success', '', ''), '参考图上传结果无效，请重试或移除')
 
   const body = buildFreeCreateGenerationPayload({
@@ -228,16 +227,7 @@ test('FreeCreate keeps retry and ratio controls keyboard operable', () => {
 })
 
 function loadFreeCreateUserErrorHelper() {
-  const start = freeCreateSource.indexOf('const TECHNICAL_ENGLISH_RE')
-  const end = freeCreateSource.indexOf('const activeServiceType')
-  assert.ok(start >= 0 && end > start, '必须能提取自由创作错误转义函数')
-  const factory = new Function(
-    'describeServiceLoadError',
-    'isRequestCanceled',
-    'isRequestTimeout',
-    `${freeCreateSource.slice(start, end)}\nreturn { toFreeCreateUserError }`,
-  )
-  return factory(describeServiceLoadError, isRequestCanceled, isRequestTimeout)
+  return { toFreeCreateUserError }
 }
 
 test('自由创作空态区分加载、失败和未配置，失败时可重新检查', () => {
@@ -256,7 +246,7 @@ test('生成按钮禁用原因可见，而不是只写在 title 里', () => {
   assert.match(freeCreateSource, /id="free-create-generate-reason"/)
   assert.match(
     freeCreateSource,
-    /const generateDisabledReason = computed\(\(\) => \{[\s\S]*if \(generating\.value\) return ''[\s\S]*if \(!generationCapability\.value\.ready\) return generationCapability\.value\.message[\s\S]*if \(referenceUploadBlockReason\.value\) return referenceUploadBlockReason\.value[\s\S]*if \(!prompt\.value\.trim\(\)\) return '请先填写提示词'/,
+    /const generateDisabledReason = computed\(\(\) => \{[\s\S]*if \(generating\.value\) return ''[\s\S]*if \(!generationCapability\.value\.ready\) \{[\s\S]*toFreeCreateUserError\([\s\S]*generationUnavailableNotice\(\)[\s\S]*if \(referenceUploadBlockReason\.value\) return referenceUploadBlockReason\.value[\s\S]*if \(!prompt\.value\.trim\(\)\) return '请先填写提示词'/,
   )
   assert.match(freeCreateSource, /mode\.value === 'video'[\s\S]*getReferenceUploadBlockReason/)
 })
@@ -308,4 +298,53 @@ test('离开保护会确认取消生成，并登记到应用级卸载拦截', ()
     /onBeforeRouteLeave\(async \(\) =>[\s\S]*return cancelActiveGeneration\('用户离开自由创作页面'\)/,
   )
   assert.match(freeCreateSource, /window\.addEventListener\('beforeunload', handleBeforeUnload\)/)
+})
+test('能力说明只用显式中文，就绪详情不泄露密钥和英文异常', () => {
+  assert.equal(
+    getFreeCreateCapabilityNotice({ status: 'loading', serviceLabel: '视频' }),
+    '正在检查视频服务...',
+  )
+  assert.equal(
+    getFreeCreateCapabilityNotice({ status: 'error', serviceLabel: '图片' }),
+    '无法读取图片服务配置',
+  )
+  assert.equal(
+    getFreeCreateCapabilityNotice({ status: 'missing', issue: 'missing_config', serviceLabel: '图片' }),
+    '尚未配置可用的图片服务',
+  )
+  assert.equal(
+    getFreeCreateCapabilityNotice({ status: 'missing', issue: 'missing_credentials', serviceLabel: '视频' }),
+    '视频服务缺少访问凭据',
+  )
+  assert.equal(
+    getFreeCreateReadyMessage({ serviceLabel: '图片', name: '通义万相', model: 'wanx-v1' }),
+    '图片服务已就绪：通义万相 / wanx-v1',
+  )
+  assert.equal(
+    getFreeCreateReadyMessage({
+      serviceLabel: '图片',
+      name: 'api_key=sk-test',
+      provider: 'Internal Server Error',
+      model: 'https://evil.example/model',
+    }),
+    '图片服务已就绪',
+  )
+  assert.equal(
+    toFreeCreateUserError({ response: { data: { error: { message: '当前 api_key=sk-test 无效' } } } }),
+    '生成失败，请稍后重试',
+  )
+  assert.equal(
+    toFreeCreateUserError('请访问 https://evil.example'),
+    '生成失败，请稍后重试',
+  )
+  assert.match(freeCreateSource, /function warnGenerationUnavailable\(\)/)
+  assert.match(freeCreateSource, /ElMessage\.warning\(toFreeCreateUserError\(/)
+  assert.doesNotMatch(freeCreateSource, /ElMessage\.warning\(generationCapability\.value\.message\)/)
+  assert.match(freeCreateSource, /getFreeCreateCapabilityNotice\(\{ status: 'error', serviceLabel \}\)/)
+  assert.match(freeCreateSource, /getFreeCreateReadyMessage\(\{/)
+})
+
+test('自由创作提示词和风格输入有中文无障碍名称', () => {
+  assert.match(freeCreateSource, /aria-label="提示词"/)
+  assert.match(freeCreateSource, /aria-label="风格"/)
 })

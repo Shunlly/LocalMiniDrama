@@ -38,9 +38,16 @@
                   style="width: 100px"
                 />
               </div>
-              <el-button type="primary" :loading="isStoryGenRunning" @click="emit('generate-story')">
-                生成剧本
-              </el-button>
+              <ActionGate :reason="generateStoryDisabledReason" label="生成剧本">
+                <el-button
+                  type="primary"
+                  :loading="isStoryGenRunning"
+                  :disabled="Boolean(generateStoryDisabledReason)"
+                  @click="emit('generate-story')"
+                >
+                  生成剧本
+                </el-button>
+              </ActionGate>
               <el-button plain @click="emit('open-novel-import')">
                 <el-icon><DocumentAdd /></el-icon>
                 导入小说
@@ -62,37 +69,40 @@
                 <el-button @click="emit('go-to-drama')">返回剧集管理</el-button>
               </div>
             </div>
-            <div class="row gap" style="margin-bottom: 10px; flex-wrap: wrap;">
-              <el-input v-model="scriptTitle" aria-label="集标题" placeholder="集标题" style="width: 150px" />
-              <el-button v-if="dramaId" style="margin-left: auto" aria-label="添加一集" @click="emit('add-episode')">
-                <el-icon><Plus /></el-icon>添加一集
-              </el-button>
-            </div>
-            <el-input
-              v-model="scriptContent"
-              type="textarea"
-              :rows="8"
-              aria-label="剧本内容"
-              placeholder="剧本内容将显示在这里，可直接编辑..."
-              class="story-textarea"
-            />
-            <div class="row gap" style="margin-top: 8px; flex-wrap: wrap;">
-              <ActionGate :reason="saveCurrentEpisodeDisabledReason" label="保存当前集">
-                <el-button
-                  :loading="scriptGenerating"
-                  :disabled="Boolean(saveCurrentEpisodeDisabledReason)"
-                  @click="emit('generate-script')"
-                >
-                  保存当前集
+            <template v-else>
+              <div class="row gap script-episode-meta">
+                <el-input v-model="scriptTitle" aria-label="集标题" placeholder="集标题" class="script-title-input" />
+                <el-button v-if="dramaId" class="script-add-episode" aria-label="添加一集" @click="emit('add-episode')">
+                  <el-icon><Plus /></el-icon>添加一集
                 </el-button>
-              </ActionGate>
-              <span
-                class="script-save-status"
-                :class="`is-${scriptDraftStatus}`"
-                role="status"
-                aria-live="polite"
-              >{{ scriptDraftStatusLabel }}</span>
-            </div>
+              </div>
+              <el-input
+                v-model="scriptContent"
+                type="textarea"
+                :rows="8"
+                aria-label="剧本内容"
+                placeholder="剧本内容将显示在这里，可直接编辑..."
+                class="story-textarea"
+              />
+              <div class="row gap script-save-row">
+                <ActionGate :reason="saveCurrentEpisodeDisabledReason" label="保存当前集">
+                  <el-button
+                    :loading="scriptGenerating"
+                    :disabled="Boolean(saveCurrentEpisodeDisabledReason)"
+                    @click="emit('generate-script')"
+                  >
+                    保存当前集
+                  </el-button>
+                </ActionGate>
+                <span
+                  v-if="!saveCurrentEpisodeDisabledReason"
+                  class="script-save-status"
+                  :class="`is-${scriptDraftStatus}`"
+                  role="status"
+                  aria-live="polite"
+                >{{ scriptDraftStatusLabel }}</span>
+              </div>
+            </template>
           </div>
         </div>
       </el-tab-pane>
@@ -149,7 +159,13 @@
             <el-button type="primary" plain @click="scriptWorkbenchMode = 'create'">切换到创作剧本以编辑</el-button>
           </div>
         </div>
-        <p v-else class="script-select-empty">尚未选择剧本，请点击上方按钮</p>
+        <div v-else class="script-select-empty">
+          <p>尚未选择剧本，可从剧本库导入，或回到创作页手写</p>
+          <div class="script-select-empty-actions">
+            <el-button type="primary" @click="emit('open-select-script')">从已有剧本中选择</el-button>
+            <el-button @click="emit('return-to-creation')">开始创作剧本</el-button>
+          </div>
+        </div>
       </el-tab-pane>
     </el-tabs>
   </section>
@@ -169,6 +185,8 @@
         class="select-script-item"
         :class="{ disabled: selectScriptImporting }"
         :disabled="selectScriptImporting"
+        :title="selectScriptImporting ? '正在导入剧本，请稍候' : (d.title || '未命名')"
+        :aria-label="selectScriptImporting ? '导入剧本不可用：正在导入剧本，请稍候' : `导入剧本${d.title || '未命名'}`"
         @click="!selectScriptImporting && emit('pick-script', d.id)"
       >
         <span class="select-script-title">{{ d.title || '未命名' }}</span>
@@ -209,14 +227,21 @@ const props = defineProps({
   selectScriptDramas: { type: Array, default: () => [] },
 })
 
-const saveCurrentEpisodeDisabledReason = computed(() => describeSaveCurrentEpisodeDisabledReason({
-  dramaId: props.dramaId,
-  hasAnyEpisode: props.hasAnyEpisode,
-  currentEpisodeId: props.currentEpisodeId,
-}))
+const saveCurrentEpisodeDisabledReason = computed(() => {
+  if (props.dramaId && !props.hasAnyEpisode) return '请先创建或选择剧集'
+  return describeSaveCurrentEpisodeDisabledReason({
+    dramaId: props.dramaId,
+    hasAnyEpisode: props.hasAnyEpisode,
+    currentEpisodeId: props.currentEpisodeId,
+  })
+})
 
 const scriptWorkbenchMode = defineModel('scriptWorkbenchMode', { type: String, default: 'create' })
 const storyInput = defineModel('storyInput', { type: String, default: '' })
+const generateStoryDisabledReason = computed(() => {
+  if (!(storyInput.value || '').toString().trim()) return '请先输入故事梗概'
+  return ''
+})
 const storyStyle = defineModel('storyStyle', { type: String, default: '' })
 const storyType = defineModel('storyType', { type: String, default: '' })
 const storyEpisodeCount = defineModel('storyEpisodeCount', { type: Number, default: 1 })
@@ -348,6 +373,29 @@ html.light .preview-block-title {
   margin-top: 16px;
   color: #71717a;
   font-size: 14px;
+}
+.script-select-empty p {
+  margin: 0 0 12px;
+}
+.script-select-empty-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.script-episode-meta {
+  margin-bottom: 10px;
+}
+.script-title-input {
+  flex: 1 1 280px;
+  min-width: min(280px, 100%);
+  max-width: min(520px, 100%);
+  width: auto;
+}
+.script-add-episode {
+  margin-left: auto;
+}
+.script-save-row {
+  margin-top: 8px;
 }
 .select-script-list {
   min-height: 120px;

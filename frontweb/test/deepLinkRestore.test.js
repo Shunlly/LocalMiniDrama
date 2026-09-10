@@ -22,6 +22,9 @@ import {
 } from '../src/router/routeRestore.js'
 import { createRouteLeaveProtection } from '../src/layouts/routeLeaveProtection.js'
 import { listWorkspaceNavItems, resolveWorkspaceNavItem } from '../src/layouts/AppWorkspaceNav.js'
+import {
+  sanitizeDramaDetailLocation,
+} from '../src/utils/routeValidation.js'
 
 const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8').replace(/\r\n?/g, '\n')
 const routerSource = read('../src/router/index.js')
@@ -58,6 +61,7 @@ test('views registry covers every real route and nav item', () => {
   }
   assert.match(routerSource, /path: '\/:pathMatch\(\.\*\)\*'/)
   assert.match(routerSource, /name: 'not-found-catchall'/)
+  assert.match(routerSource, /if \(to\.name === 'not-found-catchall'\) \{[\s\S]*return resolveCatchallNotFoundLocation\(to\.fullPath, router\.options\.history\.state\?\.current\)/)
   assert.match(routerSource, /component: \(\) => import\('@\/views\/NotFound\.vue'\)/)
   for (const item of APP_NAV_ITEMS) {
     assert.equal(isAllowedView(item.view), true)
@@ -297,3 +301,30 @@ test('leave protection flushes auto-save then can block leave', async () => {
   assert.deepEqual(events, ['flush', 'confirm'])
 })
 
+test('剧详情深链接恢复会丢掉非法 step，并把旧锚点映射到素材流程', async () => {
+  const sanitize = await createSanitizer()
+  const restored = sanitizeDramaDetailLocation({
+    name: 'drama-detail',
+    params: { id: '21' },
+    query: {
+      returnTo: '/?q=moon',
+      episode: '8',
+      intake: 'source-url',
+      step: ['qa', 'evil'],
+    },
+    hash: '#intake',
+  })
+  assert.equal(restored.query.step, 'qa')
+  assert.equal(restored.hash, '#source-intake-workflow')
+  assert.notEqual(restored.params.id, restored.query.episode)
+
+  const routerSource = read('../src/router/index.js')
+  assert.match(routerSource, /sanitizeDramaDetailLocation\(redirected \|\| to\)/)
+  assert.match(routerSource, /sanitizeDramaDetailLocation\(next\) \|\| next/)
+
+  const free = sanitize({
+    name: 'free-create',
+    query: { mode: ['video', 'image'] },
+  })
+  assert.equal(free.query.mode, 'video')
+})

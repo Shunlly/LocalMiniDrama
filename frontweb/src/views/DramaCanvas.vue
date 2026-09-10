@@ -53,6 +53,16 @@
         >
           重试保存
         </el-button>
+        <el-button
+          v-if="episodeGenerating"
+          type="warning"
+          plain
+          size="small"
+          aria-label="取消批量生成"
+          @click="cancelEpisodeGenerate"
+        >
+          取消
+        </el-button>
 
       </div>
       <CanvasDesktopToolbar
@@ -79,6 +89,7 @@
         @update:active-group-id="setActiveGroupId"
         @create-workflow="onCreateWorkflowGroup"
         @run-workflow="onRunActiveGroup"
+        @cancel-workflow="cancelActiveWorkflow"
         @delete-workflow="onDeleteActiveGroup"
         @generate-storyboards="aiGenerateStoryboards"
         @batch-images="batchGenerateImages"
@@ -257,7 +268,7 @@
           :pan-on-drag="[1, 2]"
           :pan-on-scroll="true"
           :fit-view-on-init="false"
-          :only-render-visible-elements="!focusedNodeId && !selectedFreeNodeId"
+          :only-render-visible-elements="true"
           class="vue-flow-canvas"
           @node-double-click="onNodeDoubleClick"
           @node-click="onNodeClick"
@@ -409,6 +420,11 @@
       @select="onFreeCanvasMediaPicked"
       @open-library="goMediaLibrary"
     />
+    <CanvasInspectorDock
+      v-if="focusedInspectorNode"
+      :key="`${dramaId}:${focusedInspectorNode.id}`"
+      :node="focusedInspectorNode"
+    />
     <FreeCanvasInspector
       v-if="selectedFreeNode"
       :key="`${dramaId}:${selectedFreeNode.id}`"
@@ -450,16 +466,17 @@ import '@vue-flow/core/dist/theme-default.css'
 import '@vue-flow/controls/dist/style.css'
 import '@vue-flow/minimap/dist/style.css'
 
-import { dramaAPI } from '@/api/drama'
-import { assetsAPI } from '@/api/assets'
 import { workflowRunsAPI } from '@/api/workflowRuns'
 import { aiAPI } from '@/api/ai'
 import { useTheme } from '@/composables/useTheme'
-import { runWorkflowGroup } from '@/composables/useCanvasWorkflowRunner'
 import { CANVAS_CONTEXT_KEY } from '@/composables/useCanvasContext'
 import { canvasUserError, isCanvasUserAbort } from '@/composables/useCanvasUserError'
 import { useDramaCanvasFreeCanvas } from '@/composables/useDramaCanvasFreeCanvas'
 import { useDramaCanvasPersist } from '@/composables/useDramaCanvasPersist'
+import { useDramaCanvasProjectLoad } from '@/composables/useDramaCanvasProjectLoad'
+import { useDramaCanvasWorkflow } from '@/composables/useDramaCanvasWorkflow'
+import { useDramaCanvasGraph } from '@/composables/useDramaCanvasGraph'
+import { useDramaCanvasViewport } from '@/composables/useDramaCanvasViewport'
 import { useCanvasStoryboardMedia } from '@/composables/useCanvasStoryboardMedia'
 import { useCanvasCrud } from '@/composables/useCanvasCrud'
 import { useCanvasEpisodeGenerate } from '@/composables/useCanvasEpisodeGenerate'
@@ -468,35 +485,25 @@ import { createCanvasNodeStatusStore } from '@/composables/useCanvasNodeStatus'
 import { createCanvasNodeGenerationCoordinator } from '@/utils/canvasNodeGenerationCoordinator'
 import { useCanvasWorkflowOrder } from '@/composables/useCanvasWorkflowOrder'
 import {
-  applyCanvasHighlight,
-  buildDramaCanvasGraph,
-  computeAutoLayoutPositions,
   getStoryboardRefFromNode,
-  stampEdgeBaseStyles,
 } from '@/utils/dramaCanvasAdapter'
 import {
   parseCanvasLayout,
   parseFreeCanvas,
   resolveViewport,
 } from '@/utils/canvasLayout'
-import { buildFreeCanvasGraph, mergeCanvasGraphs } from '@/utils/freeCanvasAdapter'
+import { buildFreeCanvasGraph } from '@/utils/freeCanvasAdapter'
 import { buildFreeCanvasConfigRuntime } from '@/utils/freeCanvasConfigState'
 import {
   buildFreeCanvasStoryboardMediaItems,
   getFreeCanvasAssetSaveEligibility,
 } from '@/utils/freeCanvasMedia'
-import { createCanvasHistory } from '@/utils/canvasHistory'
 import {
   createEmptyFreeCanvas,
-  inspectFreeCanvasCompatibility,
-  normalizeFreeCanvas,
 } from '@/utils/freeCanvasState'
 import {
-  createWorkflowGroup,
-  deleteWorkflowGroup,
   findStoryboardInDrama,
   normalizePipeline,
-  parseWorkflowGroups,
   storyboardIdFromNodeId,
   getDramaGenerationOptions,
 } from '@/utils/canvasWorkflow'
@@ -527,6 +534,7 @@ import CanvasFlowAligner from '@/components/dramaCanvas/CanvasFlowAligner.vue'
 import CanvasDesktopToolbar from '@/components/dramaCanvas/CanvasDesktopToolbar.vue'
 import CanvasEmptyState from '@/components/dramaCanvas/CanvasEmptyState.vue'
 import CanvasWorkflowSidebarList from '@/components/dramaCanvas/CanvasWorkflowSidebarList.vue'
+import CanvasInspectorDock from '@/components/dramaCanvas/CanvasInspectorDock.vue'
 import FreeCanvasInspector from '@/components/dramaCanvas/FreeCanvasInspector.vue'
 import FreeCanvasAssetSidebar from '@/components/dramaCanvas/FreeCanvasAssetSidebar.vue'
 import FreeCanvasNode from '@/components/dramaCanvas/FreeCanvasNode.vue'
@@ -607,17 +615,18 @@ const freeCanvasVideoCapability = ref(getVideoGenerationCapability([], { loading
 
 const PANEL_NODE_TYPES = new Set(['canvasStoryboard', 'canvasMedia', 'canvasAsset', 'canvasScript'])
 
-let pollTimer = null
 let paneClickSuppressTimer = null
 let canvasResizeObserver = null
 let canvasReadyFrame = null
 let readinessRequestId = 0
 let freeCanvasCapabilityRequestId = 0
-let canvasLoadRequestId = 0
 let canvasEntityFocusRevision = 0
 let canvasRouteSynchronization = Promise.resolve(true)
-let workflowRunSequence = 0
-let freeCanvasHistory = createCanvasHistory(freeCanvas.value)
+const canvasCommandBridge = {
+  scheduleLayoutSave() {},
+  resetFreeCanvasClipboard() {},
+  finishFreeCanvasNodeEditing() {},
+}
 const freeHistoryRevision = ref(0)
 
 const nodeTypes = {
@@ -650,6 +659,13 @@ const freeGraph = computed(() => buildFreeCanvasGraph(freeCanvas.value, {
 const selectedFreeNode = computed(() => (
   freeCanvas.value.nodes.find((node) => String(node.id) === String(selectedFreeNodeId.value)) || null
 ))
+const focusedInspectorNode = computed(() => {
+  const id = focusedNodeId.value
+  if (!id) return null
+  return nodes.value.find((node) => (
+    String(node.id) === String(id) && PANEL_NODE_TYPES.has(node.type)
+  )) || null
+})
 const canvasBackgroundMode = computed(() => (
   canvasMode.value === 'free' ? freeCanvas.value.background : 'dots'
 ))
@@ -665,14 +681,6 @@ const selectedFreeAssetEligibility = computed(() => getFreeCanvasAssetSaveEligib
     inventory: [...freeStoryboardMediaItems.value, ...projectAssets.value],
   },
 ))
-const canUndoFreeCanvas = computed(() => {
-  freeHistoryRevision.value
-  return canvasMode.value === 'free' && !freeCanvasReadOnly.value && freeCanvasHistory.canUndo()
-})
-const canRedoFreeCanvas = computed(() => {
-  freeHistoryRevision.value
-  return canvasMode.value === 'free' && !freeCanvasReadOnly.value && freeCanvasHistory.canRedo()
-})
 const freeAssetOptions = computed(() => projectAssets.value.map((asset) => ({
   id: asset.id,
   label: asset.name || `素材 ${asset.id}`,
@@ -948,87 +956,6 @@ function ensureKnownStoryboardMedia(storyboardIds = []) {
   return false
 }
 
-async function loadCanvasProject({
-  blocking = !isCanvasReady.value,
-  preserveOnError = !blocking,
-  preserveFreeState = !blocking,
-  requestOptions = {},
-} = {}) {
-  const requestedDramaId = dramaId.value
-  if (!canvasInstanceActive.value || !Number.isFinite(requestedDramaId) || requestedDramaId <= 0) return false
-  const requestId = ++canvasLoadRequestId
-  loading.value = true
-  if (blocking) canvasLoadState.value = 'loading'
-  canvasLoadError.value = ''
-  canvasLoadNotFound.value = false
-  try {
-    const loadedDrama = await coreCanvasDramaAPI.get(requestedDramaId, requestOptions)
-    if (!canvasInstanceActive.value || requestId !== canvasLoadRequestId || requestedDramaId !== dramaId.value) return false
-    drama.value = loadedDrama
-    layoutCache.value = parseCanvasLayout(drama.value.metadata)
-    syncWorkflowFromDrama()
-    const vp = resolveViewport(layoutCache.value)
-    productionViewport.value = vp
-    if (!preserveFreeState) hydrateFreeCanvasState(drama.value.metadata)
-    currentViewport.value = canvasMode.value === 'free' ? { ...freeCanvas.value.viewport } : vp
-    filterEpisodeId.value = routeEpisodeId()
-    await Promise.all([
-      loadForDrama(drama.value, filterEpisodeId.value, requestOptions),
-      loadProjectAssets(requestedDramaId, requestOptions),
-    ])
-    if (!canvasInstanceActive.value || requestId !== canvasLoadRequestId || requestedDramaId !== dramaId.value) return false
-    rebuildGraph()
-    canvasLoadState.value = 'ready'
-    canvasLoadNotFound.value = false
-    return true
-  } catch (error) {
-    if (isCanvasAbortError(error, requestOptions.signal)) throw error
-    if (!canvasInstanceActive.value || requestId !== canvasLoadRequestId || requestedDramaId !== dramaId.value) return false
-    if (!preserveOnError) {
-      drama.value = null
-      nodes.value = []
-      edges.value = []
-      layoutCache.value = null
-    }
-    canvasLoadNotFound.value = Number(error?.status || error?.response?.status) === 404
-    canvasLoadError.value = friendlyCanvasProjectLoadError(error)
-    if (!preserveOnError) {
-      canvasLoadState.value = 'error'
-      await nextTick()
-      canvasLoadFailureRef.value?.focus()
-    }
-    return false
-  } finally {
-    if (canvasInstanceActive.value && requestId === canvasLoadRequestId) loading.value = false
-  }
-}
-
-async function retryCanvasProjectLoad() {
-  const ownership = claimRouteEntityFocus()
-  const loaded = await loadCanvasProject({ blocking: true, preserveOnError: false })
-  if (loaded) await synchronizeRouteFocusedEntity(ownership)
-}
-
-async function fitCanvasView() {
-  const flowApi = canvasFlowApi.value
-  if (!flowApi?.fitView) return
-  const duration = 250
-  await flowApi.fitView({
-    padding: canvasMode.value === 'free' ? 0.28 : 0.12,
-    minZoom: canvasMode.value === 'free' ? 0.25 : MIN_READABLE_CANVAS_ZOOM,
-    maxZoom: canvasMode.value === 'free' ? 1.2 : 1,
-    duration,
-    includeHiddenNodes: false,
-  })
-  await new Promise((resolve) => setTimeout(resolve, duration + 50))
-  await nextTick()
-  const viewport = flowApi.getViewport?.()
-  if (viewport) {
-    onViewportChange(viewport)
-    onCanvasMoveEnd()
-  }
-}
-
 async function focusCanvasNode(nodeId) {
   if (!nodeId) return
   await nextTick()
@@ -1097,10 +1024,26 @@ function handleCanvasBeforeUnload(event) {
     && !hasPendingCanvasSaves(canvasProjectId.value)
     && !freeCanvasUploading.value
     && !workflowRunning.value
+    && !episodeGenerating.value
     && !nodeGenerationCoordinator.hasActive()
   ) return
   event.preventDefault()
   event.returnValue = ''
+}
+
+async function ensureEpisodeGenerationFinished() {
+  if (!episodeGenerating.value) return true
+  try {
+    await ElMessageBox.confirm(
+      '离开会停止当前页面继续等待和显示进度，但已提交的后台任务及供应商计费可能继续。是否仍要离开？',
+      '批量生成仍在执行',
+      { type: 'warning', confirmButtonText: '停止等待并离开', cancelButtonText: '继续等待' },
+    )
+  } catch (_) {
+    return false
+  }
+  abortEpisodeGenerate()
+  return true
 }
 
 async function ensureNodeGenerationFinished() {
@@ -1181,6 +1124,7 @@ function runCanvasNavigationBarrier() {
     Number(projectId),
     async () => {
       if (!await ensureNodeGenerationFinished()) return false
+      if (!await ensureEpisodeGenerationFinished()) return false
       if (!await ensureWorkflowFinished()) return false
       if (!ensureFreeCanvasUploadFinished()) return false
       if (!await confirmFocusedNodeLeave()) return false
@@ -1392,276 +1336,115 @@ function startCanvasRouteSynchronization(options = {}) {
   return canvasRouteSynchronization
 }
 
-function zoomCanvasIn() {
-  canvasFlowApi.value?.zoomIn?.({ duration: 150 })
-}
+const {
+  freeCanvasUiMode,
+  normalizeFreeCanvasForProject,
+  hydrateFreeCanvasState,
+  loadProjectAssets,
+  modeScopedProductionGraph,
+  mergeActiveCanvasGraphs,
+  pruneFreeCanvasSelection,
+  commitFreeCanvasState,
+  applyFreeCanvasHistoryState,
+  setCanvasMode,
+  undoFreeCanvas,
+  redoFreeCanvas,
+  setFreeCanvasBackground,
+  syncWorkflowFromDrama,
+  rebuildGraph,
+  applyHighlight,
+  selectSidebarAsset,
+  setHighlightAsset,
+  clearAssetHighlight,
+  canUndoFreeCanvasHistory,
+  canRedoFreeCanvasHistory,
+} = useDramaCanvasGraph({
+  canvasProjectId,
+  dramaId,
+  drama,
+  nodes,
+  edges,
+  productionGraph,
+  freeCanvas,
+  freeCanvasReadOnly,
+  freeCanvasCompatibilityMessage,
+  canvasMode,
+  selectedFreeNodeId,
+  selectedFreeNodeIds,
+  selectedFreeEdgeIds,
+  editingFreeNodeId,
+  freeHistoryRevision,
+  projectAssets,
+  highlightAssetId,
+  filterEpisodeId,
+  savedLayout,
+  workflowGroups,
+  activeGroupId,
+  imagesBySbId,
+  videosBySbId,
+  getStoryboardMediaQueryStatus,
+  currentViewport,
+  productionViewport,
+  canvasFlowApi,
+  freeGraph,
+  focusedNodeId,
+  setFocusedCanvasNode,
+  isCanvasAbortError,
+  scheduleLayoutSave: (...args) => canvasCommandBridge.scheduleLayoutSave(...args),
+  resetFreeCanvasClipboard: (...args) => canvasCommandBridge.resetFreeCanvasClipboard(...args),
+  finishFreeCanvasNodeEditing: (...args) => canvasCommandBridge.finishFreeCanvasNodeEditing(...args),
+  closeFreeCanvasInspector,
+})
 
-function zoomCanvasOut() {
-  canvasFlowApi.value?.zoomOut?.({ duration: 150 })
-}
+const canUndoFreeCanvas = computed(() => {
+  freeHistoryRevision.value
+  return canvasMode.value === 'free' && !freeCanvasReadOnly.value && canUndoFreeCanvasHistory()
+})
+const canRedoFreeCanvas = computed(() => {
+  freeHistoryRevision.value
+  return canvasMode.value === 'free' && !freeCanvasReadOnly.value && canRedoFreeCanvasHistory()
+})
 
-function toggleCanvasInteractive() {
-  canvasInteractive.value = !canvasInteractive.value
-  canvasFlowApi.value?.setInteractive?.(canvasInteractive.value)
-}
 
-async function onCanvasNodesInitialized() {
-  const requestedFocus = routeFocusNodeId()
-  if (requestedFocus && nodes.value.some((node) => String(node.id) === requestedFocus)) {
-    initialFitDone.value = true
-    await synchronizeRouteFocusedEntity(claimRouteEntityFocus())
-    return
-  }
-  if (hasSavedViewport.value || initialFitDone.value) return
-  initialFitDone.value = true
-  await nextTick()
-  await fitCanvasView()
-}
-
-function freeCanvasUiMode(mode) {
-  return mode === 'free' || mode === 'hybrid' ? 'free' : 'production'
-}
-
-function normalizeFreeCanvasForProject(input) {
-  return normalizeFreeCanvas({
-    ...input,
-    projectId: Number.isFinite(canvasProjectId.value) && canvasProjectId.value > 0 ? canvasProjectId.value : undefined,
-  })
-}
-
-function hydrateFreeCanvasState(metadata) {
-  const persisted = parseFreeCanvas(metadata)
-  const compatibility = inspectFreeCanvasCompatibility(persisted)
-  freeCanvasReadOnly.value = !compatibility.compatible
-  freeCanvasCompatibilityMessage.value = compatibility.message
-  const normalized = compatibility.compatible
-    ? normalizeFreeCanvasForProject(persisted)
-    : createEmptyFreeCanvas({
-      mode: 'production',
-      projectId: Number.isFinite(canvasProjectId.value) && canvasProjectId.value > 0 ? canvasProjectId.value : undefined,
-    })
-  freeCanvas.value = normalized
-  canvasMode.value = freeCanvasUiMode(normalized.mode)
-  freeCanvasHistory = createCanvasHistory(normalized)
-  freeHistoryRevision.value += 1
-  selectedFreeNodeId.value = null
-  selectedFreeNodeIds.value = []
-  selectedFreeEdgeIds.value = []
-  editingFreeNodeId.value = null
-  resetFreeCanvasClipboard()
-}
-
-async function loadProjectAssets(projectId, requestOptions = {}) {
-  try {
-    const response = await assetsAPI.list({ drama_id: projectId, page_size: 100 }, requestOptions)
-    if (Number(projectId) !== Number(dramaId.value)) return
-    projectAssets.value = (response?.items || []).filter((asset) => (
-      asset?.drama_id == null || Number(asset.drama_id) === Number(projectId)
-    ))
-  } catch (error) {
-    if (isCanvasAbortError(error, requestOptions.signal)) throw error
-    if (Number(projectId) === Number(dramaId.value)) projectAssets.value = []
-  }
-}
-
-function modeScopedProductionGraph() {
-  const freeMode = canvasMode.value === 'free'
-  return {
-    nodes: productionGraph.value.nodes.map((node) => ({
-      ...node,
-      connectable: false,
-      deletable: false,
-      draggable: freeMode ? false : node.draggable,
-      selectable: freeMode ? false : node.selectable,
-      focusable: freeMode ? false : node.focusable,
-    })),
-    edges: productionGraph.value.edges.map((edge) => ({
-      ...edge,
-      deletable: false,
-      updatable: false,
-    })),
-  }
-}
-
-function mergeActiveCanvasGraphs() {
-  const merged = mergeCanvasGraphs(modeScopedProductionGraph(), freeGraph.value, canvasMode.value)
-  nodes.value = merged.nodes
-  edges.value = merged.edges
-}
-
-function pruneFreeCanvasSelection() {
-  const nodeIds = new Set(freeCanvas.value.nodes.map((node) => String(node.id)))
-  const edgeIds = new Set(freeCanvas.value.edges.map((edge) => String(edge.id)))
-  selectedFreeNodeIds.value = selectedFreeNodeIds.value.filter((id) => nodeIds.has(String(id)))
-  selectedFreeEdgeIds.value = selectedFreeEdgeIds.value.filter((id) => edgeIds.has(String(id)))
-  if (!nodeIds.has(String(selectedFreeNodeId.value))) selectedFreeNodeId.value = null
-  if (!nodeIds.has(String(editingFreeNodeId.value))) editingFreeNodeId.value = null
-}
-
-function commitFreeCanvasState(nextState, reason, { save = true } = {}) {
-  if (freeCanvasReadOnly.value) {
-    ElMessage.warning(freeCanvasCompatibilityMessage.value || '当前自由画布处于只读保护状态')
-    return freeCanvas.value
-  }
-  let normalized
-  try {
-    normalized = normalizeFreeCanvasForProject(nextState)
-  } catch (error) {
-    ElMessage.warning(safeFreeCanvasError(error, '自由画布内容不符合保存要求'))
-    return freeCanvas.value
-  }
-  freeCanvas.value = freeCanvasHistory.commit(normalized, reason)
-  canvasMode.value = freeCanvasUiMode(freeCanvas.value.mode)
-  pruneFreeCanvasSelection()
-  freeHistoryRevision.value += 1
-  mergeActiveCanvasGraphs()
-  if (save) scheduleLayoutSave()
-  return freeCanvas.value
-}
-
-async function applyFreeCanvasHistoryState(nextState) {
-  const activeMode = canvasMode.value
-  freeCanvas.value = normalizeFreeCanvasForProject({
-    ...nextState,
-    mode: activeMode,
-  })
-  pruneFreeCanvasSelection()
-  freeHistoryRevision.value += 1
-  mergeActiveCanvasGraphs()
-  const targetViewport = canvasMode.value === 'free'
-    ? freeCanvas.value.viewport
-    : productionViewport.value
-  currentViewport.value = { ...targetViewport }
-  await nextTick()
-  await canvasFlowApi.value?.setViewport?.(targetViewport, { duration: 180 })
-  scheduleLayoutSave()
-}
-
-async function setCanvasMode(mode, { preserveRouteFocusOwnership = false } = {}) {
-  const nextMode = mode === 'free' ? 'free' : 'production'
-  if (nextMode === canvasMode.value) return
-  if (nextMode === 'free' && freeCanvasReadOnly.value) {
-    ElMessage.warning(freeCanvasCompatibilityMessage.value || '当前自由画布版本需要升级后编辑')
-    return
-  }
-  if (focusedNodeId.value && !await setFocusedCanvasNode(null)) return
-
-  let nextFreeCanvas = freeCanvas.value
-  if (canvasMode.value === 'free') {
-    nextFreeCanvas = normalizeFreeCanvasForProject({
-      ...nextFreeCanvas,
-      viewport: currentViewport.value,
-    })
-  } else {
-    productionViewport.value = { ...currentViewport.value }
-  }
-
-  freeCanvas.value = normalizeFreeCanvasForProject({
-    ...nextFreeCanvas,
-    mode: nextMode,
-  })
-  canvasMode.value = nextMode
-  if (nextMode === 'production') {
-    finishFreeCanvasNodeEditing()
-    closeFreeCanvasInspector({
-      restoreFocus: false,
-      invalidateFocus: !preserveRouteFocusOwnership,
-    })
-  }
-  freeHistoryRevision.value += 1
-  mergeActiveCanvasGraphs()
-
-  const targetViewport = nextMode === 'free' ? freeCanvas.value.viewport : productionViewport.value
-  currentViewport.value = { ...targetViewport }
-  await nextTick()
-  await canvasFlowApi.value?.setViewport?.(targetViewport, { duration: 180 })
-  scheduleLayoutSave()
-}
-
-function undoFreeCanvas() {
-  if (canvasMode.value !== 'free' || freeCanvasReadOnly.value) return
-  if (!freeCanvasHistory.canUndo()) return
-  void applyFreeCanvasHistoryState(freeCanvasHistory.undo())
-}
-
-function redoFreeCanvas() {
-  if (canvasMode.value !== 'free' || freeCanvasReadOnly.value) return
-  if (!freeCanvasHistory.canRedo()) return
-  void applyFreeCanvasHistoryState(freeCanvasHistory.redo())
-}
-
-function setFreeCanvasBackground(background) {
-  if (canvasMode.value !== 'free' || !['dots', 'lines', 'none'].includes(background)) return
-  commitFreeCanvasState({ ...freeCanvas.value, background }, 'background')
-}
-
-function syncWorkflowFromDrama() {
-  workflowGroups.value = parseWorkflowGroups(drama.value?.metadata)
-  if (activeGroupId.value && !workflowGroups.value.some((g) => g.id === activeGroupId.value)) {
-    activeGroupId.value = null
-  }
-}
-
-function rebuildGraph() {
-  if (!drama.value) {
-    productionGraph.value = { nodes: [], edges: [] }
-    nodes.value = []
-    edges.value = []
-    return
-  }
-  const graph = buildDramaCanvasGraph(drama.value, {
-    episodeId: filterEpisodeId.value,
-    savedLayout: savedLayout.value,
-    workflowGroups: workflowGroups.value,
-    imagesBySbId: imagesBySbId.value,
-    videosBySbId: videosBySbId.value,
-  })
-  let nextNodes = graph.nodes.map((node) => {
-    if (node.type !== 'canvasStoryboard') return node
-    const storyboardId = node.data?.storyboard?.id
-    return {
-      ...node,
-      data: {
-        ...node.data,
-        mediaQueryStatus: storyboardId != null ? getStoryboardMediaQueryStatus(storyboardId) : null,
-      },
-    }
-  })
-  let nextEdges = stampEdgeBaseStyles(graph.edges)
-  if (highlightAssetId.value) {
-    const highlighted = applyCanvasHighlight(nextNodes, nextEdges, highlightAssetId.value, drama.value)
-    nextNodes = highlighted.nodes
-    nextEdges = highlighted.edges
-  }
-  productionGraph.value = { nodes: nextNodes, edges: nextEdges }
-  mergeActiveCanvasGraphs()
-}
-
-function applyHighlight() {
-  if (!productionGraph.value.nodes.length) return
-  const highlighted = applyCanvasHighlight(
-    productionGraph.value.nodes.map((n) => ({
-      ...n,
-      class: undefined,
-      data: { ...n.data, highlighted: false, dimmed: false },
-    })),
-    productionGraph.value.edges,
-    highlightAssetId.value,
-    drama.value
-  )
-  productionGraph.value = highlighted
-  mergeActiveCanvasGraphs()
-}
-
-function selectSidebarAsset(assetNodeId) {
-  highlightAssetId.value = highlightAssetId.value === assetNodeId ? null : assetNodeId
-  applyHighlight()
-}
-
-function setHighlightAsset(assetNodeId) {
-  highlightAssetId.value = assetNodeId
-  applyHighlight()
-}
+const {
+  loadCanvasProject,
+  retryCanvasProjectLoad,
+  loadDrama,
+  hasProcessingStoryboards,
+  startStatusPoll,
+  stopStatusPoll,
+  invalidateCanvasLoads,
+} = useDramaCanvasProjectLoad({
+  isCanvasReady,
+  canvasInstanceActive,
+  dramaId,
+  loading,
+  canvasLoadState,
+  canvasLoadError,
+  canvasLoadNotFound,
+  coreCanvasDramaAPI,
+  drama,
+  nodes,
+  edges,
+  layoutCache,
+  syncWorkflowFromDrama,
+  productionViewport,
+  hydrateFreeCanvasState,
+  currentViewport,
+  canvasMode,
+  freeCanvas,
+  filterEpisodeId,
+  routeEpisodeId,
+  loadForDrama,
+  loadProjectAssets,
+  rebuildGraph,
+  isCanvasAbortError,
+  friendlyCanvasProjectLoadError,
+  canvasLoadFailureRef,
+  claimRouteEntityFocus,
+  synchronizeRouteFocusedEntity,
+  safeFreeCanvasError,
+})
 
 async function refreshDrama(preserveFocus = true) {
   const keepId = preserveFocus ? focusedNodeId.value : null
@@ -1830,6 +1613,12 @@ provide(CANVAS_CONTEXT_KEY, {
   videosBySbId,
   mediaStatusBySbId,
   mediaValidity,
+  setMediaValidity: (nodeId, state) => {
+    if (nodeId) mediaValidity[nodeId] = state
+  },
+  clearMediaValidity: (nodeId) => {
+    if (nodeId) delete mediaValidity[nodeId]
+  },
   productionActions,
   getGenerationOptions: getCanvasGenerationOptions,
   ensureProductionStepReady,
@@ -1852,11 +1641,6 @@ provide(CANVAS_CONTEXT_KEY, {
     canvasFlowApi.value = api
   },
 })
-
-function clearAssetHighlight() {
-  highlightAssetId.value = null
-  applyHighlight()
-}
 
 function setPipelineSteps(value) {
   pipelineSteps.value = Array.isArray(value) ? value : []
@@ -1887,81 +1671,6 @@ async function refreshFreeCanvasVideoCapability() {
     if (requestId !== freeCanvasCapabilityRequestId || requestedDramaId !== dramaId.value) return
     freeCanvasVideoCapability.value = getVideoGenerationCapability([], { failed: true })
   }
-}
-
-function onSelectionChange({ nodes: selectedNodes = [], edges: selectedEdges = [] }) {
-  if (!selectedNodes.length && shouldIgnoreEmptyFreeSelection()) return
-  selectedStoryboardIds.value = canvasMode.value === 'production'
-    ? selectedNodes
-      .filter((node) => node.type === 'canvasStoryboard' && node.data?.storyboard?.id)
-      .map((node) => node.data.storyboard.id)
-    : []
-  selectedFreeNodeIds.value = selectedNodes
-    .filter((node) => node.type === 'freeCanvas' || isFreeCanvasNodeId(node.id))
-    .map((node) => node.id)
-  selectedFreeEdgeIds.value = selectedEdges
-    .filter((edge) => freeCanvas.value.edges.some((item) => String(item.id) === String(edge.id)))
-    .map((edge) => edge.id)
-  if (selectedFreeNodeIds.value.length === 1) selectedFreeNodeId.value = selectedFreeNodeIds.value[0]
-  else if (selectedFreeNodeIds.value.length > 1) selectedFreeNodeId.value = null
-  else selectedFreeNodeId.value = null
-  if (!selectedFreeNodeIds.value.includes(editingFreeNodeId.value)) editingFreeNodeId.value = null
-}
-
-function onViewportChange(viewport) {
-  currentViewport.value = { x: viewport.x, y: viewport.y, zoom: viewport.zoom }
-  if (canvasMode.value === 'production') productionViewport.value = { ...currentViewport.value }
-  scheduleLayoutSave()
-}
-
-function syncProductionGraphPositions() {
-  const positions = new Map(
-    nodes.value
-      .filter((node) => node.type !== 'freeCanvas' && !String(node.id).startsWith('free:'))
-      .map((node) => [String(node.id), node.position]),
-  )
-  productionGraph.value = {
-    ...productionGraph.value,
-    nodes: productionGraph.value.nodes.map((node) => (
-      positions.has(String(node.id))
-        ? { ...node, position: { ...positions.get(String(node.id)) } }
-        : node
-    )),
-  }
-}
-
-function onCanvasNodeDragStop(payload = {}) {
-  const changedNodes = Array.isArray(payload.nodes)
-    ? payload.nodes
-    : (payload.node ? [payload.node] : [])
-  const freePositions = new Map(
-    changedNodes
-      .filter((node) => isFreeCanvasNodeId(node.id))
-      .map((node) => [String(node.id), node.position]),
-  )
-  if (freePositions.size) {
-    const nextNodes = freeCanvas.value.nodes.map((node) => (
-      freePositions.has(String(node.id))
-        ? { ...node, position: { ...freePositions.get(String(node.id)) } }
-        : node
-    ))
-    commitFreeCanvasState({ ...freeCanvas.value, nodes: nextNodes }, 'move')
-    return
-  }
-  syncProductionGraphPositions()
-  scheduleLayoutSave()
-}
-
-function onCanvasMoveEnd() {
-  if (canvasMode.value === 'free') {
-    commitFreeCanvasState({
-      ...freeCanvas.value,
-      viewport: currentViewport.value,
-    }, 'viewport')
-    return
-  }
-  productionViewport.value = { ...currentViewport.value }
-  scheduleLayoutSave()
 }
 
 const {
@@ -1996,6 +1705,8 @@ const {
   freeCanvasUiMode,
   safeFreeCanvasError,
 })
+canvasCommandBridge.scheduleLayoutSave = scheduleLayoutSave
+
 
 const {
   workflowOrderSaving,
@@ -2120,6 +1831,71 @@ const {
   freeInspectorBusy,
   freeInspectorAction,
 })
+canvasCommandBridge.resetFreeCanvasClipboard = resetFreeCanvasClipboard
+canvasCommandBridge.finishFreeCanvasNodeEditing = finishFreeCanvasNodeEditing
+
+function currentCanvasProjectId() {
+  const routeProjectId = Number(canvasProjectId.value)
+  const loadedProjectId = Number(drama.value?.id)
+  return routeProjectId > 0 && routeProjectId === loadedProjectId ? routeProjectId : null
+}
+
+function isCanvasProjectCurrent(projectId) {
+  return Number(projectId) > 0
+    && Number(canvasProjectId.value) === Number(projectId)
+    && Number(drama.value?.id) === Number(projectId)
+}
+
+const {
+  fitCanvasView,
+  zoomCanvasIn,
+  zoomCanvasOut,
+  toggleCanvasInteractive,
+  onCanvasNodesInitialized,
+  onSelectionChange,
+  onViewportChange,
+  syncProductionGraphPositions,
+  onCanvasNodeDragStop,
+  onCanvasMoveEnd,
+  onAlignNodes,
+} = useDramaCanvasViewport({
+  canvasFlowApi,
+  canvasMode,
+  canvasInteractive,
+  currentViewport,
+  productionViewport,
+  productionGraph,
+  nodes,
+  freeCanvas,
+  selectedStoryboardIds,
+  selectedFreeNodeId,
+  selectedFreeNodeIds,
+  selectedFreeEdgeIds,
+  editingFreeNodeId,
+  initialFitDone,
+  hasSavedViewport,
+  aligningNodes,
+  drama,
+  filterEpisodeId,
+  workflowGroups,
+  imagesBySbId,
+  videosBySbId,
+  layoutCache,
+  MIN_READABLE_CANVAS_ZOOM,
+  shouldIgnoreEmptyFreeSelection,
+  isFreeCanvasNodeId,
+  scheduleLayoutSave,
+  commitFreeCanvasState,
+  persistCanvasState,
+  setFocusedCanvasNode,
+  currentCanvasProjectId,
+  isCanvasProjectCurrent,
+  routeFocusNodeId,
+  synchronizeRouteFocusedEntity,
+  claimRouteEntityFocus,
+  safeFreeCanvasError,
+})
+
 
 
 const {
@@ -2128,6 +1904,7 @@ const {
   aiGenerateStoryboards: runAiGenerateStoryboards,
   batchGenerateImages: runBatchGenerateImages,
   batchGenerateVideos: runBatchGenerateVideos,
+  abortEpisodeGenerate,
 } = useCanvasEpisodeGenerate({
   drama,
   filterEpisodeId,
@@ -2136,6 +1913,10 @@ const {
   refreshCanvas,
   nodeStatus,
 })
+
+function cancelEpisodeGenerate() {
+  abortEpisodeGenerate()
+}
 
 async function aiGenerateStoryboards() {
   if (canvasMode.value !== 'production') return
@@ -2180,18 +1961,6 @@ async function focusScriptNode() {
   await setFocusedCanvasNode(scriptNodeId(epId))
 }
 
-function currentCanvasProjectId() {
-  const routeProjectId = Number(canvasProjectId.value)
-  const loadedProjectId = Number(drama.value?.id)
-  return routeProjectId > 0 && routeProjectId === loadedProjectId ? routeProjectId : null
-}
-
-function isCanvasProjectCurrent(projectId) {
-  return Number(projectId) > 0
-    && Number(canvasProjectId.value) === Number(projectId)
-    && Number(drama.value?.id) === Number(projectId)
-}
-
 function isActiveWorkflowRun(run) {
   return Boolean(
     run
@@ -2205,257 +1974,38 @@ function isWorkflowAbortError(error) {
   return error?.name === 'AbortError' || error?.code === 'ERR_CANCELED'
 }
 
-async function onAlignNodes() {
-  if (!drama.value || !nodes.value.length || aligningNodes.value) return
-  const requestedProjectId = currentCanvasProjectId()
-  if (!requestedProjectId) return
-  if (canvasMode.value !== 'production') {
-    ElMessage.info('自动对齐用于制作流程节点，请先切换到制作模式')
-    return
-  }
-  if (!await setFocusedCanvasNode(null)) return
-  if (!isCanvasProjectCurrent(requestedProjectId)) return
-  aligningNodes.value = true
-  try {
-    const { positions } = computeAutoLayoutPositions(drama.value, {
-      episodeId: filterEpisodeId.value,
-      workflowGroups: workflowGroups.value,
-      imagesBySbId: imagesBySbId.value,
-      videosBySbId: videosBySbId.value,
-    })
-    nodes.value = nodes.value.map((n) => {
-      const pos = positions[n.id]
-      return pos ? { ...n, position: { x: pos.x, y: pos.y } } : n
-    })
-    syncProductionGraphPositions()
-    layoutCache.value = {
-      version: 1,
-      nodes: { ...positions },
-      viewport: layoutCache.value?.viewport,
-    }
-    await nextTick()
-    if (!isCanvasProjectCurrent(requestedProjectId)) return
-    const flowApi = canvasFlowApi.value
-    if (flowApi?.fitView) {
-      await flowApi.fitView({
-        padding: 0.14,
-        minZoom: MIN_READABLE_CANVAS_ZOOM,
-        maxZoom: 1,
-        duration: 380,
-        includeHiddenNodes: false,
-      })
-      if (!isCanvasProjectCurrent(requestedProjectId)) return
-      await new Promise((r) => setTimeout(r, 400))
-      if (!isCanvasProjectCurrent(requestedProjectId)) return
-      const vp = flowApi.getViewport?.()
-      if (vp) {
-        onViewportChange(vp)
-      }
-    }
-    const saved = await persistCanvasState({ layoutOnly: true })
-    if (!saved.ok || !isCanvasProjectCurrent(requestedProjectId)) return
-    ElMessage.success('节点已按规则对齐并适配当前视图')
-  } catch (e) {
-    if (isCanvasUserAbort(e)) return
-    ElMessage.error(safeFreeCanvasError(e, '对齐失败'))
-  } finally {
-    aligningNodes.value = false
-  }
-}
-
-async function loadDrama(silent = false) {
-  if (!dramaId.value) return
-  if (!silent) loading.value = true
-  try {
-    drama.value = await dramaAPI.get(dramaId.value)
-    layoutCache.value = parseCanvasLayout(drama.value.metadata)
-    syncWorkflowFromDrama()
-    const vp = resolveViewport(layoutCache.value)
-    currentViewport.value = vp
-    filterEpisodeId.value = routeEpisodeId()
-    await loadForDrama(drama.value, filterEpisodeId.value)
-    rebuildGraph()
-  } catch (e) {
-    if (!silent && !isCanvasUserAbort(e)) ElMessage.error(safeFreeCanvasError(e, '加载项目失败'))
-  } finally {
-    if (!silent) loading.value = false
-  }
-}
-
-async function onCreateWorkflowGroup() {
-  if (canvasMode.value !== 'production') return
-  const requestedProjectId = currentCanvasProjectId()
-  if (!requestedProjectId) return
-  if (!selectedStoryboardIds.value.length) {
-    ElMessage.warning('请先框选或 Ctrl 点击选择分镜节点')
-    return
-  }
-  if (!ensureProductionPipelineReady(pipelineSteps.value)) return
-  try {
-    const { value } = await ElMessageBox.prompt('工作流名称', '创建工作流', {
-      confirmButtonText: '创建',
-      cancelButtonText: '取消',
-      inputValue: `工作流 ${workflowGroups.value.length + 1}`,
-    })
-    if (!isCanvasProjectCurrent(requestedProjectId)) return
-    workflowGroups.value = createWorkflowGroup(workflowGroups.value, {
-      title: value?.trim() || undefined,
-      storyboardIds: selectedStoryboardIds.value,
-      pipeline: normalizePipeline(pipelineSteps.value, { allowEmpty: true }),
-    })
-    activeGroupId.value = workflowGroups.value[workflowGroups.value.length - 1]?.id || null
-    const saved = await persistCanvasState({ groupsOnly: true })
-    if (!saved.ok || !isCanvasProjectCurrent(requestedProjectId)) return
-    rebuildGraph()
-    ElMessage.success('工作流已创建')
-  } catch (_) {}
-}
-
-async function onDeleteActiveGroup() {
-  if (canvasMode.value !== 'production') return
-  if (!activeGroupId.value) return
-  const requestedProjectId = currentCanvasProjectId()
-  if (!requestedProjectId) return
-  try {
-    await ElMessageBox.confirm('确定删除该工作流？', '删除工作流', { type: 'warning' })
-    if (!isCanvasProjectCurrent(requestedProjectId)) return
-    workflowGroups.value = deleteWorkflowGroup(workflowGroups.value, activeGroupId.value)
-    activeGroupId.value = workflowGroups.value[0]?.id || null
-    const saved = await persistCanvasState({ groupsOnly: true })
-    if (!saved.ok || !isCanvasProjectCurrent(requestedProjectId)) return
-    rebuildGraph()
-    ElMessage.success('已删除')
-  } catch (_) {}
-}
-
-async function onRunActiveGroup() {
-  if (canvasMode.value !== 'production') return
-  if (workflowRunStarting.value || workflowRunning.value) {
-    ElMessage.warning('工作流正在启动或执行，请等待当前任务完成')
-    return
-  }
-  if (workflowOutcomeUnknown.value) {
-    ElMessage.warning('请先刷新项目状态，确认上一次配音结果后再执行工作流')
-    return
-  }
-  const requestedProjectId = currentCanvasProjectId()
-  if (!requestedProjectId) return
-  const group = workflowGroups.value.find((g) => g.id === activeGroupId.value)
-  if (!group) {
-    ElMessage.warning('请先选择工作流')
-    return
-  }
-  const workflowSteps = activeWorkflowSteps.value
-  if (!ensureProductionPipelineReady(workflowSteps)) return
-  if (pipelineTouchesBillableMedia(workflowSteps) && !ensureKnownStoryboardMedia(group.storyboard_ids || [])) return
-  workflowRunStarting.value = true
-  try {
-    await ElMessageBox.confirm(
-      `将对 ${(group.storyboard_ids || []).length} 个分镜依次执行：${workflowSteps.join(' → ')}\n耗时可能较长，是否继续？`,
-      '整组重跑',
-      { type: 'warning', confirmButtonText: '开始执行' }
-    )
-  } catch {
-    workflowRunStarting.value = false
-    return
-  }
-  if (!isCanvasProjectCurrent(requestedProjectId)) {
-    workflowRunStarting.value = false
-    return
-  }
-
-  workflowRunning.value = true
-  workflowRunStarting.value = false
-  const run = {
-    token: ++workflowRunSequence,
-    projectId: requestedProjectId,
-    controller: new AbortController(),
-  }
-  activeWorkflowRun.value = run
-  workflowProgress.value = '准备执行…'
-  try {
-    const summary = await runWorkflowGroup(drama.value, {
-      ...group,
-      pipeline: workflowSteps,
-    }, {
-      signal: run.controller.signal,
-      stopOnError: true,
-      generationOptions: getCanvasGenerationOptions(),
-      reloadStoryboard: async (storyboardId, requestOptions) => {
-        if (!isActiveWorkflowRun(run)) return null
-        await loadCanvasProject({ blocking: false, preserveOnError: true, requestOptions })
-        if (!isActiveWorkflowRun(run)) return null
-        return findStoryboardInDrama(drama.value, storyboardId)?.storyboard
-      },
-      onStepStart: ({ storyboardId, step }) => {
-        if (!isActiveWorkflowRun(run)) return
-        workflowProgress.value = `分镜 #${storyboardId}：${step === 'image' ? '生图' : step === 'video' ? '生视频' : '配音'}…`
-      },
-      onStoryboardError: ({ storyboardId, error }) => {
-        if (!isActiveWorkflowRun(run)) return
-        ElMessage.error(`分镜 #${storyboardId} 失败：${safeFreeCanvasError(error, '生成失败')}`)
-      },
-    })
-    if (!isActiveWorkflowRun(run)) return
-    await loadCanvasProject({
-      blocking: false,
-      preserveOnError: true,
-      requestOptions: { signal: run.controller.signal, timeout: 15_000 },
-    })
-    if (!isActiveWorkflowRun(run)) return
-    if (summary.failed.length) {
-      ElMessage.warning(`完成 ${summary.ok.length} 镜，失败 ${summary.failed.length} 镜`)
-    } else {
-      ElMessage.success(`工作流执行完成，共 ${summary.ok.length} 镜`)
-    }
-  } catch (e) {
-    if (e?.code === 'SUBMISSION_OUTCOME_UNKNOWN') workflowOutcomeUnknown.value = true
-    if (isActiveWorkflowRun(run) && !isWorkflowAbortError(e)) {
-      ElMessage.error(safeFreeCanvasError(e, '工作流执行失败'))
-    }
-  } finally {
-    if (activeWorkflowRun.value === run) {
-      activeWorkflowRun.value = null
-      workflowRunning.value = false
-      workflowProgress.value = ''
-    }
-  }
-}
-
-async function refreshUnknownWorkflowOutcome() {
-  const loaded = await loadCanvasProject({ blocking: false, preserveOnError: true })
-  if (!loaded) {
-    ElMessage.warning('项目状态仍未刷新，请稍后重试')
-    return
-  }
-  workflowOutcomeUnknown.value = false
-  ElMessage.success('项目状态已刷新，可在确认媒体结果后决定是否重试')
-}
-
-function hasProcessingStoryboards() {
-  for (const ep of drama.value?.episodes || []) {
-    for (const sb of ep.storyboards || []) {
-      if (sb.status === 'processing') return true
-    }
-  }
-  return false
-}
-
-function startStatusPoll() {
-  stopStatusPoll()
-  if (!hasProcessingStoryboards()) return
-  pollTimer = setInterval(() => {
-    if (hasProcessingStoryboards()) loadCanvasProject({ blocking: false, preserveOnError: true })
-    else stopStatusPoll()
-  }, 8000)
-}
-
-function stopStatusPoll() {
-  if (pollTimer) {
-    clearInterval(pollTimer)
-    pollTimer = null
-  }
-}
+const {
+  onCreateWorkflowGroup,
+  onDeleteActiveGroup,
+  onRunActiveGroup,
+  cancelActiveWorkflow,
+  refreshUnknownWorkflowOutcome,
+} = useDramaCanvasWorkflow({
+  canvasMode,
+  selectedStoryboardIds,
+  pipelineSteps,
+  workflowGroups,
+  activeGroupId,
+  ensureProductionPipelineReady,
+  persistCanvasState,
+  rebuildGraph,
+  currentCanvasProjectId,
+  isCanvasProjectCurrent,
+  workflowRunStarting,
+  workflowRunning,
+  workflowOutcomeUnknown,
+  activeWorkflowSteps,
+  pipelineTouchesBillableMedia,
+  ensureKnownStoryboardMedia,
+  drama,
+  activeWorkflowRun,
+  workflowProgress,
+  loadCanvasProject,
+  isActiveWorkflowRun,
+  isWorkflowAbortError,
+  getCanvasGenerationOptions,
+  safeFreeCanvasError,
+})
 
 const projectListReturnTo = computed(() => normalizeProjectListReturnTo(route.query.returnTo))
 
@@ -2497,7 +2047,7 @@ function onNodeDoubleClick({ node }) {
 async function onPaneClick(event) {
   if (paneClickSuppressed.value) return
   const target = event?.event?.target || event?.target
-  if (target?.closest?.('.canvas-node-panel') || target?.closest?.('.canvas-inspector-dock') || target?.closest?.('.el-popper') || target?.closest?.('.canvas-context-menu')) {
+  if (target?.closest?.('.canvas-node-panel') || target?.closest?.('.canvas-inspector-dock') || target?.closest?.('.free-canvas-inspector-dock') || target?.closest?.('.el-popper') || target?.closest?.('.canvas-context-menu')) {
     return
   }
   closeFreeCanvasInspector({ restoreFocus: false })
@@ -2607,12 +2157,13 @@ onBeforeUnmount(() => {
   window.removeEventListener('keydown', handleFreeCanvasKeydown, true)
   activeWorkflowRun.value?.controller?.abort()
   activeWorkflowRun.value = null
+  abortEpisodeGenerate()
   nodeGenerationCoordinator.stopWaiting('画布已关闭，后台任务和供应商计费可能继续')
   if (layoutDirty.value) {
     void persistCanvasState({ layoutOnly: true, reportError: false, allowDuringTeardown: true })
   }
   canvasInstanceActive.value = false
-  canvasLoadRequestId++
+  invalidateCanvasLoads()
   readinessRequestId++
   freeCanvasCapabilityRequestId++
   disposeCanvasPersist()
@@ -2636,469 +2187,7 @@ function safeFreeCanvasError(error, fallback) {
 }
 </script>
 
-<style scoped>
-.drama-canvas-page {
-  --canvas-project-surface: linear-gradient(135deg, rgba(49, 46, 129, 0.55), rgba(24, 24, 27, 0.92));
-  --canvas-episode-surface: rgba(76, 29, 149, 0.35);
-  --canvas-script-surface: rgba(120, 53, 15, 0.35);
-  --canvas-card-surface: var(--bg-card, #18181b);
-  --canvas-node-surface: rgba(24, 24, 27, 0.95);
-  --canvas-add-surface: rgba(24, 24, 27, 0.65);
-  --canvas-add-character-surface: var(--canvas-add-surface);
-  --canvas-add-scene-surface: var(--canvas-add-surface);
-  --canvas-add-prop-surface: var(--canvas-add-surface);
-  --canvas-add-storyboard-surface: var(--canvas-add-surface);
-  --canvas-media-text-surface: var(--canvas-node-surface);
-  --canvas-media-universal-surface: var(--canvas-node-surface);
-  --canvas-media-image-surface: var(--canvas-node-surface);
-  --canvas-media-video-surface: var(--canvas-node-surface);
-  --canvas-media-audio-surface: var(--canvas-node-surface);
-  --canvas-panel-surface: rgba(15, 15, 18, 0.97);
-  --canvas-media-well: #09090b;
-  --canvas-video-well: #000000;
-  --canvas-chip-surface: rgba(255, 255, 255, 0.08);
-  --canvas-chip-surface-soft: rgba(255, 255, 255, 0.06);
-  --canvas-loading-surface: rgba(9, 9, 11, 0.82);
-  --canvas-spinner-track: rgba(255, 255, 255, 0.12);
-  --canvas-overlay-surface: rgba(9, 9, 11, 0.72);
-  --canvas-overlay-text: #e4e4e7;
-  --canvas-project-title: #f4f4f5;
-  --canvas-text-primary: #e4e4e7;
-  --canvas-text-secondary: #d4d4d8;
-  --canvas-text-muted: #a1a1aa;
-  --canvas-text-subtle: #71717a;
-  --canvas-text-faint: #52525b;
-  --canvas-episode-text: #e9d5ff;
-  --canvas-indigo-text: #a5b4fc;
-  --canvas-indigo-strong: #818cf8;
-  --canvas-violet-text: #c4b5fd;
-  --canvas-amber-text: #fcd34d;
-  --canvas-amber-strong: #fbbf24;
-  --canvas-emerald-text: #6ee7b7;
-  --canvas-blue-text: #93c5fd;
-  --canvas-pink-text: #f472b6;
-  --canvas-success-text: #34d399;
-  --canvas-info-text: #60a5fa;
-  --canvas-danger-text: #f87171;
-  --canvas-indigo-border: rgba(129, 140, 248, 0.45);
-  --canvas-violet-border: rgba(167, 139, 250, 0.5);
-  --canvas-amber-border: rgba(251, 191, 36, 0.45);
-  --canvas-emerald-border: rgba(52, 211, 153, 0.45);
-  --canvas-blue-border: rgba(96, 165, 250, 0.45);
-  --canvas-pink-border: rgba(244, 114, 182, 0.45);
-  --canvas-raised-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
-  --canvas-node-focus-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
-  --canvas-project-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
-  --canvas-divider: rgba(63, 63, 70, 0.6);
-  --canvas-divider-strong: rgba(63, 63, 70, 0.8);
-  --canvas-focus-ring: #818cf8;
-  height: 100vh;
-  display: flex;
-  flex-direction: column;
-  background: var(--bg-page, #0f0f12);
-  color: var(--text-primary, #e4e4e7);
-  overflow: hidden;
-}
-
-.header {
-  flex-shrink: 0;
-  border-bottom: 1px solid var(--border-color, #27272a);
-  background: var(--bg-card, #18181b);
-}
-
-.header-inner {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 20px 6px;
-  flex-wrap: wrap;
-}
-
-.canvas-warning-bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 8px 20px 12px;
-  border-top: 1px solid rgba(251, 191, 36, 0.18);
-  color: var(--canvas-amber-text, #fcd34d);
-  font-size: 12px;
-  background: rgba(251, 191, 36, 0.06);
-}
-
-.canvas-warning-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-shrink: 0;
-}
-
-.workflow-bar {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 0 20px 10px;
-  flex-wrap: wrap;
-}
-
-.wf-hint {
-  font-size: 12px;
-  color: var(--text-subtle, #71717a);
-}
-
-.wf-steps {
-  display: flex;
-  gap: 4px;
-}
-
-.workflow-progress {
-  padding: 0 20px 8px;
-  font-size: 12px;
-  color: var(--canvas-info-text);
-}
-
-.workflow-progress.episode-gen {
-  color: var(--canvas-success-text);
-}
-
-.generate-bar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 0 20px 10px;
-  flex-wrap: wrap;
-  border-top: 1px solid rgba(63, 63, 70, 0.35);
-  margin-top: 2px;
-  padding-top: 8px;
-}
-
-.gen-label {
-  font-size: 12px;
-  font-weight: 600;
-  color: #a1a1aa;
-  margin-right: 4px;
-}
-
-.gen-hint {
-  font-size: 11px;
-  color: #52525b;
-  flex: 1;
-  min-width: 200px;
-}
-
-.logo {
-  margin: 0;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-  display: flex;
-  flex-direction: column;
-  line-height: 1.2;
-}
-
-.logo-main {
-  font-size: 15px;
-  font-weight: 700;
-  color: var(--text-bright, #fafafa);
-}
-
-.logo-sub {
-  font-size: 11px;
-  color: var(--canvas-indigo-strong);
-}
-
-.breadcrumb-sep { color: var(--text-faint, #52525b); }
-
-.page-title {
-  font-size: 14px;
-  color: var(--text-muted, #a1a1aa);
-  max-width: 220px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.layout-status { font-size: 12px; }
-.layout-status.saving { color: var(--canvas-info-text); }
-.layout-status.saved { color: var(--canvas-success-text); }
-.layout-status.error { color: var(--canvas-danger-text); }
-.layout-save-error {
-  max-width: 320px;
-  color: var(--canvas-danger-text);
-  font-size: 12px;
-  line-height: 18px;
-  overflow-wrap: anywhere;
-}
-
-.header-actions {
-  margin-left: auto;
-  display: flex;
-  gap: 8px;
-}
-
-.canvas-shell {
-  flex: 1;
-  display: flex;
-  min-height: 0;
-}
-
-.canvas-load-failure {
-  flex: 1;
-  display: grid;
-  place-items: center;
-  padding: 24px;
-}
-
-.canvas-load-failure-card {
-  width: min(520px, 100%);
-  padding: 24px;
-  border-radius: 8px;
-  border: 1px solid var(--canvas-danger-text, #f87171);
-  background: var(--canvas-card-surface, #18181b);
-  box-shadow: var(--canvas-raised-shadow, 0 12px 32px rgba(0, 0, 0, 0.45));
-}
-
-.canvas-load-eyebrow {
-  margin: 0 0 6px;
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--canvas-danger-text, #f87171);
-}
-
-.canvas-load-title {
-  margin: 0 0 10px;
-  font-size: 22px;
-  line-height: 1.2;
-  color: var(--text-bright, #fafafa);
-}
-
-.canvas-load-message,
-.canvas-load-detail {
-  margin: 0;
-  font-size: 14px;
-  line-height: 1.6;
-  color: var(--canvas-text-secondary, #d4d4d8);
-}
-
-.canvas-load-detail {
-  margin-top: 8px;
-  color: var(--canvas-text-muted, #a1a1aa);
-}
-
-.canvas-load-actions {
-  display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
-  margin-top: 18px;
-}
-
-.canvas-sidebar {
-  width: 220px;
-  flex-shrink: 0;
-  border-right: 1px solid var(--border-color, #27272a);
-  background: var(--bg-card, #18181b);
-  padding: 14px 12px;
-  overflow-y: auto;
-}
-
-.sidebar-title {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  font-size: 13px;
-  font-weight: 700;
-  margin-bottom: 12px;
-  color: var(--text-bright, #fafafa);
-}
-
-.sidebar-section { margin-bottom: 14px; }
-.sidebar-script {
-  padding-bottom: 12px;
-  margin-bottom: 12px;
-  border-bottom: 1px solid var(--border-color, #27272a);
-}
-
-.sec-label {
-  font-size: 11px;
-  color: var(--text-subtle, #71717a);
-  margin-bottom: 6px;
-}
-
-.sec-label-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.sidebar-item {
-  width: 100%;
-  border: 0;
-  background: transparent;
-  font: inherit;
-  text-align: left;
-  font-size: 12px;
-  padding: 6px 8px;
-  border-radius: 6px;
-  color: var(--text-primary, #e4e4e7);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  cursor: pointer;
-  transition: background 0.15s;
-}
-.sidebar-item:hover { background: rgba(129, 140, 248, 0.12); }
-.sidebar-item:focus-visible { outline: 2px solid var(--canvas-indigo-strong); outline-offset: 1px; }
-.sidebar-item.active { background: rgba(52, 211, 153, 0.16); color: var(--canvas-emerald-text); }
-
-.workflow-item { white-space: normal; }
-.wf-item-title { font-weight: 600; }
-.wf-item-meta { font-size: 10px; color: var(--text-faint, #52525b); margin-top: 2px; }
-.sidebar-empty { font-size: 11px; color: var(--text-faint, #52525b); padding: 4px 0; }
-
-
-.canvas-main {
-  flex: 1;
-  min-width: 0;
-  min-height: 0;
-  height: 100%;
-  position: relative;
-  transition: margin-right 0.2s ease;
-}
-.drama-canvas-page.inspector-open .canvas-main {
-  margin-right: 480px;
-}
-.drama-canvas-page.free-inspector-open .canvas-main {
-  margin-right: 380px;
-}
-.free-canvas-inspector-dock {
-  position: fixed;
-  top: 150px;
-  right: 20px;
-  z-index: 1200;
-  width: min(340px, calc(100vw - 32px));
-  max-height: min(680px, calc(100vh - 174px));
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  scrollbar-gutter: stable;
-}
-.free-canvas-bottom-toolbar {
-  position: absolute;
-  left: 50%;
-  bottom: 16px;
-  z-index: 1100;
-  max-width: min(720px, calc(100% - 160px));
-  transform: translateX(-50%);
-  overflow-x: auto;
-  box-shadow: var(--canvas-raised-shadow, 0 12px 32px rgba(0, 0, 0, 0.45));
-}
-.free-canvas-empty-state {
-  position: absolute;
-  inset: 22% 24px auto;
-  z-index: 1050;
-  display: grid;
-  justify-items: center;
-  gap: 14px;
-  color: var(--canvas-text-primary);
-  text-align: center;
-  pointer-events: none;
-}
-.free-canvas-empty-state h2 {
-  margin: 0;
-  font-size: 18px;
-  line-height: 24px;
-}
-.free-canvas-empty-state p {
-  margin: 0;
-  max-width: 420px;
-  font-size: 13px;
-  line-height: 1.6;
-  color: var(--canvas-text-muted, #a1a1aa);
-}
-.free-canvas-empty-actions {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 8px;
-  pointer-events: auto;
-}
-.drama-canvas-page.free-mode :deep(.vue-flow__node:not(.vue-flow__node-freeCanvas)) {
-  opacity: 0.16;
-  filter: grayscale(0.85);
-  pointer-events: none;
-}
-
-.drama-canvas-page.free-mode :deep(.vue-flow__node-freeCanvas) {
-  overflow: visible;
-}
-.logo:focus-visible { outline: 2px solid var(--canvas-indigo-strong); outline-offset: 4px; }
-
-.vue-flow-canvas {
-  width: 100%;
-  height: 100%;
-  background: #0c0c0f;
-}
-
-:deep(.vue-flow__minimap) {
-  right: 16px;
-  bottom: 92px;
-  background: rgba(24, 24, 27, 0.92);
-  border: 1px solid #3f3f46;
-}
-
-:deep(.vue-flow__controls) {
-  box-shadow: none;
-  border: 1px solid #3f3f46;
-}
-
-.drama-canvas-page.free-mode :deep(.vue-flow__controls) {
-  left: 16px;
-  bottom: 76px;
-}
-
-:deep(.vue-flow__controls button) {
-  background: #18181b;
-  border-color: #3f3f46;
-  color: var(--canvas-text-primary);
-}
-:deep(.vue-flow__controls button:focus-visible) {
-  position: relative;
-  z-index: 1;
-  outline: 3px solid var(--canvas-focus-ring);
-  outline-offset: 2px;
-}
-
-:deep(.vue-flow__node.selected) {
-  box-shadow: 0 0 0 2px rgba(129, 140, 248, 0.8);
-}
-
-@media (max-width: 1100px) {
-  .drama-canvas-page.inspector-open .canvas-main,
-  .drama-canvas-page.free-inspector-open .canvas-main {
-    margin-right: 0;
-  }
-  .drama-canvas-page.free-inspector-open :deep(.vue-flow__minimap) {
-    display: none;
-  }
-  .free-canvas-bottom-toolbar {
-    max-width: calc(100% - 24px);
-  }
-}
-@media (max-width: 760px) {
-  .free-canvas-inspector-dock {
-    top: 104px;
-    right: 16px;
-    width: calc(100vw - 32px);
-    max-height: min(620px, calc(100vh - 120px));
-  }
-  .drama-canvas-page.free-mode :deep(.vue-flow__minimap) {
-    display: none;
-  }
-}
-</style>
+<style scoped src="./DramaCanvas.css"></style>
 
 <style>
 html.light .drama-canvas-page {

@@ -6,9 +6,11 @@
         <div class="section-subtitle">素材导入 / 制作流程 / 质量检查 / 时间线</div>
       </div>
       <div class="head-actions">
-        <el-button size="small" :loading="loading" :disabled="isWorkflowLaunchBusy || workflowActionBusy" @click="loadData">
-          {{ loading ? '正在刷新' : '刷新' }}
-        </el-button>
+        <ActionGate label="刷新" :reason="refreshBusyReason">
+          <el-button size="small" :loading="loading" :disabled="Boolean(refreshBusyReason)" @click="loadData">
+            {{ loading ? '正在刷新' : '刷新' }}
+          </el-button>
+        </ActionGate>
       </div>
     </div>
 
@@ -113,6 +115,7 @@
             <el-radio-button value="draft">草稿预演</el-radio-button>
             <el-radio-button value="production">正式制作</el-radio-button>
           </el-radio-group>
+          <p v-if="isWorkflowLaunchBusy" class="action-reason">{{ sourceUploadBusyReason }}</p>
           <p>{{ workflowModeDescription }}</p>
 
           <div
@@ -193,12 +196,16 @@
                     aria-hidden="true"
                     @change="handleSourceFile"
                   />
-                  <el-button size="small" :loading="sourceFileReading" :disabled="sourceUploadBusy" @click="sourceFileInput?.click()">选择文件</el-button>
-                  <el-button v-if="sourceFile" size="small" link type="danger" :disabled="sourceUploadBusy" @click="clearSelectedFile">移除</el-button>
-                  <span class="file-name">{{ selectedFilename || '支持 txt、md、csv、tsv、srt、vtt、ass、json，单文件最大 20MB' }}</span>
+                  <ActionGate label="选择故事素材文件" :reason="sourceUploadBusyReason">
+                    <el-button size="small" :loading="sourceFileReading" :disabled="Boolean(sourceUploadBusyReason)" aria-label="选择故事素材文件" @click="sourceFileInput?.click()">选择文件</el-button>
+                  </ActionGate>
+                  <ActionGate v-if="sourceFile" label="移除已选文件" :reason="sourceUploadBusyReason">
+                    <el-button size="small" link type="danger" :disabled="Boolean(sourceUploadBusyReason)" @click="clearSelectedFile">移除</el-button>
+                  </ActionGate>
+                  <span class="file-name">{{ selectedFilename || '支持文本、PDF、图片、音频和视频，单文件最大 20MB' }}</span>
                 </div>
                 <div class="field-help">
-                  文本：txt、md、csv、tsv、srt、vtt、ass、json 可直接导入。PDF、图片、音频和视频暂不支持自动抽取，请改为导入文本或网页。
+                  {{ SOURCE_INTAKE_MEDIA_HELP }}
                 </div>
                 <div v-if="sourceOperationStatus" class="source-operation-status" role="status" aria-live="polite">
                   {{ sourceOperationStatus }}
@@ -213,16 +220,18 @@
                   aria-live="assertive"
                 >
                   <span>{{ sourceListRefreshError }}</span>
-                  <el-button
-                    size="small"
-                    type="primary"
-                    plain
-                    :loading="sourceListRefreshing"
-                    :disabled="sourceSaving || sourceFileReading || isWorkflowLaunchBusy"
-                    @click="refreshImportedSources"
-                  >
-                    刷新列表
-                  </el-button>
+                  <ActionGate label="刷新列表" :reason="sourceListRetryReason">
+                    <el-button
+                      size="small"
+                      type="primary"
+                      plain
+                      :loading="sourceListRefreshing"
+                      :disabled="Boolean(sourceListRetryReason)"
+                      @click="refreshImportedSources"
+                    >
+                      刷新列表
+                    </el-button>
+                  </ActionGate>
                 </div>
               </el-form-item>
 
@@ -238,17 +247,16 @@
 
               <div class="action-row">
                 <ActionGate label="导入故事素材" :reason="actionReasons.import">
-                    <el-button :loading="sourceSaving" :disabled="Boolean(actionReasons.import) || sourceUploadBusy" @click="importSourceOnly">
+                    <el-button :loading="sourceSaving" :disabled="Boolean(actionReasons.import)" @click="importSourceOnly">
                       导入故事素材
                     </el-button>
                 </ActionGate>
                 <ActionGate :label="`导入并启动 ${workflowModeShortLabel}`" :reason="actionReasons.start">
-                    <el-button type="primary" :loading="workflowStarting && !startingSourceId" :disabled="Boolean(actionReasons.start) || sourceUploadBusy" @click="startWorkflow">
+                    <el-button type="primary" :loading="workflowStarting && !startingSourceId" :disabled="Boolean(actionReasons.start)" @click="startWorkflow">
                       {{ workflowStartButtonLabel }}
                     </el-button>
                 </ActionGate>
               </div>
-              <div v-if="actionReasons.start" class="action-reason">{{ actionReasons.start }}</div>
             </el-form>
 
             <div class="status-block source-records-block">
@@ -259,6 +267,7 @@
               <div v-if="flowState.sourceEmptyState" class="empty-stage-state">
                 <strong>{{ flowState.sourceEmptyState.title }}</strong>
                 <p>{{ flowState.sourceEmptyState.description }}</p>
+                <p class="empty-stage-hint">可用上方「导入故事素材」或「导入并启动{{ workflowModeShortLabel }}」保存后，记录会显示在这里。</p>
               </div>
               <div v-else class="mini-list">
                 <div v-for="source in sources" :key="source.id" class="mini-item">
@@ -270,13 +279,13 @@
                   </span>
                   <span class="mini-actions">
                     <el-tag size="small" effect="plain">{{ sourceTypeLabel(source.source_type) }}</el-tag>
-                    <ActionGate :label="`以 ${workflowModeShortLabel} 启动`" :reason="newWorkflowRunReason">
+                    <ActionGate :label="`以 ${workflowModeShortLabel} 启动`" :reason="existingSourceLaunchReason">
                       <el-button
                         size="small"
                         link
                         type="primary"
                         :loading="startingSourceId === source.id"
-                        :disabled="Boolean(newWorkflowRunReason) || isWorkflowLaunchBusy"
+                        :disabled="Boolean(existingSourceLaunchReason)"
                         @click="startExistingSource(source)"
                       >
                         以 {{ workflowModeShortLabel }} 启动
@@ -378,11 +387,11 @@
                 </ActionGate>
               </div>
               <div v-if="canRestartFromLatestSource" class="action-row compact">
-                <ActionGate :label="`重新启动${workflowModeShortLabel}`" :reason="newWorkflowRunReason">
+                <ActionGate :label="`重新启动${workflowModeShortLabel}`" :reason="existingSourceLaunchReason">
                   <el-button
                     type="primary"
                     :loading="startingSourceId === sources[0].id"
-                    :disabled="Boolean(newWorkflowRunReason) || isWorkflowLaunchBusy"
+                    :disabled="Boolean(existingSourceLaunchReason)"
                     @click="startExistingSource(sources[0])"
                   >
                     {{ startingSourceId === sources[0].id ? '正在重新启动' : `重新启动${workflowModeShortLabel}` }}
@@ -393,13 +402,16 @@
 
             <div v-else-if="sources.length > 0" class="stage-empty stage-empty--actionable">
               <span>已有 {{ sources.length }} 份素材，选择最近导入的素材开始处理。</span>
-              <ActionGate :label="`以 ${workflowModeShortLabel} 启动`" :reason="newWorkflowRunReason">
-                <el-button type="primary" :loading="startingSourceId === sources[0].id" :disabled="Boolean(newWorkflowRunReason) || isWorkflowLaunchBusy" @click="startExistingSource(sources[0])">
+              <ActionGate :label="`以 ${workflowModeShortLabel} 启动`" :reason="existingSourceLaunchReason">
+                <el-button type="primary" :loading="startingSourceId === sources[0].id" :disabled="Boolean(existingSourceLaunchReason)" @click="startExistingSource(sources[0])">
                   以 {{ workflowModeShortLabel }} 启动
                 </el-button>
               </ActionGate>
             </div>
-            <div v-else class="stage-empty">请先在“导入素材”步骤添加故事素材。</div>
+            <div v-else class="stage-empty stage-empty--actionable">
+              <span>还没有可处理的故事素材。请先在「导入素材」步骤添加网页、文件或文本。</span>
+              <el-button type="primary" plain @click="selectFlowStep('intake')">去导入素材</el-button>
+            </div>
           </div>
         </template>
 
@@ -431,11 +443,12 @@
               <div class="qa-line" :class="{ passed: latestQa.passed }">
                 {{ qaPresentation.statusLabel }} / {{ latestQa.issueCount }} 个问题
               </div>
-              <div class="qa-issues">
-                <div v-for="issue in latestQa.issues.slice(0, 3)" :key="issue.code + issue.message" class="qa-issue">
+              <div v-if="displayedQaIssues.length" class="qa-issues">
+                <div v-for="issue in displayedQaIssues" :key="issue.code + issue.message" class="qa-issue">
                   {{ issue.message }}
                 </div>
               </div>
+              <div v-else-if="latestQa.issueCount" class="stage-empty">检查结果已记录，暂无可以展示的说明。</div>
 
               <details class="qa-detail">
                 <summary>完整 QA 明细</summary>
@@ -444,12 +457,15 @@
                   {{ qaCheckLabel(check.key) }}：{{ check.passed ? '通过' : '未通过' }}
                 </div>
                 <div class="qa-detail-title">建议</div>
-                <div v-for="item in latestQa.recommendations" :key="item" class="qa-issue">
-                  {{ item }}
+                <div v-if="displayedQaRecommendations.length">
+                  <div v-for="item in displayedQaRecommendations" :key="item" class="qa-issue">
+                    {{ item }}
+                  </div>
                 </div>
+                <div v-else class="stage-empty">暂无可以展示的修复建议。</div>
               </details>
             </template>
-            <div v-else class="stage-empty">等待当前运行 QA。流程完成后执行 QA，问题和建议会显示在这里。</div>
+            <div v-else class="stage-empty">还没有 QA 结果。完成处理后点击「执行 QA 审计」，问题和建议会显示在这里。</div>
           </div>
         </template>
 
@@ -483,7 +499,10 @@
               </div>
             </div>
             <div v-else-if="latestQa.passed" class="stage-success">QA 已通过，不需要修复。</div>
-            <div v-else class="stage-empty">先执行 QA，这里才会出现自动修复建议。</div>
+            <div v-else class="stage-empty stage-empty--actionable">
+              <span>还没有可自动修复的建议。请先执行 QA 审计。</span>
+              <el-button type="primary" plain @click="selectFlowStep('qa')">去执行 QA</el-button>
+            </div>
           </div>
         </template>
 
@@ -520,38 +539,47 @@
     </div>
 
     <el-drawer v-model="sourceDetailVisible" title="素材详情" size="46%">
-      <div v-if="sourceDetailLoading" class="empty-line">加载中...</div>
+      <div v-if="sourceDetailLoading" class="empty-line">加载中…</div>
       <template v-else-if="sourceDetail">
         <div class="detail-meta">
           <div><strong>{{ sourceDetail.source.title }}</strong></div>
           <div>{{ sourceTypeLabel(sourceDetail.source.source_type) }} / {{ formatTime(sourceDetail.source.created_at) }}</div>
-          <div>素材片段 {{ sourceDetail.items.length }} / 故事事件 {{ sourceDetail.events.length }} / 事件关系 {{ sourceDetail.event_edges.length }}</div>
+          <div>素材片段 {{ sourceDetail.items?.length || 0 }} / 故事事件 {{ sourceDetail.events?.length || 0 }} / 事件关系 {{ sourceDetail.event_edges?.length || 0 }}</div>
         </div>
 
         <div class="detail-section">
           <div class="detail-title">素材片段</div>
-          <div v-for="item in sourceDetail.items" :key="item.id" class="detail-row">
-            <strong>#{{ item.item_no }} {{ item.title }}</strong>
-            <p>{{ item.summary }}</p>
+          <div v-if="sourceDetail.items?.length">
+            <div v-for="item in sourceDetail.items" :key="item.id" class="detail-row">
+              <strong>#{{ item.item_no }} {{ item.title }}</strong>
+              <p>{{ item.summary }}</p>
+            </div>
           </div>
+          <div v-else class="empty-line">暂无素材片段</div>
         </div>
 
         <div class="detail-section">
           <div class="detail-title">故事事件</div>
-          <div v-for="event in sourceDetail.events" :key="event.id" class="detail-row">
-            <strong>#{{ event.event_no }} {{ event.title }}</strong>
-            <p>{{ event.detail }}</p>
+          <div v-if="sourceDetail.events?.length">
+            <div v-for="event in sourceDetail.events" :key="event.id" class="detail-row">
+              <strong>#{{ event.event_no }} {{ event.title }}</strong>
+              <p>{{ event.detail }}</p>
+            </div>
           </div>
+          <div v-else class="empty-line">暂无故事事件</div>
         </div>
 
         <div class="detail-section">
           <div class="detail-title">事件关系</div>
-          <div v-for="edge in sourceDetail.event_edges" :key="edge.id" class="detail-row compact-row">
-            {{ sourceRelationLabel(edge.relation_type) }}：{{ sourceEventLabel(edge.from_event_id) }} → {{ sourceEventLabel(edge.to_event_id) }}
+          <div v-if="sourceDetail.event_edges?.length">
+            <div v-for="edge in sourceDetail.event_edges" :key="edge.id" class="detail-row compact-row">
+              {{ sourceRelationLabel(edge.relation_type) }}：{{ sourceEventLabel(edge.from_event_id) }} → {{ sourceEventLabel(edge.to_event_id) }}
+            </div>
           </div>
+          <div v-else class="empty-line">暂无事件关系</div>
         </div>
       </template>
-      <div v-else class="empty-line">未找到素材详情</div>
+      <div v-else class="empty-line">未找到素材详情，请稍后重试。</div>
     </el-drawer>
   </section>
 </template>
@@ -595,9 +623,11 @@ import {
 } from '@/utils/workflowRunStatus'
 import { buildQaPresentation, normalizeQaReport, qaCheckLabel } from '@/utils/qaReport'
 import { formatDuration, normalizeTimelineSummary, timelineTrackTypeLabel } from '@/utils/timelineSummary'
-import { describeServiceLoadError } from '@/utils/requestError'
+import { toUserFacingError, isUserFacingAbort } from '@/utils/userFacingError'
 import {
-  SOURCE_AUTO_EXTRACTION_UNSUPPORTED_MESSAGE,
+  SOURCE_FILE_FORMAT_UNSUPPORTED_MESSAGE,
+  SOURCE_INTAKE_MEDIA_HELP,
+  SOURCE_MEDIA_URL_UPLOAD_HINT,
   SOURCE_WORKFLOW_CANCEL_REASON,
   SOURCE_WORKFLOW_PAUSE_REASON,
   buildSourceWorkflowState,
@@ -608,6 +638,7 @@ import {
   localizeSourceIntakeFailure,
   resolveInspectedWorkflowStep,
   selectInspectedWorkflowStep,
+  sourceFileExtension,
 } from '@/utils/sourceWorkflowState'
 import {
   DEFAULT_WORKFLOW_MODE,
@@ -622,6 +653,10 @@ import { projectRouteInstanceKey } from '@/utils/projectListRoute'
 const MAX_SOURCE_FILE_BYTES = 20 * 1024 * 1024
 const SOURCE_FILE_EXTENSIONS = Object.freeze([
   '.txt', '.md', '.csv', '.tsv', '.srt', '.vtt', '.ass', '.json',
+  '.pdf',
+  '.png', '.jpg', '.jpeg', '.webp', '.gif',
+  '.mp3', '.wav', '.m4a', '.aac', '.flac', '.ogg', '.oga',
+  '.mp4', '.mov', '.mkv', '.avi', '.webm', '.ogv',
 ])
 const SOURCE_FILE_ACCEPT = SOURCE_FILE_EXTENSIONS.join(',')
 const SOURCE_FILE_EXTENSION_SET = new Set(SOURCE_FILE_EXTENSIONS)
@@ -643,15 +678,25 @@ const qaReportsAPI = sourceWorkflowLifecycle.guardApi(rawQaReportsAPI)
 const timelinesAPI = sourceWorkflowLifecycle.guardApi(rawTimelinesAPI)
 
 function showWorkflowMessage(type, message) {
-  return sourceWorkflowLifecycle.run(() => ElMessage[type](message))
+  const text = String(message || '').trim()
+  if (!text) return
+  return sourceWorkflowLifecycle.run(() => ElMessage[type](text))
 }
 
 function sourceIntakeFailureMessage(error, fallback = '导入失败') {
-  return localizeSourceIntakeFailure(error, {
+  if (isUserFacingAbort(error)) return ''
+  const localized = localizeSourceIntakeFailure(error, {
     file: sourceFile.value,
     filename: selectedFilename.value,
     sourceUrl: rawSourceUrl.value,
-  }) || fallback
+  })
+  const raw = String(error?.message || error || '').trim()
+  if (localized && localized !== raw) return toUserFacingError(localized, fallback)
+  return toUserFacingError(error, fallback)
+}
+
+function qaIssueDisplayMessage(message) {
+  return toUserFacingError(message, '该项检查未通过')
 }
 
 function emitRefresh() {
@@ -711,7 +756,7 @@ const rawSourceUrl = computed(() => String(form.source_url || '').trim())
 const sourceUrlValidationMessage = computed(() => {
   if (!rawSourceUrl.value) return ''
   if (!isValidHttpSourceUrl(rawSourceUrl.value)) return '请输入完整的 http:// 或 https:// 网页地址。'
-  if (isDeferredAutoExtractionSource(rawSourceUrl.value)) return SOURCE_AUTO_EXTRACTION_UNSUPPORTED_MESSAGE
+  if (isDeferredAutoExtractionSource(rawSourceUrl.value)) return SOURCE_MEDIA_URL_UPLOAD_HINT
   return ''
 })
 const hasWebSourceUrl = computed(() => Boolean(rawSourceUrl.value) && !sourceUrlValidationMessage.value)
@@ -726,9 +771,6 @@ const sourceOperationActive = computed(() => Boolean(
   || readinessChecking.value,
 ))
 const workflowActionBusy = computed(() => retrying.value || pausing.value || resuming.value || cancelling.value)
-const sourceUploadBusy = computed(() => (
-  sourceFileReading.value || sourceSaving.value || sourceListRefreshing.value || isWorkflowLaunchBusy.value
-))
 const workflowModeShortLabel = computed(() => workflowMode.value === 'production' ? '正式制作' : '草稿预演')
 const workflowModeDescription = computed(() => workflowMode.value === 'production'
   ? '调用正式 AI 服务生成可交付媒体，并在本机完成成片合成。启动前会检查全部制作能力。'
@@ -737,6 +779,21 @@ const workflowStartButtonLabel = computed(() => {
   if (readinessChecking.value) return '正在检查正式制作条件'
   if (workflowStarting.value) return `正在启动 ${workflowModeShortLabel.value}`
   return `导入并启动 ${workflowModeShortLabel.value}`
+})
+const sourceUploadBusyReason = computed(() => {
+  if (sourceFileReading.value) return '正在读取素材文件，请稍候。'
+  if (sourceSaving.value) return '正在保存素材，请稍候。'
+  if (sourceListRefreshing.value) return '正在刷新素材列表，请稍候。'
+  if (readinessChecking.value) return '正在检查正式制作能力，请稍候。'
+  if (workflowStarting.value) return `正在启动 ${workflowModeShortLabel.value}，请稍候。`
+  return ''
+})
+const sourceListRetryReason = computed(() => {
+  if (sourceFileReading.value) return '正在读取素材文件，请稍候。'
+  if (sourceSaving.value) return '正在保存素材，请稍候。'
+  if (readinessChecking.value) return '正在检查正式制作能力，请稍候。'
+  if (workflowStarting.value) return `正在启动 ${workflowModeShortLabel.value}，请稍候。`
+  return ''
 })
 const sourceOperationStatus = computed(() => {
   if (readinessChecking.value) return '正在检查正式制作所需的文本、图像、视频、配音与本地合成能力…'
@@ -748,9 +805,13 @@ const sourceOperationStatus = computed(() => {
   return sourceOperationMessage.value
 })
 const runState = computed(() => normalizeWorkflowRun(selectedRun.value))
-const displayedRunError = computed(() => localizeSourceIntakeFailure(
-  runState.value.failedStep?.error || selectedRun.value?.error || '',
-))
+const displayedRunError = computed(() => {
+  const localized = localizeSourceIntakeFailure(
+    runState.value.failedStep?.error || selectedRun.value?.error || '',
+  )
+  if (!localized) return ''
+  return toUserFacingError(localized, '处理失败，请稍后重试。')
+})
 const productionLaunchReason = computed(() => {
   if (workflowMode.value !== 'production') return ''
   if (readinessChecking.value) return '正在检查正式制作能力'
@@ -770,6 +831,20 @@ const timelineSummary = computed(() => normalizeTimelineSummary(timeline.value))
 const latestQa = computed(() => normalizeQaReport(
   selectQaReportForRun(reports.value, selectedRun.value?.id),
 ))
+const displayedQaIssues = computed(() => (
+  latestQa.value.issues
+    .map((issue) => {
+      const message = qaIssueDisplayMessage(issue?.message)
+      return message ? { code: issue?.code || message, message } : null
+    })
+    .filter(Boolean)
+    .slice(0, 3)
+))
+const displayedQaRecommendations = computed(() => (
+  latestQa.value.recommendations
+    .map((item) => toUserFacingError(item, ''))
+    .filter(Boolean)
+))
 const qaPresentation = computed(() => buildQaPresentation(latestQa.value, runState.value.mode))
 const baseActionReasons = computed(() => getSourceWorkflowActionReasons({
   hasSourceInput: hasSourceInput.value,
@@ -785,6 +860,12 @@ const actionReasons = computed(() => {
     import: sourceUrlValidationMessage.value || baseActionReasons.value.import,
     start: sourceUrlValidationMessage.value || baseActionReasons.value.start || productionLaunchReason.value,
   }
+  if (sourceUploadBusyReason.value) {
+    reasons.import = reasons.import || sourceUploadBusyReason.value
+    reasons.start = reasons.start || sourceUploadBusyReason.value
+  }
+  if (qaRunning.value) reasons.qa = reasons.qa || '正在执行 QA 审计，请稍候。'
+  if (remediating.value) reasons.remediate = reasons.remediate || '正在启动自动修复，请稍候。'
   if (sourceRefreshRecoveryReason.value) {
     reasons.import = sourceRefreshRecoveryReason.value
     reasons.start = sourceRefreshRecoveryReason.value
@@ -803,6 +884,14 @@ const controlActionReasons = computed(() => ({
   resume: actionReasons.value.resume || workflowBusyReason.value,
   cancel: actionReasons.value.cancel || workflowBusyReason.value,
 }))
+const existingSourceLaunchReason = computed(() => (
+  newWorkflowRunReason.value || sourceUploadBusyReason.value
+))
+const refreshBusyReason = computed(() => {
+  if (readinessChecking.value) return '正在检查正式制作能力，请稍候。'
+  if (workflowStarting.value) return `正在启动 ${workflowModeShortLabel.value}，请稍候。`
+  return workflowBusyReason.value
+})
 const canRestartFromLatestSource = computed(() => (
   sources.value.length > 0
   && Boolean(selectedRun.value)
@@ -839,8 +928,10 @@ const sourceImportController = createSourceImportController({
     showWorkflowMessage('success', '素材已导入')
   },
   onCreateFailed: (error) => {
-    sourceOperationError.value = sourceIntakeFailureMessage(error, '导入失败')
-    showWorkflowMessage('error', sourceOperationError.value)
+    const message = sourceIntakeFailureMessage(error, '导入失败')
+    if (!message) return
+    sourceOperationError.value = message
+    showWorkflowMessage('error', message)
   },
   setRefreshAlert: (message) => { sourceListRefreshError.value = message },
   emitRefresh,
@@ -968,7 +1059,7 @@ const runProgressStatus = computed(() => {
 })
 const pollStatusMessage = computed(() => {
   if (!selectedRun.value?.id) return ''
-  if (pollState.value === 'recovering') return '正在恢复处理状态轮询...'
+  if (pollState.value === 'recovering') return '正在恢复处理状态轮询…'
   if (pollState.value === 'error') return pollError.value || '处理状态刷新失败，自动轮询已暂停。'
   if (pollState.value === 'polling' && runState.value.active) return '正在自动轮询处理状态。'
   return ''
@@ -1095,17 +1186,10 @@ async function handleSourceFile(event) {
   if (!file) return
   sourceOperationMessage.value = ''
   sourceOperationError.value = ''
-  const extensionIndex = file.name.lastIndexOf('.')
-  const extension = extensionIndex >= 0 ? file.name.slice(extensionIndex).toLowerCase() : ''
-  if (isDeferredAutoExtractionSource(file)) {
-    clearSelectedFile()
-    sourceOperationError.value = SOURCE_AUTO_EXTRACTION_UNSUPPORTED_MESSAGE
-    showWorkflowMessage('warning', sourceOperationError.value)
-    return
-  }
+  const extension = sourceFileExtension(file.name)
   if (!SOURCE_FILE_EXTENSION_SET.has(extension)) {
     clearSelectedFile()
-    sourceOperationError.value = '不支持此文件格式。请选择 txt、md、csv、tsv、srt、vtt、ass 或 json。'
+    sourceOperationError.value = SOURCE_FILE_FORMAT_UNSUPPORTED_MESSAGE
     showWorkflowMessage('warning', sourceOperationError.value)
     return
   }
@@ -1126,19 +1210,22 @@ async function handleSourceFile(event) {
   if (!form.title) form.title = file.name.replace(/\.[^.]+$/, '')
   const inferredType = inferSourceTypeFromFilename(file.name)
   if (inferredType && !form.source_type) form.source_type = inferredType
-  if (TEXT_SOURCE_FILE_EXTENSIONS.has(extension) && file.size <= 2 * 1024 * 1024) {
+  const mime = String(file.type || '').toLowerCase()
+  const looksLikeBinaryMedia = mime === 'application/pdf' || mime.startsWith('image/') || mime.startsWith('audio/') || mime.startsWith('video/')
+  if (TEXT_SOURCE_FILE_EXTENSIONS.has(extension) && file.size <= 2 * 1024 * 1024 && !looksLikeBinaryMedia) {
     sourceFileReading.value = true
     try {
       form.text = await file.text()
     } catch (error) {
       clearSelectedFile()
-      sourceOperationError.value = error?.message || '读取文本文件失败，请重新选择。'
+      if (isUserFacingAbort(error)) return
+      sourceOperationError.value = toUserFacingError(error, '读取文本文件失败，请重新选择。')
       showWorkflowMessage('error', sourceOperationError.value)
       return
     } finally {
       sourceFileReading.value = false
     }
-  } else if (TEXT_SOURCE_FILE_EXTENSIONS.has(extension)) {
+  } else {
     form.text = ''
   }
   sourceOperationMessage.value = `${file.name} 已选择，导入时将上传并解析。`
@@ -1160,12 +1247,11 @@ async function refreshSelectedRun() {
       emitRefresh()
     }
   } catch (error) {
-    if (shouldIgnoreSourceWorkflowPollError(error, sourceWorkflowLifecycle)) return
+    if (shouldIgnoreSourceWorkflowPollError(error, sourceWorkflowLifecycle) || isUserFacingAbort(error)) return
     stopPoll()
     pollState.value = 'error'
-    pollError.value = describeServiceLoadError(error, {
+    pollError.value = toUserFacingError(error, '处理状态刷新失败，自动轮询已暂停。', {
       serviceLabel: '处理状态',
-      fallback: '处理状态刷新失败，自动轮询已暂停。',
     })
   }
 }
@@ -1187,14 +1273,13 @@ async function resumePolling() {
     if (!sourceWorkflowLifecycle.isActive()) return
     emitRefresh()
   } catch (error) {
-    if (shouldIgnoreSourceWorkflowPollError(error, sourceWorkflowLifecycle)) {
+    if (shouldIgnoreSourceWorkflowPollError(error, sourceWorkflowLifecycle) || isUserFacingAbort(error)) {
       if (sourceWorkflowLifecycle.isActive()) startPoll()
       return
     }
     pollState.value = 'error'
-    pollError.value = describeServiceLoadError(error, {
+    pollError.value = toUserFacingError(error, '恢复轮询失败，请重试。', {
       serviceLabel: '处理状态',
-      fallback: '恢复轮询失败，请重试。',
     })
   }
 }
@@ -1271,12 +1356,11 @@ async function loadData() {
   try {
     return await refreshWorkflowSnapshot()
   } catch (e) {
-    if (shouldIgnoreSourceWorkflowPollError(e, sourceWorkflowLifecycle)) {
+    if (shouldIgnoreSourceWorkflowPollError(e, sourceWorkflowLifecycle) || isUserFacingAbort(e)) {
       return { status: 'ignored', error: e }
     }
-    workflowDataError.value = describeServiceLoadError(e, {
+    workflowDataError.value = toUserFacingError(e, '加载素材流程状态失败，请稍后重试。', {
       serviceLabel: '素材流程',
-      fallback: '加载素材流程状态失败，请稍后重试。',
     })
     return { status: 'failed', error: e }
   } finally {
@@ -1300,15 +1384,9 @@ async function createSourceFromForm() {
     throw new Error(sourceUrlValidationMessage.value)
   }
   if (sourceFile.value) {
-    if (isDeferredAutoExtractionSource(sourceFile.value)) {
-      throw new Error(SOURCE_AUTO_EXTRACTION_UNSUPPORTED_MESSAGE)
-    }
     return sourceIntakeAPI.uploadForDrama(props.dramaId, buildSourceUploadFormData(form, props.drama, sourceFile.value))
   }
   if (hasWebSourceUrl.value) {
-    if (isDeferredAutoExtractionSource(rawSourceUrl.value)) {
-      throw new Error(SOURCE_AUTO_EXTRACTION_UNSUPPORTED_MESSAGE)
-    }
     return sourceIntakeAPI.importUrlForDrama(
       props.dramaId,
       buildWebSourceIntakePayload(form, props.drama),
@@ -1438,9 +1516,11 @@ async function startWorkflow() {
         await loadSources()
       } catch (_) {}
     }
+    if (isUserFacingAbort(e)) return
     sourceOperationError.value = createdSource
-      ? (e.message || '启动失败')
+      ? toUserFacingError(e, '启动失败')
       : sourceIntakeFailureMessage(e, '启动失败')
+    if (!sourceOperationError.value) return
     showWorkflowMessage('error', sourceOperationError.value)
   } finally {
     workflowStarting.value = false
@@ -1490,7 +1570,9 @@ async function startExistingSource(source) {
   } catch (e) {
     if (!sourceWorkflowLifecycle.isActive()) return
     if (e?.readiness) productionReadiness.value = e.readiness
-    sourceOperationError.value = e.message || '启动失败'
+    if (isUserFacingAbort(e)) return
+    sourceOperationError.value = toUserFacingError(e, '启动失败')
+    if (!sourceOperationError.value) return
     showWorkflowMessage('error', sourceOperationError.value)
   } finally {
     workflowStarting.value = false
@@ -1519,9 +1601,9 @@ async function retryRun() {
     emitRefresh()
     startPoll()
   } catch (e) {
-    if (shouldIgnoreSourceWorkflowPollError(e, sourceWorkflowLifecycle)) return
+    if (shouldIgnoreSourceWorkflowPollError(e, sourceWorkflowLifecycle) || isUserFacingAbort(e)) return
     captureProductionReadinessError(e)
-    showWorkflowMessage('error', describeServiceLoadError(e, { serviceLabel: '处理流程', fallback: '重试失败' }))
+    showWorkflowMessage('error', toUserFacingError(e, '重试失败', { serviceLabel: '处理流程' }))
   } finally {
     retrying.value = false
   }
@@ -1538,8 +1620,8 @@ async function cancelRun() {
     stopPoll()
     emitRefresh()
   } catch (e) {
-    if (shouldIgnoreSourceWorkflowPollError(e, sourceWorkflowLifecycle)) return
-    showWorkflowMessage('error', describeServiceLoadError(e, { serviceLabel: '处理流程', fallback: '取消失败' }))
+    if (shouldIgnoreSourceWorkflowPollError(e, sourceWorkflowLifecycle) || isUserFacingAbort(e)) return
+    showWorkflowMessage('error', toUserFacingError(e, '取消失败', { serviceLabel: '处理流程' }))
   } finally {
     cancelling.value = false
   }
@@ -1556,8 +1638,8 @@ async function pauseRun() {
     stopPoll()
     emitRefresh()
   } catch (e) {
-    if (shouldIgnoreSourceWorkflowPollError(e, sourceWorkflowLifecycle)) return
-    showWorkflowMessage('error', describeServiceLoadError(e, { serviceLabel: '处理流程', fallback: '暂停失败' }))
+    if (shouldIgnoreSourceWorkflowPollError(e, sourceWorkflowLifecycle) || isUserFacingAbort(e)) return
+    showWorkflowMessage('error', toUserFacingError(e, '暂停失败', { serviceLabel: '处理流程' }))
   } finally {
     pausing.value = false
   }
@@ -1574,9 +1656,9 @@ async function resumeRun() {
     emitRefresh()
     startPoll()
   } catch (e) {
-    if (shouldIgnoreSourceWorkflowPollError(e, sourceWorkflowLifecycle)) return
+    if (shouldIgnoreSourceWorkflowPollError(e, sourceWorkflowLifecycle) || isUserFacingAbort(e)) return
     captureProductionReadinessError(e)
-    showWorkflowMessage('error', describeServiceLoadError(e, { serviceLabel: '处理流程', fallback: '恢复失败' }))
+    showWorkflowMessage('error', toUserFacingError(e, '恢复失败', { serviceLabel: '处理流程' }))
   } finally {
     resuming.value = false
   }
@@ -1596,7 +1678,8 @@ async function runQaAudit() {
     showWorkflowMessage('success', 'QA 审计已完成')
   } catch (e) {
     if (!sourceWorkflowLifecycle.isActive()) return
-    showWorkflowMessage('error', e.message || 'QA 审计失败')
+    if (isUserFacingAbort(e)) return
+    showWorkflowMessage('error', toUserFacingError(e, 'QA 审计失败'))
   } finally {
     qaRunning.value = false
   }
@@ -1646,7 +1729,8 @@ async function remediateQa() {
     onFailed: (error) => {
       if (!sourceWorkflowLifecycle.isActive()) return
       remediationStatus.value = ''
-      showWorkflowMessage('error', error?.message || '自动修复失败')
+      if (isUserFacingAbort(error)) return
+      showWorkflowMessage('error', toUserFacingError(error, '自动修复失败'))
     },
     onFinished: () => { remediating.value = false },
   })
@@ -1672,7 +1756,8 @@ async function openSourceDetail(source) {
     sourceDetail.value = detail
   } catch (e) {
     if (!sourceWorkflowLifecycle.isActive()) return
-    showWorkflowMessage('error', e.message || '加载素材详情失败')
+    if (isUserFacingAbort(e)) return
+    showWorkflowMessage('error', toUserFacingError(e, '加载素材详情失败'))
   } finally {
     sourceDetailLoading.value = false
   }
@@ -2051,6 +2136,18 @@ onBeforeUnmount(() => {
 .stage-empty,
 .stage-success {
   padding: 10px 0;
+  color: var(--source-text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.stage-empty--actionable {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 12px;
+}
+.empty-stage-hint {
+  margin: 0;
   color: var(--source-text-muted);
   font-size: 12px;
   line-height: 1.5;

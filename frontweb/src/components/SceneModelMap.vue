@@ -7,24 +7,39 @@
         </p>
       </div>
       <div class="header-right">
-        <el-button type="primary" @click="openAdd">
+        <el-button type="primary" :disabled="writeLocked" @click="openAdd">
           <el-icon><Plus /></el-icon>
           添加业务场景配置
         </el-button>
       </div>
     </div>
 
-    <div v-if="loading" v-loading="true" class="loading-wrap" />
-    
+    <div v-if="loading && !hasSuccessfulLoad" v-loading="true" class="loading-wrap" />
+
     <template v-else>
+      <el-alert
+        v-if="loadError"
+        class="load-error-alert"
+        type="error"
+        show-icon
+        :closable="false"
+        :title="loadError"
+      >
+        <el-button size="small" type="primary" plain :loading="loading" aria-label="重新加载场景模型映射" @click="load">
+          重新加载
+        </el-button>
+      </el-alert>
+
       <el-table
+        v-if="list.length > 0"
+        v-loading="loading"
         :data="list"
         stripe
         style="width: 100%"
       >
         <el-table-column prop="key" label="场景键 (scene_key)" min-width="220">
           <template #default="{ row }">
-            <div class="">
+            <div class="scene-key-cell">
               <code class="scene-key">{{ row.key }}</code>
               <span class="scene-key-label">{{ getSceneKeyLabel(row.key) }}</span>
             </div>
@@ -37,10 +52,17 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="config_name" label="AI 配置" min-width="180">
+        <el-table-column prop="config_name" label="AI 配置" min-width="220">
           <template #default="{ row }">
-            <span v-if="row.config_id">{{ row.config_name || '配置 #' + row.config_id }}</span>
-            <el-tag v-else type="info" size="small">使用默认配置</el-tag>
+            <div class="config-availability">
+              <el-tag v-if="!row.config_id" type="info" size="small">使用默认配置</el-tag>
+              <template v-else>
+                <span>{{ row.config_name || ('配置 #' + row.config_id) }}</span>
+                <el-tag v-if="row.config_missing" type="danger" size="small">绑定配置不可用</el-tag>
+                <el-tag v-else-if="row.config_inactive" type="warning" size="small">绑定配置已停用</el-tag>
+                <el-tag v-else-if="row.config_type_mismatch" type="warning" size="small">服务类型不匹配</el-tag>
+              </template>
+            </div>
           </template>
         </el-table-column>
         <el-table-column prop="model_override" label="模型覆盖" min-width="180">
@@ -58,7 +80,9 @@
         </el-table-column>
       </el-table>
 
-      <el-empty v-if="list.length === 0" description="暂无场景模型映射配置" />
+      <el-empty v-else-if="hasSuccessfulLoad && !loadError" description="暂无场景模型映射配置">
+        <el-button type="primary" @click="openAdd">添加业务场景配置</el-button>
+      </el-empty>
     </template>
 
     <!-- 添加/编辑对话框 -->
@@ -74,6 +98,7 @@
         <el-form-item prop="key" label="场景键">
           <el-select
             v-model="form.key"
+            aria-label="场景键"
             filterable
             allow-create
             default-first-option
@@ -93,7 +118,7 @@
         </el-form-item>
 
         <el-form-item prop="service_type" label="服务类型">
-          <el-select v-model="form.service_type" placeholder="选择服务类型" style="width: 100%" disabled>
+          <el-select v-model="form.service_type" aria-label="服务类型" placeholder="选择服务类型" style="width: 100%" disabled>
             <el-option label="文本/对话" value="text" />
             <el-option label="文本生成图片" value="image" />
             <el-option label="分镜图片生成" value="storyboard_image" />
@@ -106,6 +131,7 @@
         <el-form-item label="AI 配置">
           <el-select
             v-model="form.config_id"
+            aria-label="AI 配置"
             clearable
             placeholder="选择 AI 配置（留空使用默认）"
             style="width: 100%"
@@ -114,20 +140,22 @@
             <el-option
               v-for="c in filteredConfigs"
               :key="c.id"
-              :label="`${c.name} (${c.provider})`"
+              :label="configOptionLabel(c)"
               :value="c.id"
             />
           </el-select>
           <p class="field-tip">指定具体的 AI 服务配置，不选则使用该类服务的默认配置</p>
+          <p v-if="!filteredConfigs.length" class="field-warning">当前服务类型没有可用的启用中 AI 配置，保存后将使用系统默认；请先在 AI 配置中添加并启用对应服务。</p>
         </el-form-item>
 
         <el-form-item label="模型覆盖">
           <el-select
             v-model="form.model_override"
+            aria-label="模型覆盖"
             clearable
             placeholder="选择模型（留空使用配置默认）"
             style="width: 100%"
-            :disabled="!selectedConfigModels.length"
+            :disabled="!selectedConfigModels.length && !form.model_override"
           >
             <el-option
               v-for="m in selectedConfigModels"
@@ -143,6 +171,7 @@
         <el-form-item prop="description" label="描述">
           <el-input
             v-model="form.description"
+            aria-label="场景描述"
             placeholder="输入场景描述，便于理解用途"
           />
         </el-form-item>
@@ -158,7 +187,7 @@
 
 <script setup>
 import { toUserFacingError, isUserFacingAbort } from '@/utils/userFacingError'
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
 import { sceneModelMapAPI } from '@/api/sceneModelMap'
@@ -167,6 +196,8 @@ import { getSelectableModels } from '@/utils/modelSelection'
 
 const loading = ref(false)
 const saving = ref(false)
+const loadError = ref('')
+const hasSuccessfulLoad = ref(false)
 const list = ref([])
 const configs = ref([])
 const dialogVisible = ref(false)
@@ -254,21 +285,24 @@ const predefinedKeys = [
 ]
 
 // 根据服务类型筛选配置
+const writeLocked = computed(() => loading.value && !hasSuccessfulLoad.value)
+
 const filteredConfigs = computed(() => {
   const currentServiceType = form.value.service_type
-  console.log('filteredConfigs computed, service_type:', currentServiceType, 'configs:', configs.value.length)
-  const filtered = configs.value.filter(c => {
-    const match = c.service_type === currentServiceType && c.is_active
-    console.log('  config:', c.name, 'service_type:', c.service_type, 'match:', match)
-    return match
+  const selectedId = form.value.config_id
+  return configs.value.filter((item) => {
+    if (item.service_type !== currentServiceType) return false
+    if (item.is_active) return true
+    return selectedId != null && String(item.id) === String(selectedId)
   })
-  console.log('  filtered result:', filtered.length)
-  return filtered
 })
 
 // 获取选中配置的可用模型列表
 const selectedConfigModels = computed(() => {
-  return getSelectableModels(configs.value, form.value.service_type, form.value.config_id)
+  const models = getSelectableModels(configs.value, form.value.service_type, form.value.config_id)
+  const current = String(form.value.model_override || '').trim()
+  if (current && !models.includes(current)) return [current, ...models]
+  return models
 })
 
 function serviceTypeLabel(type) {
@@ -303,14 +337,27 @@ function getSceneKeyLabel(key) {
   return ''
 }
 
+function configOptionLabel(item) {
+  const base = `${item.name} (${item.provider})`
+  return item.is_active ? base : `${base}（已停用）`
+}
+
+function decorateMapRow(item) {
+  const config = configs.value.find((entry) => String(entry.id) === String(item.config_id))
+  return {
+    ...item,
+    config_name: config?.name || null,
+    config_missing: Boolean(item.config_id) && !config,
+    config_inactive: Boolean(config) && !config.is_active,
+    config_type_mismatch: Boolean(config && item.service_type && config.service_type !== item.service_type),
+  }
+}
+
 // 场景键改变时自动设置服务类型
 function onKeyChange(key) {
-  console.log('onKeyChange called with key:', key)
   const matched = predefinedKeys.find(k => k.value === key)
-  console.log('matched predefined key:', matched)
   if (matched) {
     form.value.service_type = matched.service_type
-    console.log('service_type set to:', form.value.service_type)
   }
   // 重置配置和模型选择
   form.value.config_id = null
@@ -330,19 +377,13 @@ async function load() {
       aiAPI.list()
     ])
     configs.value = configsData || []
-    console.log('Loaded configs:', configs.value.map(c => ({ id: c.id, name: c.name, service_type: c.service_type, is_active: c.is_active })))
-    
-    // 合并配置名称
-    list.value = (mapsData || []).map(item => {
-      const config = configs.value.find(c => String(c.id) === String(item.config_id))
-      return {
-        ...item,
-        config_name: config?.name || null
-      }
-    })
+    list.value = (mapsData || []).map((item) => decorateMapRow(item))
+    loadError.value = ''
+    hasSuccessfulLoad.value = true
   } catch (err) {
     if (isUserFacingAbort(err)) return
-    ElMessage.error(toUserFacingError(err, '加载场景模型映射失败：'))
+    loadError.value = toUserFacingError(err, '加载场景模型映射失败')
+    ElMessage.error(toUserFacingError(err, '加载场景模型映射失败'))
   } finally {
     loading.value = false
   }
@@ -399,7 +440,7 @@ async function save() {
     await load()
   } catch (err) {
     if (isUserFacingAbort(err)) return
-    ElMessage.error(toUserFacingError(err, '保存失败：'))
+    ElMessage.error(toUserFacingError(err, '保存场景模型映射失败'))
   } finally {
     saving.value = false
   }
@@ -416,9 +457,8 @@ async function onDelete(row) {
     ElMessage.success('删除成功')
     await load()
   } catch (err) {
-    if (err !== 'cancel') {
-      ElMessage.error(toUserFacingError(err, '删除失败：'))
-    }
+    if (isUserFacingAbort(err) || err === 'cancel') return
+    ElMessage.error(toUserFacingError(err, '删除场景模型映射失败'))
   }
 }
 
@@ -489,5 +529,24 @@ onMounted(() => {
   font-size: 12px;
   color: #999;
   line-height: 1.4;
+}
+
+.field-warning {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: #b45309;
+  line-height: 1.4;
+}
+
+.load-error-alert {
+  margin-bottom: 16px;
+}
+
+.scene-key-cell,
+.config-availability {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
 }
 </style>

@@ -5,7 +5,11 @@ import { readFileSync } from 'node:fs'
 import { synchronizeFreeCanvasSelection } from '../src/utils/freeCanvasState.js'
 import { remainingExtractNamedFunction } from './helpers/remainingSourceBetween.js'
 
-const canvasSource = readFileSync(new URL('../src/views/DramaCanvas.vue', import.meta.url), 'utf8')
+const canvasSource = [
+  readFileSync(new URL('../src/views/DramaCanvas.vue', import.meta.url), 'utf8'),
+  readFileSync(new URL('../src/views/DramaCanvas.css', import.meta.url), 'utf8'),
+  readFileSync(new URL('../src/composables/useDramaCanvasFreeCanvas.js', import.meta.url), 'utf8'),
+].join('\n')
 
 function deferred() {
   let resolve

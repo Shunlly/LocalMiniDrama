@@ -6,6 +6,7 @@ const { safeParseAIJSON, extractFirstArray } = require('../utils/safeJson');
 const characterLibraryService = require('./characterLibraryService');
 const { scheduleLegacyAsync } = require('./legacyAsyncSchedulerService');
 const { mergeCfgStyleWithDrama } = require('../utils/dramaStyleMerge');
+const { toUserFacingProcessError } = require('./providerErrorSanitizer');
 
 /**
  * 从角色外貌描述中提炼 6层视觉锚点，写入 characters.identity_anchors
@@ -97,7 +98,7 @@ async function processCharacterGeneration(db, cfg, log, taskID, req) {
   } catch (err) {
     if (err?.code === 'OPERATION_CANCELLED' || signal.aborted) return;
     log.error('Character generation AI failed', { error: err.message, task_id: taskID });
-    taskService.updateTaskStatus(db, taskID, 'failed', 0, 'AI生成失败: ' + err.message);
+    taskService.updateTaskStatus(db, taskID, 'failed', 0, toUserFacingProcessError(err, 'AI 生成失败，请稍后重试'));
     return;
   }
   if (!ensureTaskActive()) return;
@@ -201,13 +202,13 @@ async function processCharacterGeneration(db, cfg, log, taskID, req) {
 
 function generateCharacters(db, cfg, log, req) {
   const dramaId = String(req.drama_id || '');
-  if (!dramaId) throw new Error('drama_id 必填');
+  if (!dramaId) throw new Error('项目 ID 必填');
   if (req.episode_id != null && String(req.episode_id).trim() !== '') {
     const episode = db.prepare(
       'SELECT drama_id FROM episodes WHERE id = ? AND deleted_at IS NULL'
     ).get(Number(req.episode_id));
     if (!episode || Number(episode.drama_id) !== Number(req.drama_id)) {
-      const error = new Error('episode_id must belong to drama_id');
+      const error = new Error('剧集不属于当前项目');
       error.code = 'BAD_REQUEST';
       throw error;
     }

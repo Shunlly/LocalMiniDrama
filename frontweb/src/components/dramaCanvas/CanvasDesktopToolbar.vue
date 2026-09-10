@@ -55,12 +55,14 @@
         :active-group-id="activeGroupId"
         :pipeline-steps="pipelineSteps"
         :workflow-running="workflowRunning"
+        :workflow-progress="workflowProgress"
         :action-reasons="actionReasons"
         :action-config-services="actionConfigServices"
         @update:pipeline-steps="emit('update:pipelineSteps', $event)"
         @update:active-group-id="emit('update:activeGroupId', $event)"
         @create-workflow="emit('create-workflow')"
         @run-workflow="emit('run-workflow')"
+        @cancel-workflow="emit('cancel-workflow')"
         @delete-workflow="emit('delete-workflow')"
       />
 
@@ -121,11 +123,24 @@
             @click="emit('set-mode', 'free')"
           >自由</el-button>
         </div>
-        <el-tooltip v-if="!isFreeMode" content="自动对齐并适配全部节点" placement="bottom">
-          <el-button size="small" :loading="aligningNodes" aria-label="对齐节点" @click="emit('align')">
-            <el-icon><Grid /></el-icon>
-          </el-button>
-        </el-tooltip>
+        <CanvasActionGate
+          :reason="alignDisabledReason"
+          label="对齐节点"
+          description-id="canvas-reason-align-nodes"
+        >
+          <el-tooltip :content="alignTooltip" placement="bottom" :disabled="Boolean(alignDisabledReason)">
+            <el-button
+              size="small"
+              :loading="aligningNodes"
+              :disabled="Boolean(alignDisabledReason)"
+              aria-label="对齐节点"
+              :title="alignTooltip"
+              @click="emit('align')"
+            >
+              <el-icon><Grid /></el-icon>
+            </el-button>
+          </el-tooltip>
+        </CanvasActionGate>
         <el-button size="small" type="primary" plain @click="emit('list-mode')">
           <el-icon><List /></el-icon>
           列表模式
@@ -165,6 +180,10 @@ import { computed } from 'vue'
 import CanvasToolbarGroup from './CanvasToolbarGroup.vue'
 import CanvasWorkflowToolbarGroup from './CanvasWorkflowToolbarGroup.vue'
 import CanvasActionGate from './CanvasActionGate.vue'
+import {
+  freeCanvasUxState,
+  getFreeCanvasAlignDisabledReason,
+} from './freeCanvasUx.js'
 
 const props = defineProps({
   selectedStoryboardCount: { type: Number, default: 0 },
@@ -192,6 +211,7 @@ const emit = defineEmits([
   'update:activeGroupId',
   'create-workflow',
   'run-workflow',
+  'cancel-workflow',
   'delete-workflow',
   'generate-storyboards',
   'batch-images',
@@ -214,6 +234,18 @@ const batchHelper = computed(() => (
 ))
 
 const isFreeMode = computed(() => props.canvasMode === 'free')
+const alignDisabledReason = computed(() => {
+  if (props.aligningNodes) return '正在对齐节点，请稍候'
+  if (!isFreeMode.value) return ''
+  return getFreeCanvasAlignDisabledReason({
+    selectionCount: freeCanvasUxState.selectionCount,
+    readonly: Boolean(freeCanvasUxState.readonly),
+  })
+})
+const alignTooltip = computed(() => (
+  alignDisabledReason.value
+  || (isFreeMode.value ? '对齐所选自由节点' : '自动对齐并适配全部节点')
+))
 </script>
 
 <style scoped>

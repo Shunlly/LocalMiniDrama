@@ -78,7 +78,8 @@ describe('sourceMediaExtraction user-visible messages', () => {
       assert.equal(SERVICE_SOURCE.includes(phrase), false, phrase);
     }
     assert.match(SERVICE_SOURCE, /Tesseract/);
-    assert.match(SERVICE_SOURCE, /service_type=ocr/);
+    assert.doesNotMatch(SERVICE_SOURCE, /service_type=/);
+    assert.match(SERVICE_SOURCE, /图片识别/);
     assert.match(SERVICE_SOURCE, /请上传源文件后再试/);
   });
 

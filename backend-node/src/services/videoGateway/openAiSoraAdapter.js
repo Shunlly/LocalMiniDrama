@@ -64,16 +64,16 @@ function soraHttpError(status, operation, responseBody, code) {
 
 function requireConfig(config) {
   if (!config?.api_key || !config?.base_url) {
-    throw configError('Sora 视频未配置 base_url 或 api_key');
+    throw configError('Sora 视频未配置接口地址或密钥');
   }
   let baseUrl;
   try {
     baseUrl = new URL(config.base_url);
   } catch (_) {
-    throw configError('Sora 视频 base_url 必须是不含凭据的 HTTP(S) 地址');
+    throw configError('Sora 视频接口地址必须是不含凭据的网址');
   }
   if (!['http:', 'https:'].includes(baseUrl.protocol) || baseUrl.username || baseUrl.password) {
-    throw configError('Sora 视频 base_url 必须是不含凭据的 HTTP(S) 地址');
+    throw configError('Sora 视频接口地址必须是不含凭据的网址');
   }
   return baseUrl;
 }

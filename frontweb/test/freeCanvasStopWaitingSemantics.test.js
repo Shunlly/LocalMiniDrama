@@ -6,15 +6,21 @@ const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8')
 
 const nodeSource = read('../src/components/dramaCanvas/FreeCanvasNode.vue')
 const inspectorSource = read('../src/components/dramaCanvas/FreeCanvasInspector.vue')
-const dramaCanvasSource = read('../src/views/DramaCanvas.vue')
+const dramaCanvasSource = [
+  read('../src/views/DramaCanvas.vue'),
+  read('../src/composables/useDramaCanvasFreeCanvas.js'),
+].join('\n')
 
 test('config node controls describe stopping local waiting instead of cancelling provider work', () => {
   assert.match(nodeSource, /content="停止等待"/)
   assert.match(nodeSource, /aria-label="停止等待"/)
   assert.match(nodeSource, /title="停止等待"/)
+  assert.match(nodeSource, />\s*停止等待\s*</)
+  assert.match(nodeSource, /configRuntime.canCancel && !readonly/)
   assert.doesNotMatch(nodeSource, /取消生成/)
 
   assert.match(inspectorSource, />\s*停止等待\s*</)
+  assert.match(inspectorSource, /aria-label="停止等待"/)
   assert.doesNotMatch(inspectorSource, /取消生成/)
 })
 

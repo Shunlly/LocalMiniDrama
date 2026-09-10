@@ -133,7 +133,7 @@ test('development Electron image validation fails closed without an application 
       maxImageFrames: 8,
     }),
     (error) => error?.code === 'MEDIA_VALIDATION_UNAVAILABLE'
-      && /application entry/i.test(error.message)
+      && /应用入口/.test(error.message) && /[\u4e00-\u9fff]/.test(error.message)
   );
 });
 
@@ -156,7 +156,8 @@ test('image validator helper rejects caller-supplied module paths', async () => 
   assert.equal(exitCode, 1);
   const payload = JSON.parse(output);
   assert.equal(payload.code, 'MEDIA_VALIDATION_UNAVAILABLE');
-  assert.match(payload.reason, /requires project root, pixel limit, and frame limit/);
+  assert.match(payload.reason, /图片校验需要项目目录/);
+  assert.doesNotMatch(payload.reason, /requires project root/i);
 });
 
 test('project ZIP import rejects a fake PNG before commit and removes staging files', (t) => {

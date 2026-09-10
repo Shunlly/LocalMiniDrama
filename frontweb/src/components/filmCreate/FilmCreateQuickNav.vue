@@ -109,8 +109,8 @@
             <button
               type="button"
               class="atp-item-close"
-              title="取消任务"
-              :aria-label="`取消任务${item.label || ''}`"
+              :title="item.kind === 'pipeline' && pipelineStopping ? '正在停止流水线，请稍候' : '取消任务'"
+              :aria-label="item.kind === 'pipeline' && pipelineStopping ? '取消任务不可用：正在停止流水线，请稍候' : `取消任务${item.label || ''}`"
               :disabled="item.kind === 'pipeline' && pipelineStopping"
               @click.stop="emit('cancel-active-task', item)"
             >
@@ -560,7 +560,8 @@ html.light .nav-sub-item:hover { color: #1e1b4b; background: rgba(99,102,241,0.0
 .nav-toggle:focus-visible,
 .nav-step:focus-visible,
 .nav-sub-toggle:focus-visible,
-.nav-sub-item:focus-visible {
+.nav-sub-item:focus-visible,
+.atp-item-close:focus-visible {
   outline: 2px solid var(--el-color-primary);
   outline-offset: -2px;
 }

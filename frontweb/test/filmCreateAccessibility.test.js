@@ -53,6 +53,12 @@ const resourcePanelSource = readFileSync(
 const storyboardPanelSource = readFileSync(
   new URL('../src/components/filmCreate/FilmCreateStoryboardPanel.vue', import.meta.url),
   'utf8',
+) + '\n' + readFileSync(
+  new URL('../src/components/filmCreate/FilmCreateStoryboardPanel.css', import.meta.url),
+  'utf8',
+) + '\n' + readFileSync(
+  new URL('../src/components/filmCreate/FilmCreateStoryboardVideoColumn.vue', import.meta.url),
+  'utf8',
 )
 const storyboardConfigBarSource = readFileSync(
   new URL('../src/components/filmCreate/FilmCreateStoryboardConfigBar.vue', import.meta.url),
@@ -130,6 +136,28 @@ test('film create keeps the episode selector only in the page header', () => {
   assert.match(episodeSelectSource, /v-for="\(ep, index\) in episodes"/)
   assert.match(episodeSelectSource, /:label="formatEpisodeContextLabel\(ep, index\)"/)
   assert.doesNotMatch(episodeSelectSource, /\bclearable\b/)
+  assert.match(headerSource, /ref="episodeSelectRef"/)
+  assert.match(headerSource, /function focusEpisodeSelect\(/)
+  assert.match(headerSource, /defineExpose\(\{\s*focusEpisodeSelect\s*\}\)/)
+  assert.match(filmCreateSource, /ref="filmCreateHeaderRef"/)
+  assert.match(filmCreateSource, /function onSelectEpisode\(/)
+  assert.match(filmCreateSource, /filmCreateHeaderRef\.value\?\.focusEpisodeSelect/)
+  assert.match(filmCreateSource, /querySelector\('\.header'\)\?\.scrollIntoView/)
+})
+
+test('制作页头没有微信我联系入口', () => {
+  assert.doesNotMatch(headerSource, /微信我/)
+  assert.doesNotMatch(headerSource, /btn-wechat/)
+  assert.doesNotMatch(headerSource, /showWechat/)
+  assert.doesNotMatch(headerSource, /扫码联系作者/)
+  assert.doesNotMatch(headerSource, /微信联系作者/)
+  assert.doesNotMatch(headerSource, /ChatDotSquare/)
+  assert.match(headerSource, /class="header-actions"/)
+  assert.match(headerSource, /class="btn-ai-config"/)
+  assert.match(headerSource, /AI 配置/)
+  assert.match(headerSource, /项目加载完成后才能打开 AI 配置/)
+  assert.match(headerSource, /正在切换剧集，请稍候/)
+  assert.match(headerSource, /\.btn-ai-config:focus-visible/)
 })
 
 test('film create navigation names and reports the final delivery step accurately', () => {
@@ -147,7 +175,9 @@ test('film create navigation names and reports the final delivery step accuratel
 })
 
 test('delivery stage consolidates composite readiness and user-facing export actions', () => {
-  assert.match(filmCreateSource, /<FilmCreateDeliveryPanel/)
+  const outputSectionSource = readFileSync(new URL('../src/components/filmCreate/FilmCreateOutputSection.vue', import.meta.url), 'utf8')
+  assert.match(filmCreateSource, /<FilmCreateOutputSection/)
+  assert.match(outputSectionSource, /<FilmCreateDeliveryPanel/)
   assert.match(deliveryPanelSource, /<section id="anchor-video" class="section card delivery-section">/)
   assert.match(deliveryPanelSource, /<h2 class="section-title">交付与导出<\/h2>/)
   assert.match(deliveryPanelSource, /分镜视频[\s\S]*playableStoryboardVideoCount[\s\S]*整集合成[\s\S]*可交付文件/)
@@ -172,14 +202,26 @@ test('storyboard video controls expose a focusable missing-prompt reason', () =>
 
 test('script and character library empty states provide direct actions', () => {
   assert.match(scriptWorkbenchSource, /class="select-script-empty"[\s\S]*?emit\('return-to-creation'\)/)
+  assert.match(scriptWorkbenchSource, /class="script-select-empty"[\s\S]*?emit\('open-select-script'\)/)
+  assert.match(scriptWorkbenchSource, /class="script-select-empty"[\s\S]*?emit\('return-to-creation'\)/)
   assert.match(filmCreateSource, /@return-to-creation="returnToScriptCreation"/)
   assert.match(resourceDialogsSource, /class="library-empty"[\s\S]*?@click="returnToCharacterPanel"/)
+  assert.match(resourceDialogsSource, /@click="returnToPropPanel">去道具面板/)
+  assert.match(resourceDialogsSource, /@click="returnToPropPanel">创建道具/)
+  assert.match(resourceDialogsSource, /@click="returnToScenePanel">去场景面板/)
+  assert.match(resourceDialogsSource, /@click="returnToScenePanel">创建场景/)
   assert.match(scriptWorkspaceSource, /function returnToScriptCreation\(\)/)
   assert.match(scriptWorkspaceSource, /function returnToCharacterPanel\(\)/)
+  assert.match(scriptWorkspaceSource, /function returnToPropPanel\(\)/)
+  assert.match(scriptWorkspaceSource, /function returnToScenePanel\(\)/)
 })
 
 test('every FilmCreate ActionGate identifies its button action', () => {
-  const actionGates = [filmCreateSource, deliveryPanelSource, scriptWorkbenchSource, resourcePanelSource, storyboardPanelSource, storyboardConfigBarSource]
+  const imageColumnSource = readFileSync(
+    new URL('../src/components/filmCreate/FilmCreateStoryboardImageColumn.vue', import.meta.url),
+    'utf8',
+  )
+  const actionGates = [filmCreateSource, deliveryPanelSource, scriptWorkbenchSource, resourcePanelSource, storyboardPanelSource, storyboardConfigBarSource, resourceDialogsSource, imageColumnSource]
     .flatMap((source) => source.match(/<ActionGate\b[^>]*>/g) || [])
   assert.ok(actionGates.length >= 13)
   for (const gate of actionGates) {
@@ -213,6 +255,11 @@ test('full pipeline is an accessible idle disclosure that opens for running work
   assert.match(compactSummary, /\{\{ focusTitle \}\}/)
   assert.match(compactSummary, /\{\{ focusNextStep \}\}/)
 })
+test('制作页侧栏取消任务在停止流水线时说明原因，并保留键盘焦点', () => {
+  assert.match(quickNavSource, /正在停止流水线，请稍候/)
+  assert.match(quickNavSource, /\.atp-item-close:focus-visible/)
+})
+
 test('制作页空剧集提供可执行入口', () => {
   assert.match(filmCreateSource, /const hasAnyEpisode = computed\(\(\) => \(store\.drama\?\.episodes \|\| \[\]\)\.length > 0\)/)
   assert.match(filmCreateSource, /:has-episode="hasAnyEpisode"/)
@@ -221,6 +268,10 @@ test('制作页空剧集提供可执行入口', () => {
   assert.match(scriptWorkbenchSource, /class="empty-tip film-episode-empty"/)
   assert.match(scriptWorkbenchSource, /还没有剧集/)
   assert.match(scriptWorkbenchSource, /返回剧集管理/)
+  assert.match(scriptWorkbenchSource, /if \(props\.dramaId && !props\.hasAnyEpisode\) return '请先创建或选择剧集'/)
+  assert.match(scriptWorkbenchSource, /template v-else/)
+  assert.match(scriptWorkbenchSource, /class="script-title-input"/)
+  assert.match(scriptWorkbenchSource, /<ActionGate :reason="generateStoryDisabledReason" label="生成剧本">/)
 })
 
 test('storyboard prompt dialogs name every editable field', () => {

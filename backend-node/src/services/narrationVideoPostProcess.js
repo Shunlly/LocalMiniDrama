@@ -3,16 +3,45 @@
  */
 const fs = require('fs');
 const path = require('path');
-const { spawnSync } = require('child_process');
+const childProcess = require('child_process');
 const { getFfmpegPath, getFfprobePath } = require('../utils/ffmpegPath');
+const { toUserFacingProcessError } = require('./providerErrorSanitizer');
+
+const POST_PROCESS_FFMPEG_MISSING = '未找到 ffmpeg，请确认已安装 ffmpeg 后重试';
+const POST_PROCESS_FALLBACK = '旁白后处理失败，请确认已安装 ffmpeg 后重试';
+
+function isSpawnMissingBinary(error) {
+  if (!error) return false;
+  if (error.code === 'ENOENT' || error.code === 'FFMPEG_MISSING') return true;
+  const text = typeof error === 'string' ? error : String(error.message || '');
+  return /\bENOENT\b/.test(text);
+}
+
+function missingFfmpegError() {
+  const error = new Error(POST_PROCESS_FFMPEG_MISSING);
+  error.code = 'FFMPEG_MISSING';
+  return error;
+}
+
+function userFacingPostProcessError(error, fallback = POST_PROCESS_FALLBACK) {
+  if (isSpawnMissingBinary(error)) return POST_PROCESS_FFMPEG_MISSING;
+  return toUserFacingProcessError(error, fallback);
+}
+
+function inspectSpawnSync(result) {
+  if (result?.error && isSpawnMissingBinary(result.error)) {
+    throw missingFfmpegError();
+  }
+  return result;
+}
 
 function ffprobeDurationSec(filePath) {
   const probe = getFfprobePath();
-  const r = spawnSync(
+  const r = inspectSpawnSync(childProcess.spawnSync(
     probe,
     ['-v', 'error', '-show_entries', 'format=duration', '-of', 'default=noprint_wrappers=1:nokey=1', filePath],
     { encoding: 'utf8', maxBuffer: 1024 * 1024 }
-  );
+  ));
   if (r.status !== 0) return null;
   const d = parseFloat(String(r.stdout || '').trim());
   return Number.isFinite(d) && d > 0 ? d : null;
@@ -54,7 +83,7 @@ function escapeSubtitlesPathForFfmpeg(absPath) {
 
 function runFfmpeg(args, log, tag) {
   const bin = getFfmpegPath();
-  const r = spawnSync(bin, args, { encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 });
+  const r = inspectSpawnSync(childProcess.spawnSync(bin, args, { encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 }));
   if (r.error) {
     log.warn('narration post: ffmpeg spawn', { tag, error: r.error.message });
     return false;
@@ -216,20 +245,21 @@ async function runNarrationSubtitlePostProcess(db, log, opts) {
     return { ok: false, error: '无效合成参数' };
   }
 
-  const videoDur = ffprobeDurationSec(mergedAbsPath);
-  if (videoDur == null) {
-    return { ok: false, error: '无法读取合成视频时长' };
-  }
-
-  let tMs = 0;
-  const srtLines = [];
-  let srtIdx = 1;
-  const segmentFiles = [];
-  const tempRoot = path.join(require('os').tmpdir(), 'drama-narr-post', String(episodeId || 0), String(Date.now()));
-  fs.mkdirSync(tempRoot, { recursive: true });
-  const ttsService = require('./ttsService');
-
+  let tempRoot = null;
   try {
+    const videoDur = ffprobeDurationSec(mergedAbsPath);
+    if (videoDur == null) {
+      return { ok: false, error: '无法读取合成视频时长' };
+    }
+
+    let tMs = 0;
+    const srtLines = [];
+    let srtIdx = 1;
+    const segmentFiles = [];
+    tempRoot = path.join(require('os').tmpdir(), 'drama-narr-post', String(episodeId || 0), String(Date.now()));
+    fs.mkdirSync(tempRoot, { recursive: true });
+    const ttsService = require('./ttsService');
+
     for (let i = 0; i < scenes.length; i++) {
       const sc = scenes[i];
       const sbId = Number(sc.scene_id);
@@ -262,11 +292,11 @@ async function runNarrationSubtitlePostProcess(db, log, opts) {
           });
         } catch (e) {
           log.warn('narration post: TTS failed', { segment: i, error: e.message });
-          return { ok: false, error: `旁白 TTS 失败：${e.message}` };
+          return { ok: false, error: userFacingPostProcessError(e, '旁白 TTS 失败') };
         }
         const srcAbs = path.join(storageRoot, synth.local_path.replace(/\//g, path.sep));
         if (!fs.existsSync(srcAbs)) {
-          return { ok: false, error: `TTS 文件不存在：${synth.local_path}` };
+          return { ok: false, error: '旁白 TTS 文件不存在' };
         }
         try {
           fs.copyFileSync(srcAbs, segRaw);
@@ -324,16 +354,18 @@ async function runNarrationSubtitlePostProcess(db, log, opts) {
     return { ok: true, relativePath: relFromRoot, srtRelativePath: subRel };
   } catch (e) {
     log.warn('narration post: exception', { error: e.message });
-    return { ok: false, error: e.message || String(e) };
+    return { ok: false, error: userFacingPostProcessError(e, POST_PROCESS_FALLBACK) };
   } finally {
-    try {
-      for (const p of fs.readdirSync(tempRoot)) {
-        try {
-          fs.unlinkSync(path.join(tempRoot, p));
-        } catch (_) {}
-      }
-      fs.rmdirSync(tempRoot);
-    } catch (_) {}
+    if (tempRoot) {
+      try {
+        for (const p of fs.readdirSync(tempRoot)) {
+          try {
+            fs.unlinkSync(path.join(tempRoot, p));
+          } catch (_) {}
+        }
+        fs.rmdirSync(tempRoot);
+      } catch (_) {}
+    }
   }
 }
 

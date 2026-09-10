@@ -31,7 +31,7 @@ function utf8(text) {
   return new TextEncoder().encode(text)
 }
 
-test('小说 intake 文案明确当前没有 OCR，且错误为中文', () => {
+test('小说 intake 文案与素材处理一致，且错误为中文', () => {
   for (const copy of [
     NOVEL_INTAKE_HINT,
     NOVEL_INTAKE_PLACEHOLDER,
@@ -42,11 +42,16 @@ test('小说 intake 文案明确当前没有 OCR，且错误为中文', () => {
     buildNovelIntakeConfirmCopy({ maxChapters: 8, aiSummarize: false }).message,
   ]) {
     assert.match(copy, /[\u4e00-\u9fff]/)
+    assert.doesNotMatch(copy, /当前没有 OCR|当前没有图片 OCR|暂不支持自动抽取/)
+    assert.doesNotMatch(copy, /service_type=ocr/)
     assert.doesNotMatch(copy, /OCR 完成|已支持 OCR|支持图片 OCR|自动 OCR/)
     assert.doesNotMatch(copy, /\bFailed\b|\bInvalid UTF-8\b|\bencoding error\b/i)
   }
-  assert.match(NOVEL_INTAKE_HINT, /当前没有图片 OCR/)
-  assert.match(NOVEL_INTAKE_FILE_HELP, /当前没有 OCR/)
+  assert.match(NOVEL_INTAKE_HINT, /图片识别/)
+  assert.match(NOVEL_INTAKE_HINT, /语音转写/)
+  assert.match(NOVEL_INTAKE_HINT, /AI 配置/)
+  assert.match(NOVEL_INTAKE_FILE_HELP, /图片识别/)
+  assert.match(NOVEL_INTAKE_FILE_HELP, /语音转写/)
 })
 
 test('空文本、空文件和空白文件都会给出中文错误', async () => {
@@ -108,12 +113,15 @@ test('非 UTF-8 编码和二进制文件失败，UTF-8 BOM 可以导入', async 
   assert.equal((await inspectNovelIntakeFile(gbkFile)).error, NOVEL_INTAKE_MESSAGES.encoding)
 })
 
-test('图片和 PDF 被拒绝，并说明当前没有 OCR', async () => {
+test('图片和 PDF 被拒绝，并说明需要图片识别或语音转写', async () => {
   assert.equal(
     inspectNovelIntakeBytes(utf8('scan'), { filename: 'scan.png' }).error,
     NOVEL_INTAKE_MESSAGES.unsupportedType,
   )
-  assert.match(NOVEL_INTAKE_MESSAGES.unsupportedType, /当前没有图片 OCR/)
+  assert.match(NOVEL_INTAKE_MESSAGES.unsupportedType, /图片识别/)
+  assert.match(NOVEL_INTAKE_MESSAGES.unsupportedType, /语音转写/)
+  assert.match(NOVEL_INTAKE_MESSAGES.unsupportedType, /AI 配置/)
+  assert.doesNotMatch(NOVEL_INTAKE_MESSAGES.unsupportedType, /当前没有 OCR|service_type=ocr/)
   assert.equal(
     (await inspectNovelIntakeFile(new File([utf8('x')], 'scan.pdf', { type: 'application/pdf' }))).error,
     NOVEL_INTAKE_MESSAGES.unsupportedType,
@@ -143,9 +151,10 @@ test('开始导入前校验空内容和确认文案', () => {
   assert.equal(copy.confirmButtonText, '开始导入')
   assert.match(copy.message, /最多 6 集/)
   assert.match(copy.message, /会消耗 Token/)
-  assert.match(copy.message, /当前没有图片 OCR/)
+  assert.doesNotMatch(copy.message, /当前没有图片 OCR|service_type=ocr/)
   const plain = buildNovelIntakeConfirmCopy({ maxChapters: 3, aiSummarize: false })
-  assert.match(plain.message, /不会把图片或扫描件识别成文字/)
+  assert.match(plain.message, /请确认内容已有版权或授权/)
+  assert.doesNotMatch(plain.message, /当前没有图片 OCR|不会把图片或扫描件识别成文字/)
 })
 
 test('离开保护区分导入中、草稿和干净状态', async () => {
@@ -204,7 +213,7 @@ test('并发离开确认不会叠两个对话框', async () => {
   assert.equal(await first, true)
 })
 
-test('小说导入弹窗接入校验、确认文案和离开保护，且不宣称 OCR 完成', () => {
+test('小说导入弹窗接入校验、确认文案和离开保护，且不写 service_type=ocr', () => {
   assert.match(dialogSource, /from '@\/components\/filmCreate\/novelIntakeUx\.js'/)
   assert.match(dialogSource, /NOVEL_INTAKE_HINT/)
   assert.match(dialogSource, /inspectNovelIntakeFile/)
@@ -221,11 +230,13 @@ test('小说导入弹窗接入校验、确认文案和离开保护，且不宣�
   assert.match(dialogSource, /ElMessageBox\.confirm\(copy\.message, copy\.title/)
   assert.match(dialogSource, /role="alert"/)
   assert.doesNotMatch(dialogSource, /@click="visible = false"/)
-  assert.doesNotMatch(dialogSource, /OCR 完成|已支持 OCR|支持图片 OCR/)
+  assert.doesNotMatch(dialogSource, /OCR 完成|已支持 OCR|支持图片 OCR|当前没有 OCR|service_type=ocr/)
+  assert.match(dialogSource, /PDF\/图片\/音视频/)
   assert.match(dialogSource, /aria-label="最多导入集数"/)
   assert.match(dialogSource, /aria-label="小说导入方式"/)
   assert.match(dialogSource, /aria-label="小说正文"/)
-  assert.match(filmCreateSource, /<FilmCreateNovelImportDialog/)
+  assert.match(filmCreateSource, /<FilmCreateWorkspaceDialogs/)
+  assert.match(readFileSync(new URL('../src/components/filmCreate/FilmCreateWorkspaceDialogs.vue', import.meta.url), 'utf8'), /<FilmCreateNovelImportDialog/)
   assert.match(filmCreateSource, /@file-change="onNovelFileChange"/)
   assert.match(filmCreateSource, /@import="onImportNovel"/)
 })

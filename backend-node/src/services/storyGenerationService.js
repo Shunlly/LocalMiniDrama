@@ -6,6 +6,7 @@ const dramaService = require('./dramaService');
 const { scheduleLegacyAsync } = require('./legacyAsyncSchedulerService');
 const { safeParseAIJSON } = require('../utils/safeJson');
 const loadConfig = require('../config').loadConfig;
+const { toUserFacingProcessError } = require('./providerErrorSanitizer');
 
 async function generateStory(db, log, body, options = {}) {
   const premise = (body.premise || body.prompt || body.text || '').trim();
@@ -144,13 +145,13 @@ async function processStoryGeneration(db, log, taskId, req) {
   } catch (err) {
     if (err?.code === 'OPERATION_CANCELLED' || signal.aborted) return;
     log.error('processStoryGeneration failed', { task_id: taskId, error: err.message });
-    taskService.updateTaskError(db, taskId, err.message || '故事生成失败');
+    taskService.updateTaskError(db, taskId, toUserFacingProcessError(err, '故事生成失败，请稍后重试'));
   }
 }
 
 function startStoryGeneration(db, log, req) {
   const dramaId = String(req.drama_id || '');
-  if (!dramaId) throw new Error('drama_id 必填');
+  if (!dramaId) throw new Error('项目 ID 必填');
   if (!dramaService.getDramaById(db, Number(dramaId))) {
     throw new Error('项目不存在');
   }
@@ -170,7 +171,7 @@ function startStoryGeneration(db, log, req) {
   scheduleLegacyAsync(log, 'story_generation', () => {
     processStoryGeneration(db, log, task.id, req).catch((err) => {
       log.error('processStoryGeneration fatal', { error: err.message, task_id: task.id });
-      taskService.updateTaskError(db, task.id, err.message || '故事生成失败');
+      taskService.updateTaskError(db, task.id, toUserFacingProcessError(err, '故事生成失败，请稍后重试'));
     });
   }, { task_id: task.id, drama_id: dramaId });
   return task.id;

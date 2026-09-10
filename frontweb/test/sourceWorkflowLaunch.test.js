@@ -188,10 +188,21 @@ test('source workflow polling surfaces failure, persists load errors, and offers
   assert.match(source, /pollState\.value = 'error'/)
   assert.match(source, /shouldIgnoreSourceWorkflowPollError\(error, sourceWorkflowLifecycle\)/)
   assert.match(source, /if \(sourceWorkflowLifecycle.isActive\(\)\) startPoll\(\)/)
-  assert.match(source, /describeServiceLoadError\(error, \{[\s\S]*fallback: '处理状态刷新失败，自动轮询已暂停。'/)
+  assert.match(source, /pollError.value = toUserFacingError\(error, '处理状态刷新失败，自动轮询已暂停。'/)
   assert.match(source, /shouldIgnoreSourceWorkflowPollError\(e, sourceWorkflowLifecycle\)/)
-  assert.match(source, /describeServiceLoadError\(e, \{[\s\S]*fallback: '加载素材流程状态失败，请稍后重试。'/)
+  assert.match(source, /workflowDataError.value = toUserFacingError\(e, '加载素材流程状态失败，请稍后重试。'/)
   assert.match(source, /SOURCE_WORKFLOW_CANCEL_REASON/)
   assert.match(source, /SOURCE_WORKFLOW_PAUSE_REASON/)
   assert.match(source, /@click="resumePolling"/)
+})
+
+test('非法剧集 id 不会写进 AI 配置返回地址', () => {
+  assert.deepEqual(
+    buildAiConfigLocation({ dramaId: 'bad', serviceType: 'text' }),
+    { name: 'ai-config', query: { service_type: 'text' } },
+  )
+  assert.deepEqual(
+    buildAiConfigLocation({ dramaId: 0, serviceType: 'video' }),
+    { name: 'ai-config', query: { service_type: 'video' } },
+  )
 })

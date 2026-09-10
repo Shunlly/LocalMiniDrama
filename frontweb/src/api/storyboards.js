@@ -6,12 +6,33 @@ import request from '@/utils/request'
  * @param {(delta: string) => void} [onDelta]
  * @returns {Promise<{ universal_segment_text: string }>}
  */
-function postUniversalSegmentNdjsonStream(url, body, onDelta) {
-  return fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/x-ndjson' },
-    body: JSON.stringify(body || {}),
-  }).then(async (res) => {
+function createAbortError(message = '操作已取消') {
+  if (typeof DOMException === 'function') return new DOMException(message, 'AbortError')
+  const error = new Error(message)
+  error.name = 'AbortError'
+  return error
+}
+
+function throwIfStreamAborted(signal) {
+  if (!signal?.aborted) return
+  throw createAbortError()
+}
+
+async function postUniversalSegmentNdjsonStream(url, body, onDelta, options = {}) {
+  const signal = options.signal
+  throwIfStreamAborted(signal)
+  let res
+  try {
+    res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/x-ndjson' },
+      body: JSON.stringify(body || {}),
+      signal,
+    })
+  } catch (error) {
+    if (error?.name === 'AbortError' || signal?.aborted) throw createAbortError()
+    throw error
+  }
     if (!res.ok) {
       let msg = `请求失败 (${res.status})`
       try {
@@ -31,6 +52,7 @@ function postUniversalSegmentNdjsonStream(url, body, onDelta) {
     let buf = ''
     let finalText = ''
     while (true) {
+      throwIfStreamAborted(signal)
       const { done, value } = await reader.read()
       if (done) break
       buf += dec.decode(value, { stream: true })
@@ -63,7 +85,6 @@ function postUniversalSegmentNdjsonStream(url, body, onDelta) {
       }
     }
     return { universal_segment_text: finalText }
-  })
 }
 
 export const storyboardsAPI = {
@@ -97,22 +118,24 @@ export const storyboardsAPI = {
     return request.post(`/storyboards/${id}/universal-segment-prompt`, body)
   },
   /** 全能模式生成：NDJSON 流式，可选 body.duration、body.force_without_reference_images */
-  generateUniversalSegmentPromptStream(id, body, onDelta) {
+  generateUniversalSegmentPromptStream(id, body, onDelta, options) {
     return postUniversalSegmentNdjsonStream(
       `/api/v1/storyboards/${id}/universal-segment-prompt-stream`,
       body,
-      onDelta
+      onDelta,
+      options || {}
     )
   },
   /**
    * 流式润色全能片段：NDJSON 行 {type:'delta',text} / {type:'done',universal_segment_text} / {type:'error',message}
    * body.draft_universal_segment_text 为当前编辑区全文；可选 duration、force_without_reference_images
    */
-  polishUniversalSegmentPromptStream(id, body, onDelta) {
+  polishUniversalSegmentPromptStream(id, body, onDelta, options) {
     return postUniversalSegmentNdjsonStream(
       `/api/v1/storyboards/${id}/universal-segment-polish-stream`,
       body,
-      onDelta
+      onDelta,
+      options || {}
     )
   },
   insertBefore(id) {

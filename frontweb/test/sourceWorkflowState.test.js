@@ -7,9 +7,15 @@ import {
   getSourceWorkflowActionReasons,
   getSourceWorkflowBusyReason,
   resolveInspectedWorkflowStep,
-  SOURCE_AUTO_EXTRACTION_UNSUPPORTED_MESSAGE,
+  MEDIA_AUTO_EXTRACTION_EXTENSIONS,
+  SOURCE_FILE_FORMAT_UNSUPPORTED_MESSAGE,
+  SOURCE_INTAKE_MEDIA_HELP,
+  SOURCE_MEDIA_EXTRACTION_CONFIG_GUIDANCE,
+  SOURCE_OCR_CONFIG_GUIDANCE,
+  SOURCE_TRANSCRIPTION_CONFIG_GUIDANCE,
   SOURCE_WORKFLOW_CANCEL_REASON,
   SOURCE_WORKFLOW_PAUSE_REASON,
+  SOURCE_WORKFLOW_FAILURE_FALLBACK,
   isDeferredAutoExtractionSource,
   localizeSourceIntakeFailure,
 } from '../src/utils/sourceWorkflowState.js'
@@ -284,19 +290,30 @@ test('inspected workflow step stays on history unless the user was following the
   )
 })
 
-test('延后的 OCR/转写入口给出中文说明而不是英文失败', () => {
+test('PDF/图片/音视频可识别，英文抽取失败落成中文并引导 AI 配置', () => {
   assert.equal(isDeferredAutoExtractionSource({ name: 'a.pdf', type: 'application/pdf' }), true)
   assert.equal(isDeferredAutoExtractionSource({ name: 'a.png', type: 'image/png' }), true)
   assert.equal(isDeferredAutoExtractionSource({ name: 'a.mp3', type: 'audio/mpeg' }), true)
   assert.equal(isDeferredAutoExtractionSource({ name: 'a.mp4', type: 'video/mp4' }), true)
   assert.equal(isDeferredAutoExtractionSource({ name: 'story.txt', type: 'text/plain' }), false)
+  assert.ok(MEDIA_AUTO_EXTRACTION_EXTENSIONS.includes('.pdf'))
+  assert.ok(MEDIA_AUTO_EXTRACTION_EXTENSIONS.includes('.png'))
+  assert.ok(MEDIA_AUTO_EXTRACTION_EXTENSIONS.includes('.mp3'))
+  assert.ok(MEDIA_AUTO_EXTRACTION_EXTENSIONS.includes('.mp4'))
+  assert.match(SOURCE_INTAKE_MEDIA_HELP, /图片识别/)
+  assert.match(SOURCE_INTAKE_MEDIA_HELP, /语音转写/)
+  assert.doesNotMatch(SOURCE_INTAKE_MEDIA_HELP, /service_type=ocr/)
   assert.equal(
     localizeSourceIntakeFailure(new Error('Tesseract OCR failed'), { filename: 'scan.png' }),
-    SOURCE_AUTO_EXTRACTION_UNSUPPORTED_MESSAGE,
+    SOURCE_OCR_CONFIG_GUIDANCE,
   )
   assert.equal(
-    localizeSourceIntakeFailure('extracted video audio is empty'),
-    SOURCE_AUTO_EXTRACTION_UNSUPPORTED_MESSAGE,
+    localizeSourceIntakeFailure('extracted video audio is empty', { filename: 'clip.mp4' }),
+    SOURCE_TRANSCRIPTION_CONFIG_GUIDANCE,
+  )
+  assert.equal(
+    localizeSourceIntakeFailure('未配置 OCR 服务，且 Tesseract 不可用。请添加启用的 service_type=ocr AI 配置，或安装 Tesseract CLI。', { filename: 'scan.png' }),
+    '未配置 OCR 服务，且 Tesseract 不可用。请添加启用的 service_type=ocr AI 配置，或安装 Tesseract CLI。',
   )
   assert.equal(localizeSourceIntakeFailure('素材列表加载失败'), '素材列表加载失败')
 })
@@ -330,4 +347,72 @@ test('取消的流程不当成失败，失败才可重试', () => {
   assert.equal(localizeSourceIntakeFailure('User paused from Source Intake panel'), SOURCE_WORKFLOW_PAUSE_REASON)
   const aborted = Object.assign(new Error('canceled'), { name: 'AbortError', code: 'ERR_CANCELED' })
   assert.equal(localizeSourceIntakeFailure(aborted), '')
+})
+
+test('英文失败会落成中文，空错误保持空白', () => {
+  assert.equal(localizeSourceIntakeFailure(''), '')
+  assert.equal(localizeSourceIntakeFailure('provider rejected request'), SOURCE_WORKFLOW_FAILURE_FALLBACK)
+  assert.equal(localizeSourceIntakeFailure(new Error('Failed to fetch')), SOURCE_MEDIA_EXTRACTION_CONFIG_GUIDANCE)
+  assert.equal(
+    localizeSourceIntakeFailure(new Error('Failed to fetch'), { filename: 'scan.png' }),
+    SOURCE_OCR_CONFIG_GUIDANCE,
+  )
+  assert.equal(
+    localizeSourceIntakeFailure(new Error('Failed to fetch'), { filename: 'talk.mp3' }),
+    SOURCE_TRANSCRIPTION_CONFIG_GUIDANCE,
+  )
+  assert.equal(
+    localizeSourceIntakeFailure('whisper transcription failed'),
+    SOURCE_TRANSCRIPTION_CONFIG_GUIDANCE,
+  )
+  assert.equal(
+    localizeSourceIntakeFailure('unsupported source intake file type'),
+    SOURCE_FILE_FORMAT_UNSUPPORTED_MESSAGE,
+  )
+  assert.equal(
+    localizeSourceIntakeFailure({
+      message: 'Request failed with status code 400',
+      response: { data: { error: { message: '该 PDF 没有可抽取文本或可供 OCR 识别的页面。请更换文件或检查 OCR 配置。' } } },
+    }, { filename: 'scan.pdf' }),
+    '该 PDF 没有可抽取文本或可供 OCR 识别的页面。请更换文件或检查 OCR 配置。',
+  )
+})
+
+test('未知失败步骤不会把英文 step_key 直接展示给用户', () => {
+  const failed = buildSourceWorkflowState({
+    sourceCount: 1,
+    hasSourceInput: false,
+    run: {
+      id: 'run-mystery',
+      status: 'failed',
+      current_step: 'mystery_step',
+      steps: [{ step_key: 'mystery_step', status: 'failed' }],
+    },
+    qa: null,
+    timeline: null,
+    episodeCount: 0,
+    actionReasons: {},
+  })
+  assert.equal(failed.activeStepId, 'process')
+  assert.equal(failed.steps.find((step) => step.id === 'process').summary, '流程失败：请重试')
+  assert.equal(failed.steps.find((step) => step.id === 'process').statusLabel, '需处理')
+})
+
+test('空素材状态保持中文引导', () => {
+  const state = buildSourceWorkflowState({
+    sourceCount: 0,
+    hasSourceInput: false,
+    run: null,
+    qa: null,
+    timeline: null,
+    episodeCount: 0,
+    actionReasons: getSourceWorkflowActionReasons({ hasSourceInput: false, runState: {}, qa: {} }),
+  })
+  assert.match(state.sourceEmptyState.title, /还没有已导入/)
+  assert.match(state.sourceEmptyState.description, /网页、文件和文本/)
+  assert.match(state.sourceEmptyState.description, /图片识别/)
+  assert.match(state.sourceEmptyState.description, /语音转写/)
+  assert.doesNotMatch(state.sourceEmptyState.description, /service_type=ocr/)
+  assert.equal(state.sourceEmptyState.primaryAction.label, '仅导入素材')
+  assert.match(state.sourceEmptyState.primaryAction.disabledReason, /先粘贴网页 URL/)
 })

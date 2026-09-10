@@ -2,11 +2,11 @@ export const MAX_NOVEL_FILE_BYTES = 20 * 1024 * 1024
 export const MAX_NOVEL_TEXT_BYTES = 2 * 1024 * 1024
 export const NOVEL_INTAKE_EXTENSIONS = Object.freeze(['.txt', '.md'])
 
-export const NOVEL_INTAKE_HINT = '当前只支持粘贴或上传 UTF-8 纯文本（.txt / .md）。当前没有图片 OCR，也不能识别 PDF 或扫描件。单次文本不超过 2MB。导入后会尝试按章节拆成剧本，请确认已有版权或授权。'
+export const NOVEL_INTAKE_HINT = '文本可直接粘贴或上传 .txt / .md。PDF/图片需要图片识别，音视频需要语音转写。可先用本机 Tesseract，或在 AI 配置中添加对应服务。单次文本不超过 2MB。导入后会尝试按章节拆成剧本，请确认已有版权或授权。'
 
-export const NOVEL_INTAKE_PLACEHOLDER = '粘贴小说正文。图片、PDF 和扫描件无法在此识别，请先转成文本。'
+export const NOVEL_INTAKE_PLACEHOLDER = '粘贴小说正文。PDF/图片需要图片识别，音视频需要语音转写。'
 
-export const NOVEL_INTAKE_FILE_HELP = '仅接受 UTF-8 编码的 .txt / .md。空文件、非 UTF-8 编码或超过 2MB 的文本会被拒绝。当前没有 OCR。'
+export const NOVEL_INTAKE_FILE_HELP = '文本文件仅接受 UTF-8 编码的 .txt / .md。PDF/图片需要图片识别，音视频需要语音转写；可到「AI 配置」添加对应服务。空文件、非 UTF-8 编码或超过 2MB 的文本会被拒绝。'
 
 export const NOVEL_INTAKE_MESSAGES = Object.freeze({
   emptyFile: '文件为空，请选择包含小说正文的文本文件。',
@@ -16,7 +16,7 @@ export const NOVEL_INTAKE_MESSAGES = Object.freeze({
   oversizedText: '小说文本超过 2MB，请拆分后再导入。',
   encoding: '无法按 UTF-8 读取该文件。请将文件转换为 UTF-8 后重试。',
   binary: '文件包含二进制数据，请改用 UTF-8 纯文本。',
-  unsupportedType: '仅支持 .txt / .md 纯文本。当前没有图片 OCR，也不能导入 PDF 或扫描件。',
+  unsupportedType: 'PDF/图片需要图片识别，音视频需要语音转写。请先转成 .txt / .md，或到「AI 配置」添加对应服务后再导入。',
   readFailed: '读取文本文件失败，请重新选择。',
 })
 
@@ -58,10 +58,10 @@ export function buildNovelIntakeConfirmCopy({ maxChapters, aiSummarize } = {}) {
   const chapters = Math.max(1, Math.min(20, Math.floor(Number(maxChapters) || 10)))
   const extra = aiSummarize
     ? '已开启 AI 转剧本，会消耗 Token。'
-    : '不会把图片或扫描件识别成文字。'
+    : ''
   return {
     title: '确认导入文本',
-    message: `将把纯文本导入并尝试拆成最多 ${chapters} 集。${extra}当前没有图片 OCR。请确认内容已有版权或授权。`,
+    message: `将把文本导入并尝试拆成最多 ${chapters} 集。${extra}请确认内容已有版权或授权。`,
     confirmButtonText: '开始导入',
     cancelButtonText: '取消',
   }

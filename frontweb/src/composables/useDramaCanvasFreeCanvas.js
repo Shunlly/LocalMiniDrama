@@ -1,5 +1,12 @@
-import { nextTick } from 'vue'
+import { nextTick, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+
+import {
+  alignFreeCanvasNodePositions,
+  getFreeCanvasAlignDisabledReason,
+  isFreeCanvasDeleteShortcutBlocked as isDeleteShortcutBlockedByUx,
+  setFreeCanvasUxState,
+} from '@/components/dramaCanvas/freeCanvasUx'
 
 import { assetsAPI } from '@/api/assets'
 import { characterAPI } from '@/api/characters'
@@ -204,6 +211,9 @@ export function useDramaCanvasFreeCanvas(deps) {
     if (freeCanvas.value.nodes.length >= 500) {
       ElMessage.warning('自由画布已达到 500 个节点上限，请先整理后再添加')
       return null
+    }
+    if (freeCanvas.value.nodes.length >= 400) {
+      ElMessage.warning(`自由画布节点较多（${freeCanvas.value.nodes.length}/500），继续添加可能影响操作流畅度`)
     }
 
     const spawnPosition = defaultFreeNodePosition(position)
@@ -576,14 +586,24 @@ export function useDramaCanvasFreeCanvas(deps) {
 
   function isTypingTarget(target) {
     return Boolean(target?.closest?.(
-      'input, textarea, select, [contenteditable="true"], .el-input, .el-textarea',
+      'input, textarea, select, [contenteditable="true"], [contenteditable="plaintext-only"], [role="textbox"], .el-input, .el-textarea, .el-select',
     ))
   }
 
   function isEditableKeyTarget(target) {
     return isTypingTarget(target) || Boolean(target?.closest?.(
-      'button, video, audio, .el-popper, .free-canvas-inspector-dock',
+      'button, video, audio, .el-popper, .free-canvas-inspector-dock, .canvas-inspector-dock',
     ))
+  }
+
+  function isFreeCanvasDeleteShortcutBlocked(event) {
+    const activeElement = (typeof document !== 'undefined' && document)
+      ? document.activeElement
+      : null
+    return isDeleteShortcutBlockedByUx({
+      target: event?.target,
+      activeElement,
+    })
   }
 
   function selectAllFreeCanvasNodes() {
@@ -713,7 +733,7 @@ export function useDramaCanvasFreeCanvas(deps) {
       return
     }
     if (event.key === 'Delete' || event.key === 'Backspace') {
-      if (event.target?.closest?.('.free-canvas-inspector-dock, video, audio, .el-popper')) return
+      if (isFreeCanvasDeleteShortcutBlocked(event)) return
       const { nodeIds, edgeIds } = currentVisualFreeCanvasSelection()
       if (nodeIds.length || edgeIds.length) {
         event.preventDefault()
@@ -739,6 +759,46 @@ export function useDramaCanvasFreeCanvas(deps) {
     if (current.includes(block)) return current
     return current ? `${current}\n\n${block}` : block
   }
+
+  function alignFreeCanvasSelection(mode = 'left') {
+    const { nodeIds } = syncVisualFreeCanvasSelection()
+    const reason = getFreeCanvasAlignDisabledReason({
+      selectionCount: nodeIds.length,
+      readonly: Boolean(freeCanvasReadOnly.value),
+    })
+    if (reason) {
+      ElMessage.info(reason)
+      return false
+    }
+    const nextNodes = alignFreeCanvasNodePositions(
+      freeCanvas.value.nodes,
+      nodeIds,
+      mode,
+    )
+    commitFreeCanvasState({ ...freeCanvas.value, nodes: nextNodes }, `align:${mode}`)
+    const labels = { left: '左对齐', top: '顶对齐', 'center-x': '水平居中' }
+    ElMessage.success(`已将所选节点${labels[mode] || '对齐'}`)
+    return true
+  }
+
+  watch(
+    () => [
+      freeCanvas.value.nodes.length,
+      selectedFreeNodeIds.value.length,
+      Boolean(freeCanvasReadOnly.value),
+      canvasMode.value,
+    ],
+    ([nodeCount, selectionCount, readonly, mode]) => {
+      setFreeCanvasUxState({
+        nodeCount,
+        selectionCount,
+        readonly,
+        canvasMode: mode,
+        alignSelection: alignFreeCanvasSelection,
+      })
+    },
+    { immediate: true },
+  )
 
   function resolveFreeConversionTarget(value) {
     const match = /^(character|scene|prop|storyboard):(\d+)$/.exec(String(value || ''))
@@ -976,6 +1036,7 @@ export function useDramaCanvasFreeCanvas(deps) {
     copyFreeCanvasSelection,
     pasteFreeCanvasSelection,
     handleFreeCanvasKeydown,
+    alignFreeCanvasSelection,
     convertFreeCanvasReference,
     saveFreeCanvasNodeAsAsset,
   }

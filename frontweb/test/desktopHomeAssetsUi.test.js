@@ -12,6 +12,9 @@ import {
 const filmListSource = readFileSync(new URL('../src/views/FilmList.vue', import.meta.url), 'utf8')
 const sourceIntakeWorkflowSource = readFileSync(new URL('../src/components/SourceIntakeWorkflowPanel.vue', import.meta.url), 'utf8')
 const mediaLibrarySource = readFileSync(new URL('../src/views/MediaLibrary.vue', import.meta.url), 'utf8')
+const filmCreateHeaderSource = readFileSync(new URL('../src/components/filmCreate/FilmCreateHeader.vue', import.meta.url), 'utf8')
+const backupSource = readFileSync(new URL('../src/views/Backup.vue', import.meta.url), 'utf8')
+const appSource = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
 const routerSource = readFileSync(new URL('../src/router/index.js', import.meta.url), 'utf8')
 const themeSource = readFileSync(new URL('../src/styles/theme.css', import.meta.url), 'utf8')
 
@@ -39,17 +42,17 @@ test('desktop home exposes one material center entry and keeps semantic librarie
   assert.doesNotMatch(headerLibrarySource, /<!-- 右侧操作区 -->/)
   assert.match(
     headerLibrarySource,
-    /<el-button class="btn-library btn-material-center" title="打开素材中心" @click="goMaterialCenter">\s*<el-icon><Files \/><\/el-icon>素材中心\s*<\/el-button>/,
+    /<el-button class="btn-library btn-material-center" title="打开素材中心" aria-label="打开素材中心" @click="goMaterialCenter">\s*<el-icon><Files \/><\/el-icon>素材中心\s*<\/el-button>/,
   )
   assert.match(
     headerLibrarySource,
-    /<el-button class="btn-library btn-semantic-library" :disabled="listWriteLocked">\s*<el-icon><Collection \/><\/el-icon>分类素材\s*<el-icon class="dropdown-caret"><ArrowDown \/><\/el-icon>\s*<\/el-button>/,
+    /<el-button class="btn-library btn-semantic-library" :disabled="listWriteLocked" aria-label="打开分类素材">\s*<el-icon><Collection \/><\/el-icon>分类素材\s*<el-icon class="dropdown-caret"><ArrowDown \/><\/el-icon>\s*<\/el-button>/,
   )
   assert.match(headerLibrarySource, /<el-dropdown-item command="character"><el-icon><User \/><\/el-icon>角色素材库<\/el-dropdown-item>/)
   assert.match(headerLibrarySource, /<el-dropdown-item command="scene"><el-icon><PictureFilled \/><\/el-icon>场景素材库<\/el-dropdown-item>/)
   assert.match(headerLibrarySource, /<el-dropdown-item command="prop"><el-icon><Box \/><\/el-icon>道具素材库<\/el-dropdown-item>/)
   assert.match(routerSource, /path: '\/media-library'[\s\S]*meta: \{ title: '素材中心',/)
-  assert.match(filmListSource, /function goMaterialCenter\(\) \{\s*router\.push\('\/media-library'\)\s*\}/)
+  assert.match(filmListSource, /function goMaterialCenter\(\) \{\s*openWorkspaceNavItem\(router, 'media-library'\)\s*\}/)
 })
 
 test('project list exposes a reachable Chinese backup entry on the home header', () => {
@@ -62,6 +65,21 @@ test('project list exposes a reachable Chinese backup entry on the home header',
   assert.doesNotMatch(filmListSource, /微信我/)
   assert.match(routerSource, /path: '\/backup'[\s\S]*name: 'backup'/)
   assert.match(routerSource, /meta: \{ title: '数据备份',/)
+})
+
+test('页头产品入口已去掉微信我，且不影响备份导航', () => {
+  for (const source of [filmListSource, filmCreateHeaderSource, backupSource, appSource]) {
+    assert.doesNotMatch(source, /微信我/)
+    assert.doesNotMatch(source, /btn-wechat/)
+    assert.doesNotMatch(source, /showWechat/)
+    assert.doesNotMatch(source, /扫码联系作者/)
+    assert.doesNotMatch(source, /微信联系作者/)
+    assert.doesNotMatch(source, /ChatDotSquare/)
+  }
+  assert.match(filmCreateHeaderSource, /class="btn-ai-config"/)
+  assert.match(backupSource, /数据备份与维护/)
+  assert.match(appSource, /<router-view/)
+  assert.match(routerSource, /path: '\/backup'[\s\S]*name: 'backup'/)
 })
 
 test('story-source actions use the scoped story-material terminology', () => {

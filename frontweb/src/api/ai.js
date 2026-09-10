@@ -25,6 +25,10 @@ export const aiAPI = {
   testConnection(body, options = {}) {
     return request.post('/ai-configs/test', body, options)
   },
+  /** 从厂商服务读取模型目录；失败时由页面保留用户已填写的模型列表 */
+  discoverModels(body, options = {}) {
+    return request.post('/ai-configs/discover-models', body, options)
+  },
   /** 即梦2角色认证：GET /api/business/v1/assets（body: base_url, api_key, limit?, cursor?） */
   listJimeng2MaterialAssets(body) {
     return request.post('/ai-configs/jimeng2-list-assets', body)

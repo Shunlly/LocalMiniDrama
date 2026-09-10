@@ -69,7 +69,8 @@
             class="service-chip"
             :class="{ ready: service.ready }"
             :title="service.ready ? `${service.label}${service.verified ? '已验证' : '已配置'}：${service.detail}` : `前往配置${service.label}`"
-            @click="!service.ready && emit('action', serviceAction(service))"
+            :aria-label="service.ready ? `${service.label}${service.verified ? '已验证' : '已配置'}` : `前往配置${service.label}`"
+            v-on="service.ready ? {} : { click: () => emit('action', serviceAction(service)) }"
           >
             <span class="service-chip-dot" aria-hidden="true" />
             <span>{{ service.label }}</span>

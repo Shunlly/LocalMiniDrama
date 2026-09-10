@@ -39,7 +39,7 @@ test('回收站加载失败会保留已有项目并提供重试', () => {
   assert.match(filmListSource, /v-if="trashError"[\s\S]*@click="loadTrash"[\s\S]*重试/)
   assert.match(filmListSource, /v-if="!trashLoading && !trashError && trashItems\.length === 0"/)
   const loadTrashSource = remainingExtractNamedFunction(filmListSource, 'loadTrash')
-  assert.match(loadTrashSource, /trashError\.value = error\.message \|\| '回收站加载失败，请重试'/)
+  assert.match(loadTrashSource, /trashError\.value = toUserFacingError\(error, '回收站加载失败，请重试'\)/)
   assert.doesNotMatch(loadTrashSource, /trashItems\.value = \[\]/)
   assert.match(filmListSource, /async function restoreFromTrash\(item\) \{\s*if \(restoringId\.value !== null\) return/)
   assert.doesNotMatch(filmListSource, /async function restoreFromTrash\(item\) \{\s*if \(listWriteLocked\.value\) return/)

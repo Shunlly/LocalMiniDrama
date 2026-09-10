@@ -6,12 +6,17 @@ import { parse } from '@vue/compiler-sfc'
 
 import { fetchStoryboardMediaSnapshot } from '../src/composables/useCanvasStoryboardMedia.js'
 
+import { generateAssetReferenceImage } from '../src/composables/useCanvasAssetGenerate.js'
+
 const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8')
-const canvasSource = read('../src/views/DramaCanvas.vue')
+const canvasSource = [read('../src/views/DramaCanvas.vue'), read('../src/views/DramaCanvas.css'), read('../src/composables/useDramaCanvasProjectLoad.js'), read('../src/composables/useDramaCanvasGraph.js')].join('\n')
 const storyboardNodeSource = read('../src/components/dramaCanvas/CanvasStoryboardNode.vue')
+const inspectorDockSource = read('../src/components/dramaCanvas/CanvasInspectorDock.vue')
 const storyboardPanelSource = read('../src/components/dramaCanvas/CanvasStoryboardPanel.vue')
 const mediaPanelSource = read('../src/components/dramaCanvas/CanvasMediaPanel.vue')
 const mediaNodeSource = read('../src/components/dramaCanvas/CanvasMediaNode.vue')
+const assetPanelSource = read('../src/components/dramaCanvas/CanvasAssetPanel.vue')
+const scriptPanelSource = read('../src/components/dramaCanvas/CanvasScriptPanel.vue')
 
 const STORYBOARD_OK_ID = 11
 const STORYBOARD_FAIL_ID = 12
@@ -119,13 +124,15 @@ test('drama canvas exposes persistent load failure UI and media retry entry poin
 
 test('storyboard nodes block billable regeneration while media state is unknown and offer retry', () => {
   const parsed = parse(storyboardNodeSource, { filename: 'CanvasStoryboardNode.vue' })
+  const dockParsed = parse(inspectorDockSource, { filename: 'CanvasInspectorDock.vue' })
   assert.deepEqual(parsed.errors, [])
+  assert.deepEqual(dockParsed.errors, [])
   assert.match(storyboardNodeSource, /mediaQueryUnknown/)
-  assert.match(storyboardNodeSource, /class="media-query-blocker"/)
-  assert.match(storyboardNodeSource, /为避免重复计费/)
-  assert.match(storyboardNodeSource, /ctx\?\.retryStoryboardMedia\?\./)
-  assert.match(storyboardNodeSource, /重试媒体查询/)
   assert.match(storyboardNodeSource, /媒体状态未知/)
+  assert.match(inspectorDockSource, /class="media-query-blocker"/)
+  assert.match(inspectorDockSource, /为避免重复计费/)
+  assert.match(inspectorDockSource, /ctx\?\.retryStoryboardMedia\?\./)
+  assert.match(inspectorDockSource, /重试媒体查询/)
 })
 
 test('media panel and media node gate regeneration behind the same unknown-media retry flow', () => {
@@ -162,4 +169,120 @@ test('both single-node generation panels register one cancellable run and forwar
   assert.match(canvasSource, /nodeGenerationCoordinator.hasActive()/)
   assert.match(canvasSource, /ensureNodeGenerationFinished()/)
   assert.match(canvasSource, /nodeGenerationCoordinator.stopWaiting/)
+})
+
+
+const PROVIDER_SECRET = 'sk-test-not-a-real-key-aaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+
+function assetGenerateCtx() {
+  return {
+    drama: { value: { id: 1, characters: [{ id: 9, name: '角色甲' }] } },
+    nodeStatus: { set() {}, clear() {} },
+    refreshDrama: async () => {},
+    refresh: async () => {},
+  }
+}
+
+function isChineseWithoutSecret(text) {
+  return /[\u4e00-\u9fff]/.test(text)
+    && !String(text).includes(PROVIDER_SECRET)
+    && !/sk-[A-Za-z0-9._-]{6,}/i.test(text)
+    && !/api[_-]?key/i.test(text)
+    && !/Invalid API key/i.test(text)
+}
+
+test('asset reference generation maps provider English and secrets to Chinese', async () => {
+  await assert.rejects(
+    generateAssetReferenceImage(assetGenerateCtx(), {
+      kind: 'character',
+      entity: { id: 9 },
+      nodeId: 'char:9',
+      pollOptions: { interval: 0, maxAttempts: 2, deadlineMs: 1000 },
+      characterAPIImpl: {
+        async generateImage() {
+          return { task_id: 'task-asset-fail' }
+        },
+      },
+      getTask: async () => ({
+        status: 'failed',
+        error: { message: `Invalid API key ${PROVIDER_SECRET}` },
+      }),
+    }),
+    (error) => isChineseWithoutSecret(error.message),
+  )
+})
+
+test('asset reference generation keeps mixed Chinese provider errors from leaking keys', async () => {
+  await assert.rejects(
+    generateAssetReferenceImage(assetGenerateCtx(), {
+      kind: 'character',
+      entity: { id: 9 },
+      nodeId: 'char:9',
+      pollOptions: { interval: 0, maxAttempts: 2, deadlineMs: 1000 },
+      characterAPIImpl: {
+        async generateImage() {
+          return { task_id: 'task-asset-zh' }
+        },
+      },
+      getTask: async () => ({
+        status: 'failed',
+        error: { message: `\u9274\u6743\u5931\u8d25 ${PROVIDER_SECRET}` },
+      }),
+    }),
+    (error) => isChineseWithoutSecret(error.message),
+  )
+})
+
+test('asset reference generation can be cancelled during polling', async () => {
+  const controller = new AbortController()
+  const pending = generateAssetReferenceImage(assetGenerateCtx(), {
+    kind: 'character',
+    entity: { id: 9 },
+    nodeId: 'char:9',
+    signal: controller.signal,
+    pollOptions: { interval: 20, maxAttempts: 50, deadlineMs: 5000 },
+    characterAPIImpl: {
+      async generateImage() {
+        return { task_id: 'task-asset-wait' }
+      },
+    },
+    getTask: async () => ({ status: 'pending' }),
+  })
+  await new Promise((resolve) => setImmediate(resolve))
+  controller.abort()
+  await assert.rejects(
+    pending,
+    (error) => error?.name === 'AbortError' && /\u53d6\u6d88/.test(error.message) && isChineseWithoutSecret(error.message),
+  )
+})
+
+test('batch episode generate cancel is wired to abortEpisodeGenerate', () => {
+  const parsed = parse(read('../src/views/DramaCanvas.vue'), { filename: 'DramaCanvas.vue' })
+  assert.deepEqual(parsed.errors, [])
+  assert.match(canvasSource, /abortEpisodeGenerate/)
+  assert.match(canvasSource, /function cancelEpisodeGenerate\(\) \{[\s\S]*abortEpisodeGenerate\(\)/)
+  assert.match(canvasSource, /aria-label="取消批量生成"/)
+  assert.match(canvasSource, /@click="cancelEpisodeGenerate"/)
+  assert.match(canvasSource, /ensureEpisodeGenerationFinished\(\)/)
+  assert.match(canvasSource, /onBeforeUnmount\([\s\S]*?abortEpisodeGenerate\(\)/)
+})
+
+test('asset and script panels expose cancel controls and forward abort signals', () => {
+  const assetParsed = parse(assetPanelSource, { filename: 'CanvasAssetPanel.vue' })
+  const scriptParsed = parse(scriptPanelSource, { filename: 'CanvasScriptPanel.vue' })
+  assert.deepEqual(assetParsed.errors, [])
+  assert.deepEqual(scriptParsed.errors, [])
+  assert.match(assetPanelSource, /aria-label="取消生成参考图"/)
+  assert.match(assetPanelSource, /@click.stop="abortGenerate"/)
+  assert.match(assetPanelSource, /signal: generationRun\.signal/)
+  assert.match(assetPanelSource, /onBeforeUnmount\([\s\S]*?abortGenerate\(\)/)
+  assert.match(assetPanelSource, /isCanvasUserAbort\(e\) \|\| controller\.signal\.aborted/)
+  assert.match(scriptPanelSource, /aria-label="取消提取"/)
+  assert.match(scriptPanelSource, /@click.stop="abortExtract"/)
+  assert.match(scriptPanelSource, /extractCharacters\?\.\(props\.episode\.id, form\.scriptContent, \{ signal \}\)/)
+  assert.match(scriptPanelSource, /extractScenes\?\.\(props\.episode\.id, \{ signal \}\)/)
+  assert.match(scriptPanelSource, /extractProps\?\.\(props\.episode\.id, \{ signal \}\)/)
+  assert.match(scriptPanelSource, /extractAll\?\.\(props\.episode\.id, form\.scriptContent, \{ signal \}\)/)
+  assert.match(scriptPanelSource, /onBeforeUnmount\([\s\S]*?abortExtract\(\)/)
+  assert.match(scriptPanelSource, /isCanvasUserAbort\(e\) \|\| controller\.signal\.aborted/)
 })

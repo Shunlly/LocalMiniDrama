@@ -132,6 +132,7 @@ test('网络搜索仅返回支持的 Commons 媒体并保留作者与许可元�
   const result = await networkMediaService.search({
     keyword: ' safe test ',
     media_type: 'image',
+    source: 'commons',
     page_size: 10,
   }, { fetch: mock.fetch });
 
@@ -151,22 +152,25 @@ test('网络搜索仅返回支持的 Commons 媒体并保留作者与许可元�
     media_type: 'image',
     width: 1,
     height: 1,
+    source: 'commons',
+    source_provider: 'Wikimedia Commons',
+    source_site: 'Wikimedia Commons',
   });
   assert.equal(mock.calls[0].networkOptions.requireHttpsForPublic, true);
   assert.equal(mock.calls[0].networkOptions.maxBytes, 2 * 1024 * 1024);
 });
 
 test('网络搜索接受规范 type 参数、兼容旧参数并拒绝冲突值', async () => {
-  const byType = await networkMediaService.search({ keyword: 'safe', type: 'image' }, {
+  const byType = await networkMediaService.search({ keyword: 'safe', type: 'image', source: 'commons' }, {
     fetch: mockCommonsFetch().fetch,
   });
-  const byLegacyType = await networkMediaService.search({ keyword: 'safe', media_type: 'image' }, {
+  const byLegacyType = await networkMediaService.search({ keyword: 'safe', media_type: 'image', source: 'commons' }, {
     fetch: mockCommonsFetch().fetch,
   });
   assert.equal(byType.items.length, 1);
   assert.equal(byLegacyType.items.length, 1);
   await assert.rejects(
-    networkMediaService.search({ keyword: 'safe', type: 'image', media_type: 'video' }),
+    networkMediaService.search({ keyword: 'safe', type: 'image', media_type: 'video', source: 'commons' }),
     (error) => error?.code === 'BAD_REQUEST'
   );
 });
@@ -174,7 +178,7 @@ test('网络搜索接受规范 type 参数、兼容旧参数并拒绝冲突值',
 test('网络请求在连接前拒绝解析到私网地址的 Commons 主机', async () => {
   let lookupCalls = 0;
   await assert.rejects(
-    networkMediaService.search({ keyword: 'private target' }, {
+    networkMediaService.search({ keyword: 'private target', source: 'commons' }, {
       lookup: async () => {
         lookupCalls += 1;
         return [{ address: '127.0.0.1', family: 4 }];
@@ -594,4 +598,234 @@ test('总路由真实挂载网络搜索和导入，静态路径不会落入 asse
   const importBody = await importResponse.json();
   assert.equal(importResponse.status, 201);
   assert.deepEqual(importBody.data, { id: 99, name: 'route import' });
+
+  const originalThumb = assetService.proxyNetworkThumbnail;
+  assetService.proxyNetworkThumbnail = async () => ({
+    buffer: PNG_BYTES,
+    contentType: 'image/png',
+  });
+  t.after(() => {
+    assetService.proxyNetworkThumbnail = originalThumb;
+  });
+  const thumbResponse = await fetch(`${baseUrl}/network-thumbnail?source=openverse&id=11111111-1111-1111-1111-111111111111`);
+  assert.equal(thumbResponse.status, 200);
+  assert.equal(thumbResponse.headers.get('content-type'), 'image/png');
+  assert.deepEqual(Buffer.from(await thumbResponse.arrayBuffer()), PNG_BYTES);
+});
+
+
+const OPENVERSE_ID = '11111111-1111-4111-8111-111111111111';
+const OPENVERSE_SOURCE_URL = `https://openverse.org/image/${OPENVERSE_ID}`;
+const OPENVERSE_DOWNLOAD_URL = 'https://live.staticflickr.com/65535/openverse-safe.png';
+const OPENVERSE_THUMB_URL = `https://api.openverse.org/v1/images/${OPENVERSE_ID}/thumb/`;
+const OPENVERSE_LANDING = 'https://www.flickr.com/photos/alice/123';
+
+function openverseRecord(overrides = {}) {
+  return {
+    id: OPENVERSE_ID,
+    title: 'Openverse Safe',
+    foreign_landing_url: OPENVERSE_LANDING,
+    url: OPENVERSE_DOWNLOAD_URL,
+    creator: 'Ada',
+    license: 'by-sa',
+    license_version: '4.0',
+    license_url: 'https://creativecommons.org/licenses/by-sa/4.0/',
+    provider: 'flickr',
+    source: 'flickr',
+    filetype: 'png',
+    filesize: PNG_BYTES.length,
+    width: 1,
+    height: 1,
+    mature: false,
+    thumbnail: OPENVERSE_THUMB_URL,
+    ...overrides,
+  };
+}
+
+function mockNetworkFetch(options = {}) {
+  const calls = [];
+  const fetch = async (url, _request, networkOptions) => {
+    const target = String(url);
+    calls.push({ url: target, networkOptions });
+    if (target.startsWith(networkMediaService.COMMONS_API_URL)) {
+      return response(JSON.stringify(options.commonsPayload || commonsPayload()));
+    }
+    if (target.startsWith(`${networkMediaService.OPENVERSE_API_URL}/images/${OPENVERSE_ID}/thumb/`)) {
+      return response(options.thumbBuffer || PNG_BYTES, { contentType: options.thumbType || 'image/png' });
+    }
+    if (target.startsWith(`${networkMediaService.OPENVERSE_API_URL}/images/${OPENVERSE_ID}`)) {
+      return response(JSON.stringify(options.detail || openverseRecord()));
+    }
+    if (target.startsWith(`${networkMediaService.OPENVERSE_API_URL}/images/`)) {
+      return response(JSON.stringify(options.search || {
+        result_count: 1,
+        page_count: 1,
+        page: 1,
+        results: [openverseRecord()],
+      }));
+    }
+    if (options.rejectUrl && target.startsWith(options.rejectUrl)) {
+      throw Object.assign(new Error('blocked'), { code: 'UNSAFE_MEDIA_REFERENCE' });
+    }
+    const mediaResponse = response(options.buffer || PNG_BYTES, {
+      contentType: options.contentType || 'image/png',
+    });
+    Object.defineProperty(mediaResponse, 'url', { value: options.finalUrl || OPENVERSE_DOWNLOAD_URL });
+    return mediaResponse;
+  };
+  return { calls, fetch };
+}
+
+test('\u7528\u6237\u53ef\u89c1\u7f51\u7edc\u7d20\u6750\u9519\u8bef\u4e0d\u542b\u82f1\u6587\u5b57\u6bb5\u540d', async () => {
+  await assert.rejects(
+    networkMediaService.search({ keyword: '  ' }),
+    (error) => error?.code === 'BAD_REQUEST'
+      && error.message === '\u5173\u952e\u8bcd\u4e0d\u80fd\u4e3a\u7a7a'
+      && !/[A-Za-z]+_[A-Za-z]+/.test(error.message)
+  );
+  await assert.rejects(
+    networkMediaService.search({ keyword: 'rain', source: 'pexels' }),
+    (error) => error?.code === 'BAD_REQUEST' && !error.message.includes('source')
+  );
+  assert.throws(
+    () => networkMediaService.commonsTitleFromSource('https://example.com/file'),
+    (error) => error.message.includes('\u6765\u6e90\u5730\u5740') && !error.message.includes('source_url')
+  );
+  await assert.rejects(
+    networkMediaService.proxyThumbnail({ url: 'https://evil.example/thumb.png' }),
+    (error) => !/source_url|thumbnail_url|download_url/.test(error.message)
+  );
+});
+
+test('Openverse \u56fe\u7247\u641c\u7d22\u6210\u529f\u5e76\u8fd4\u56de\u540c\u6e90\u7f29\u7565\u56fe\u4ee3\u7406\u5730\u5740', async () => {
+  networkMediaService.resetNetworkMediaCaches();
+  const mock = mockNetworkFetch();
+  const result = await networkMediaService.search({
+    keyword: 'safe',
+    source: 'openverse',
+    type: 'image',
+  }, { fetch: mock.fetch });
+
+  assert.equal(result.source, 'Openverse');
+  assert.equal(result.items.length, 1);
+  assert.equal(result.items[0].title, 'Openverse Safe');
+  assert.equal(result.items[0].author, 'Ada');
+  assert.equal(result.items[0].license, 'CC BY-SA 4.0');
+  assert.equal(result.items[0].source, 'openverse');
+  assert.equal(result.items[0].source_provider, 'Openverse');
+  assert.equal(result.items[0].source_site, 'Flickr');
+  assert.equal(result.items[0].openverse_id, OPENVERSE_ID);
+  assert.equal(result.items[0].landing_page, OPENVERSE_LANDING);
+  assert.equal(result.items[0].source_url, OPENVERSE_SOURCE_URL);
+  assert.equal(result.items[0].download_url, '');
+  assert.equal(
+    result.items[0].thumbnail_url,
+    `/api/v1/assets/network-thumbnail?source=openverse&id=${OPENVERSE_ID}`
+  );
+  assert.equal(result.items[0].thumbnail_url.startsWith('/api/v1/assets/network-thumbnail'), true);
+  assert.equal(mock.calls.every((call) => !call.url.includes('pexels') && !call.url.includes('unsplash')), true);
+});
+
+test('Openverse \u6ca1\u6709\u89c6\u9891\u65f6\u7ed9\u51fa\u4e2d\u6587\u8bf4\u660e\u800c\u4e0d\u5047\u88c5\u641c\u5230\u7ed3\u679c', async () => {
+  networkMediaService.resetNetworkMediaCaches();
+  const mock = mockNetworkFetch();
+  const result = await networkMediaService.search({
+    keyword: 'safe',
+    source: 'openverse',
+    type: 'video',
+  }, { fetch: mock.fetch });
+  assert.deepEqual(result.items, []);
+  assert.match(result.notice, /Openverse/);
+  assert.match(result.notice, /\u89c6\u9891/);
+  assert.equal(mock.calls.length, 0);
+});
+
+test('\u7f29\u7565\u56fe\u4ee3\u7406\u53ea\u4ece\u641c\u7d22\u5141\u8bb8\u5217\u8868\u53d6\u56fe\u5e76\u6821\u9a8c\u7c7b\u578b\u4e0e\u5927\u5c0f', async () => {
+  networkMediaService.resetNetworkMediaCaches();
+  const mock = mockNetworkFetch();
+  await networkMediaService.search({ keyword: 'safe', source: 'openverse', type: 'image' }, { fetch: mock.fetch });
+  const proxied = await networkMediaService.proxyThumbnail({
+    source: 'openverse',
+    id: OPENVERSE_ID,
+  }, { fetch: mock.fetch });
+  assert.equal(proxied.contentType, 'image/png');
+  assert.deepEqual(proxied.buffer, PNG_BYTES);
+  assert.equal(mock.calls.some((call) => call.url.startsWith(OPENVERSE_THUMB_URL)), true);
+});
+
+test('\u7f29\u7565\u56fe\u4ee3\u7406\u62d2\u7edd\u975e\u6cd5 URL \u4e0e\u672a\u641c\u7d22\u7684\u6807\u8bc6', async () => {
+  networkMediaService.resetNetworkMediaCaches();
+  await assert.rejects(
+    networkMediaService.proxyThumbnail({ url: 'https://evil.example/x.png' }),
+    (error) => error?.code === 'BAD_REQUEST' && !/[A-Za-z]+_[A-Za-z]+/.test(error.message)
+  );
+  await assert.rejects(
+    networkMediaService.proxyThumbnail({
+      source: 'openverse',
+      id: OPENVERSE_ID,
+      url: 'https://127.0.0.1/steal',
+    }),
+    (error) => error?.code === 'BAD_REQUEST'
+  );
+  await assert.rejects(
+    networkMediaService.proxyThumbnail({ source: 'openverse', id: OPENVERSE_ID }),
+    (error) => error?.code === 'NETWORK_MEDIA_THUMBNAIL_NOT_FOUND'
+  );
+});
+
+test('Openverse \u5bfc\u5165\u5199\u5165\u5143\u6570\u636e\u5e76\u5ffd\u7565\u5ba2\u6237\u7aef\u4f2a\u9020\u5b57\u6bb5', async (t) => {
+  networkMediaService.resetNetworkMediaCaches();
+  const storageRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'localminidrama-openverse-import-'));
+  const db = createDb();
+  const mock = mockNetworkFetch();
+  t.after(() => {
+    db.close();
+    fs.rmSync(storageRoot, { recursive: true, force: true });
+    networkMediaService.resetNetworkMediaCaches();
+  });
+
+  const item = await assetService.importFromNetwork(db, null, {
+    source_url: OPENVERSE_SOURCE_URL,
+    source: 'openverse',
+    openverse_id: OPENVERSE_ID,
+    download_url: 'https://attacker.example/private',
+    title: '\u4f2a\u9020\u6807\u9898',
+    author: '\u4f2a\u9020\u4f5c\u8005',
+    license: '\u4f2a\u9020\u8bb8\u53ef',
+    media_type: 'image',
+  }, { network: { fetch: mock.fetch, storageRoot } });
+
+  assert.equal(item.name, 'Openverse Safe');
+  assert.equal(item.author, 'Ada');
+  assert.equal(item.license, 'CC BY-SA 4.0');
+  assert.equal(item.source_url, OPENVERSE_SOURCE_URL);
+  assert.equal(item.source_provider, 'Openverse');
+  assert.equal(item.source_metadata.kind, 'openverse');
+  assert.equal(item.source_metadata.openverse_id, OPENVERSE_ID);
+  assert.equal(item.source_metadata.landing_page, OPENVERSE_LANDING);
+  assert.equal(
+    item.source_metadata.content_sha256,
+    createHash('sha256').update(PNG_BYTES).digest('hex')
+  );
+  assert.equal(item.source_metadata.resolved_download_url, OPENVERSE_DOWNLOAD_URL);
+  assert.equal(mock.calls.some((call) => call.url.includes('attacker.example')), false);
+});
+
+test('\u9ed8\u8ba4\u5408\u5e76 Commons \u4e0e Openverse\uff0cCommons \u56de\u5f52\u4ecd\u53ef\u5355\u72ec\u641c\u7d22', async () => {
+  networkMediaService.resetNetworkMediaCaches();
+  const mock = mockNetworkFetch();
+  const merged = await networkMediaService.search({ keyword: 'safe', source: 'all', type: 'image' }, {
+    fetch: mock.fetch,
+  });
+  assert.equal(merged.items.some((item) => item.source === 'commons'), true);
+  assert.equal(merged.items.some((item) => item.source === 'openverse'), true);
+  assert.match(merged.source, /Wikimedia Commons/);
+  assert.match(merged.source, /Openverse/);
+
+  const commonsOnly = await networkMediaService.search({ keyword: 'safe', source: 'commons', type: 'image' }, {
+    fetch: mockCommonsFetch().fetch,
+  });
+  assert.equal(commonsOnly.source, 'Wikimedia Commons');
+  assert.equal(commonsOnly.items[0].source, 'commons');
+  assert.equal(commonsOnly.items[0].commons_sha1, PNG_SHA1);
 });

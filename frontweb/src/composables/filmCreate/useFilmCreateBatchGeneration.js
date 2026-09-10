@@ -1,10 +1,29 @@
 import { ElMessage } from 'element-plus'
+import { isUserFacingAbort, toUserFacingError } from '@/utils/userFacingError'
 import { GEN_RESOURCE } from '@/stores/generationTaskStore'
 import { isStoryboardMediaStateError, submitStoryboardVideoAfterAccepted } from '@/utils/storyboardMedia'
 import {
   buildStoryboardVideoRequest,
   videoConfigSupportsGridReference,
 } from '@/utils/storyboardVideoRequest'
+
+function isCancelledPollStatus(status) {
+  const value = String(status || '').toLowerCase()
+  return value === 'cancelled' || value === 'canceled'
+}
+
+function recordBatchPollFailure(errorsRef, progressRef, sb, pollRes, stoppingRef) {
+  const status = String(pollRes?.status || '').toLowerCase()
+  if (!status || status === 'completed') return false
+  if (isCancelledPollStatus(status) && stoppingRef?.value) return false
+  let message = toUserFacingError(pollRes.error, '生成未完成')
+  if (status === 'failed') message = toUserFacingError(pollRes.error, '生成失败')
+  else if (status === 'timeout') message = toUserFacingError(pollRes.error, '生成超时，请稍后重试')
+  else if (isCancelledPollStatus(status)) message = toUserFacingError(pollRes.error, '操作已取消')
+  errorsRef.value.push(`#${sb.storyboard_number ?? sb.id}: ${message}`)
+  progressRef.value = { ...progressRef.value, failed: progressRef.value.failed + 1 }
+  return true
+}
 
 export function useFilmCreateBatchGeneration(deps = {}) {
   const {
@@ -115,10 +134,7 @@ export function useFilmCreateBatchGeneration(deps = {}) {
             })
             if (res?.task_id) {
               const pollRes = await pollTask(res.task_id, captureStoryboardMediaRefresh(sb.id))
-              if (pollRes?.status === 'failed') {
-                batchImageErrors.value.push(`#${sb.storyboard_number ?? sb.id}: ${pollRes.error || '生成失败'}`)
-                batchImageProgress.value = { ...batchImageProgress.value, failed: batchImageProgress.value.failed + 1 }
-              }
+              recordBatchPollFailure(batchImageErrors, batchImageProgress, sb, pollRes, batchImageStopping)
             } else {
               await refreshStoryboardMediaForCurrentContext(sb.id)
             }
@@ -128,7 +144,8 @@ export function useFilmCreateBatchGeneration(deps = {}) {
             }
           } catch (e) {
             if (isStoryboardMediaStateError(e)) throw e
-            batchImageErrors.value.push(`#${sb.storyboard_number ?? sb.id}: ${e.message || '提交失败'}`)
+            if (isUserFacingAbort(e)) continue
+            batchImageErrors.value.push(`#${sb.storyboard_number ?? sb.id}: ${toUserFacingError(e, '提交失败')}`)
             batchImageProgress.value = { ...batchImageProgress.value, failed: batchImageProgress.value.failed + 1 }
           }
           doneCount++
@@ -300,9 +317,8 @@ export function useFilmCreateBatchGeneration(deps = {}) {
             if (res?.task_id) {
               const meta = buildSbGenMeta(sb, GEN_RESOURCE.SB_VIDEO, '分镜视频')
               const pollRes = await pollTask(res.task_id, mediaRefresh, meta)
-              if (pollRes?.status === 'failed') {
-                batchVideoErrors.value.push(`#${sb.storyboard_number ?? sb.id}: ${pollRes.error || '生成失败'}`)
-                batchVideoProgress.value = { ...batchVideoProgress.value, failed: batchVideoProgress.value.failed + 1 }
+              const pollFailed = recordBatchPollFailure(batchVideoErrors, batchVideoProgress, sb, pollRes, batchVideoStopping)
+              if (pollFailed) {
                 prevVideoItem = null
               } else if (contiguity && pollRes?.status === 'completed') {
                 // 连贯帧：保存本条视频用于下一条
@@ -318,7 +334,8 @@ export function useFilmCreateBatchGeneration(deps = {}) {
             }
           } catch (e) {
             if (isStoryboardMediaStateError(e)) throw e
-            batchVideoErrors.value.push(`#${sb.storyboard_number ?? sb.id}: ${e.message || '提交失败'}`)
+            if (isUserFacingAbort(e)) continue
+            batchVideoErrors.value.push(`#${sb.storyboard_number ?? sb.id}: ${toUserFacingError(e, '提交失败')}`)
             batchVideoProgress.value = { ...batchVideoProgress.value, failed: batchVideoProgress.value.failed + 1 }
             if (contiguity) prevVideoItem = null
           } finally {

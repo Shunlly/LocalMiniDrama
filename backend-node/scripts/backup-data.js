@@ -9,15 +9,25 @@ const {
   createDataBackup,
   resolveDataRoot,
 } = require('../src/services/dataBackupService');
+const { formatBackupCliError } = require('../src/services/backupSettingsService');
+const BACKUP_PUBLIC_MESSAGES = require('../src/services/backupPublicMessages');
 
 const PACKAGE_ROOT = path.resolve(__dirname, '..');
 
+function backupError(code, detail, cause) {
+  if (detail instanceof Error && cause === undefined) {
+    cause = detail;
+    detail = undefined;
+  }
+  return new DataBackupError(code, detail || BACKUP_PUBLIC_MESSAGES[code], cause);
+}
+
 function usage() {
   console.log([
-    'Usage: npm run backup:data -- [--output <archive.zip>] [--data-root <absolute-directory>] [limits]',
-    '       node scripts/backup-data.js --descriptor-publication --operation-id <id> --publication-path <data.zip> [--data-root <absolute-directory>] [limits]',
+    '用法: npm run backup:data -- [--output <archive.zip>] [--data-root <绝对路径>] [限制]',
+    '      node scripts/backup-data.js --descriptor-publication --operation-id <id> --publication-path <data.zip> [--data-root <绝对路径>] [限制]',
     '',
-    'Limits:',
+    '限制:',
     '  --max-files <count>',
     '  --max-bytes <bytes>',
     '  --max-file-bytes <bytes>',
@@ -28,7 +38,7 @@ function usage() {
 function takeValue(argv, index, flag) {
   const value = argv[index + 1];
   if (!value || value.startsWith('--')) {
-    throw new DataBackupError('INVALID_ARGUMENT', `${flag} requires a value.`);
+    throw backupError('INVALID_ARGUMENT', `${flag} 缺少参数值。`);
   }
   return value;
 }
@@ -43,7 +53,7 @@ function parseArguments(argv) {
       continue;
     }
     if (arg === '--descriptor-publication') {
-      if (seen.has(arg)) throw new DataBackupError('INVALID_ARGUMENT', 'Duplicate backup options are not allowed.');
+      if (seen.has(arg)) throw backupError('INVALID_ARGUMENT', '不能重复指定备份选项。');
       seen.add(arg);
       parsed.descriptorPublication = true;
       continue;
@@ -60,8 +70,8 @@ function parseArguments(argv) {
       '--max-archive-bytes': 'maxArchiveBytes',
     };
     const key = valueFlags[arg];
-    if (!key) throw new DataBackupError('INVALID_ARGUMENT', 'Unknown backup option.');
-    if (seen.has(arg)) throw new DataBackupError('INVALID_ARGUMENT', 'Duplicate backup options are not allowed.');
+    if (!key) throw backupError('INVALID_ARGUMENT', '未知备份选项。');
+    if (seen.has(arg)) throw backupError('INVALID_ARGUMENT', '不能重复指定备份选项。');
     seen.add(arg);
     const value = takeValue(argv, index, arg);
     index += 1;
@@ -103,11 +113,11 @@ function defaultOutputPath() {
 function publicationTimeout(value) {
   if (value === undefined) return 120000;
   if (!/^(0|[1-9][0-9]*)$/.test(value)) {
-    throw new DataBackupError('INVALID_ARGUMENT', 'The publication timeout must be a canonical integer.');
+    throw backupError('INVALID_ARGUMENT', '发布超时必须是规范整数。');
   }
   const parsed = Number(value);
   if (!Number.isSafeInteger(parsed) || parsed < 10 || parsed > 300000) {
-    throw new DataBackupError('INVALID_ARGUMENT', 'The publication timeout is outside the supported range.');
+    throw backupError('INVALID_ARGUMENT', '发布超时超出支持范围。');
   }
   return parsed;
 }
@@ -115,13 +125,13 @@ function publicationTimeout(value) {
 function writeMachineMarker(marker) {
   const bytes = Buffer.from(`${JSON.stringify(marker)}\n`, 'utf8');
   if (bytes.length > 1024) {
-    throw new DataBackupError('MACHINE_RESULT_TOO_LARGE', 'The backup publication result exceeded its machine-channel bound.');
+    throw backupError('MACHINE_RESULT_TOO_LARGE');
   }
   let offset = 0;
   while (offset < bytes.length) {
     const written = fs.writeSync(2, bytes, offset, bytes.length - offset);
     if (written <= 0) {
-      throw new DataBackupError('MACHINE_RESULT_WRITE_FAILED', 'The backup publication result could not be written.');
+      throw backupError('MACHINE_RESULT_WRITE_FAILED');
     }
     offset += written;
   }
@@ -133,7 +143,7 @@ async function waitForPublicationPath(publicationPath, timeoutMs) {
     try {
       const stat = await fsp.lstat(publicationPath);
       if (!stat.isFile() || stat.isSymbolicLink()) {
-        throw new DataBackupError('PUBLICATION_IDENTITY_MISMATCH', 'The backup publication path is not a regular file.');
+        throw backupError('PUBLICATION_IDENTITY_MISMATCH', '备份发布路径不是普通文件。');
       }
       return;
     } catch (error) {
@@ -141,33 +151,30 @@ async function waitForPublicationPath(publicationPath, timeoutMs) {
     }
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
-  throw new DataBackupError('PUBLICATION_TIMEOUT', 'The backup publication path was not committed before the deadline.');
+  throw backupError('PUBLICATION_TIMEOUT');
 }
 
 async function main() {
   const args = parseArguments(process.argv.slice(2));
   if (args.help) {
     if (args.descriptorPublication) {
-      throw new DataBackupError('INVALID_ARGUMENT', 'Help output is unavailable on the descriptor publication channel.');
+      throw backupError('INVALID_ARGUMENT', '描述符发布通道不能输出帮助信息。');
     }
     usage();
     return;
   }
   if (args.descriptorPublication && (args.outputPath || !args.operationId || !args.publicationPath)) {
-    throw new DataBackupError(
-      'INVALID_ARGUMENT',
-      'Descriptor publication requires an operation id and publication path, without --output.'
-    );
+    throw backupError('INVALID_ARGUMENT', '描述符发布需要操作编号和发布路径，且不能使用 --output。');
   }
   if (!args.descriptorPublication && (args.operationId || args.publicationPath || args.publicationTimeoutMs)) {
-    throw new DataBackupError('INVALID_ARGUMENT', 'Descriptor publication options require --descriptor-publication.');
+    throw backupError('INVALID_ARGUMENT', '描述符发布选项需要同时指定 --descriptor-publication。');
   }
   const config = loadConfig();
   const dataPaths = resolveDataPaths(config, args.dataRoot);
   if (args.descriptorPublication) {
     const resolvedPublicationPath = path.resolve(process.cwd(), args.publicationPath);
     if (!path.isAbsolute(args.publicationPath) || path.basename(resolvedPublicationPath) !== 'data.zip') {
-      throw new DataBackupError('INVALID_ARGUMENT', 'Descriptor publication requires an absolute data.zip path.');
+      throw backupError('INVALID_ARGUMENT', '描述符发布需要绝对路径的 data.zip。');
     }
     const timeoutMs = publicationTimeout(args.publicationTimeoutMs);
     const result = await createDataBackup({
@@ -193,20 +200,16 @@ async function main() {
     outputPath: args.outputPath ? path.resolve(process.cwd(), args.outputPath) : defaultOutputPath(),
     limits: args.limits,
   });
-  console.log('Data backup completed.');
-  console.log(`Archive: ${path.basename(result.outputPath)}`);
-  console.log(`Files: ${result.manifest.fileCount}`);
-  console.log(`Bytes: ${result.manifest.totalBytes}`);
+  console.log('数据备份已完成。');
+  console.log(`备份文件：${path.basename(result.outputPath)}`);
+  console.log(`文件数：${result.manifest.fileCount}`);
+  console.log(`字节数：${result.manifest.totalBytes}`);
 }
 
 const descriptorInvocation = process.argv.slice(2).includes('--descriptor-publication');
 main().catch((error) => {
   if (!descriptorInvocation) {
-    if (error instanceof DataBackupError) {
-      console.error(`[${error.code}] ${error.publicMessage}`);
-    } else {
-      console.error('[BACKUP_FAILED] The data backup could not be completed.');
-    }
+    console.error(formatBackupCliError(error));
   }
   process.exitCode = 1;
 });

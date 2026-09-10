@@ -1,5 +1,5 @@
 import { ref } from 'vue'
-import { isPlaceholderMediaUrl, probeImageSource } from '@/utils/mediaUrl'
+import { isPlaceholderMediaUrl, isSafeImagePreviewUrl, probeImageSource } from '@/utils/mediaUrl'
 import { hasRealMediaValue } from '@/utils/storyboardMedia'
 
 export function useFilmCreateMediaPreview(deps = {}) {
@@ -7,6 +7,8 @@ export function useFilmCreateMediaPreview(deps = {}) {
 
   const baseUrl = ref('')
   const previewImageUrl = ref(null)
+  const previewError = ref('')
+  const lastPreviewSource = ref('')
   let previewImageRequestId = 0
   function imageUrl(url) {
     if (!url) return ''
@@ -30,17 +32,34 @@ export function useFilmCreateMediaPreview(deps = {}) {
     if (!item) return false
     return hasRealMediaValue(item.image_url) || hasRealMediaValue(item.local_path)
   }
+  function describeImagePreviewFailure(source, reason) {
+    if (reason === 'empty') return '当前没有可预览的图片。'
+    if (reason === 'placeholder') return '这是草稿占位图，尚无可预览的真实图片。'
+    if (reason === 'unsafe') return '图片地址不可用，请检查文件是否仍存在或重新生成。'
+    return '图片无法加载，请检查文件是否仍存在或重新生成。'
+  }
   async function openImagePreview(url) {
     const source = String(url || '').trim()
+    previewError.value = ''
     if (!source || isPlaceholderMediaUrl(source)) {
-      ElMessage.info('这是草稿占位图，尚无可预览的真实图片。')
+      const message = describeImagePreviewFailure(source, source ? 'placeholder' : 'empty')
+      previewError.value = message
+      ElMessage.info(message)
       return
     }
+    lastPreviewSource.value = source
     const requestId = ++previewImageRequestId
     const renderable = await probeImageSource(source)
     if (requestId !== previewImageRequestId) return
     if (!renderable) {
-      ElMessage.warning('图片无法加载，请检查文件是否仍存在或重新生成。')
+      const message = describeImagePreviewFailure(
+        source,
+        isSafeImagePreviewUrl(source) ? 'unreadable' : 'unsafe',
+      )
+      previewError.value = message
+      ElMessage.warning(message)
+      // 仍打开预览弹窗，让失败提示落在焦点管理过的对话框里。
+      previewImageUrl.value = source
       return
     }
     previewImageUrl.value = source
@@ -48,6 +67,11 @@ export function useFilmCreateMediaPreview(deps = {}) {
   function closeImagePreview() {
     previewImageRequestId += 1
     previewImageUrl.value = null
+    previewError.value = ''
+  }
+  function retryImagePreview() {
+    if (!lastPreviewSource.value) return Promise.resolve()
+    return openImagePreview(lastPreviewSource.value)
   }
   /** 视频地址：优先 local_path（/static/），否则 video_url */
   function assetVideoUrl(item) {
@@ -81,11 +105,14 @@ export function useFilmCreateMediaPreview(deps = {}) {
   return {
     baseUrl,
     previewImageUrl,
+    previewError,
+    lastPreviewSource,
     imageUrl,
     assetImageUrl,
     hasAssetImage,
     openImagePreview,
     closeImagePreview,
+    retryImagePreview,
     assetVideoUrl,
     isHttpVideoUrl,
     recordHasPlayableVideoUrl,

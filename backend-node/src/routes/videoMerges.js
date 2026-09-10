@@ -1,4 +1,5 @@
 const response = require('../response');
+const { sendCaughtRouteError } = require('./serviceFailure');
 const videoMergeService = require('../services/videoMergeService');
 const { isBoundaryError } = require('../services/dramaWriteGuard');
 
@@ -24,7 +25,7 @@ function routes(db, log) {
       } catch (err) {
         if (sendBoundaryError(res, err)) return;
         log.error('video-merges list', { error: err.message });
-        response.internalError(res, err.message);
+        sendCaughtRouteError(res, err, '成片记录操作失败，请稍后重试');
       }
     },
     create: (_req, res) => response.error(
@@ -41,7 +42,7 @@ function routes(db, log) {
       } catch (err) {
         if (sendBoundaryError(res, err)) return;
         log.error('video-merges get', { error: err.message });
-        response.internalError(res, err.message);
+        sendCaughtRouteError(res, err, '成片记录操作失败，请稍后重试');
       }
     },
     delete: (req, res) => {
@@ -52,7 +53,7 @@ function routes(db, log) {
       } catch (err) {
         if (sendBoundaryError(res, err)) return;
         log.error('video-merges delete', { error: err.message });
-        response.internalError(res, err.message);
+        sendCaughtRouteError(res, err, '成片记录操作失败，请稍后重试');
       }
     },
   };

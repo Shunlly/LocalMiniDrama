@@ -26,13 +26,8 @@
         <span>{{ sceneCount }} 场景</span>
         <span>{{ propCount }} 道具</span>
       </div>
-      <div class="hint">{{ showPanel ? '下方可编辑与提取' : '单击展开 · 创作起点' }}</div>
+      <div class="hint">{{ showPanel ? '右侧检查器可编辑与提取' : '单击展开 · 创作起点' }}</div>
     </div>
-    <CanvasScriptPanel
-      v-if="showPanel"
-      :episode="data.episode"
-      :node-id="id"
-    />
   </div>
 </template>
 
@@ -40,7 +35,6 @@
 import { computed } from 'vue'
 import { Handle, Position } from '@vue-flow/core'
 import { useCanvasContext } from '@/composables/useCanvasContext'
-import CanvasScriptPanel from './CanvasScriptPanel.vue'
 import CanvasNodeStatusOverlay from './CanvasNodeStatusOverlay.vue'
 
 const props = defineProps({

@@ -24,8 +24,12 @@ export function useFilmCreateScriptWorkspace(deps = {}) {
     showSelectScriptDialog,
     scriptWorkbenchMode,
     showCharLibrary,
+    showPropLibrary,
+    showSceneLibrary,
     resourcePanelCollapsed,
     charactersBlockCollapsed,
+    propsBlockCollapsed,
+    scenesBlockCollapsed,
     selectScriptLoading,
     selectScriptDramas,
     selectScriptImporting,
@@ -50,12 +54,36 @@ export function useFilmCreateScriptWorkspace(deps = {}) {
     scrollToAnchor('anchor-script')
   }
 
-  async function returnToCharacterPanel() {
-    showCharLibrary.value = false
-    resourcePanelCollapsed.value = false
-    charactersBlockCollapsed.value = false
+  async function returnToResourcePanel({ dialog, block, anchor }) {
+    if (dialog) dialog.value = false
+    if (resourcePanelCollapsed) resourcePanelCollapsed.value = false
+    if (block) block.value = false
     await nextTick()
-    scrollToAnchor('anchor-characters')
+    scrollToAnchor(anchor)
+  }
+
+  async function returnToCharacterPanel() {
+    await returnToResourcePanel({
+      dialog: showCharLibrary,
+      block: charactersBlockCollapsed,
+      anchor: 'anchor-characters',
+    })
+  }
+
+  async function returnToPropPanel() {
+    await returnToResourcePanel({
+      dialog: showPropLibrary,
+      block: propsBlockCollapsed,
+      anchor: 'anchor-props',
+    })
+  }
+
+  async function returnToScenePanel() {
+    await returnToResourcePanel({
+      dialog: showSceneLibrary,
+      block: scenesBlockCollapsed,
+      anchor: 'anchor-scenes',
+    })
   }
 
   async function loadSelectScriptList() {
@@ -328,6 +356,8 @@ export function useFilmCreateScriptWorkspace(deps = {}) {
     openSelectScriptDialog,
     returnToScriptCreation,
     returnToCharacterPanel,
+    returnToPropPanel,
+    returnToScenePanel,
     loadSelectScriptList,
     onPickScriptFromDialog,
     novelImportReset,

@@ -11,6 +11,7 @@ const {
   parseNamesFromAnchorLines,
   sanitizeFramePrompt,
 } = require('../utils/framePromptSanitize');
+const { toUserFacingProcessError } = require('./providerErrorSanitizer');
 
 function waitForTaskWork(work, signal) {
   if (!signal) return Promise.resolve(work);
@@ -618,7 +619,7 @@ async function processFramePromptGeneration(db, log, taskId, storyboardId, frame
       return;
     }
     log.error('Frame prompt generation error', { task_id: taskId, error: err.message });
-    taskService.updateTaskError(db, taskId, err.message || '生成失败');
+    taskService.updateTaskError(db, taskId, toUserFacingProcessError(err, '生成帧提示词失败，请稍后重试'));
   }
 }
 
@@ -630,7 +631,7 @@ function generateFramePrompt(db, log, storyboardId, frameType, panelCount, model
   }
   const validTypes = FRAME_TYPES.includes(frameType);
   if (!validTypes) {
-    throw new Error('不支持的 frame_type，可选: first, key, last, panel, action');
+    throw new Error('不支持的帧类型，可选：首帧、关键帧、尾帧、宫格、动作');
   }
   const task = taskService.createTask(db, log, 'frame_prompt_generation', String(storyboardId));
   scheduleLegacyAsync(log, 'frame_prompt_generation', () => {

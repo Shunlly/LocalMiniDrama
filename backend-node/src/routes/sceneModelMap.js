@@ -1,4 +1,5 @@
 const response = require('../response');
+const { publicErrorMessage } = require('./serviceFailure');
 
 function list(db, log) {
   return (req, res) => {
@@ -125,7 +126,7 @@ function create(db, log) {
       response.created(res, row);
     } catch (err) {
       log.error('Create scene model map failed', { error: err.message, key });
-      if (err.status === 400) return response.error(res, 400, err.code, err.message, err.details);
+      if (err.status === 400) return response.error(res, 400, err.code, publicErrorMessage(err, '场景模型映射无效'), err.details);
       response.internalError(res, '创建场景模型映射失败');
     }
   };
@@ -168,7 +169,7 @@ function update(db, log) {
       response.success(res, row);
     } catch (err) {
       log.error('Update scene model map failed', { error: err.message, key });
-      if (err.status === 400) return response.error(res, 400, err.code, err.message, err.details);
+      if (err.status === 400) return response.error(res, 400, err.code, publicErrorMessage(err, '场景模型映射无效'), err.details);
       response.internalError(res, '更新场景模型映射失败');
     }
   };

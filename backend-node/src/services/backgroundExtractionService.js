@@ -5,6 +5,7 @@ const promptI18n = require('./promptI18n');
 const sceneService = require('./sceneService');
 const { scheduleLegacyAsync } = require('./legacyAsyncSchedulerService');
 const { safeParseAIJSON, extractFirstArray } = require('../utils/safeJson');
+const { toUserFacingProcessError } = require('./providerErrorSanitizer');
 
 function waitForTaskSignal(promise, signal) {
   if (!signal) return promise;
@@ -162,7 +163,7 @@ async function processBackgroundExtraction(db, cfg, log, taskID, episodeId, mode
   } catch (err) {
     if (err?.code === 'OPERATION_CANCELLED' || signal.aborted) return;
     log.error('Background extraction AI failed', { error: err.message, task_id: taskID });
-    taskService.updateTaskStatus(db, taskID, 'failed', 0, 'AI提取场景失败: ' + err.message);
+    taskService.updateTaskError(db, taskID, toUserFacingProcessError(err, 'AI 提取场景失败，请稍后重试'));
     return;
   }
   if (effectiveLanguage === 'zh') {
@@ -256,7 +257,7 @@ function extractBackgroundsForEpisode(db, cfg, log, episodeId, model, style, lan
   scheduleLegacyAsync(log, 'background_extraction', () => {
     processBackgroundExtraction(db, runCfg, log, task.id, episodeId, model, style, language).catch((err) => {
       log.error('processBackgroundExtraction fatal', { error: err.message, task_id: task.id });
-      taskService.updateTaskError(db, task.id, err.message || '场景提取失败');
+      taskService.updateTaskError(db, task.id, toUserFacingProcessError(err, '场景提取失败，请稍后重试'));
     });
   }, { task_id: task.id, episode_id: episodeId });
   return task.id;

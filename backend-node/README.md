@@ -10,7 +10,7 @@
 
 > 遇到问题或有功能建议，欢迎在 [GitHub Issues](https://github.com/Shunlly/LocalMiniDrama/issues) 或 [Gitee Issues](https://gitee.com/bi_shang_a/localminidrama/issues) 提交反馈。
 
-> **本包版本：** `1.3.3`（与仓库根目录、前端与桌面 `package.json` 对齐）
+> **本包版本：** `1.3.3`（与仓库根目录、前端与桌面 `package.json` 对齐；不是 GitHub Release / tag，也没有把发版合并到 `main`。当前分支和脏工作树不能当作发布完成）
 
 ---
 
@@ -18,6 +18,7 @@
 
 - [环境要求](#环境要求)
 - [安装与启动](#安装与启动)
+- [Docker 部署](#docker-部署)
 - [目录结构](#目录结构)
 - [配置文件](#配置文件)
 - [API 接口总览](#api-接口总览)
@@ -32,7 +33,8 @@
 
 | 依赖 | 版本 |
 |------|------|
-| Node.js | 20.x（`engines` 为 `>=20.0.0 <21`）；Docker 与通用门禁同样固定 20.x |
+| Node.js | 20.x（`engines` 为 `>=20.0.0 <21`）；测试、CI、Docker 与通用门禁同样固定 20.x，不要用本机 Node 24 跑门禁 |
+| 桌面打包 | 不在本目录；桌面依赖安装/原生重建/打包使用 Node.js 22.12.0（`desktop/.npmrc` 启用 `engine-strict`） |
 | npm | 随 Node.js 附带 |
 
 ---
@@ -61,7 +63,7 @@ npm test
 # 静态检查、全部测试与流程审计
 npm run verify
 
-# 全量数据备份或恢复前都必须停止后端
+# 全量数据备份或恢复前都必须停止后端；CLI 帮助与失败输出为简体中文
 npm run backup:data -- --output D:\backup\localminidrama.zip
 npm run restore:data -- --input D:\backup\localminidrama.zip --yes
 
@@ -77,7 +79,27 @@ npm run maintenance:recover -- --owner-scope <scope> --pid <pid> --yes
 curl.exe --fail http://127.0.0.1:5679/ready
 ```
 
-开发前端默认在 `3013`。CORS 只允许 `http://localhost:3013` 与 `http://127.0.0.1:3013`。未配置外部 API Key 也可以启动服务；真正生成内容通过前端「AI 配置」写入数据库。
+未就绪时 `checks.database.error`、`checks.storage.error`、`checks.maintenance.error` 为简体中文（如「数据库不可用」）。`/health` 只是存活探针，不代表可以接业务。Docker Compose 后端健康检查探测的是 `/ready`。
+
+开发前端默认在 `3013`。CORS 只允许 `http://localhost:3013` 与 `http://127.0.0.1:3013`。未配置外部 API Key 也可以启动服务；真正生成内容通过前端「AI 配置」写入数据库。厂商预设填表不等于真实图片/视频/TTS 接入已跑通。页面、API 与 CLI 的用户可见错误为简体中文。
+
+---
+
+## Docker 部署
+
+不要在本目录单独 `docker build` 当生产入口。从仓库根目录启动：
+
+```bash
+docker compose up -d --build --wait
+```
+
+后端镜像见 `backend-node/Dockerfile`，固定 Node.js 20。Compose **不挂载应用源码**，改完代码必须 `--build`。默认数据目录是宿主机 `backend-node/data/`。
+
+Compose 后端健康检查探测 `http://127.0.0.1:5679/ready`（失败信息为简体中文）；前端 `http://127.0.0.1:3013/healthz` 代理 `/ready`。`/health` 不是 Compose 健康检查。
+
+容器级校验从仓库根目录执行 `npm run verify:docker`。生产 E2E 必须在干净工作树、仓库外空数据目录上按 `npm run docker:e2e:up` → `npm run verify:e2e` 执行，证据要求 `working_tree_dirty=false`；当前脏工作树不能当作已通过。
+
+全量备份/恢复前必须先停 Docker。自定义 `LOCALMINIDRAMA_DATA_DIR` 时，要把实际 bind source 传给 `--data-root`。完整步骤见 [开发指南](../docs/quickstart.md#运行方式二docker) 和 [备份 FAQ](../docs/quickstart.md#q-如何备份迁移项目数据)。
 
 ---
 
@@ -94,7 +116,7 @@ backend-node/
 │   └── storage/                # 项目媒体 projects/、公共素材 library/ 及兼容旧目录
 ├── migrations/
 │   ├── 01_init.sql             # 初始建表
-│   └── 02_add_default_model.sql ... 37_task_cancellation_state.sql
+│   └── 02_add_default_model.sql ... 35_storyboard_order_integrity.sql ... 37_task_cancellation_state.sql
 ├── src/
 │   ├── app.js                  # Express 应用（路由注册、中间件）
 │   ├── server.js               # HTTP 服务入口
@@ -135,6 +157,7 @@ backend-node/
 │       ├── dramaExportService.js          # 工程导出为 ZIP
 │       ├── dramaImportService.js          # ZIP 工程导入
 │       ├── promptI18n.js                  # 多语言提示词模板
+│       ├── sourceMediaExtractionService.js # 故事素材 PDF/图片 OCR 与音视频转写抽取
 │       └── uploadService.js              # 本地文件存储管理
 └── tools/                      # 辅助脚本（数据迁移等）
 ```
@@ -231,7 +254,7 @@ style:
 
 自由画布只接受 `text`、`image`、`video`、`config`、`reference` 五类节点，并在 API 边界限制节点、连线、文本和嵌套数据规模。`free_canvas` 独立合并到 `drama.metadata`，不会替换现有 `canvas_layout`、`workflow_groups` 或未知 metadata。图片/视频引用继续执行项目隔离、素材身份和本地媒体策略；项目 ZIP 导出/导入会验证归档清单、媒体与引用并在导入时安全重映射身份。该 ZIP 合同已完成 `Spec PASS / Security PASS` 复审。
 
-自由画布的 E2E 代码和证据契约已完成 `Spec PASS / Quality PASS` 复审，但真实 Docker 生产 E2E 尚未执行，当前不能作为最终发布证据。自动化测试仅使用本地协议兼容测试服务，不调用外部真实 Provider。
+自由画布的 E2E 代码和证据契约只说明对应历史范围。干净提交 `f2fa2a85` 上曾通过本地 Docker 生产 E2E，只绑定该 SHA。生产 E2E 必须在干净工作树重跑，当前脏工作树不能当作新证据。自动化测试仅使用本地协议兼容测试服务，不调用外部真实 Provider。
 
 ### 集数（Episode）
 
@@ -307,7 +330,7 @@ style:
 | POST | `/episodes/:episode_id/props/extract` | 从本集剧本提取道具（触发任务） |
 | POST | `/props/:id/generate` | 生成道具图片 |
 | GET | `/assets` | 分页查询素材中心图片/视频 |
-| GET | `/assets/network-search` | 搜索 Wikimedia Commons 公开图片/视频并返回作者、许可和预览信息 |
+| GET | `/assets/network-search` | 搜索 Wikimedia Commons 公开图片/视频并返回作者、许可和预览信息；Openverse 未接入 |
 | POST | `/assets/network-import` | 校验远端来源并安全下载到项目或全局素材库；同项目同来源幂等复用 |
 | POST | `/assets/upload` | 上传图片或视频并写入素材中心（单文件最大 100MB；最多 2 个并发；保留磁盘空间；图片完整解码、视频 `ffprobe` 校验；失败清理） |
 | DELETE | `/assets/:id` | 软删除素材记录；无其他有效引用时同步删除受控素材文件 |
@@ -407,7 +430,7 @@ style:
 
 **可灵 Omni（`kling_omni`）** 同样支持分镜全能模式的多图参考与片段描述-only 提交逻辑，配置方式见前端 AI 配置页说明。
 
-> Novel2Anime 明确区分 Draft 与 Production：Draft 预演可以使用本地 mock provider SDK 产物；Production 工作流由 `workflowService.js` / `aiClient.js` 路由已配置的文本 Provider，由 `providerSdkService.js` 执行素材图、分镜图、视频、TTS 和本机 FFmpeg/FFprobe 合成与输出校验。production QA 会拒绝 mock/占位产物，并要求成功的非 mock text/asset_image/image/video/tts/compositor audit 记录。Ollama 兼容文本路由和 ComfyUI 工作流执行已接入公共适配层；但每个第三方厂商、账号、模型、区域和额度组合仍需在实际部署中单独配置并执行连接测试。
+> Novel2Anime 明确区分 Draft 与 Production：Draft 预演可以使用本地 mock provider SDK 产物；Production 工作流由 `workflowService.js` / `aiClient.js` 路由已配置的文本 Provider，由 `providerSdkService.js` 执行素材图、分镜图、视频、TTS 和本机 FFmpeg/FFprobe 合成与输出校验。production QA 会拒绝 mock/占位产物，并要求成功的非 mock text/asset_image/image/video/tts/compositor audit 记录。Ollama 兼容文本路由和 ComfyUI 工作流执行已接入公共适配层；但厂商预设填表不等于真实接入已跑通。真实图片/视频/TTS 厂商接入以及每个第三方厂商、账号、模型、区域和额度组合仍需在实际部署中单独配置并执行连接测试，不能当作已完成。故事素材上传可由 `sourceMediaExtractionService.js` 抽取文本：文本可直接导入；PDF/图片需要图片识别（本机 Tesseract 或 `service_type=ocr`）；音视频需要 `service_type=transcription`。这是素材抽取扩展，不是正式制作的成片就绪条件。前端故事素材入口仍在接通；真实云 OCR/Whisper 账号联调仍后置。
 
 ### 提示词国际化
 

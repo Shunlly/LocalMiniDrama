@@ -11,12 +11,14 @@ const repositoryRoot = path.resolve(backendRoot, '..');
 const composePath = path.join(repositoryRoot, 'docker-compose.yml');
 const entrypointPath = path.join(backendRoot, 'docker-entrypoint.sh');
 const dockerfilePath = path.join(backendRoot, 'Dockerfile');
+const frontendProdDockerfilePath = path.join(repositoryRoot, 'frontweb', 'Dockerfile.prod');
 const dockerignorePath = path.join(repositoryRoot, '.dockerignore');
 const artifactVerificationPath = path.join(repositoryRoot, 'scripts', 'verify-docker-artifact.cjs');
 const repositoryAssetsAvailable = [
   composePath,
   entrypointPath,
   dockerfilePath,
+  frontendProdDockerfilePath,
   dockerignorePath,
   artifactVerificationPath,
 ].every(fs.existsSync);
@@ -85,6 +87,59 @@ test('backend Compose keeps both production services restartable and gates front
   assert.equal(backend.environment.LOCALMINIDRAMA_CONFIG_PATH, '/tmp/localminidrama-config/config.yaml');
   assert.equal(frontend.depends_on.backend.condition, 'service_healthy');
   assert.match(frontend.healthcheck.test.join(' '), /\/healthz/);
+});
+
+test('Compose 生产探针走 /ready，默认端口 3013/5679，并保留备份恢复环境变量', repositoryOnly, () => {
+  const composeSource = fs.readFileSync(composePath, 'utf8');
+  const compose = yaml.load(composeSource);
+  const backend = compose.services.backend;
+  const frontend = compose.services.frontend;
+  const backendHealth = backend.healthcheck.test.join(' ');
+  const frontendHealth = frontend.healthcheck.test.join(' ');
+  const frontendProdDockerfile = fs.readFileSync(frontendProdDockerfilePath, 'utf8');
+  const backendDockerfile = fs.readFileSync(dockerfilePath, 'utf8');
+  const verificationStage = backendDockerfile.slice(
+    backendDockerfile.indexOf('FROM runtime AS verification'),
+    backendDockerfile.indexOf('FROM runtime AS production'),
+  );
+  const productionStage = backendDockerfile.slice(backendDockerfile.indexOf('FROM runtime AS production'));
+
+  assert.match(composeSource, /docker compose up -d --build --wait/);
+  assert.match(composeSource, /23013\/25679 只属于旧 candidate/);
+  assert.doesNotMatch(JSON.stringify({ ports: [backend.ports, frontend.ports], env: backend.environment }), /23013|25679/);
+  assert.doesNotMatch(composeSource, /NODE_TLS_REJECT_UNAUTHORIZED|insecure_tls|REJECT_UNAUTHORIZED=0/);
+  assert.deepEqual(backend.ports, ['127.0.0.1:5679:5679']);
+  assert.deepEqual(frontend.ports, ['127.0.0.1:${LOCALMINIDRAMA_FRONTEND_HOST_PORT:-3013}:3013']);
+  assert.equal(backend.environment.NODE_ENV, 'production');
+  assert.equal(backend.environment.PORT, '5679');
+  assert.equal(backend.environment.LOCALMINIDRAMA_MAINTENANCE_SCOPE, 'localminidrama-docker-backend');
+  assert.match(backend.environment.LOCALMINIDRAMA_CORS_ORIGINS, /FRONTEND_HOST_PORT:-3013/);
+  assert.doesNotMatch(backend.environment.LOCALMINIDRAMA_CORS_ORIGINS, /23013|25679/);
+  assert.equal(backend.volumes.length, 2);
+  assert.equal(frontend.volumes, undefined);
+  assert.match(backendHealth, /127\.0\.0\.1:5679\/ready/);
+  assert.doesNotMatch(backendHealth, /5679\/health(?:z|\b)/);
+  assert.equal(backend.healthcheck.interval, '10s');
+  assert.equal(backend.healthcheck.timeout, '5s');
+  assert.equal(backend.healthcheck.retries, 12);
+  assert.equal(backend.healthcheck.start_period, '20s');
+  assert.match(frontendHealth, /127\.0\.0\.1:3013\/healthz/);
+  assert.equal(frontend.healthcheck.interval, '10s');
+  assert.equal(frontend.healthcheck.timeout, '3s');
+  assert.equal(frontend.healthcheck.retries, 12);
+  assert.equal(frontend.healthcheck.start_period, '10s');
+  assert.equal(compose.services['backend-verify'].environment.NODE_ENV, 'test');
+  assert.equal(compose.services['frontend-verify'].environment.NODE_ENV, 'production');
+  assert.match(verificationStage, /COPY --chown=node:node backend-node\/Dockerfile \.\/Dockerfile/);
+  assert.match(verificationStage, /cp \/usr\/local\/bin\/localminidrama-entrypoint \.\/docker-entrypoint\.sh/);
+  assert.match(verificationStage, /COPY --chown=node:node frontweb\/Dockerfile\.prod \/frontweb\/Dockerfile\.prod/);
+  assert.doesNotMatch(verificationStage, /HEALTHCHECK/);
+  assert.match(productionStage, /HEALTHCHECK --interval=10s --timeout=5s --start-period=20s --retries=12/);
+  assert.match(productionStage, /127\.0\.0\.1:5679\/ready/);
+  assert.doesNotMatch(productionStage, /5679\/health(?:z|\b)/);
+  assert.match(frontendProdDockerfile, /HEALTHCHECK --interval=10s --timeout=3s --start-period=10s --retries=12/);
+  assert.match(frontendProdDockerfile, /127\.0\.0\.1:3013\/healthz/);
+  assert.doesNotMatch(frontendProdDockerfile, /NODE_TLS_REJECT_UNAUTHORIZED|insecure_tls/);
 });
 
 test('Compose E2E provider has the same init, resource, and log boundaries', repositoryOnly, () => {

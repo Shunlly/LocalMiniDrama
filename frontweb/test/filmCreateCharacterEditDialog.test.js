@@ -18,7 +18,7 @@ function dataModule(source) {
   return `data:text/javascript;base64,${Buffer.from(source).toString('base64')}`
 }
 
-function compileSfc(componentUrl, id) {
+function compileSfc(componentUrl, id, replacements = new Map()) {
   const source = readFileSync(componentUrl, 'utf8')
   const parsed = parse(source, { filename: componentUrl.pathname })
   assert.deepEqual(parsed.errors, [])
@@ -26,8 +26,30 @@ function compileSfc(componentUrl, id) {
   compiledSource = compiledSource
     .replaceAll("from 'vue'", `from ${JSON.stringify(vueUrl)}`)
     .replaceAll('from "vue"', `from ${JSON.stringify(vueUrl)}`)
+  for (const [specifier, resolved] of replacements) {
+    compiledSource = compiledSource
+      .replaceAll(`from '${specifier}'`, `from '${resolved}'`)
+      .replaceAll(`from "${specifier}"`, `from '${resolved}'`)
+  }
   return dataModule(compiledSource)
 }
+
+const actionGateStubUrl = dataModule(`
+  import { defineComponent, h } from ${JSON.stringify(vueUrl)}
+  export default defineComponent({
+    name: 'ActionGateStub',
+    props: {
+      reason: { type: String, default: '' },
+      label: { type: String, default: '' },
+    },
+    setup(props, { slots }) {
+      return () => h('span', [
+        slots.default?.(),
+        props.reason ? h('span', { 'data-testid': 'action-gate-reason' }, props.reason) : null,
+      ])
+    },
+  })
+`)
 
 function createHostNode(type, text = '') {
   return { type, text, props: {}, children: [], parent: null }
@@ -189,7 +211,9 @@ const ElSelect = stubEl('ElSelect', 'select')
 const ElOption = stubEl('ElOption', 'option')
 
 async function mountCharacterDialog(props) {
-  const FilmCreateCharacterEditDialog = (await import(compileSfc(characterDialogUrl, 'character-edit-dialog'))).default
+  const FilmCreateCharacterEditDialog = (await import(compileSfc(characterDialogUrl, 'character-edit-dialog', new Map([
+    ['./ActionGate.vue', actionGateStubUrl],
+  ])))).default
   const root = createHostNode('root')
   const app = renderer.createApp(FilmCreateCharacterEditDialog, props)
   app.component('AccessibleDialog', AccessibleDialogStub)
@@ -237,10 +261,12 @@ test('角色弹窗已从资源弹窗集合抽出，制作页仍走原入口', ()
   assert.doesNotMatch(resourceDialogsSource, /aria-label="角色名称"/)
   assert.doesNotMatch(resourceDialogsSource, /aria-label="选择角色参考图"/)
 
-  assert.match(filmCreateSource, /<FilmCreateResourceDialogs/)
-  assert.match(filmCreateSource, /v-model:show-edit-character="showEditCharacter"/)
-  assert.match(filmCreateSource, /:edit-character-form="editCharacterForm"/)
-  assert.match(filmCreateSource, /:do-generate-character-prompt="doGenerateCharacterPrompt"/)
+  const workspaceDialogsSource = readFileSync(new URL('../src/components/filmCreate/FilmCreateWorkspaceDialogs.vue', import.meta.url), 'utf8')
+  assert.match(filmCreateSource, /<FilmCreateWorkspaceDialogs/)
+  assert.match(workspaceDialogsSource, /<FilmCreateResourceDialogs/)
+  assert.match(filmCreateSource, /showEditCharacter/)
+  assert.match(filmCreateSource, /editCharacterForm/)
+  assert.match(filmCreateSource, /doGenerateCharacterPrompt/)
   assert.doesNotMatch(filmCreateSource, /<FilmCreateCharacterEditDialog/)
 })
 

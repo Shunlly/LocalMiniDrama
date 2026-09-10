@@ -1,0 +1,81 @@
+.batch-stopping {
+  color: var(--el-color-warning);
+  font-size: 12px;
+}
+
+.sb-truncated-warning {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  margin-bottom: 14px;
+  background: rgba(234, 179, 8, 0.12);
+  border: 1px solid rgba(234, 179, 8, 0.4);
+  border-radius: 8px;
+  color: #fbbf24;
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+.sb-truncated-warning .el-icon {
+  flex-shrink: 0;
+  font-size: 1rem;
+  color: #fbbf24;
+}
+
+.sb-truncated-warning span {
+  flex: 1;
+}
+
+.batch-status {
+  margin-top: 12px;
+  padding: 12px 16px;
+  background: var(--el-fill-color-light);
+  border-radius: 8px;
+  font-size: 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.batch-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--el-text-color-primary);
+  font-weight: 500;
+}
+.batch-failed {
+  color: var(--el-color-danger);
+  font-size: 12px;
+}
+.batch-error-log {
+  padding: 10px 12px;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: 6px;
+  font-size: 13px;
+  color: #fca5a5;
+  max-height: 160px;
+  overflow-y: auto;
+}
+.batch-error-title {
+  font-weight: 600;
+  margin-bottom: 6px;
+  color: #f87171;
+}
+.batch-error-line {
+  margin-bottom: 3px;
+  word-break: break-all;
+}
+.storyboard-generating-tip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 10px 14px;
+  background: rgba(139, 92, 246, 0.08);
+  border: 1px dashed rgba(139, 92, 246, 0.35);
+  border-radius: 10px;
+  color: #a78bfa;
+  font-size: 0.9rem;
+}

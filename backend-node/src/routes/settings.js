@@ -15,7 +15,7 @@ function updateLanguage(cfg, log) {
   return (req, res) => {
     const lang = req.body?.language;
     if (lang !== 'zh' && lang !== 'en') {
-      return response.badRequest(res, '语言参数错误，只支持 zh 或 en');
+      return response.badRequest(res, '语言参数错误，只支持中文或英文');
     }
     try {
       const out = settingsService.updateLanguage(cfg, log, lang);

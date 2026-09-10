@@ -200,17 +200,24 @@ function waitForAbortable(promise, signal) {
   });
 }
 
+const SCOPE_FIELD_LABELS = Object.freeze({
+  drama_id: '项目 ID',
+  storyboard_id: '分镜 ID',
+  stored_drama_id: '历史项目编号',
+});
+
 function normalizeScopeId(rawValue, field, allowZero) {
+  const label = SCOPE_FIELD_LABELS[field] || '编号';
   let value;
   if (typeof rawValue === 'number') {
     value = rawValue;
   } else if (typeof rawValue === 'string' && /^\d+$/.test(rawValue.trim())) {
     value = Number(rawValue.trim());
   } else {
-    throw badRequest(`${field} 无效`);
+    throw badRequest(`${label} 无效`);
   }
   if (!Number.isSafeInteger(value) || (allowZero ? value < 0 : value <= 0)) {
-    throw badRequest(`${field} 无效`);
+    throw badRequest(`${label} 无效`);
   }
   return value;
 }
@@ -248,7 +255,7 @@ function resolveVideoGenerationScope(db, body) {
       WHERE s.id = ? AND s.deleted_at IS NULL`
   ).get(storyboardId);
   if (!scope || (dramaId > 0 && Number(scope.drama_id) !== dramaId)) {
-    throw badRequest('storyboard_id 不存在或不属于当前 drama_id');
+    throw badRequest('分镜不存在或不属于当前项目');
   }
   assertDramaAcceptsVideoWrites(db, Number(scope.drama_id));
   return { dramaId: Number(scope.drama_id), storyboardId };
@@ -256,7 +263,7 @@ function resolveVideoGenerationScope(db, body) {
 
 function normalizeStoredDramaId(value) {
   if (value == null || value === '') return 0;
-  return normalizeScopeId(value, '历史 video_generations.drama_id', true);
+  return normalizeScopeId(value, 'stored_drama_id', true);
 }
 
 function findIdempotentVideoGeneration(db, idempotencyKey, scope, now) {
@@ -381,7 +388,7 @@ function loadVideoReferenceImage(db, storyboardId, dramaId, value) {
   const imageId = Number(value);
   if (!Number.isInteger(imageId) || imageId <= 0) throw badRequest('宫格视频参考图 ID 无效');
   if (!Number.isInteger(storyboardId) || storyboardId <= 0) {
-    throw badRequest('选择宫格视频参考图时必须提供有效的 storyboard_id');
+    throw badRequest('选择宫格视频参考图时必须提供有效的分镜');
   }
   const row = db.prepare(
     `SELECT ig.id, ig.storyboard_id, ig.image_url, ig.local_path, e.drama_id
@@ -567,6 +574,7 @@ const path = require('path');
 const { spawnSync } = require('child_process');
 const { randomUUID } = require('crypto');
 const videoClient = require('./videoClient');
+const { toUserFacingProcessError } = require('./providerErrorSanitizer');
 const aiConfigService = require('./aiConfigService');
 const taskService = require('./taskService');
 const storageLayout = require('./storageLayout');
@@ -995,8 +1003,9 @@ async function resumePollForVideoGeneration(db, log, videoGenId) {
       return;
     }
     const now = new Date().toISOString();
-    setVideoGenFailed(db, videoGenId, err.message, now);
-    if (row.task_id) taskService.updateTaskError(db, row.task_id, err.message);
+    const userError = toUserFacingProcessError(err, '视频生成恢复失败，请稍后重试');
+    setVideoGenFailed(db, videoGenId, userError, now);
+    if (row.task_id) taskService.updateTaskError(db, row.task_id, userError);
     log.error('Video generation resume poll error', { id: videoGenId, error: err.message });
   } finally {
     signal?.removeEventListener('abort', forwardOperationAbort);

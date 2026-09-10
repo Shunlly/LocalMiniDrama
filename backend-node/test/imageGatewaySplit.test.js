@@ -171,7 +171,7 @@ describe('imageGateway 厂商适配器请求拼装语义', () => {
       { info() {}, warn() {}, error() {} },
       { prompt: 'test' }
     );
-    assert.equal(result.error, '通义万象 base_url 需为 https://dashscope.aliyuncs.com');
+    assert.equal(result.error, '通义万象接口地址无效，请填写官方服务地址');
   });
 
   it('parseDashScopeImageUrl 仍从 output.choices 取第一张图', () => {

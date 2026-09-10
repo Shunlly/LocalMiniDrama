@@ -1,33 +1,69 @@
-import { taskAPI } from '@/api/task'
+import { canvasUserError, isCanvasUserAbort } from '@/composables/useCanvasUserError'
+import { pollTaskSimple } from '@/composables/useCanvasWorkflowRunner'
 import { characterAPI } from '@/api/characters'
 import { sceneAPI } from '@/api/scenes'
 import { propAPI } from '@/api/props'
 import { assetImageUrl } from '@/utils/mediaUrl'
 import { CANVAS_NODE_STATUS_LABELS } from '@/composables/useCanvasNodeStatus'
 
-async function pollTask(taskId, onTick, maxAttempts = 450, interval = 2000) {
-  if (!taskId) return { status: 'completed' }
-  for (let i = 0; i < maxAttempts; i++) {
-    await new Promise((r) => setTimeout(r, interval))
-    onTick?.()
-    try {
-      const t = await taskAPI.get(taskId)
-      if (t.status === 'completed') return { status: 'completed', result: t.result }
-      if (t.status === 'failed') {
-        return { status: 'failed', error: t.error?.message || t.error || '任务失败' }
-      }
-    } catch (e) {
-      if (i === maxAttempts - 1) return { status: 'failed', error: e.message || '轮询失败' }
-    }
-  }
-  return { status: 'timeout', error: '任务超时' }
+const CANVAS_SECRET_LEAK_RE = /sk-[A-Za-z0-9._-]{6,}|api[_-]?key|bearer\s+[A-Za-z0-9._-]+|password\s*=|client_secret|authorization\s*:|https?:\/\//i
+
+function sanitizeCanvasError(error, fallback) {
+  const text = canvasUserError(error, fallback)
+  if (!text || !/[\u4e00-\u9fff]/.test(text) || CANVAS_SECRET_LEAK_RE.test(text)) return fallback
+  return text
 }
 
-async function pollUntilHasImage(findEntity, maxAttempts = 120, interval = 2000) {
+function sanitizeAbortMessage(raw) {
+  const text = typeof raw === 'string' ? raw.trim() : String(raw?.message || raw || '').trim()
+  if (text && /[\u4e00-\u9fff]/.test(text) && !CANVAS_SECRET_LEAK_RE.test(text)) return text
+  return '任务已取消'
+}
+
+function createAbortError(message = '任务已取消') {
+  if (typeof DOMException === 'function') return new DOMException(message, 'AbortError')
+  const error = new Error(message)
+  error.name = 'AbortError'
+  return error
+}
+
+function throwIfAborted(signal) {
+  if (!signal?.aborted) return
+  throw createAbortError(sanitizeAbortMessage(signal.reason))
+}
+
+function waitForPoll(ms, signal) {
+  throwIfAborted(signal)
+  if (ms <= 0) return Promise.resolve()
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort)
+      resolve()
+    }, ms)
+    function onAbort() {
+      clearTimeout(timer)
+      signal?.removeEventListener('abort', onAbort)
+      reject(createAbortError(sanitizeAbortMessage(signal?.reason)))
+    }
+    signal?.addEventListener('abort', onAbort, { once: true })
+  })
+}
+
+function rethrowAssetError(error, fallback, signal) {
+  if (isCanvasUserAbort(error) || signal?.aborted) {
+    throw createAbortError(sanitizeAbortMessage(signal?.aborted ? (signal.reason || error) : error))
+  }
+  const next = new Error(sanitizeCanvasError(error, fallback))
+  if (error?.code) next.code = error.code
+  throw next
+}
+
+async function pollUntilHasImage(findEntity, { maxAttempts = 120, interval = 2000, signal } = {}) {
   for (let i = 0; i < maxAttempts; i++) {
+    throwIfAborted(signal)
     const entity = findEntity()
     if (entity && assetImageUrl(entity)) return true
-    await new Promise((r) => setTimeout(r, interval))
+    await waitForPoll(interval, signal)
   }
   return false
 }
@@ -35,25 +71,41 @@ async function pollUntilHasImage(findEntity, maxAttempts = 120, interval = 2000)
 /**
  * 素材参考图生成（含轮询），并同步节点 busy 状态到卡片预览
  */
-export async function generateAssetReferenceImage(ctx, { kind, entity, nodeId }) {
+export async function generateAssetReferenceImage(ctx, options = {}) {
+  const {
+    kind,
+    entity,
+    nodeId,
+    signal,
+    pollOptions = {},
+    characterAPIImpl = characterAPI,
+    sceneAPIImpl = sceneAPI,
+    propAPIImpl = propAPI,
+    getTask,
+  } = options
   const nodeStatus = ctx?.nodeStatus
   const drama = ctx?.drama?.value
   nodeStatus?.set(nodeId, { step: 'ref_image', message: CANVAS_NODE_STATUS_LABELS.ref_image })
 
   try {
+    throwIfAborted(signal)
     let res
     if (kind === 'character') {
-      res = await characterAPI.generateImage(entity.id)
+      res = await characterAPIImpl.generateImage(entity.id)
     } else if (kind === 'scene') {
-      res = await sceneAPI.generateImage({ scene_id: entity.id, drama_id: drama?.id })
+      res = await sceneAPIImpl.generateImage({ scene_id: entity.id, drama_id: drama?.id })
     } else {
-      res = await propAPI.generateImage(entity.id)
+      res = await propAPIImpl.generateImage(entity.id)
     }
+    throwIfAborted(signal)
 
     const taskId = res?.image_generation?.task_id ?? res?.task_id
     if (taskId) {
-      const polled = await pollTask(taskId, () => ctx?.refreshDrama?.(true))
-      if (polled.status !== 'completed') throw new Error(polled.error || '生成失败')
+      const polled = await pollTaskSimple(taskId, { signal, getTask, ...pollOptions })
+      throwIfAborted(signal)
+      if (polled.status !== 'completed') {
+        throw new Error(sanitizeCanvasError(polled.error, '参考图生成失败'))
+      }
     } else {
       await ctx?.refreshDrama?.(true)
       const ok = await pollUntilHasImage(() => {
@@ -63,11 +115,13 @@ export async function generateAssetReferenceImage(ctx, { kind, entity, nodeId })
             ? ctx?.drama?.value?.scenes
             : ctx?.drama?.value?.props
         return (list || []).find((x) => Number(x.id) === Number(entity.id))
-      })
+      }, { signal, ...pollOptions })
       if (!ok) throw new Error('生成超时，请稍后刷新查看')
     }
     await ctx?.refresh?.(true)
     return { ok: true }
+  } catch (error) {
+    rethrowAssetError(error, '参考图生成失败', signal)
   } finally {
     nodeStatus?.clear(nodeId)
   }

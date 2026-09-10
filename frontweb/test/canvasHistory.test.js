@@ -63,11 +63,11 @@ test('canvas history rejects cyclic and unsupported snapshots with a stable erro
 
   assert.throws(
     () => createCanvasHistory(cyclic),
-    /Canvas history snapshots must be JSON-compatible and acyclic\./
+    /画布历史快照必须可 JSON 序列化，且不能包含循环引用。/
   )
   assert.throws(
     () => history.commit({ value: 1n }, 'move'),
-    /Canvas history snapshots must be JSON-compatible and acyclic\./
+    /画布历史快照必须可 JSON 序列化，且不能包含循环引用。/
   )
 })
 

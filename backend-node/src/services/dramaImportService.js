@@ -121,6 +121,13 @@ function importError(code, message, cause) {
   return new DramaImportError(code, message, cause);
 }
 
+function importKindLabel(kind) {
+  if (kind === 'entity') return '实体';
+  if (kind === 'media_reference') return '媒体引用';
+  if (kind === 'relationship') return '关联';
+  return String(kind || '项目');
+}
+
 function normalizeImportLimits(overrides = {}) {
   const limits = { ...DEFAULT_IMPORT_LIMITS };
   for (const key of Object.keys(DEFAULT_IMPORT_LIMITS)) {
@@ -145,7 +152,7 @@ function importArrayField(container, field, location = field) {
   if (!Array.isArray(value)) {
     throw structuredImportError(
       'INVALID_IMPORT_STRUCTURE',
-      `project.json field ${location} must be an array.`,
+      `project.json 字段 ${location} 必须是数组`,
       { field: location, expected: 'array' }
     );
   }
@@ -156,7 +163,7 @@ function assertImportRecord(value, location) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw structuredImportError(
       'INVALID_IMPORT_STRUCTURE',
-      `project.json entry ${location} must be an object.`,
+      `project.json 条目 ${location} 必须是对象`,
       { field: location, expected: 'object' }
     );
   }
@@ -166,7 +173,7 @@ function assertImportLimit(code, kind, name, actual, limit) {
   if (actual <= limit) return;
   throw structuredImportError(
     code,
-    `Project import ${kind} ${name} exceeds the configured limit.`,
+    `项目导入${importKindLabel(kind)} ${name} 超过配置上限`,
     { kind, name, actual, limit },
     413
   );
@@ -177,7 +184,7 @@ function addBoundedCount(current, increment, code, kind, name, limit) {
   if (!Number.isSafeInteger(next)) {
     throw structuredImportError(
       code,
-      `Project import ${kind} ${name} exceeds the safe integer range.`,
+      `项目导入${importKindLabel(kind)} ${name} 超出安全整数范围`,
       { kind, name, actual: 'overflow', limit },
       413
     );
@@ -190,7 +197,7 @@ function validateImportComplexity(data, limits) {
   if (!data || typeof data !== 'object' || Array.isArray(data)) {
     throw structuredImportError(
       'INVALID_IMPORT_STRUCTURE',
-      'project.json root must be an object.',
+      'project.json 根节点必须是对象',
       { field: 'project.json', expected: 'object' }
     );
   }
@@ -405,7 +412,7 @@ function validateImportComplexity(data, limits) {
   if (!Number.isSafeInteger(episodeCharacterLinks)) {
     throw structuredImportError(
       'IMPORT_RELATIONSHIP_LIMIT_EXCEEDED',
-      'Project import relationship episode_characters exceeds the safe integer range.',
+      '项目导入关联 episode_characters 超出安全整数范围',
       {
         kind: 'relationship',
         name: 'episode_characters',
@@ -487,7 +494,7 @@ function resolveSourceOriginalQuotaBytes(cfg, options = {}) {
   if (!Number.isSafeInteger(quotaBytes) || quotaBytes <= 0) {
     throw importError(
       'INVALID_SOURCE_ORIGINAL_QUOTA',
-      'Project import source-original quota must be a positive integer.'
+      '项目导入原始素材配额必须是正整数'
     );
   }
   return quotaBytes;
@@ -744,36 +751,36 @@ function normalizeSourceIntakeManifest(data, limits, now) {
   if (data.source_intake == null) return [];
   const manifest = data.source_intake;
   if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest)) {
-    throw importError('INVALID_SOURCE_MANIFEST', 'Source Intake manifest must be an object.');
+    throw importError('INVALID_SOURCE_MANIFEST', '素材导入清单必须是对象');
   }
   if (Number(manifest.manifest_version) !== SOURCE_INTAKE_MANIFEST_VERSION || manifest.hash_algorithm !== 'sha256') {
-    throw importError('UNSUPPORTED_SOURCE_MANIFEST', 'Source Intake manifest version or hash algorithm is unsupported.');
+    throw importError('UNSUPPORTED_SOURCE_MANIFEST', '素材导入清单版本或哈希算法不受支持');
   }
   if (!Array.isArray(manifest.sources) || manifest.sources.length > limits.maxSourceOriginals) {
-    throw importError('SOURCE_MANIFEST_LIMIT', 'Source Intake manifest contains too many source originals.');
+    throw importError('SOURCE_MANIFEST_LIMIT', '素材导入清单中的原始素材数量超过上限');
   }
 
   const sourceRefs = new Set();
   const archivePaths = new Set();
   return manifest.sources.map((source, index) => {
     if (!source || typeof source !== 'object' || Array.isArray(source)) {
-      throw importError('INVALID_SOURCE_MANIFEST', `Source Intake entry ${index + 1} is invalid.`);
+      throw importError('INVALID_SOURCE_MANIFEST', `素材导入清单第 ${index + 1} 条无效`);
     }
     const sourceRef = String(source.source_ref || '');
     if (!/^[a-z0-9][a-z0-9_-]{0,63}$/.test(sourceRef) || sourceRefs.has(sourceRef)) {
-      throw importError('INVALID_SOURCE_MANIFEST', 'Source Intake source_ref is invalid or duplicated.');
+      throw importError('INVALID_SOURCE_MANIFEST', '素材导入 source_ref 无效或重复');
     }
     sourceRefs.add(sourceRef);
 
     const original = source.original;
     if (!original || typeof original !== 'object' || Array.isArray(original)) {
-      throw importError('INVALID_SOURCE_MANIFEST', `Source Intake ${sourceRef} has no original descriptor.`);
+      throw importError('INVALID_SOURCE_MANIFEST', `素材导入 ${sourceRef} 缺少原始文件描述`);
     }
     const archivePath = validateZipEntryName(String(original.archive_path || ''), limits);
     const extension = path.posix.extname(archivePath).toLowerCase();
     const expectedPath = `source-intake/originals/${sourceRef}/original${extension}`;
     if (!extension || archivePath !== expectedPath || archivePaths.has(archivePath)) {
-      throw importError('UNSAFE_SOURCE_ORIGINAL_PATH', 'Source Intake original path is unsafe or mapped more than once.');
+      throw importError('UNSAFE_SOURCE_ORIGINAL_PATH', '素材导入原始文件路径不安全或被重复映射');
     }
     archivePaths.add(archivePath);
 
@@ -786,35 +793,35 @@ function normalizeSourceIntakeManifest(data, limits, now) {
       size > sourceMediaExtractionService.MAX_SOURCE_UPLOAD_BYTES ||
       !/^[a-f0-9]{64}$/.test(sha256)
     ) {
-      throw importError('INVALID_SOURCE_ORIGINAL_INTEGRITY', 'Source Intake original size or SHA-256 is invalid.');
+      throw importError('INVALID_SOURCE_ORIGINAL_INTEGRITY', '素材导入原始文件大小或 SHA-256 无效');
     }
     if (
       mime.length > 200 ||
       !/^[a-z0-9][a-z0-9!#$&^_.+-]*\/[a-z0-9][a-z0-9!#$&^_.+-]*$/.test(mime)
     ) {
-      throw importError('INVALID_SOURCE_ORIGINAL_MIME', 'Source Intake original MIME type is invalid.');
+      throw importError('INVALID_SOURCE_ORIGINAL_MIME', '素材导入原始文件 MIME 类型无效');
     }
 
     const sourceType = String(source.source_type || '').trim().toLowerCase();
     if (!SOURCE_TYPES.has(sourceType)) {
-      throw importError('INVALID_SOURCE_MANIFEST', `Source Intake ${sourceRef} has an unsupported source type.`);
+      throw importError('INVALID_SOURCE_MANIFEST', `素材导入 ${sourceRef} 的素材类型不受支持`);
     }
     const metadata = sanitizeSourceMetadataNode(source.metadata);
     if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) {
-      throw importError('INVALID_SOURCE_MANIFEST', `Source Intake ${sourceRef} metadata is invalid.`);
+      throw importError('INVALID_SOURCE_MANIFEST', `素材导入 ${sourceRef} 的元数据无效`);
     }
     if (Buffer.byteLength(JSON.stringify(metadata), 'utf8') > MAX_SOURCE_METADATA_BYTES) {
-      throw importError('SOURCE_METADATA_LIMIT', `Source Intake ${sourceRef} metadata exceeds the safe import limit.`);
+      throw importError('SOURCE_METADATA_LIMIT', `素材导入 ${sourceRef} 的元数据超过安全上限`);
     }
     const contentHash = String(source.content_hash || '').toLowerCase();
     if (contentHash && !/^[a-f0-9]{64}$/.test(contentHash)) {
-      throw importError('INVALID_SOURCE_MANIFEST', `Source Intake ${sourceRef} content hash is invalid.`);
+      throw importError('INVALID_SOURCE_MANIFEST', `素材导入 ${sourceRef} 的内容哈希无效`);
     }
 
     return {
       source_ref: sourceRef,
       source_type: sourceType,
-      title: String(source.title || 'Imported source').trim().slice(0, 500) || 'Imported source',
+      title: String(source.title || '导入素材').trim().slice(0, 500) || '导入素材',
       content_hash: contentHash || null,
       metadata,
       created_at: normalizeImportedDate(source.created_at, now),
@@ -827,14 +834,14 @@ function restoreSourceIntakeOriginals(db, storagePath, files, dramaId, entries, 
   for (const entry of entries) {
     const buffer = files.read(entry.original.archive_path);
     if (!buffer) {
-      throw importError('SOURCE_ORIGINAL_MISSING', `Source Intake original ${entry.source_ref} is missing from the archive.`);
+      throw importError('SOURCE_ORIGINAL_MISSING', `素材导入原始文件 ${entry.source_ref} 不在压缩包中`);
     }
     if (buffer.length !== entry.original.size) {
-      throw importError('SOURCE_ORIGINAL_SIZE_MISMATCH', `Source Intake original ${entry.source_ref} failed its size check.`);
+      throw importError('SOURCE_ORIGINAL_SIZE_MISMATCH', `素材导入原始文件 ${entry.source_ref} 大小校验失败`);
     }
     const actualHash = createHash('sha256').update(buffer).digest('hex');
     if (actualHash !== entry.original.sha256) {
-      throw importError('SOURCE_ORIGINAL_HASH_MISMATCH', `Source Intake original ${entry.source_ref} failed its SHA-256 check.`);
+      throw importError('SOURCE_ORIGINAL_HASH_MISMATCH', `素材导入原始文件 ${entry.source_ref} 的 SHA-256 校验失败`);
     }
 
     let descriptor;
@@ -848,7 +855,7 @@ function restoreSourceIntakeOriginals(db, storagePath, files, dramaId, entries, 
     } catch (error) {
       throw importError(
         'SOURCE_ORIGINAL_MIME_MISMATCH',
-        `Source Intake original ${entry.source_ref} does not match its path or MIME type.`,
+        `素材导入原始文件 ${entry.source_ref} 与路径或 MIME 类型不一致`,
         error
       );
     }
@@ -913,7 +920,7 @@ function invalidImportMedia(code, mediaPath, reason, details = null) {
     limitExceeded ? 'ZIP 格式不安全：图片解码资源超过限制' : 'ZIP 格式不安全：媒体内容无效',
     {
       archive_path: mediaPath || null,
-      reason: String(reason || 'media validation failed').slice(0, 300),
+      reason: String(reason || '媒体校验失败').slice(0, 300),
       ...(details && typeof details === 'object' ? details : {}),
     },
     limitExceeded ? 413 : 400
@@ -934,7 +941,7 @@ function createImageValidatorProcessSpec({
   delete childEnvironment.ELECTRON_RUN_AS_NODE;
   const normalizedAppEntry = String(appEntry || '').trim();
   if (electronVersion && defaultApp && !normalizedAppEntry) {
-    const error = new Error('Electron image validation requires an application entry');
+    const error = new Error('Electron 图片校验缺少应用入口');
     error.code = 'MEDIA_VALIDATION_UNAVAILABLE';
     throw error;
   }
@@ -972,7 +979,7 @@ function validateStagedImages(projectPath, limits) {
   try {
     require.resolve('sharp');
   } catch (error) {
-    throw invalidImportMedia('MEDIA_VALIDATION_UNAVAILABLE', null, 'Sharp is unavailable');
+    throw invalidImportMedia('MEDIA_VALIDATION_UNAVAILABLE', null, 'Sharp 不可用，无法校验图片');
   }
 
   let processSpec;
@@ -1006,7 +1013,7 @@ function validateStagedImages(projectPath, limits) {
     throw invalidImportMedia(
       timedOut ? 'MEDIA_VALIDATION_TIMEOUT' : 'MEDIA_VALIDATION_UNAVAILABLE',
       payload?.mediaPath,
-      timedOut ? 'Sharp image validation timed out' : 'Sharp image validation could not run'
+      timedOut ? 'Sharp 图片校验超时' : 'Sharp 图片校验无法启动'
     );
   }
   if (result.status !== 0 || !payload?.ok) {
@@ -1016,7 +1023,7 @@ function validateStagedImages(projectPath, limits) {
     throw invalidImportMedia(code, payload?.mediaPath, payload?.reason, payload?.details);
   }
   if (!Array.isArray(payload.media)) {
-    throw invalidImportMedia('MEDIA_VALIDATION_UNAVAILABLE', null, 'Sharp image validation returned no metadata');
+    throw invalidImportMedia('MEDIA_VALIDATION_UNAVAILABLE', null, 'Sharp 图片校验未返回元数据');
   }
   return payload.media;
 }
@@ -1034,13 +1041,13 @@ function probeDurationSeconds(probe) {
 function validateContainerBrand(extension, probe, mediaPath) {
   const brand = String(probe?.format?.tags?.major_brand || '').trim().toLowerCase();
   if (extension === '.mov' && brand && brand !== 'qt') {
-    throw invalidImportMedia('INVALID_MEDIA_CONTENT', mediaPath, 'QuickTime container brand does not match .mov');
+    throw invalidImportMedia('INVALID_MEDIA_CONTENT', mediaPath, 'QuickTime 容器品牌与 .mov 不符');
   }
   if (extension === '.mp4' && ['qt', 'm4a', 'm4b', 'm4p'].includes(brand)) {
-    throw invalidImportMedia('INVALID_MEDIA_CONTENT', mediaPath, 'ISO media container brand does not match .mp4');
+    throw invalidImportMedia('INVALID_MEDIA_CONTENT', mediaPath, 'ISO 媒体容器品牌与 .mp4 不符');
   }
   if (extension === '.m4a' && brand === 'qt') {
-    throw invalidImportMedia('INVALID_MEDIA_CONTENT', mediaPath, 'QuickTime container brand does not match .m4a');
+    throw invalidImportMedia('INVALID_MEDIA_CONTENT', mediaPath, 'QuickTime 容器品牌与 .m4a 不符');
   }
 }
 
@@ -1069,18 +1076,18 @@ function validateStagedAvFile(absolutePath, mediaPath, category, extension, limi
     throw invalidImportMedia(
       unavailable ? 'MEDIA_VALIDATION_UNAVAILABLE' : timedOut ? 'MEDIA_VALIDATION_TIMEOUT' : 'INVALID_MEDIA_CONTENT',
       mediaPath,
-      unavailable ? 'ffprobe is unavailable' : timedOut ? 'ffprobe timed out' : 'ffprobe could not inspect media'
+      unavailable ? 'ffprobe 不可用，无法校验音视频' : timedOut ? 'ffprobe 校验超时' : 'ffprobe 无法检查媒体文件'
     );
   }
   if (result.status !== 0 || String(result.stderr || '').trim()) {
-    throw invalidImportMedia('INVALID_MEDIA_CONTENT', mediaPath, 'ffprobe rejected malformed media');
+    throw invalidImportMedia('INVALID_MEDIA_CONTENT', mediaPath, 'ffprobe 拒绝了损坏的媒体文件');
   }
 
   let probe;
   try {
     probe = JSON.parse(result.stdout || '{}');
   } catch (_) {
-    throw invalidImportMedia('INVALID_MEDIA_CONTENT', mediaPath, 'ffprobe returned invalid metadata');
+    throw invalidImportMedia('INVALID_MEDIA_CONTENT', mediaPath, 'ffprobe 返回的元数据无效');
   }
 
   const formatNames = String(probe?.format?.format_name || '')
@@ -1090,26 +1097,26 @@ function validateStagedAvFile(absolutePath, mediaPath, category, extension, limi
     .filter(Boolean);
   const allowedContainers = IMPORT_MEDIA_CONTAINERS[extension];
   if (!allowedContainers || !formatNames.some((name) => allowedContainers.has(name))) {
-    throw invalidImportMedia('INVALID_MEDIA_CONTENT', mediaPath, 'container does not match the media extension');
+    throw invalidImportMedia('INVALID_MEDIA_CONTENT', mediaPath, '容器格式与文件扩展名不符');
   }
   validateContainerBrand(extension, probe, mediaPath);
 
   const streams = Array.isArray(probe?.streams) ? probe.streams : [];
   if (streams.length < 1 || streams.length > limits.maxMediaStreams) {
-    throw invalidImportMedia('INVALID_MEDIA_CONTENT', mediaPath, 'media stream count is outside the allowed range', {
+    throw invalidImportMedia('INVALID_MEDIA_CONTENT', mediaPath, '媒体流数量超出允许范围', {
       actual: streams.length,
       limit: limits.maxMediaStreams,
       kind: 'streams',
     });
   }
   if (streams.some((stream) => !['video', 'audio'].includes(stream.codec_type))) {
-    throw invalidImportMedia('INVALID_MEDIA_CONTENT', mediaPath, 'media contains a disallowed stream type');
+    throw invalidImportMedia('INVALID_MEDIA_CONTENT', mediaPath, '媒体包含不允许的流类型');
   }
   if (streams.some((stream) => {
     const packetCount = Number(stream.nb_read_packets);
     return !String(stream.codec_name || '').trim() || !Number.isSafeInteger(packetCount) || packetCount < 1;
   })) {
-    throw invalidImportMedia('INVALID_MEDIA_CONTENT', mediaPath, 'media stream has no decodable packets');
+    throw invalidImportMedia('INVALID_MEDIA_CONTENT', mediaPath, '媒体流没有可解码的数据包');
   }
 
   const videoStreams = streams.filter((stream) => stream.codec_type === 'video');
@@ -1121,10 +1128,10 @@ function validateStagedAvFile(absolutePath, mediaPath, category, extension, limi
       !Number.isSafeInteger(Number(videoStreams[0]?.width)) || Number(videoStreams[0]?.width) < 1 ||
       !Number.isSafeInteger(Number(videoStreams[0]?.height)) || Number(videoStreams[0]?.height) < 1
     ) {
-      throw invalidImportMedia('INVALID_MEDIA_CONTENT', mediaPath, 'video must contain exactly one visual stream');
+      throw invalidImportMedia('INVALID_MEDIA_CONTENT', mediaPath, '视频必须恰好包含一条画面流');
     }
   } else if (videoStreams.length !== 0 || audioStreams.length !== 1 || streams.length !== 1) {
-    throw invalidImportMedia('INVALID_MEDIA_CONTENT', mediaPath, 'audio must contain exactly one audio stream');
+    throw invalidImportMedia('INVALID_MEDIA_CONTENT', mediaPath, '音频必须恰好包含一条音频流');
   }
 
   if (audioStreams.some((stream) => {
@@ -1135,7 +1142,7 @@ function validateStagedAvFile(absolutePath, mediaPath, category, extension, limi
       !Number.isSafeInteger(sampleRate) || sampleRate < 1
     );
   })) {
-    throw invalidImportMedia('INVALID_MEDIA_CONTENT', mediaPath, 'audio stream metadata is invalid');
+    throw invalidImportMedia('INVALID_MEDIA_CONTENT', mediaPath, '音频流元数据无效');
   }
   if (extension === '.webm') {
     const webmVideoCodecs = new Set(['vp8', 'vp9', 'av1']);
@@ -1144,13 +1151,13 @@ function validateStagedAvFile(absolutePath, mediaPath, category, extension, limi
       videoStreams.some((stream) => !webmVideoCodecs.has(stream.codec_name)) ||
       audioStreams.some((stream) => !webmAudioCodecs.has(stream.codec_name))
     ) {
-      throw invalidImportMedia('INVALID_MEDIA_CONTENT', mediaPath, 'WebM contains a codec outside the WebM profile');
+      throw invalidImportMedia('INVALID_MEDIA_CONTENT', mediaPath, 'WebM 包含不在 WebM 规范内的编码');
     }
   }
 
   const duration = probeDurationSeconds(probe);
   if (!Number.isFinite(duration) || duration <= 0 || duration > limits.maxMediaDurationSeconds) {
-    throw invalidImportMedia('INVALID_MEDIA_CONTENT', mediaPath, 'media duration is outside the allowed range', {
+    throw invalidImportMedia('INVALID_MEDIA_CONTENT', mediaPath, '媒体时长超出允许范围', {
       actual: Number.isFinite(duration) ? duration : null,
       limit: limits.maxMediaDurationSeconds,
       kind: 'duration_seconds',
@@ -1183,12 +1190,12 @@ function validateStagedImportMedia(stagingRoot, projectDir, limits) {
       || !Number.isSafeInteger(image.height) || image.height <= 0
       || typeof image.mimeType !== 'string'
     ) {
-      throw invalidImportMedia('MEDIA_VALIDATION_UNAVAILABLE', image?.mediaPath, 'Sharp returned invalid image metadata');
+      throw invalidImportMedia('MEDIA_VALIDATION_UNAVAILABLE', image?.mediaPath, 'Sharp 返回的图片元数据无效');
     }
     const imageAbsolutePath = path.resolve(projectPath, ...image.mediaPath.split('/'));
     const imageRelation = path.relative(projectPath, imageAbsolutePath);
     if (!imageRelation || imageRelation.startsWith(`..${path.sep}`) || path.isAbsolute(imageRelation)) {
-      throw invalidImportMedia('MEDIA_VALIDATION_UNAVAILABLE', image.mediaPath, 'Sharp returned an unsafe image path');
+      throw invalidImportMedia('MEDIA_VALIDATION_UNAVAILABLE', image.mediaPath, 'Sharp 返回了不安全的图片路径');
     }
     trustedMetadata.set(
       `${String(projectDir).replace(/\\/g, '/')}/${image.mediaPath}`,
@@ -1214,15 +1221,15 @@ function validateStagedImportMedia(stagingRoot, projectDir, limits) {
     for (const entry of entries) {
       const mediaPath = `${category}/${entry.name}`;
       if (!entry.isFile()) {
-        throw invalidImportMedia('INVALID_MEDIA_CONTENT', mediaPath, 'media staging entry is not a regular file');
+        throw invalidImportMedia('INVALID_MEDIA_CONTENT', mediaPath, '媒体暂存条目不是普通文件');
       }
       const extension = path.extname(entry.name).toLowerCase();
       if (!IMPORT_MEDIA_EXTENSIONS[category]?.has(extension)) {
-        throw invalidImportMedia('INVALID_MEDIA_CONTENT', mediaPath, 'media extension is not allowed');
+        throw invalidImportMedia('INVALID_MEDIA_CONTENT', mediaPath, '媒体扩展名不受支持');
       }
       const remainingMs = deadline - Date.now();
       if (remainingMs <= 0) {
-        throw invalidImportMedia('MEDIA_VALIDATION_TIMEOUT', mediaPath, 'import media validation timed out');
+        throw invalidImportMedia('MEDIA_VALIDATION_TIMEOUT', mediaPath, '导入媒体校验超时');
       }
       const metadata = validateStagedAvFile(
         path.join(directory, entry.name),
@@ -1405,14 +1412,70 @@ function freeCanvasAssetCategory(value, field) {
     'commons_sha1',
     'resolved_download_url',
     'content_sha256',
+    'openverse_id',
+    'landing_page',
+    'source_site',
   ]);
-  if (metadata?.kind !== 'wikimedia_commons' && value.length <= 128) return value;
+  if (metadata?.kind !== 'wikimedia_commons' && metadata?.kind !== 'openverse' && value.length <= 128) return value;
   if (
     !metadata
     || typeof metadata !== 'object'
     || Array.isArray(metadata)
     || Object.keys(metadata).some((key) => !allowed.has(key))
-    || metadata.kind !== 'wikimedia_commons'
+  ) {
+    throw freeCanvasBadRequest(`free_canvas_import ${field} 包含无效的网络素材元数据`);
+  }
+  if (metadata.kind === 'openverse') {
+    const boundedOpenverse = [
+      ['source_url', 4096],
+      ['author', 500],
+      ['license', 200],
+      ['license_url', 2048],
+      ['resolved_download_url', 4096],
+      ['content_sha256', 64],
+      ['openverse_id', 36],
+      ['landing_page', 4096],
+      ['source_site', 200],
+    ];
+    if (boundedOpenverse.some(([key, limit]) => (
+      metadata[key] != null
+      && (typeof metadata[key] !== 'string' || metadata[key].length > limit)
+    ))) {
+      throw freeCanvasBadRequest(`free_canvas_import ${field} 包含无效的网络素材元数据`);
+    }
+    try {
+      const source = new URL(metadata.source_url);
+      const resolvedDownload = new URL(metadata.resolved_download_url);
+      const landing = metadata.landing_page ? new URL(metadata.landing_page) : null;
+      const id = String(metadata.openverse_id || '').toLowerCase();
+      const sourceMatch = source.pathname.match(/^\/image\/([0-9a-f-]{36})\/?$/i);
+      if (
+        metadata.source_provider !== 'Openverse'
+        || source.protocol !== 'https:'
+        || source.origin !== 'https://openverse.org'
+        || source.username
+        || source.password
+        || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)
+        || !sourceMatch
+        || sourceMatch[1].toLowerCase() !== id
+        || typeof metadata.license !== 'string'
+        || !metadata.license.trim()
+        || metadata.license === '未注明'
+        || !/^[a-f0-9]{64}$/i.test(String(metadata.content_sha256 || ''))
+        || resolvedDownload.protocol !== 'https:'
+        || resolvedDownload.username
+        || resolvedDownload.password
+        || (landing && (landing.protocol !== 'https:' || landing.username || landing.password))
+      ) {
+        throw new Error('invalid');
+      }
+    } catch (_) {
+      throw freeCanvasBadRequest(`free_canvas_import ${field} 包含无效的网络素材元数据`);
+    }
+    return value;
+  }
+  if (
+    metadata.kind !== 'wikimedia_commons'
     || metadata.source_provider !== 'Wikimedia Commons'
     || typeof metadata.commons_title !== 'string'
     || !metadata.commons_title.startsWith('File:')
@@ -1476,6 +1539,12 @@ function freeCanvasCommonsEvidence(category) {
   if (typeof category !== 'string' || !category.startsWith('{')) return null;
   try {
     const metadata = JSON.parse(category);
+    if (metadata?.kind === 'openverse') {
+      return {
+        contentSha256: String(metadata.content_sha256 || '').toLowerCase(),
+        commonsSha1: null,
+      };
+    }
     if (metadata?.kind !== 'wikimedia_commons') return null;
     return {
       contentSha256: metadata.content_sha256.toLowerCase(),
@@ -1816,10 +1885,12 @@ function normalizeFreeCanvasImportManifest(data, canvas) {
     if (evidence.contentSha256 !== archivedMedia?.sha256?.toLowerCase()) {
       throw freeCanvasBadRequest('free_canvas_import 网络素材内容哈希与媒体归档不一致');
     }
-    if (archivedMedia.commonsSha1 && archivedMedia.commonsSha1 !== evidence.commonsSha1) {
-      throw freeCanvasBadRequest('free_canvas_import 同一媒体包含冲突的 Commons SHA-1');
+    if (evidence.commonsSha1) {
+      if (archivedMedia.commonsSha1 && archivedMedia.commonsSha1 !== evidence.commonsSha1) {
+        throw freeCanvasBadRequest('free_canvas_import 同一媒体包含冲突的 Commons SHA-1');
+      }
+      archivedMedia.commonsSha1 = evidence.commonsSha1;
     }
-    archivedMedia.commonsSha1 = evidence.commonsSha1;
   }
 
   return {

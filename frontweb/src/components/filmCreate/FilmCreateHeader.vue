@@ -15,11 +15,12 @@
         <span class="header-context-label">当前集</span>
         <el-select
           v-if="hasAnyEpisode"
+          ref="episodeSelectRef"
           class="header-episode-select"
           :model-value="selectedEpisodeId"
           aria-label="当前集"
           :aria-busy="episodeSwitching"
-          :title="selectedEpisodeContextLabel"
+          :title="episodeSwitching ? '正在切换剧集，请稍候' : selectedEpisodeContextLabel"
           :loading="episodeSwitching"
           :disabled="episodeSwitching"
           placeholder="选择集数"
@@ -43,11 +44,11 @@
           <el-icon><Plus /></el-icon>添加一集
         </el-button>
       </div>
-      <el-button v-if="projectLoadState === 'ready' && dramaId" class="btn-back-drama" @click="emit('go-to-drama')">
+      <el-button v-if="projectLoadState === 'ready' && dramaId" class="btn-back-drama" aria-label="返回剧集" @click="emit('go-to-drama')">
         <el-icon><ArrowLeft /></el-icon>
         返回剧集
       </el-button>
-      <el-button v-if="projectLoadState === 'ready' && dramaId" type="primary" plain class="btn-canvas-mode" @click="emit('go-canvas-mode')">
+      <el-button v-if="projectLoadState === 'ready' && dramaId" type="primary" plain class="btn-canvas-mode" aria-label="画布模式" @click="emit('go-canvas-mode')">
         <el-icon><Grid /></el-icon>
         画布模式
       </el-button>
@@ -55,9 +56,15 @@
         <el-button class="btn-theme" :title="isDark ? '切换到浅色模式' : '切换到暗色模式'" :aria-label="isDark ? '切换到浅色模式' : '切换到暗色模式'" @click="emit('toggle-theme')">
           <el-icon><Sunny v-if="isDark" /><Moon v-else /></el-icon>
           {{ isDark ? '浅色' : '暗色' }}
-        </el-button><el-button class="btn-ai-config" :disabled="projectLoadState !== 'ready'" @click="emit('open-ai-config')">
+        </el-button><el-button
+          class="btn-ai-config"
+          :disabled="projectLoadState !== 'ready'"
+          :title="projectLoadState !== 'ready' ? '项目加载完成后才能打开 AI 配置' : '打开 AI 配置'"
+          :aria-label="projectLoadState !== 'ready' ? 'AI 配置不可用：项目加载完成后才能打开' : '打开 AI 配置'"
+          @click="emit('open-ai-config')"
+        >
           <el-icon><Setting /></el-icon>
-          AI配置
+          AI 配置
         </el-button>
       </div>
       </div>
@@ -66,6 +73,7 @@
 </template>
 
 <script setup>
+import { ref } from 'vue'
 import { ArrowLeft, Grid, Moon, Plus, Setting, Sunny } from '@element-plus/icons-vue'
 import { formatEpisodeContextLabel } from '@/utils/filmCreateContext'
 
@@ -90,6 +98,18 @@ const emit = defineEmits([
   'toggle-theme',
   'open-ai-config',
 ])
+
+const episodeSelectRef = ref(null)
+
+function focusEpisodeSelect() {
+  const select = episodeSelectRef.value
+  if (!select) return false
+  if (typeof select.focus === 'function') select.focus()
+  if (typeof select.toggleMenu === 'function') select.toggleMenu()
+  return true
+}
+
+defineExpose({ focusEpisodeSelect })
 </script>
 
 <style scoped>
@@ -296,5 +316,14 @@ html.light .btn-theme {
   --el-button-hover-border-color: rgba(99, 102, 241, 0.3);
   --el-button-hover-text-color: #4f46e5;
 }
-.logo:focus-visible { outline: 2px solid #818cf8; outline-offset: 4px; }
+.logo:focus-visible,
+.header-add-episode:focus-visible,
+.btn-back-drama:focus-visible,
+.btn-canvas-mode:focus-visible,
+.btn-theme:focus-visible,
+.btn-ai-config:focus-visible {
+  outline: 2px solid #818cf8;
+  outline-offset: 2px;
+}
+.logo:focus-visible { outline-offset: 4px; }
 </style>

@@ -16,6 +16,10 @@ import { useFilmCreateProjectLoad } from '../src/composables/filmCreate/useFilmC
 import { useFilmCreateStoryboardMedia } from '../src/composables/filmCreate/useFilmCreateStoryboardMedia.js'
 import { remainingImportedFunctionSource } from './helpers/remainingSourceBetween.js'
 
+import { ref } from 'vue'
+import { useCanvasEpisodeGenerate } from '../src/composables/useCanvasEpisodeGenerate.js'
+import { useCanvasScript } from '../src/composables/useCanvasScript.js'
+
 const DRAMA_ID = 11
 const EPISODE_ID = 22
 const STORYBOARD_OK_ID = 31
@@ -195,7 +199,7 @@ test('project pages keep core load failures outside every editable project surfa
   assert.match(filmCreateLoadStateSource, /<main v-if="state === 'loading'"/)
   assert.match(filmCreateLoadStateSource, /<main v-else-if="state === 'error'"/)
   assert.match(filmCreateSource, /<main v-else class="main">[\s\S]*FilmCreateScriptWorkbench/)
-  assert.match(filmCreateSource, /<template v-if="projectLoadState === 'ready'">[\s\S]*?<FilmCreateResourceDialogs/)
+  assert.match(filmCreateSource, /<FilmCreateWorkspaceDialogs[\s\S]*v-if="projectLoadState === 'ready'"/)
   assert.match(resourceDialogsSource, /<AccessibleDialog/)
   assert.match(filmCreateSource, /@open-ai-config="openAiConfig"/)
   assert.match(filmCreateHeaderSource, /:disabled="projectLoadState !== 'ready'"[\s\S]*open-ai-config/)
@@ -445,6 +449,40 @@ test('FilmCreate delivery exports validate files before reporting success', asyn
   }
 })
 
+
+test('字幕和项目包失败保持中文，并允许原按钮重试', async () => {
+  const emptySubtitle = createDeliveryActions({
+    timelinesAPI: { getEpisodeSrt: async () => new Blob([], { type: 'text/plain' }) },
+  })
+  await emptySubtitle.downloadCurrentEpisodeSubtitle()
+  assert.equal(emptySubtitle.deliveryExportStatus.subtitle, 'error')
+  assert.match(emptySubtitle.deliveryExportError.value, /字幕文件为空|字幕下载失败/)
+  assert.match(emptySubtitle.deliveryExportFeedback.value, /字幕文件为空|字幕下载失败/)
+
+  const missingSrt = createDeliveryActions({
+    timelinesAPI: {
+      getEpisodeSrt: async () => {
+        const error = new Error('not found')
+        error.status = 404
+        throw error
+      },
+    },
+  })
+  await missingSrt.downloadCurrentEpisodeSubtitle()
+  assert.match(missingSrt.deliveryExportError.value, /字幕下载失败/)
+
+  const badZip = createDeliveryActions({
+    dramaAPI: { exportDrama: async () => new Blob(['not-zip'], { type: 'application/zip' }) },
+  })
+  await badZip.exportCurrentProjectPackage()
+  assert.equal(badZip.deliveryExportStatus.project, 'error')
+  assert.match(badZip.deliveryExportError.value, /项目包格式无效|项目包导出失败/)
+
+  assert.match(deliveryPanelSource, /videoDownloadStatus === 'error' \? '重试下载' : '下载成片'/)
+  assert.match(deliveryPanelSource, /deliveryExportStatus.subtitle === 'error' \? '重试字幕' : '下载字幕'/)
+  assert.match(deliveryPanelSource, /deliveryExportStatus.project === 'error' \? '重试项目包' : '导出项目包'/)
+})
+
 test('storyboard media load counts failed boards without wiping sibling results', async () => {
   const media = useFilmCreateStoryboardMedia({
     dramaId: refOf(DRAMA_ID),
@@ -473,3 +511,172 @@ test('storyboard media load counts failed boards without wiping sibling results'
   assert.match(media.storyboardMediaLoadError.value, /1 个分镜/)
 })
 
+
+
+const PROVIDER_SECRET = 'sk-test-not-a-real-key-aaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+
+function isChineseWithoutSecret(text) {
+  return /[\u4e00-\u9fff]/.test(String(text || ''))
+    && !String(text).includes(PROVIDER_SECRET)
+    && !/sk-[A-Za-z0-9._-]{6,}/i.test(String(text))
+    && !/api[_-]?key/i.test(String(text))
+    && !/Invalid API key/i.test(String(text))
+}
+
+function silentUi(messages) {
+  return {
+    ElMessage: {
+      warning(message) { messages.push(['warning', message]) },
+      error(message) { messages.push(['error', message]) },
+      success(message) { messages.push(['success', message]) },
+      info(message) { messages.push(['info', message]) },
+    },
+    ElMessageBox: {
+      confirm: async () => {},
+    },
+  }
+}
+
+test('canvas episode storyboard generation shows Chinese errors without provider secrets', async () => {
+  const messages = []
+  const drama = ref({
+    id: DRAMA_ID,
+    metadata: {},
+    episodes: [{
+      id: EPISODE_ID,
+      episode_number: 1,
+      script_content: '\u53f0\u8bcd\u5267\u672c',
+      storyboards: [],
+    }],
+  })
+  const api = useCanvasEpisodeGenerate({
+    drama,
+    filterEpisodeId: ref(EPISODE_ID),
+    imagesBySbId: ref({}),
+    videosBySbId: ref({}),
+    refreshCanvas: async () => {},
+    nodeStatus: { set() {}, clear() {} },
+    pollOptions: { interval: 0, maxAttempts: 2, deadlineMs: 1000 },
+    dramaAPIImpl: {
+      generateStoryboard: async () => ({ task_id: 'episode-sb-task' }),
+    },
+    storyboardsAPIImpl: {
+      batchInferParams: async () => {},
+    },
+    getTask: async () => ({
+      status: 'failed',
+      error: { message: `Invalid API key ${PROVIDER_SECRET}` },
+    }),
+    ...silentUi(messages),
+  })
+  await api.aiGenerateStoryboards()
+  const errorText = messages.filter((item) => item[0] === 'error').map((item) => item[1]).join('|')
+  assert.equal(isChineseWithoutSecret(errorText), true)
+})
+
+test('canvas episode batch image generation can be cancelled mid-run', async () => {
+  const messages = []
+  let startedImage = false
+  const drama = ref({
+    id: DRAMA_ID,
+    metadata: {},
+    episodes: [{
+      id: EPISODE_ID,
+      episode_number: 1,
+      script_content: '\u53f0\u8bcd\u5267\u672c',
+      storyboards: [{
+        id: STORYBOARD_OK_ID,
+        storyboard_number: 1,
+        image_prompt: '\u96e8\u591c',
+        creation_mode: 'classic',
+      }],
+    }],
+  })
+  const api = useCanvasEpisodeGenerate({
+    drama,
+    filterEpisodeId: ref(EPISODE_ID),
+    imagesBySbId: ref({}),
+    videosBySbId: ref({}),
+    refreshCanvas: async () => {},
+    nodeStatus: { set() {}, clear() {} },
+    createImage: async (_body, options) => {
+      startedImage = true
+      return new Promise((_, reject) => {
+      const onAbort = () => {
+        const error = new Error('\u4efb\u52a1\u5df2\u53d6\u6d88')
+        error.name = 'AbortError'
+        reject(error)
+      }
+      if (options?.signal?.aborted) onAbort()
+      else options?.signal?.addEventListener('abort', onAbort, { once: true })
+      })
+    },
+    ...silentUi(messages),
+  })
+  const pending = api.batchGenerateImages()
+  const deadline = Date.now() + 1000
+  while (!startedImage && Date.now() < deadline) {
+    await new Promise((resolve) => setImmediate(resolve))
+  }
+  api.abortEpisodeGenerate()
+  await pending
+  const errorText = messages.filter((item) => item[0] === 'error').map((item) => item[1]).join('|')
+  assert.equal(errorText.includes(PROVIDER_SECRET), false)
+  assert.doesNotMatch(errorText, /Invalid API key/i)
+})
+
+test('canvas script extract maps provider failures to Chinese and stays cancellable', async () => {
+  const messages = []
+  const drama = ref({
+    id: DRAMA_ID,
+    episodes: [{ id: EPISODE_ID }],
+    characters: [],
+    scenes: [],
+    props: [],
+  })
+  const failing = useCanvasScript({
+    drama,
+    dramaId: ref(DRAMA_ID),
+    refreshCanvas: async () => {},
+    nodeStatus: { set() {}, clear() {} },
+    pollOptions: { interval: 0, maxAttempts: 2, deadlineMs: 1000 },
+    generationAPIImpl: {
+      generateCharacters: async () => ({ task_id: 'script-char-task' }),
+    },
+    getTask: async () => ({
+      status: 'failed',
+      error: { message: `Invalid API key ${PROVIDER_SECRET}` },
+    }),
+    ...silentUi(messages),
+  })
+  await assert.rejects(
+    failing.extractCharacters(EPISODE_ID, '\u5267\u672c'),
+    (error) => isChineseWithoutSecret(error.message),
+  )
+
+  const controller = new AbortController()
+  const cancellable = useCanvasScript({
+    drama,
+    dramaId: ref(DRAMA_ID),
+    refreshCanvas: async () => {},
+    nodeStatus: { set() {}, clear() {} },
+    pollOptions: { interval: 20, maxAttempts: 50, deadlineMs: 5000 },
+    generationAPIImpl: {
+      generateCharacters: async () => ({ task_id: 'script-char-wait' }),
+    },
+    getTask: async (_id, options) => new Promise((_, reject) => {
+      const onAbort = () => {
+        const error = new Error('\u4efb\u52a1\u5df2\u53d6\u6d88')
+        error.name = 'AbortError'
+        reject(error)
+      }
+      if (options?.signal?.aborted) onAbort()
+      else options?.signal?.addEventListener('abort', onAbort, { once: true })
+    }),
+    ...silentUi(messages),
+  })
+  const pending = cancellable.extractCharacters(EPISODE_ID, '\u5267\u672c', { signal: controller.signal })
+  await new Promise((resolve) => setImmediate(resolve))
+  controller.abort()
+  await assert.rejects(pending, (error) => error?.name === 'AbortError' && /\u53d6\u6d88/.test(error.message))
+})

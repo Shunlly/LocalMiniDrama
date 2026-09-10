@@ -2,6 +2,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { toUserFacingError, isUserFacingAbort } from '@/utils/userFacingError'
 import { GEN_RESOURCE } from '@/stores/generationTaskStore'
 import { buildExtractTaskMeta } from '@/composables/useGenerationTaskSync'
+import { useFilmCreateStoryboardReorder } from '@/composables/filmCreate/useFilmCreateStoryboardReorder'
 
 export function useFilmCreateStoryboardCrud(deps = {}) {
   const {
@@ -113,7 +114,7 @@ export function useFilmCreateStoryboardCrud(deps = {}) {
 
   async function onAddSingleStoryboard(){
     if (!currentEpisodeId.value) {
-      ElMessage.warning('请先选择集')
+      ElMessage.warning('请先选择剧集')
       return
     }
     try {
@@ -163,6 +164,21 @@ export function useFilmCreateStoryboardCrud(deps = {}) {
     }
   }
 
+  const {
+    storyboardReorderBusy,
+    dropTargetStoryboardIndex,
+    onMoveStoryboard,
+    onMoveStoryboardUp,
+    onMoveStoryboardDown,
+    onReorderDragStart,
+    onReorderDragOver,
+    onReorderDragEnd,
+    onReorderDrop,
+  } = useFilmCreateStoryboardReorder({
+    getList: () => store.storyboards || [],
+    storyboardsAPI,
+  })
+
   return {
     refreshStoryboardsForEpisode,
     refreshStoryboardsOnly,
@@ -170,5 +186,14 @@ export function useFilmCreateStoryboardCrud(deps = {}) {
     onAddSingleStoryboard,
     onDeleteSingleStoryboard,
     onInsertStoryboardBefore,
+    storyboardReorderBusy,
+    dropTargetStoryboardIndex,
+    onMoveStoryboard,
+    onMoveStoryboardUp,
+    onMoveStoryboardDown,
+    onReorderDragStart,
+    onReorderDragOver,
+    onReorderDragEnd,
+    onReorderDrop,
   }
 }

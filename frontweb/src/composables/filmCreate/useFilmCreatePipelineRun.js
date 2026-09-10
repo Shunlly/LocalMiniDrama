@@ -205,13 +205,13 @@ export function useFilmCreatePipelineRun(options = {}) {
           return { status: 'completed', result: task.result }
         }
         if (status === 'failed') {
-          const errMsg = (task?.error || task?.message || '任务失败').trim()
+          const errMsg = toUserFacingError(task?.error || task?.message, '任务失败')
           finishStore('failed', errMsg)
           return { status: 'failed', error: errMsg }
         }
       }
 
-      const timeoutMsg = '任务查询超时（超过15分钟）'
+      const timeoutMsg = toUserFacingError(null, '任务查询超时（超过15分钟）')
       finishStore('failed', timeoutMsg)
       return { status: 'timeout', error: timeoutMsg }
     } catch (error) {
@@ -300,7 +300,7 @@ export function useFilmCreatePipelineRun(options = {}) {
       },
       isAborted: () => pipelineAbortRequested.value,
       onFailure: (error) => {
-        addPipelineError(stepName, `重试${maxRetries}次均失败: ${error?.message || String(error)}`)
+        addPipelineError(stepName, `重试${maxRetries}次均失败: ${toUserFacingError(error, '操作失败')}`)
       },
     })
     if (mediaStateError) throw mediaStateError

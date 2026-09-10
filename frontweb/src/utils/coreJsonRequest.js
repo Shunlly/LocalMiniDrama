@@ -9,8 +9,10 @@ import {
   getRequestId,
   isRequestCanceled,
   isRequestTimeout,
+  isSafeUserFacingMessage,
   REQUEST_ERROR_CATEGORY,
 } from './requestError.js'
+import { toUserFacingError } from './userFacingError.js'
 
 export function coreRequestError(status, message = 'PROJECT_LOAD_FAILED') {
   const error = new Error(message)
@@ -47,7 +49,7 @@ function userFacingFallback(error) {
   }
   const message = String(error?.message || '').trim()
   if (!message) return undefined
-  if (/^(Network Error|canceled|timeout of \d+ms exceeded|Request failed with status code \d+|PROJECT_LOAD_FAILED)$/i.test(message)) {
+  if (/^(Network Error|canceled|timeout of \d+ms exceeded|Request failed with status code \d+|PROJECT_LOAD_FAILED|Failed to fetch|fetch failed|Load failed|HTTP\s*\d+)$/i.test(message)) {
     return undefined
   }
   return message
@@ -107,14 +109,19 @@ export function finalizeFetchRequestFailure(error, options = {}) {
   const requestId = getRequestId(error) || error.config?.requestId || ''
   if (requestId) error.requestId = requestId
   const backendMsg = readBackendMessage(error)
-  const userMsg = backendMsg || describeServiceLoadError(error, {
+  const described = describeServiceLoadError(error, {
     serviceLabel: options.serviceLabel || '服务',
     signal,
     fallback: userFacingFallback(error),
   })
+  const userMsg = toUserFacingError(error, described, {
+    serviceLabel: options.serviceLabel || '服务',
+    signal,
+  })
   logFetchRequestFailure(error, userMsg)
   toastFetchRequestFailure(error, userMsg)
-  if (backendMsg) error.message = backendMsg
+  if (isSafeUserFacingMessage(backendMsg)) error.message = backendMsg
+  else if (backendMsg && !isSafeUserFacingMessage(error.message)) error.message = 'PROJECT_LOAD_FAILED'
   return error
 }
 

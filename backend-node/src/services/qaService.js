@@ -1,4 +1,6 @@
-﻿function nowIso() {
+﻿const { toUserFacingProcessError } = require('./providerErrorSanitizer');
+
+function nowIso() {
   return new Date().toISOString();
 }
 
@@ -557,8 +559,9 @@ function evaluateDrama(db, { drama_id, episode_id, run_id, mode } = {}) {
       missing_count: missingTemplates.length,
     });
   } catch (err) {
-    addIssue(issues, 'skill_templates_missing', 'warning', err.message || '无法审计本地技能提示词模板', { drama_id: dramaId });
-    checks.push({ key: 'skill_template_audit', passed: false, weight: 0, error: err.message });
+    const skillTemplateError = toUserFacingProcessError(err, '无法审计本地技能提示词模板');
+    addIssue(issues, 'skill_templates_missing', 'warning', skillTemplateError, { drama_id: dramaId });
+    checks.push({ key: 'skill_template_audit', passed: false, weight: 0, error: skillTemplateError });
   }
 
   try {
@@ -574,8 +577,9 @@ function evaluateDrama(db, { drama_id, episode_id, run_id, mode } = {}) {
       issue_count: asyncAudit.issues.length,
     });
   } catch (err) {
-    addIssue(issues, 'legacy_async_audit_failed', 'warning', err.message || '后台任务入口审计失败', { drama_id: dramaId });
-    checks.push({ key: 'legacy_async_audit', passed: false, weight: 0, error: err.message });
+    const asyncAuditError = toUserFacingProcessError(err, '后台任务入口审计失败');
+    addIssue(issues, 'legacy_async_audit_failed', 'warning', asyncAuditError, { drama_id: dramaId });
+    checks.push({ key: 'legacy_async_audit', passed: false, weight: 0, error: asyncAuditError });
   }
 
   if (!draftMode && issues.some((issue) => issue.severity === 'error')) score = Math.min(score, 79);

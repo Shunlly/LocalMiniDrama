@@ -23,6 +23,19 @@
 
     <h3 class="node-title">{{ displayTitle }}</h3>
     <section v-if="isConfigNode" class="config-runtime nodrag nopan" :aria-label="configRuntime.statusLabel">
+      <el-tooltip v-if="configRuntime.canCancel && !readonly" content="停止等待" placement="bottom">
+        <el-button
+          size="small"
+          type="warning"
+          plain
+          class="config-cancel"
+          aria-label="停止等待"
+          title="停止等待"
+          @click.stop="emit('request-cancel-config', node.id)"
+        >
+          停止等待
+        </el-button>
+      </el-tooltip>
       <p class="config-input">{{ configRuntime.inputSummary }}</p>
       <p v-if="configRuntime.providerLabel" class="config-provider">
         {{ configRuntime.providerLabel }}<span v-if="configRuntime.modelLabel"> · {{ configRuntime.modelLabel }}</span>
@@ -84,11 +97,6 @@
           <el-icon><Setting /></el-icon>
         </el-button>
       </el-tooltip>
-      <el-tooltip v-if="isConfigNode && configRuntime.canCancel && !readonly" content="停止等待" placement="bottom">
-        <el-button size="small" circle aria-label="停止等待" title="停止等待" @click="emit('request-cancel-config', node.id)">
-          <el-icon><CircleClose /></el-icon>
-        </el-button>
-      </el-tooltip>
       <el-tooltip v-if="isConfigNode && configRuntime.canRetry && !readonly" content="重试配置检查" placement="bottom">
         <el-button size="small" circle aria-label="重试配置检查" title="重试配置检查" @click="emit('request-retry-config', node.id)">
           <el-icon><RefreshRight /></el-icon>
@@ -122,7 +130,7 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
 import { Handle, Position } from '@vue-flow/core'
-import { CircleClose, Delete, RefreshRight, Setting, Switch } from '@element-plus/icons-vue'
+import { Delete, RefreshRight, Setting, Switch } from '@element-plus/icons-vue'
 
 const props = defineProps({
   node: { type: Object, required: true },
@@ -330,6 +338,10 @@ watch(
   color: var(--canvas-text-subtle, var(--text-subtle, #a1a1aa));
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.config-cancel {
+  justify-self: start;
 }
 
 .node-media {

@@ -397,7 +397,7 @@ async function callViduVideoApi(config, log, opts) {
   const taskId = data?.task_id || data?.id;
   if (!taskId) {
     log.error('[Vidu] no task_id in response', { video_gen_id, ...summarizeProviderResponse(data) });
-    return { error: 'Vidu 未返回 task_id' };
+    return { error: 'Vidu 未返回任务编号' };
   }
   log.info('[Vidu] task created', {
     task_id: taskId,

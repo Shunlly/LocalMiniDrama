@@ -171,11 +171,11 @@ test('URL import is named as a project-level flow and keeps its existing navigat
   assert.match(entry, /@click="goSourceImport"\s*>进入项目选择后导入网页 URL<\/el-button>/)
   assert.match(
     source,
-    /function goSourceImport\(\) \{[\s\S]*?router\.push\(\{ path: '\/', query: \{ intent: 'source-import' \} \}\)[\s\S]*?\n\}/,
+    /function goSourceImport\(\) \{[\s\S]*?openWorkspaceNavItem\(router, 'list', \{ query: \{ intent: 'source-import' \} \}\)[\s\S]*?\n\}/,
   )
   assert.match(
     source,
-    /function goNewProject\(\) \{[\s\S]*?router\.push\(\{ path: '\/', query: \{ new: '1' \} \}\)[\s\S]*?\n\}/,
+    /function goNewProject\(\) \{[\s\S]*?openWorkspaceNavItem\(router, 'list', \{ query: \{ new: '1' \} \}\)[\s\S]*?\n\}/,
   )
 })
 
@@ -200,4 +200,8 @@ test('上传失败保留可见反馈，网络空结果不会伪装成成功列�
   assert.match(source, /uploadAPI\.uploadAsset\(file, \{ suppressErrorToast: true \}\)/)
   assert.match(source, /没有找到匹配的网络素材/)
   assert.match(source, /class="network-empty"[\s\S]*role="status"/)
+})
+
+test('顶栏上传按钮与筛选空态都提供明确的上传名称', () => {
+  assert.equal((source.match(/aria-label="上传图片或视频到素材中心"/g) || []).length >= 2, true)
 })

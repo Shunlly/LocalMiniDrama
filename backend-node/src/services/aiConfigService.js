@@ -12,6 +12,7 @@ function normalizeApiKeyForService(serviceType, apiKey) {
 }
 const { applyDeepSeekConnectivityOptions } = require('./deepseekConfig');
 const { probeComfyUiConnection, sanitizeProviderText } = require('./comfyUiClient');
+const { isTrustedChineseUserError } = require('./providerErrorSanitizer');
 const uploadService = require('./uploadService');
 const { secureHttpFetch, validateHttpRequestTarget } = require('./secureHttpFetch');
 const { requireCompleteProviderNetworkPolicy } = require('./providerNetworkPolicy');
@@ -587,8 +588,9 @@ function createConfig(db, log, req) {
   if (!endpoint && req.provider) {
     const p = req.provider.toLowerCase();
     const st = (req.service_type || 'text').toLowerCase();
-    if (p === 'openai') {
-      if (st === 'text') endpoint = '/chat/completions';
+    if (p === 'openai' || p === 'openai_compatible' || p === 'openai-compatible') {
+      if (st === 'text' || st === 'ocr') endpoint = '/chat/completions';
+      else if (st === 'transcription') endpoint = '/audio/transcriptions';
       else if (st === 'image') endpoint = '/images/generations';
       else if (st === 'video') {
         endpoint = '/videos';
@@ -615,7 +617,8 @@ function createConfig(db, log, req) {
         queryEndpoint = '/api/v1/nanobanana/record-info';
       }
     } else if (p === 'agnes') {
-      if (st === 'text') endpoint = '/chat/completions';
+      if (st === 'text' || st === 'ocr') endpoint = '/chat/completions';
+      else if (st === 'transcription') endpoint = '/audio/transcriptions';
       else if (st === 'image' || st === 'storyboard_image') endpoint = '/images/generations';
       else if (st === 'video') {
         endpoint = '/videos';
@@ -827,6 +830,40 @@ function rowToConfig(r) {
  * @returns Promise<void> 成功 resolve，失败 reject(error)
  */
 const CONNECTION_TEST_TIMEOUT_MS = 15000;
+const DISCOVER_MODELS_LIMIT = 200;
+const DISCOVER_MODELS_MAX_BYTES = 2 * 1024 * 1024;
+const DISCOVER_MODEL_ID_MAX_LEN = 128;
+const UNSUPPORTED_MODEL_DISCOVERY_MESSAGE = '当前厂商不支持自动读取模型目录，请手工填写模型名';
+const SAFE_PROVIDER_ERROR = Symbol.for('localMiniDrama.safeProviderError');
+const CONNECTION_TEST_AUTH_MESSAGE = '认证失败，请检查密钥';
+const CONNECTION_TEST_FAILED_MESSAGE = '连接测试失败，请检查接口地址和密钥';
+const UNSUPPORTED_OCR_TRANSCRIPTION_PROBE_MESSAGE = '当前厂商不支持自动连接测试，请保存后用一张样例图/一段样例音频验证';
+
+function connectionTestUserError(message, extra = {}) {
+  const error = new Error(message);
+  error.code = extra.code || 'CONNECTION_TEST_FAILED';
+  error.status = extra.status || 400;
+  if (extra.name) error.name = extra.name;
+  if (extra.isTimeout) error.isTimeout = true;
+  Object.defineProperty(error, SAFE_PROVIDER_ERROR, { value: true });
+  return error;
+}
+
+function collectConnectionSecrets(opts = {}) {
+  return [opts.api_key, opts.access_key_id, opts.secret_access_key, opts.session_token]
+    .filter((value) => value != null && String(value).length >= 3)
+    .map(String);
+}
+
+async function drainConnectionProbeBody(res) {
+  try { await res.text(); } catch (_) {}
+}
+
+async function throwIfUnauthorizedConnection(res) {
+  if (res.status !== 401 && res.status !== 403) return;
+  await drainConnectionProbeBody(res);
+  throw connectionTestUserError(CONNECTION_TEST_AUTH_MESSAGE, { code: 'CONNECTION_TEST_UNAUTHORIZED' });
+}
 
 async function fetchConnectionProbe(url, options = {}, networkOptions = {}) {
   const controller = new AbortController();
@@ -899,22 +936,71 @@ async function fetchConnectionProbe(url, options = {}, networkOptions = {}) {
 }
 
 async function probeOpenAICompatibleModels(base, apiKey, networkOptions) {
-  const url = `${base}/models`;
+  const url = openAiCompatibleModelsUrl(base);
+  const headers = {};
+  if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
   const res = await fetchConnectionProbe(url, {
     method: 'GET',
-    headers: { Authorization: `Bearer ${apiKey}` },
+    headers,
   }, networkOptions);
   if (res.ok) return;
-  const text = await res.text();
-  let detail = '';
-  try {
-    const parsed = JSON.parse(text);
-    detail = parsed?.error?.message || parsed?.message || '';
-  } catch (_) {
-    detail = text;
+  await throwIfUnauthorizedConnection(res);
+  await drainConnectionProbeBody(res);
+  throw connectionTestUserError(CONNECTION_TEST_FAILED_MESSAGE);
+}
+
+function isOpenAiCompatibleConnectionProbe(opts = {}) {
+  const provider = normalizedProviderId(opts.provider);
+  const protocol = normalizedProviderId(opts.api_protocol);
+  if (!supportsOpenAiCompatibleModelDiscovery(opts)) return false;
+  return protocol === 'openai'
+    || protocol === 'openai_compatible'
+    || provider === 'openai'
+    || provider === 'openai_compatible';
+}
+
+async function probeOpenAICompatibleChat(base, apiKey, model, networkOptions) {
+  const url = `${String(base || '').replace(/\/$/, '')}/chat/completions`;
+  const res = await fetchConnectionProbe(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+    },
+    body: JSON.stringify({
+      model: model || 'gpt-3.5-turbo',
+      messages: [{ role: 'user', content: 'hi' }],
+      max_tokens: 1,
+    }),
+  }, networkOptions);
+  await throwIfUnauthorizedConnection(res);
+}
+
+async function probeOcrOrTranscriptionConnection({
+  base,
+  apiKey,
+  model,
+  provider,
+  apiProtocol,
+  serviceType,
+  networkOptions,
+}) {
+  const probeOpts = { provider, api_protocol: apiProtocol, service_type: serviceType };
+  if (isOpenAiCompatibleConnectionProbe(probeOpts)) {
+    await probeOpenAICompatibleModels(base, apiKey, networkOptions);
+    return;
   }
-  const suffix = detail ? ` - ${String(detail).slice(0, 150)}` : '';
-  throw new Error(`模型列表探测失败: ${res.status}${suffix}`);
+  // 转写对尚未标明 OpenAI 协议、但仍兼容 chat 的厂商走轻量 chat 探测，不上传音频。
+  const protocol = normalizedProviderId(apiProtocol);
+  if (serviceType === 'transcription'
+    && supportsOpenAiCompatibleModelDiscovery(probeOpts)
+    && (!protocol || protocol === 'openai' || protocol === 'openai_compatible')) {
+    await probeOpenAICompatibleChat(base, apiKey, model, networkOptions);
+    return;
+  }
+  throw connectionTestUserError(UNSUPPORTED_OCR_TRANSCRIPTION_PROBE_MESSAGE, {
+    code: 'UNSUPPORTED_CONNECTION_TEST',
+  });
 }
 
 function isApiKeyOptionalConnection(opts = {}) {
@@ -936,6 +1022,148 @@ function ollamaProbeUrls(baseUrl) {
     ? `${parsed.origin}${pathWithoutSlash}`
     : `${root}/v1`;
   return [`${root}/api/tags`, `${openAiBase}/models`];
+}
+
+
+// 按 base 是否已以 /v1 结尾决定请求 /models 还是 /v1/models
+function openAiCompatibleModelsUrl(baseUrl) {
+  const parsed = new URL(baseUrl);
+  const pathWithoutSlash = parsed.pathname.replace(/\/+$/, '');
+  if (/\/v1$/i.test(pathWithoutSlash)) {
+    return `${parsed.origin}${pathWithoutSlash}/models`;
+  }
+  const root = `${parsed.origin}${pathWithoutSlash}`.replace(/\/+$/, '');
+  return `${root}/v1/models`;
+}
+
+function discoverModelsUserError(message, code = 'DISCOVER_MODELS_FAILED', extra = {}) {
+  const error = new Error(message);
+  error.code = code;
+  error.status = extra.status || 400;
+  if (extra.name) error.name = extra.name;
+  if (extra.isTimeout) error.isTimeout = true;
+  return error;
+}
+
+function supportsOpenAiCompatibleModelDiscovery(opts = {}) {
+  const provider = normalizedProviderId(opts.provider);
+  const protocol = normalizedProviderId(opts.api_protocol);
+  const serviceType = normalizedProviderId(opts.service_type);
+  if (provider === 'comfyui' || provider === 'comfy_ui' || protocol === 'comfyui' || protocol === 'comfy_ui') {
+    return false;
+  }
+  if (provider.startsWith('jimeng') || serviceType.startsWith('jimeng')) return false;
+  if (protocol === 'gemini' || protocol === 'google') return false;
+  if ((provider === 'gemini' || provider === 'google') && protocol !== 'openai') return false;
+  return true;
+}
+
+function looksLikeSecretModelId(value) {
+  const text = String(value || '');
+  if (!text || text.length > DISCOVER_MODEL_ID_MAX_LEN) return true;
+  if (/\bsk-[A-Za-z0-9._-]{6,}\b/i.test(text)) return true;
+  if (/\bBearer\s+/i.test(text)) return true;
+  if (/(api[-_]?key|access[-_]?token|secret|password|authorization)\s*[:=]/i.test(text)) return true;
+  if (/-----BEGIN /i.test(text)) return true;
+  return false;
+}
+
+function sanitizeDiscoveredModel(entry) {
+  if (entry == null) return null;
+  if (typeof entry === 'string' || typeof entry === 'number') {
+    return sanitizeDiscoveredModel({ id: entry });
+  }
+  if (typeof entry !== 'object' || Array.isArray(entry)) return null;
+  const rawId = entry.id != null && String(entry.id).trim() !== ''
+    ? entry.id
+    : (entry.model != null && String(entry.model).trim() !== '' ? entry.model : entry.name);
+  const id = String(rawId == null ? '' : rawId).trim();
+  if (!id || id.length > DISCOVER_MODEL_ID_MAX_LEN) return null;
+  if (id.includes('..') || id.includes('//') || id.includes('\\')) return null;
+  if (!/^[A-Za-z0-9][A-Za-z0-9._:/\-@+]{0,127}$/.test(id)) return null;
+  if (looksLikeSecretModelId(id)) return null;
+  const result = { id };
+  const usedNameAsId = entry.id == null && entry.model == null && entry.name != null;
+  const rawName = usedNameAsId ? entry.display_name : (entry.display_name != null ? entry.display_name : entry.name);
+  if (rawName != null) {
+    const name = String(rawName).replace(/[\u0000-\u001f\u007f]+/g, ' ').trim();
+    if (name && name !== id && name.length <= DISCOVER_MODEL_ID_MAX_LEN && !looksLikeSecretModelId(name) && !/https?:\/\//i.test(name)) {
+      result.name = name;
+    }
+  }
+  return result;
+}
+
+function parseDiscoveredModelRows(payload) {
+  if (Array.isArray(payload)) return payload;
+  if (!payload || typeof payload !== 'object') return null;
+  if (Array.isArray(payload.data)) return payload.data;
+  if (Array.isArray(payload.models)) return payload.models;
+  return null;
+}
+
+function mapProviderUrlDiscoverMessage(message) {
+  const raw = String(message || '');
+  if (/合法/.test(raw)) return '请填写合法的接口地址';
+  if (/仅支持/.test(raw)) return '接口地址仅支持 HTTP 或 HTTPS';
+  if (/用户名或密码/.test(raw)) return '接口地址不得包含用户名或密码，请使用密钥字段';
+  if (/查询参数/.test(raw)) return '接口地址不得包含查询参数';
+  if (/片段/.test(raw)) return '接口地址不得包含网址片段';
+  if (/拦截|不可路由|元数据/.test(raw)) return '服务地址指向被拦截或不可路由的网络位置';
+  if (/私有或本地/.test(raw)) return '私有或本地服务地址需要使用已识别的本地厂商模式';
+  if (/HTTPS/.test(raw)) return '公网服务地址必须使用 HTTPS';
+  if (/必填/.test(raw)) return '请填写接口地址';
+  return '接口地址无效，请检查后重试';
+}
+
+function collectDiscoverSecrets(opts = {}) {
+  return [opts.api_key, opts.access_key_id, opts.secret_access_key, opts.session_token]
+    .filter((value) => value != null && String(value).length >= 3)
+    .map(String);
+}
+
+function toDiscoverModelsError(error, secrets = []) {
+  if (error?.code === 'UNSUPPORTED_MODEL_DISCOVERY') {
+    return discoverModelsUserError(UNSUPPORTED_MODEL_DISCOVERY_MESSAGE, 'UNSUPPORTED_MODEL_DISCOVERY');
+  }
+  const sanitized = sanitizeProviderText(error?.message, secrets) || '';
+  if (error?.code === 'ERR_CANCELED' || error?.name === 'AbortError') {
+    return discoverModelsUserError('读取模型目录已取消', 'ERR_CANCELED', { name: 'AbortError' });
+  }
+  if (error?.isTimeout === true || error?.name === 'TimeoutError' || error?.code === 'ETIMEDOUT' || /超时/.test(sanitized)) {
+    return discoverModelsUserError('读取模型目录超时，请检查服务地址或网络', 'ETIMEDOUT', { isTimeout: true });
+  }
+  if (error?.code === 'INVALID_PROVIDER_URL') {
+    return discoverModelsUserError(mapProviderUrlDiscoverMessage(sanitized), 'INVALID_PROVIDER_URL');
+  }
+  if (error?.name === 'UnsafeMediaReferenceError' || error?.code === 'UNSAFE_MEDIA_REFERENCE') {
+    const mapped = isTrustedChineseUserError(sanitized) ? sanitized : '当前地址不允许访问，请检查接口地址';
+    return discoverModelsUserError(mapped, error.code || 'UNSAFE_MEDIA_REFERENCE');
+  }
+  if (error?.code === 'DISCOVER_MODELS_RESPONSE_TOO_LARGE') {
+    return discoverModelsUserError('模型目录响应过大，请手工填写模型名', 'DISCOVER_MODELS_RESPONSE_TOO_LARGE');
+  }
+  if (error?.code === 'DISCOVER_MODELS_UNAUTHORIZED') {
+    return discoverModelsUserError('认证失败，请检查密钥', 'DISCOVER_MODELS_UNAUTHORIZED');
+  }
+  if (isTrustedChineseUserError(sanitized)) {
+    const safe = discoverModelsUserError(sanitized, error?.code || 'DISCOVER_MODELS_FAILED');
+    if (error?.status) safe.status = error.status;
+    return safe;
+  }
+  return discoverModelsUserError('读取模型目录失败，请检查接口地址和密钥');
+}
+
+async function readDiscoverModelsPayload(res) {
+  const contentLength = Number(res.headers?.get?.('content-length') || 0);
+  if (Number.isFinite(contentLength) && contentLength > DISCOVER_MODELS_MAX_BYTES) {
+    throw discoverModelsUserError('模型目录响应过大，请手工填写模型名', 'DISCOVER_MODELS_RESPONSE_TOO_LARGE');
+  }
+  const text = await res.text();
+  if (String(text || '').length > DISCOVER_MODELS_MAX_BYTES) {
+    throw discoverModelsUserError('模型目录响应过大，请手工填写模型名', 'DISCOVER_MODELS_RESPONSE_TOO_LARGE');
+  }
+  return text;
 }
 
 async function probeOllamaConnection(baseUrl, apiKey, networkOptions) {
@@ -979,11 +1207,24 @@ async function testConnectionUnsafe(opts) {
   if (!model && (opts.provider === 'gemini' || opts.provider === 'google')) throw new Error('model 必填');
   let endpoint = opts.endpoint || '';
   if (!opts.api_key && !isApiKeyOptionalConnection({ provider, api_protocol: apiProtocol })) {
-    throw new Error('api_key 必填');
+    throw new Error('密钥必填');
   }
 
   if (provider === 'ollama') {
     await probeOllamaConnection(base, opts.api_key || '', networkOptions);
+    return;
+  }
+
+  if (serviceType === 'ocr' || serviceType === 'transcription') {
+    await probeOcrOrTranscriptionConnection({
+      base,
+      apiKey: opts.api_key,
+      model,
+      provider,
+      apiProtocol,
+      serviceType,
+      networkOptions,
+    });
     return;
   }
 
@@ -1008,12 +1249,7 @@ async function testConnectionUnsafe(opts) {
       method: 'GET',
       headers: { Authorization: 'Bearer ' + (opts.api_key || '') },
     }, networkOptions);
-    if (res.status === 401 || res.status === 403) {
-      const text = await res.text();
-      let errMsg = `API Key 无效 (${res.status})`;
-      try { const j = JSON.parse(text); errMsg = j.msg || j.message || errMsg; } catch {}
-      throw new Error(errMsg);
-    }
+    await throwIfUnauthorizedConnection(res);
     return;
   }
 
@@ -1029,17 +1265,18 @@ async function testConnectionUnsafe(opts) {
       body: JSON.stringify(body),
     }, networkOptions);
     if (!res.ok) {
-      const text = await res.text();
-      throw new Error(`请求失败: ${res.status} ${text.slice(0, 200)}`);
+      await throwIfUnauthorizedConnection(res);
+      await drainConnectionProbeBody(res);
+      throw connectionTestUserError(CONNECTION_TEST_FAILED_MESSAGE);
     }
     const data = await res.json().catch(() => ({}));
     if (data.candidates == null && data.error != null) {
-      throw new Error(data.error.message || data.error || 'Gemini 返回错误');
+      throw connectionTestUserError(CONNECTION_TEST_FAILED_MESSAGE);
     }
     return;
   }
 
-  if (apiProtocol === 'openai' || provider === 'openai' || provider === 'openai-compatible') {
+  if (isOpenAiCompatibleConnectionProbe({ provider, api_protocol: apiProtocol, service_type: serviceType })) {
     await probeOpenAICompatibleModels(base, opts.api_key, networkOptions);
     return;
   }
@@ -1057,12 +1294,7 @@ async function testConnectionUnsafe(opts) {
       headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + (opts.api_key || '') },
       body: probeBody,
     }, networkOptions);
-    if (res.status === 401 || res.status === 403) {
-      const text = await res.text();
-      let errMsg = `API Key 无效 (${res.status})`;
-      try { const j = JSON.parse(text); errMsg = j.base_resp?.status_msg || j.error?.message || j.message || errMsg; } catch {}
-      throw new Error(errMsg);
-    }
+    await throwIfUnauthorizedConnection(res);
     // 其他状态（400 缺参数、404 端点不对等）说明网络通、key 疑似有效
     return;
   }
@@ -1098,13 +1330,7 @@ async function testConnectionUnsafe(opts) {
       headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + opts.api_key },
       body: JSON.stringify(body),
     }, networkOptions);
-    // 401/403 = key 无效，其他均视为联通
-    if (res.status === 401 || res.status === 403) {
-      const text = await res.text();
-      let errMsg = `API Key 无效 (${res.status})`;
-      try { const j = JSON.parse(text); errMsg = j.error?.message || j.message || errMsg; } catch {}
-      throw new Error(errMsg);
-    }
+    await throwIfUnauthorizedConnection(res);
     return;
   }
 
@@ -1119,13 +1345,7 @@ async function testConnectionUnsafe(opts) {
       headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + (opts.api_key || '') },
       body: JSON.stringify(body),
     }, networkOptions);
-    // 401/403 = key 无效；其他（400 模型不存在等）视为联通
-    if (res.status === 401 || res.status === 403) {
-      const text = await res.text();
-      let errMsg = `API Key 无效 (${res.status})`;
-      try { const j = JSON.parse(text); errMsg = j.error?.message || j.message || errMsg; } catch {}
-      throw new Error(errMsg);
-    }
+    await throwIfUnauthorizedConnection(res);
     return;
   }
 
@@ -1143,26 +1363,16 @@ async function testConnectionUnsafe(opts) {
       },
       body: JSON.stringify(body),
     }, networkOptions);
-    // 401/403 = key 无效；其他状态（含 400 参数错误、429 限流等）表示已联通
-    if (res.status === 401 || res.status === 403) {
-      const text = await res.text();
-      let errMsg = `API Key 无效 (${res.status})`;
-      try {
-        const j = JSON.parse(text);
-        errMsg = j.error?.message || j.message || errMsg;
-      } catch {}
-      throw new Error(errMsg);
-    }
+    await throwIfUnauthorizedConnection(res);
     if (!res.ok) {
       // 其他 4xx/5xx：如果能解析出明确的 auth 错误才拒绝，否则视为联通
       const text = await res.text();
       let parsed = null;
       try { parsed = JSON.parse(text); } catch {}
-      const msg = parsed?.error?.message || parsed?.message || '';
-      const lmsg = msg.toLowerCase();
-      const isAuthErr = lmsg.includes('unauthorized') || lmsg.includes('invalid api key')
-        || lmsg.includes('authentication') || lmsg.includes('forbidden');
-      if (isAuthErr) throw new Error(`API Key 无效: ${msg || res.status}`);
+      const msg = String(parsed?.error?.message || parsed?.message || '').toLowerCase();
+      const isAuthErr = msg.includes('unauthorized') || msg.includes('invalid api key')
+        || msg.includes('authentication') || msg.includes('forbidden');
+      if (isAuthErr) throw connectionTestUserError(CONNECTION_TEST_AUTH_MESSAGE, { code: 'CONNECTION_TEST_UNAUTHORIZED' });
       // 其他错误（如模型不支持某个 API 参数）说明网络通、key 有效
       return;
     }
@@ -1191,19 +1401,13 @@ async function testConnectionUnsafe(opts) {
     body: JSON.stringify(body),
   }, networkOptions);
   if (!res.ok) {
-    const text = await res.text();
-    let errMsg = `请求失败: ${res.status}`;
-    try {
-      const j = JSON.parse(text);
-      errMsg += ' - ' + (j.error?.message || j.message || j.error || text.slice(0, 150));
-    } catch {
-      if (text) errMsg += ' - ' + text.slice(0, 150);
-    }
-    throw new Error(errMsg);
+    await throwIfUnauthorizedConnection(res);
+    await drainConnectionProbeBody(res);
+    throw connectionTestUserError(CONNECTION_TEST_FAILED_MESSAGE);
   }
   const data = await res.json().catch(() => ({}));
   if (data.choices == null && data.error != null) {
-    throw new Error(data.error.message || data.error || '接口返回错误');
+    throw connectionTestUserError(CONNECTION_TEST_FAILED_MESSAGE);
   }
 }
 
@@ -1211,15 +1415,89 @@ async function testConnection(opts) {
   try {
     return await testConnectionUnsafe(opts);
   } catch (error) {
-    const secrets = [opts?.api_key, opts?.access_key_id, opts?.secret_access_key, opts?.session_token]
-      .filter((value) => value != null && String(value).length >= 3)
-      .map(String);
-    const message = sanitizeProviderText(error?.message, secrets) || '连接测试失败';
-    const safeError = new Error(message);
-    if (error?.code) safeError.code = error.code;
-    if (error?.status) safeError.status = error.status;
+    const secrets = collectConnectionSecrets(opts);
+    const sanitized = sanitizeProviderText(error?.message, secrets) || CONNECTION_TEST_FAILED_MESSAGE;
+    const message = isTrustedChineseUserError(sanitized) ? sanitized : CONNECTION_TEST_FAILED_MESSAGE;
+    const safeError = connectionTestUserError(message, {
+      code: error?.code || 'CONNECTION_TEST_FAILED',
+      name: error?.name,
+      isTimeout: error?.isTimeout === true,
+    });
     if (error?.details) safeError.details = error.details;
+    const status = Number(error?.status);
+    if (error?.code === 'INVALID_PROVIDER_URL' || error?.code === 'INVALID_AI_CONFIG') {
+      safeError.status = error.status || 400;
+    } else if (Number.isInteger(status) && status >= 400 && status !== 401 && status !== 403) {
+      safeError.status = status;
+    }
     throw safeError;
+  }
+}
+
+
+/**
+ * 从 OpenAI 兼容 /v1/models 读取模型目录，供前端合并进模型列表。
+ * @param opts { base_url, api_key, provider, service_type, signal }
+ * @returns Promise<{ models: Array<{ id: string, name?: string }> }>
+ */
+async function discoverModelsUnsafe(opts = {}) {
+  if (!supportsOpenAiCompatibleModelDiscovery(opts)) {
+    throw discoverModelsUserError(UNSUPPORTED_MODEL_DISCOVERY_MESSAGE, 'UNSUPPORTED_MODEL_DISCOVERY');
+  }
+  const provider = String(opts.provider || '').trim();
+  if (!provider) throw discoverModelsUserError('请填写厂商');
+  if (!String(opts.base_url || '').trim()) throw discoverModelsUserError('请填写接口地址');
+  if (!opts.api_key && !isApiKeyOptionalConnection(opts)) {
+    throw discoverModelsUserError('请填写密钥');
+  }
+
+  const base = normalizeProviderBaseUrl(opts.base_url, opts);
+  const providerNetwork = opts.provider_network_policy
+    ? requireCompleteProviderNetworkPolicy(opts.provider_network_policy, base)
+    : getProviderNetworkOptions(opts, { lookup: opts.provider_dns_lookup });
+  const networkOptions = {
+    ...providerNetwork,
+    fetchImpl: opts.fetch_impl,
+    signal: opts.signal,
+  };
+  const url = openAiCompatibleModelsUrl(base);
+  const headers = {};
+  if (opts.api_key) headers.Authorization = `Bearer ${opts.api_key}`;
+  const res = await fetchConnectionProbe(url, { method: 'GET', headers }, networkOptions);
+  if (res.status === 401 || res.status === 403) {
+    throw discoverModelsUserError('认证失败，请检查密钥', 'DISCOVER_MODELS_UNAUTHORIZED');
+  }
+  const text = await readDiscoverModelsPayload(res);
+  if (!res.ok) {
+    throw discoverModelsUserError('读取模型目录失败，请检查接口地址和密钥');
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch (_) {
+    throw discoverModelsUserError('模型目录响应不是有效的数据，请手工填写模型名');
+  }
+  const rows = parseDiscoveredModelRows(parsed);
+  if (!rows) {
+    throw discoverModelsUserError('模型目录响应缺少模型列表，请手工填写模型名');
+  }
+  const models = [];
+  const seen = new Set();
+  for (const row of rows) {
+    const item = sanitizeDiscoveredModel(row);
+    if (!item || seen.has(item.id)) continue;
+    seen.add(item.id);
+    models.push(item);
+    if (models.length >= DISCOVER_MODELS_LIMIT) break;
+  }
+  return { models };
+}
+
+async function discoverModels(opts = {}) {
+  try {
+    return await discoverModelsUnsafe(opts);
+  } catch (error) {
+    throw toDiscoverModelsError(error, collectDiscoverSecrets(opts));
   }
 }
 
@@ -1488,10 +1766,15 @@ function bulkUpdateApiKey(db, log, newKey) {
 
 module.exports = {
   CONNECTION_TEST_TIMEOUT_MS,
+  DISCOVER_MODELS_LIMIT,
+  DISCOVER_MODELS_MAX_BYTES,
   fetchConnectionProbe,
   probeOpenAICompatibleModels,
   probeOllamaConnection,
   ollamaProbeUrls,
+  openAiCompatibleModelsUrl,
+  supportsOpenAiCompatibleModelDiscovery,
+  discoverModels,
   isApiKeyOptionalConnection,
   listConfigs,
   getConfig,

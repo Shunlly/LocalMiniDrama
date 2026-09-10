@@ -63,6 +63,7 @@
             v-model="prompt"
             type="textarea"
             :rows="5"
+            aria-label="提示词"
             placeholder="描述你想要生成的画面内容..."
             class="prompt-input"
           />
@@ -154,7 +155,7 @@
         <div class="form-section form-row">
           <div class="form-item">
             <div class="form-label">风格</div>
-            <el-input v-model="style" placeholder="例如：电影感 cinematic、日式动漫 anime…" />
+            <el-input v-model="style" aria-label="风格" placeholder="例如：电影感 cinematic、日式动漫 anime…" />
           </div>
           <div class="form-item">
             <div class="form-label">{{ mode === 'video' ? '视频比例' : '画面比例' }}</div>
@@ -202,7 +203,7 @@
             size="large"
             :loading="generating"
             :disabled="generateDisabled"
-            :title="generateDisabledReason"
+            :title="generateDisabledReason || undefined"
             :aria-describedby="generateDisabledReason ? 'free-create-generate-reason' : undefined"
             class="generate-btn"
             @click="generate"
@@ -279,6 +280,7 @@
                 controls
                 class="result-video"
                 loop
+                :aria-label="`第 ${idx + 1} 个生成视频`"
               />
               <button
                 v-else-if="item.type === 'image' && item.url"
@@ -366,14 +368,16 @@ import { uploadAPI } from '@/api/upload'
 import { generationSettingsAPI } from '@/api/prompts'
 import ImagePreviewDialog from '@/components/ImagePreviewDialog.vue'
 import { getServiceConfigReadiness } from '@/utils/aiServiceReadiness'
-import { describeServiceLoadError, isRequestCanceled, isRequestTimeout } from '@/utils/requestError'
 import {
   buildFreeCreateGenerationPayload,
   createFreeCreateTaskOwner,
   getFreeCreateAspectRatioOptions,
+  getFreeCreateCapabilityNotice,
+  getFreeCreateReadyMessage,
   getReferenceUploadBlockReason,
   normalizeFreeCreateAspectRatio,
   parseFreeCreateTaskResult,
+  toFreeCreateUserError,
 } from '@/utils/freeCreate'
 
 const router = useRouter()
@@ -407,51 +411,6 @@ const freeCreateTaskOwner = createFreeCreateTaskOwner((taskId, body) => (
 ))
 const leaveProtection = inject('appRouteLeaveProtection', null)
 let unregisterLeaveProtection = null
-const TECHNICAL_ENGLISH_RE = /network error|timeout of \d+ms|request failed with status code|err_network|econnaborted|etimedout|failed to fetch|load failed|internal server error|econnrefused|enotfound/i
-const UNSET_ERROR = '\0'
-
-function hasChineseText(text) {
-  return /[\u4e00-\u9fff]/.test(String(text || ''))
-}
-
-function readErrorText(error) {
-  if (typeof error === 'string') return error.trim()
-  if (!error || typeof error !== 'object') return ''
-  return String(error.message || error.error || '').trim()
-}
-
-function toFreeCreateUserError(error, fallback = '生成失败，请稍后重试') {
-  if (error == null || error === '') return fallback
-  if (error === 'cancel' || isRequestCanceled(error)) return '操作已取消'
-
-  const raw = readErrorText(error)
-  if (raw && hasChineseText(raw) && !TECHNICAL_ENGLISH_RE.test(raw)) return raw
-
-  if (error && typeof error === 'object') {
-    const backendMessage = error?.response?.data?.error?.message
-    if (backendMessage && hasChineseText(backendMessage) && !TECHNICAL_ENGLISH_RE.test(String(backendMessage))) {
-      return String(backendMessage).trim()
-    }
-    const described = describeServiceLoadError(error, {
-      serviceLabel: '自由创作服务',
-      fallback: UNSET_ERROR,
-    })
-    if (described && described !== UNSET_ERROR && hasChineseText(described) && !TECHNICAL_ENGLISH_RE.test(described)) {
-      return described
-    }
-    const status = Number(error?.status || error?.response?.status)
-    if (Number.isInteger(status) && status > 0) return `自由创作服务暂时不可用（HTTP ${status}）`
-    if (isRequestTimeout(error)) return '连接自由创作服务超时，请稍后重试'
-  }
-
-  if (raw && TECHNICAL_ENGLISH_RE.test(raw)) {
-    if (/timeout/i.test(raw)) return '连接自由创作服务超时，请稍后重试'
-    if (/network error|failed to fetch|err_network|econnrefused|enotfound/i.test(raw)) {
-      return '无法连接自由创作服务，请检查服务是否已启动'
-    }
-  }
-  return fallback
-}
 
 const activeServiceType = computed(() => mode.value === 'video' ? 'video' : 'image')
 const activeServiceLabel = computed(() => mode.value === 'video' ? '视频' : '图片')
@@ -468,33 +427,61 @@ const activeServiceConfig = computed(() => {
     || null
 })
 const generationCapability = computed(() => {
+  const serviceLabel = activeServiceLabel.value
   if (configLoadState.value === 'loading') {
-    return { ready: false, status: 'loading', message: `正在检查${activeServiceLabel.value}服务...` }
+    return {
+      ready: false,
+      status: 'loading',
+      issue: '',
+      message: getFreeCreateCapabilityNotice({ status: 'loading', serviceLabel }),
+    }
   }
   if (configLoadState.value === 'error') {
-    return { ready: false, status: 'error', message: `无法读取${activeServiceLabel.value}服务配置` }
+    return {
+      ready: false,
+      status: 'error',
+      issue: '',
+      message: getFreeCreateCapabilityNotice({ status: 'error', serviceLabel }),
+    }
   }
   const readiness = getServiceConfigReadiness(activeServiceConfig.value)
   if (readiness.ready) {
-    const identity = activeServiceConfig.value?.name || activeServiceConfig.value?.provider || activeServiceLabel.value
     return {
       ...readiness,
       status: 'ready',
-      message: `${activeServiceLabel.value}服务已就绪：${identity}${readiness.model ? ` / ${readiness.model}` : ''}`,
+      message: getFreeCreateReadyMessage({
+        serviceLabel,
+        name: activeServiceConfig.value?.name,
+        provider: activeServiceConfig.value?.provider,
+        model: readiness.model,
+      }),
     }
   }
-  const issueMessage = {
-    missing_config: `尚未配置可用的${activeServiceLabel.value}服务`,
-    missing_model: `${activeServiceLabel.value}服务尚未选择可用模型`,
-    missing_credentials: `${activeServiceLabel.value}服务缺少访问凭据`,
-    missing_workflow: `${activeServiceLabel.value}服务缺少生成工作流`,
-  }[readiness.issue]
   return {
     ...readiness,
     status: 'missing',
-    message: issueMessage || `${activeServiceLabel.value}服务尚未就绪`,
+    message: getFreeCreateCapabilityNotice({
+      status: 'missing',
+      issue: readiness.issue,
+      serviceLabel,
+    }),
   }
 })
+
+function generationUnavailableNotice() {
+  return getFreeCreateCapabilityNotice({
+    status: generationCapability.value.status,
+    issue: generationCapability.value.issue,
+    serviceLabel: activeServiceLabel.value,
+  })
+}
+function warnGenerationUnavailable() {
+  ElMessage.warning(toFreeCreateUserError(
+    generationUnavailableNotice(),
+    `${activeServiceLabel.value}服务尚未就绪`,
+  ))
+}
+
 const referenceUploadBlockReason = computed(() => (
   mode.value === 'video'
     ? getReferenceUploadBlockReason(
@@ -527,7 +514,12 @@ const generateDisabled = computed(() => (
 ))
 const generateDisabledReason = computed(() => {
   if (generating.value) return ''
-  if (!generationCapability.value.ready) return generationCapability.value.message
+  if (!generationCapability.value.ready) {
+    return toFreeCreateUserError(
+      generationUnavailableNotice(),
+      `${activeServiceLabel.value}服务尚未就绪`,
+    )
+  }
   if (referenceUploadBlockReason.value) return referenceUploadBlockReason.value
   if (!prompt.value.trim()) return '请先填写提示词'
   return ''
@@ -805,16 +797,22 @@ function createGenerationItem() {
 }
 
 async function generate() {
-  if (!prompt.value.trim()) return
+  if (!prompt.value.trim()) {
+    ElMessage.warning('请先填写提示词')
+    return
+  }
   if (referenceUploadBlockReason.value) {
     ElMessage.error(referenceUploadBlockReason.value)
     return
   }
   if (!generationCapability.value.ready) {
-    ElMessage.warning(generationCapability.value.message)
+    warnGenerationUnavailable()
     return
   }
-  if (freeCreateTaskOwner.hasActive()) return
+  if (freeCreateTaskOwner.hasActive()) {
+    ElMessage.warning('请等待当前生成完成后再试')
+    return
+  }
   const item = createGenerationItem()
   results.value.unshift(item)
   await runGeneration(item)
@@ -829,7 +827,7 @@ async function retryGeneration(item) {
   if (item.type === 'video' || item.type === 'image') mode.value = item.type
   await nextTick()
   if (!generationCapability.value.ready) {
-    ElMessage.warning(generationCapability.value.message)
+    warnGenerationUnavailable()
     return
   }
   if (item.type === 'video' && !item.referenceImageLocalPath && referenceUploadBlockReason.value) {

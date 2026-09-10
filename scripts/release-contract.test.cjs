@@ -1808,6 +1808,18 @@ test('production containers and tag releases bind, harden, and scan final images
   assert.match(backendEntrypoint, /\.localminidrama-owner-v1/)
   assert.doesNotMatch(backendEntrypoint, /chown -R node:node \/app\/data/)
   assert.match(frontendNginxConfig, /location = \/healthz[\s\S]*proxy_pass http:\/\/backend:5679\/ready/)
+  assert.match(dockerCompose, /docker compose up -d --build --wait/)
+  assert.match(dockerCompose, /127\.0\.0\.1:5679:5679/)
+  assert.match(dockerCompose, /LOCALMINIDRAMA_FRONTEND_HOST_PORT:-3013/)
+  assert.match(dockerCompose, /fetch\('http:\/\/127\.0\.0\.1:5679\/ready'\)/)
+  assert.match(dockerCompose, /LOCALMINIDRAMA_DATA_DIR:-\.\/backend-node\/data/)
+  assert.match(dockerCompose, /LOCALMINIDRAMA_MAINTENANCE_SCOPE: localminidrama-docker-backend/)
+  assert.match(dockerCompose, /23013\/25679 只属于旧 candidate/)
+  assert.doesNotMatch(dockerCompose, /ports:[\s\S]{0,80}23013|ports:[\s\S]{0,80}25679/)
+  assert.doesNotMatch(dockerCompose, /NODE_TLS_REJECT_UNAUTHORIZED|insecure_tls|REJECT_UNAUTHORIZED=0/)
+  assert.doesNotMatch(dockerCompose, /fetch\('http:\/\/127\.0\.0\.1:5679\/health'\)/)
+  assert.match(frontendDockerfile, /HEALTHCHECK --interval=10s --timeout=3s --start-period=10s --retries=12/)
+  assert.match(backendDockerfile, /FROM runtime AS production[\s\S]*HEALTHCHECK --interval=10s --timeout=5s --start-period=20s --retries=12[\s\S]*5679\/ready/)
 
   const releaseProduction = jobBlock('production-e2e')
   assert.match(releaseProduction, /LOCALMINIDRAMA_BUILD_REVISION: \$\{\{ github\.sha \}\}/)
@@ -12441,7 +12453,7 @@ test('Windows CI builds the complete unverified candidate before independent sec
 test('Docker artifact boundaries are checked before production bind mounts change ownership', () => {
   assert.equal(rootPackage.scripts['verify:docker'], 'npm run verify:docker:artifact && npm run verify:docker:containers')
   assert.equal(rootPackage.scripts['verify:docker:artifact'], 'node scripts/verify-docker-artifact.cjs')
-  assert.match(rootPackage.scripts['verify:docker:containers'], /backend-verify[\s\S]*frontend-verify/)
+  assert.match(rootPackage.scripts['verify:docker:containers'], /--build[\s\S]*backend-verify[\s\S]*--build[\s\S]*frontend-verify/)
 
   for (const source of [jobBlock('docker-production-e2e', ciWorkflow), jobBlock('production-e2e', workflow)]) {
     const artifact = source.indexOf('npm run verify:docker:artifact')

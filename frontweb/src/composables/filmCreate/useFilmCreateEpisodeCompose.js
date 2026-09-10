@@ -1,5 +1,6 @@
 import { ElMessage } from 'element-plus'
 import { GEN_RESOURCE } from '@/stores/generationTaskStore'
+import { isUserFacingAbort, toUserFacingError } from '@/utils/userFacingError'
 
 export function useFilmCreateEpisodeCompose(deps = {}) {
   const {
@@ -55,7 +56,7 @@ export function useFilmCreateEpisodeCompose(deps = {}) {
       const result = await dramaAPI.finalizeEpisode(epId, getFinalizeMergeOptions())
       if (result?.task_id != null) {
         store.setVideoProgress(10, did, epId)
-        ElMessage.success(result?.message || '视频合成任务已提交，请稍后查看')
+        ElMessage.success(toUserFacingError(result?.message, '视频合成任务已提交，请稍后查看'))
         const pollResult = await pollTask(result.task_id, captureDramaRefresh(), mergeMeta)
         await loadDrama()
         if (pollResult?.status === 'completed') {
@@ -70,21 +71,31 @@ export function useFilmCreateEpisodeCompose(deps = {}) {
           }
         } else if (pollResult?.status === 'failed') {
           store.setVideoStatus('error', did, epId)
-          videoErrorMsg.value = pollResult?.error || '视频生成失败'
+          videoErrorMsg.value = toUserFacingError(pollResult?.error, '视频生成失败')
+          ElMessage.error(videoErrorMsg.value)
         } else if (pollResult?.status === 'timeout') {
-          store.setVideoStatus('generating', did, epId)
-          videoErrorMsg.value = '任务仍在排队或生成中，请稍后刷新查看'
+          store.setVideoStatus('error', did, epId)
+          videoErrorMsg.value = toUserFacingError(pollResult?.error, '视频生成超时，请稍后刷新或重试')
+          ElMessage.warning(videoErrorMsg.value)
+        } else if (pollResult?.status === 'cancelled' || pollResult?.status === 'canceled') {
+          store.setVideoStatus('error', did, epId)
+          videoErrorMsg.value = toUserFacingError(pollResult?.error, '操作已取消')
+        } else {
+          store.setVideoStatus('error', did, epId)
+          videoErrorMsg.value = toUserFacingError(pollResult?.error, '视频生成未完成')
           ElMessage.warning(videoErrorMsg.value)
         }
       } else {
         store.setVideoStatus('error', did, epId)
-        const msg = result?.message || '本集没有可合成的视频片段'
+        const msg = toUserFacingError(result?.message, '本集没有可合成的视频片段')
         videoErrorMsg.value = msg
         ElMessage.warning(msg)
       }
     } catch (e) {
-      videoErrorMsg.value = e.message || '生成失败'
+      videoErrorMsg.value = toUserFacingError(e, '生成失败')
       store.setVideoStatus('error', did, epId)
+      if (isUserFacingAbort(e)) return
+      ElMessage.error(videoErrorMsg.value)
     } finally {
       if (store.getVideoStatus(did, epId) !== 'generating') {
         genStore.markDone(mergeMeta)

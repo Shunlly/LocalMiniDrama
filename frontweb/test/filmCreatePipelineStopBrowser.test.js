@@ -80,7 +80,7 @@ test('制作页文本框架流程可停止，并留下取消生命周期日志',
   await details.getByRole('button', { name: '仅生成文本框架', exact: true }).click()
   await details.getByRole('button', { name: '停止', exact: true }).waitFor({ state: 'visible', timeout: 15000 })
   await details.getByRole('button', { name: '停止', exact: true }).click()
-  await page.getByText(/本地全流程已停止/).waitFor({ timeout: 20000 })
+  await page.locator('.el-message__content').filter({ hasText: '本地全流程已停止' }).first().waitFor({ timeout: 20000 })
   assert.equal(cancelCalls.length > 0, true, '停止必须向任务取消接口发出请求')
 
   const filmEvents = logs.filter((item) => item.operation === 'film_create')

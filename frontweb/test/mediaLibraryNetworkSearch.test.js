@@ -40,7 +40,20 @@ test('网络素材英文技术错误转成中文，中文原文保留', () => {
     describeMediaLibraryUserError({ message: 'Wikimedia Commons 搜索请求失败' }, { fallback: '搜索失败' }),
     'Wikimedia Commons 搜索请求失败',
   )
+  assert.equal(
+    describeMediaLibraryUserError({ message: 'Failed to fetch' }, { fallback: '暂时无法搜索网络素材，请稍后重试' }),
+    '暂时无法搜索网络素材，请稍后重试',
+  )
+  assert.doesNotMatch(
+    describeMediaLibraryUserError(
+      { response: { status: 400, data: { error: { message: '缺少 drama_id' } } } },
+      { fallback: '网络素材导入失败' },
+    ),
+    /drama_id/,
+  )
   assert.match(source, /describeMediaLibraryUserError\(error, \{ serviceLabel: '网络素材服务', fallback \}\)/)
+  const utilSource = readFileSync(new URL('../src/utils/mediaLibraryUserError.js', import.meta.url), 'utf8')
+  assert.match(utilSource, /toUserFacingError\(error/)
 })
 
 test('取消选择或中止请求不算网络素材失败', () => {
@@ -75,4 +88,26 @@ test('导入中离开保护文案仍会拦住路由和刷新', () => {
   assert.match(source, /网络素材正在导入，请完成后再离开。/)
   assert.match(source, /onBeforeRouteLeave\(\(\) => confirmMediaLibraryLeave\(\)\)/)
   assert.match(source, /window\.addEventListener\('beforeunload', handleBeforeUnload\)/)
+})
+
+
+test('\u7f51\u7edc\u7d20\u6750\u9875\u53ef\u7b5b\u9009 Commons \u4e0e Openverse\uff0c\u5e76\u8bf4\u660e\u516c\u5f00\u8bb8\u53ef\u9700\u81ea\u884c\u6838\u5bf9', () => {
+  assert.match(source, /v-model="networkSource"/)
+  assert.match(source, /@change="handleNetworkSourceChange"/)
+  assert.match(source, />Wikimedia Commons</)
+  assert.match(source, />Openverse</)
+  assert.match(source, /\u8fd9\u4e9b\u662f\u516c\u5f00\u8bb8\u53ef\u7d20\u6750/)
+  assert.match(source, /\u81ea\u884c\u6838\u5bf9/)
+  assert.match(source, /networkItemSourceLabel\(item\)/)
+  assert.match(source, /\u8bb8\u53ef\uff1a\{\{ item.license/)
+  assert.match(source, /params = \{ keyword: query, source: networkSource.value \}/)
+  assert.match(source, /function handleNetworkSourceChange\(\) \{[\s\S]*?invalidateNetworkSearch\(\)[\s\S]*?searchNetworkMedia\(\)/)
+  assert.match(source, /:title="!networkKeyword.trim\(\) \? '\u8bf7\u8f93\u5165\u5173\u952e\u8bcd\u540e\u518d\u641c\u7d22'/)
+})
+
+test('Openverse \u7f29\u7565\u56fe\u4e0d\u76f4\u8fde CDN\uff0c\u7a7a\u89c6\u9891\u7ed3\u679c\u4f1a\u8bf4\u660e\u800c\u4e0d\u4f2a\u9020', () => {
+  assert.match(source, /networkCardImageUrl\(item\)/)
+  assert.match(source, /networkNotice/)
+  assert.match(source, /item\?\.thumbnail_url/)
+  assert.doesNotMatch(source, /source_url \u5fc5\u987b/)
 })

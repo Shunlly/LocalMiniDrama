@@ -507,6 +507,142 @@ test('batch generation cancel stops the queue and keeps dramaId off the episode 
   }
 })
 
+
+test('批量生图/生视频把英文和密钥错误收成中文日志', async () => {
+  assertDistinctIds(DRAMA_ID, EPISODE_ID)
+  const feedback = stubElementPlusFeedback()
+  const secret = new Error('Invalid API key sk-secret')
+  const abortError = Object.assign(new Error('canceled'), { name: 'AbortError' })
+  try {
+    const imageErrors = refOf([])
+    const imageSubmit = createBatchGeneration({
+      storyboards: [{ id: STORYBOARD_ID, storyboard_number: 1, image_prompt: '镜头一' }],
+      hasSbImage: () => false,
+      imagesAPI: {
+        async create(payload) {
+          assert.equal(payload.drama_id, DRAMA_ID)
+          assert.notEqual(payload.drama_id, EPISODE_ID)
+          throw secret
+        },
+      },
+      deps: { batchImageErrors: imageErrors },
+    })
+    await imageSubmit.api.startBatchImageGeneration()
+    assert.equal(imageErrors.value[0], '#1: 提交失败')
+    assert.doesNotMatch(imageErrors.value[0], /sk-secret|Invalid API key/i)
+    assertChinese(imageErrors.value[0])
+
+    const imagePollErrors = refOf([])
+    const imagePoll = createBatchGeneration({
+      storyboards: [{ id: STORYBOARD_ID, storyboard_number: 1, image_prompt: '镜头一' }],
+      hasSbImage: () => false,
+      imagesAPI: {
+        async create() {
+          return { task_id: 'img-1' }
+        },
+      },
+      deps: {
+        batchImageErrors: imagePollErrors,
+        pollTask: async () => ({ status: 'failed', error: 'Invalid API key sk-secret' }),
+      },
+    })
+    await imagePoll.api.startBatchImageGeneration()
+    assert.equal(imagePollErrors.value[0], '#1: 生成失败')
+    assert.doesNotMatch(imagePollErrors.value[0], /sk-secret|Invalid API key/i)
+
+    const abortErrors = refOf([])
+    const imageAbort = createBatchGeneration({
+      storyboards: [{ id: STORYBOARD_ID, storyboard_number: 1, image_prompt: '镜头一' }],
+      hasSbImage: () => false,
+      imagesAPI: {
+        async create() {
+          throw abortError
+        },
+      },
+      deps: { batchImageErrors: abortErrors },
+    })
+    await imageAbort.api.startBatchImageGeneration()
+    assert.deepEqual(abortErrors.value, [])
+
+    const videoAbortErrors = refOf([])
+    const videoAbort = createBatchGeneration({
+      storyboards: [{ id: STORYBOARD_ID, storyboard_number: 1, image_prompt: '镜头一' }],
+      deps: {
+        batchVideoErrors: videoAbortErrors,
+        getSbFirstFrameUrl: () => '/static/first.png',
+        sbCanSubmitVideo: () => true,
+        videosAPI: {
+          async create() {
+            throw abortError
+          },
+        },
+      },
+    })
+    await videoAbort.api.startBatchVideoGeneration()
+    assert.deepEqual(videoAbortErrors.value, [])
+
+    const videoErrors = refOf([])
+    const videoSubmit = createBatchGeneration({
+      storyboards: [{ id: STORYBOARD_ID, storyboard_number: 1, image_prompt: '镜头一' }],
+      deps: {
+        batchVideoErrors: videoErrors,
+        getSbFirstFrameUrl: () => '/static/first.png',
+        sbCanSubmitVideo: () => true,
+        videosAPI: {
+          async create(payload) {
+            assert.equal(payload.drama_id, DRAMA_ID)
+            assert.notEqual(payload.drama_id, EPISODE_ID)
+            throw secret
+          },
+        },
+      },
+    })
+    await videoSubmit.api.startBatchVideoGeneration()
+    assert.equal(videoErrors.value[0], '#1: 提交失败')
+    assert.doesNotMatch(videoErrors.value[0], /sk-secret|Invalid API key/i)
+    assertChinese(videoErrors.value[0])
+
+    const videoPollErrors = refOf([])
+    const videoPoll = createBatchGeneration({
+      storyboards: [{ id: STORYBOARD_ID, storyboard_number: 1, image_prompt: '镜头一' }],
+      deps: {
+        batchVideoErrors: videoPollErrors,
+        getSbFirstFrameUrl: () => '/static/first.png',
+        sbCanSubmitVideo: () => true,
+        videosAPI: {
+          async create() {
+            return { task_id: 'vid-1' }
+          },
+        },
+        pollTask: async () => ({ status: 'failed', error: 'Invalid API key sk-secret' }),
+      },
+    })
+    await videoPoll.api.startBatchVideoGeneration()
+    assert.equal(videoPollErrors.value[0], '#1: 生成失败')
+    assert.doesNotMatch(videoPollErrors.value[0], /sk-secret|Invalid API key/i)
+
+    const imageTimeoutErrors = refOf([])
+    const imageTimeout = createBatchGeneration({
+      storyboards: [{ id: STORYBOARD_ID, storyboard_number: 1, image_prompt: '镜头一' }],
+      hasSbImage: () => false,
+      imagesAPI: {
+        async create() {
+          return { task_id: 'img-timeout' }
+        },
+      },
+      deps: {
+        batchImageErrors: imageTimeoutErrors,
+        pollTask: async () => ({ status: 'timeout', error: 'ETIMEDOUT' }),
+      },
+    })
+    await imageTimeout.api.startBatchImageGeneration()
+    assert.equal(imageTimeoutErrors.value[0], '#1: 生成超时，请稍后重试')
+    assertChinese(imageTimeoutErrors.value[0])
+  } finally {
+    feedback.restore()
+  }
+})
+
 test('episode compose stays blocked without playable storyboard videos', async () => {
   const feedback = stubElementPlusFeedback()
   const finalizeCalls = []
@@ -606,6 +742,82 @@ test('episode compose reports Chinese when there is no mergeable clip', async ()
     feedback.restore()
   }
 })
+
+test('episode compose maps timeout/cancel to Chinese and leaves the run retryable', async () => {
+  const feedback = stubElementPlusFeedback()
+  try {
+    const statuses = []
+    const videoErrorMsg = refOf('旧错误')
+    const store = createStore({
+      drama: { id: DRAMA_ID, title: '项目甲' },
+      currentEpisode: { id: EPISODE_ID, episode_number: 2 },
+      setVideoStatus(status) { statuses.push(status) },
+      getVideoStatus() { return statuses.at(-1) || 'idle' },
+    })
+    const compose = useFilmCreateEpisodeCompose({
+      store,
+      dramaId: refOf(DRAMA_ID),
+      currentEpisodeId: refOf(EPISODE_ID),
+      dramaAPI: {
+        async finalizeEpisode() { return { task_id: 88 } },
+      },
+      genStore: { markRunning() {}, markDone() {} },
+      pollTask: async () => ({ status: 'timeout', error: 'ETIMEDOUT' }),
+      captureDramaRefresh: () => async () => {},
+      loadDrama: async () => {},
+      composeActionDisabledReason: refOf(''),
+      currentEpisodeVideoUrl: refOf(''),
+      videoErrorMsg,
+      videoSubtitle: refOf(false),
+      videoBurnDialogue: refOf(false),
+      videoWatermark: refOf(false),
+      videoWatermarkText: refOf(''),
+    })
+    await compose.onGenerateVideo()
+    assert.equal(videoErrorMsg.value, '视频生成超时，请稍后刷新或重试')
+    assertChinese(videoErrorMsg.value)
+    assert.equal(statuses.at(-1), 'error')
+    assertChinese(feedback.last('warning').message, /超时/)
+
+    const cancelStatuses = []
+    const cancelErrorMsg = refOf('旧错误')
+    const cancelStore = createStore({
+      drama: { id: DRAMA_ID, title: '项目甲' },
+      currentEpisode: { id: EPISODE_ID, episode_number: 2 },
+      setVideoStatus(status) { cancelStatuses.push(status) },
+      getVideoStatus() { return cancelStatuses.at(-1) || 'idle' },
+    })
+    const cancelled = useFilmCreateEpisodeCompose({
+      store: cancelStore,
+      dramaId: refOf(DRAMA_ID),
+      currentEpisodeId: refOf(EPISODE_ID),
+      dramaAPI: {
+        async finalizeEpisode() {
+          throw Object.assign(new Error('canceled'), { name: 'AbortError' })
+        },
+      },
+      genStore: { markRunning() {}, markDone() {} },
+      pollTask: async () => { throw new Error('pollTask 不应被调用') },
+      captureDramaRefresh: () => async () => {},
+      loadDrama: async () => { throw new Error('loadDrama 不应被调用') },
+      composeActionDisabledReason: refOf(''),
+      currentEpisodeVideoUrl: refOf(''),
+      videoErrorMsg: cancelErrorMsg,
+      videoSubtitle: refOf(false),
+      videoBurnDialogue: refOf(false),
+      videoWatermark: refOf(false),
+      videoWatermarkText: refOf(''),
+    })
+    const before = feedback.messages.length
+    await cancelled.onGenerateVideo()
+    assert.equal(cancelErrorMsg.value, '操作已取消')
+    assert.equal(cancelStatuses.at(-1), 'error')
+    assert.equal(feedback.messages.length, before)
+  } finally {
+    feedback.restore()
+  }
+})
+
 
 test('resource generate wraps extract and create failures in Chinese action logs', async () => {
   const events = []

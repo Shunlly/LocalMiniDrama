@@ -9,6 +9,7 @@ const loadConfig = require('../config').loadConfig;
 const angleService = require('./angleService');
 const dramaWriteGuard = require('./dramaWriteGuard');
 const { scheduleLegacyAsync } = require('./legacyAsyncSchedulerService');
+const { toUserFacingProcessError } = require('./providerErrorSanitizer');
 
 /**
  * 分镜专用 generateText 包装：
@@ -915,11 +916,11 @@ async function processStoryboardGeneration(db, log, cfg, taskId, episodeId, mode
           });
           storyboards = partialBoards;
           parseMeta.truncated = true;
-          parseMeta.error_message = `AI输出含JSON格式缺陷（${e.message}），已恢复 ${partialBoards.length} 个分镜`;
+          parseMeta.error_message = `AI 输出含 JSON 格式缺陷，已恢复 ${partialBoards.length} 个分镜`;
         }
       }
       if (storyboards.length === 0) {
-        taskService.updateTaskError(db, taskId, '解析分镜头结果失败: ' + (e.message || ''));
+        taskService.updateTaskError(db, taskId, toUserFacingProcessError(e, '解析分镜头结果失败'));
         return;
       }
     }
@@ -1077,7 +1078,7 @@ async function processStoryboardGeneration(db, log, cfg, taskId, episodeId, mode
               total_duration: totalDuration,
               duration_minutes: durationMinutes,
               truncated: true,
-              error_message: `连接中断（${err.message}），已恢复 ${saved.length} 个分镜`,
+              error_message: `连接中断，已恢复 ${saved.length} 个分镜`,
             });
           });
           return;
@@ -1085,7 +1086,7 @@ async function processStoryboardGeneration(db, log, cfg, taskId, episodeId, mode
       } catch (_) {}
     }
 
-    taskService.updateTaskError(db, taskId, (err.message || '生成分镜头失败'));
+    taskService.updateTaskError(db, taskId, toUserFacingProcessError(err, '生成分镜头失败，请稍后重试'));
   }
 }
 

@@ -262,7 +262,7 @@ describe('video provider network policy', () => {
           requireHttpsForPublic: true,
         }
       ),
-      /must use HTTPS/i
+      /必须使用 HTTPS|must use HTTPS/i
     );
     assert.equal(dnsCalls, 0);
     assert.equal(fetchCalls, 0);
@@ -368,9 +368,8 @@ describe('poll termination and privacy', () => {
       );
 
       assert.equal(fetchCalls, 1);
-      assert.match(result.error, /401/);
-      assert.match(result.error, /AUTH_DENIED/);
-      assert.match(result.error, /response_bytes=/);
+      assert.match(result.error, /认证失败|失败/);
+      assert.doesNotMatch(result.error, /\bHTTP\s+\d+|response_bytes=|AUTH_DENIED/i);
       assert.doesNotMatch(result.error, /sk-provider-secret|signed-secret|private polling prompt/);
       const serializedLogs = JSON.stringify(log.entries);
       assert.doesNotMatch(
@@ -415,7 +414,13 @@ describe('poll termination and privacy', () => {
           0
         );
         assert.equal(fetchCalls, 1, `HTTP ${status} must stop after one request`);
-        assert.match(result.error, new RegExp(String(status)));
+        const expected = {
+          400: /请求被拒绝/,
+          403: /请求被禁止/,
+          404: /未找到接口|不存在/,
+        }[status];
+        assert.match(result.error, expected);
+        assert.doesNotMatch(result.error, /\bHTTP\s+\d+|response_bytes=/);
       }
     } finally {
       globalThis.fetch = originalFetch;

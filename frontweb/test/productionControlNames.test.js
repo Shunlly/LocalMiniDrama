@@ -30,7 +30,9 @@ const targetSources = [
 const filmCreateSource = targetSources.find(({ name }) => name.endsWith('/FilmCreate.vue')).source
 const pipelineSource = targetSources.find(({ name }) => name.endsWith('/FilmCreatePipelinePanel.vue')).source
 const scriptWorkbenchSource = targetSources.find(({ name }) => name.endsWith('/FilmCreateScriptWorkbench.vue')).source
-const storyboardCreatePanelSource = targetSources.find(({ name }) => name.endsWith('/FilmCreateStoryboardPanel.vue')).source
+const storyboardCreatePanelSource = targetSources.find(({ name }) => name.endsWith('/FilmCreateStoryboardPanel.vue')).source + '\n' + read('../src/components/filmCreate/FilmCreateStoryboardPanel.css') + '\n' + read('../src/components/filmCreate/FilmCreateStoryboardScriptColumn.vue') + '\n' + read('../src/components/filmCreate/FilmCreateStoryboardImageColumn.vue')
+const storyboardScriptColumnSource = read('../src/components/filmCreate/FilmCreateStoryboardScriptColumn.vue')
+const storyboardImageColumnSource = read('../src/components/filmCreate/FilmCreateStoryboardImageColumn.vue')
 const storyboardConfigBarSource = targetSources.find(({ name }) => name.endsWith('/FilmCreateStoryboardConfigBar.vue')).source
 const novelImportSource = targetSources.find(({ name }) => name.endsWith('/FilmCreateNovelImportDialog.vue')).source
 const storyboardPanelSource = targetSources.find(({ name }) => name.endsWith('/CanvasStoryboardPanel.vue')).source
@@ -113,6 +115,17 @@ function controlBy(source, tagName, marker) {
   return control.opening
 }
 
+test('制作与画布页头没有微信我联系入口', () => {
+  for (const { name, source } of targetSources) {
+    assert.doesNotMatch(source, /微信我/, name)
+    assert.doesNotMatch(source, /btn-wechat/, name)
+    assert.doesNotMatch(source, /showWechat/, name)
+    assert.doesNotMatch(source, /扫码联系作者/, name)
+    assert.doesNotMatch(source, /微信联系作者/, name)
+    assert.doesNotMatch(source, /ChatDotSquare/, name)
+  }
+})
+
 test('visible production selects and number inputs own an accessible name', () => {
   const unnamed = []
 
@@ -157,7 +170,7 @@ test('production control names preserve generation and item context', () => {
     ['v-model="sbSceneId[sb.id]"', '场景'],
     ['getSbPropIds(sb.id)', '道具'],
   ]) {
-    const select = controlBy(storyboardCreatePanelSource, 'el-select', marker)
+    const select = controlBy(storyboardScriptColumnSource, 'el-select', marker)
     assert.match(select, /:aria-label="`分镜\$\{sb\.storyboard_number \|\| i \+ 1\}/)
     assert.match(select, new RegExp(`${semantic}\``))
   }
@@ -173,12 +186,12 @@ test('production control names preserve generation and item context', () => {
 
 test('history image operations include a stable per-list index in every accessible name', () => {
   assert.equal(
-    (storyboardCreatePanelSource.match(/v-for="\(item, historyIndex\) in getStripItems\(sb\.id\)"/g) || []).length,
+    (storyboardImageColumnSource.match(/v-for="\(item, historyIndex\) in getStripItems\(sb\.id\)"/g) || []).length,
     2,
   )
   assert.match(remainingImportedFunctionSource(useFilmCreateStoryboardAccessors), /function historyImageLabel\(sb, storyboardIndex, item, historyIndex\)/)
   assert.ok(
-    (storyboardCreatePanelSource.match(/historyImageLabel\(sb, i, item, historyIndex\)/g) || []).length >= 6,
+    (storyboardImageColumnSource.match(/historyImageLabel\(sb, i, item, historyIndex\)/g) || []).length >= 6,
     'primary, preview, and delete actions in both history strips must use the indexed label',
   )
 })

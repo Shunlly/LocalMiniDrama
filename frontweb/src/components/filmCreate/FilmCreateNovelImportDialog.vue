@@ -29,11 +29,11 @@
             :disabled="importing || fileReading || confirming"
             :on-change="handleFileChange"
             :on-exceed="handleFileExceed"
-            accept=".txt,.md"
+            accept=".txt,.md,.pdf,.png,.jpg,.jpeg,.webp,.gif,.mp3,.wav,.m4a,.mp4,.mov,.webm"
             :show-file-list="false"
           >
             <el-icon class="el-icon--upload"><DocumentAdd /></el-icon>
-            <div class="el-upload__text">拖拽 .txt / .md 文件到此处，或<em>点击上传</em></div>
+            <div class="el-upload__text">拖拽文本或 PDF/图片/音视频到此处，或<em>点击上传</em></div>
           </el-upload>
           <p class="novel-import-file-help">{{ NOVEL_INTAKE_FILE_HELP }}</p>
           <div v-if="fileReading" class="novel-file-status" role="status" aria-live="polite">正在读取文本...</div>

@@ -28,9 +28,50 @@ function byteLength(value) {
   }
 }
 
+const OPERATION_LABELS = Object.freeze({
+  request: '请求',
+  'image request': '图片请求',
+  'image generation': '图片生成',
+  'image response': '图片响应',
+  'image task': '图片任务',
+  'image stream': '图片流',
+  'video request': '视频请求',
+  'video generation': '视频生成',
+  'video response': '视频响应',
+  'video task': '视频任务',
+  'video task response': '视频任务响应',
+  tts: '配音',
+  speech: '配音',
+  'tts request': '配音请求',
+  'audio speech': '配音',
+});
+
+const PROVIDER_LABELS = Object.freeze({
+  Provider: '厂商',
+  provider: '厂商',
+  'Video provider': '视频服务',
+  'video provider': '视频服务',
+  'Jimeng material hub': '即梦素材库',
+  TTS: 'TTS',
+  MiniMax: 'MiniMax',
+  OpenAI: 'OpenAI',
+});
+
 function safeLabel(value, fallback) {
   const label = String(value || '').trim();
   return /^[A-Za-z0-9\u4e00-\u9fff][A-Za-z0-9\u4e00-\u9fff ._/-]{0,63}$/.test(label) ? label : fallback;
+}
+
+function labeledProvider(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '厂商';
+  return PROVIDER_LABELS[raw] || safeLabel(raw, '厂商');
+}
+
+function labeledOperation(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '请求';
+  return OPERATION_LABELS[raw] || OPERATION_LABELS[raw.toLowerCase()] || safeLabel(raw, '请求');
 }
 
 function sanitizeUrl(value) {
@@ -157,33 +198,27 @@ function summarizeProviderResponse(value) {
 }
 
 function statusAction(status, responseFormat) {
-  if (status === 400 || status === 422) return '请求被拒绝，请检查所选模型和请求参数';
-  if (status === 401) return '认证失败，请检查 Provider 凭据';
-  if (status === 403) return '请求被禁止，请检查 Provider 权限和内容策略';
-  if (status === 404) return '接口、模型或任务不存在，请检查 Provider 配置';
-  if (status === 408) return 'Provider 超时，请重试';
-  if (status === 409) return 'Provider 报告请求冲突，请使用新的请求重试';
-  if (status === 429) return 'Provider 达到速率限制或额度，请稍后重试或检查额度';
-  if (status >= 500) return 'Provider 暂时不可用，请稍后重试';
-  if (responseFormat === 'non_json') return 'Provider 返回了无法解析的错误响应';
-  return 'Provider 返回错误，请检查配置后重试';
+  if (status === 400 || status === 422) return '请求被拒绝，请检查所选模型和参数';
+  if (status === 401) return '认证失败，请检查厂商密钥';
+  if (status === 403) return '请求被禁止，请检查权限和内容安全策略';
+  if (status === 404) return '未找到接口、模型或任务，请检查厂商配置';
+  if (status === 408) return '厂商请求超时，请稍后重试';
+  if (status === 409) return '厂商报告请求冲突，请重新发起请求';
+  if (status === 429) return '厂商限流或配额不足，请稍后重试';
+  if (status >= 500) return '厂商暂时不可用，请稍后重试';
+  if (responseFormat === 'non_json') return '厂商返回了无法解析的错误';
+  return '厂商返回错误，请检查配置后重试';
 }
 
 function buildProviderErrorMessage(options = {}) {
-  const provider = safeLabel(options.provider, 'Provider');
-  const operation = safeLabel(options.operation, '请求');
+  const provider = labeledProvider(options.provider);
+  const operation = labeledOperation(options.operation);
   const status = extractHttpStatus(options.status);
   const responseValue = options.responseBody !== undefined
     ? options.responseBody
     : options.responseData;
   const summary = summarizeProviderResponse(responseValue);
-  const code = safeProviderCode(options.code) || extractProviderCode(responseValue);
-  const details = [];
-  if (status) details.push(`HTTP ${status}`);
-  if (code) details.push(`code ${code}`);
-  if (summary.response_bytes > 0) details.push(`response_bytes=${summary.response_bytes}`);
-  const suffix = details.length ? ` (${details.join('; ')})` : '';
-  return `${provider} ${operation} 失败${suffix}：${statusAction(status, summary.response_format)}。`;
+  return `${provider} ${operation}失败：${statusAction(status, summary.response_format)}。`;
 }
 
 function createProviderHttpError(options = {}) {
@@ -221,17 +256,32 @@ function sanitizeProviderException(error, options = {}) {
   });
   if (error?.retryable === true) safeError.retryable = true;
   if (/timeout|abort/i.test(String(error?.name || '')) || /(?:^|_)TIME(?:D)?OUT$/i.test(errorCode || '')) {
-    safeError.message = `${safeLabel(options.provider, 'Provider')} ${safeLabel(options.operation, '请求')} 超时${errorCode ? ` (code ${errorCode})` : ''}，请重试。`;
+    safeError.message = `${labeledProvider(options.provider)} ${labeledOperation(options.operation)}超时，请稍后重试。`;
   } else if (errorCode && /^(?:EAI_AGAIN|ECONNREFUSED|ECONNRESET|ENETUNREACH|ENOTFOUND|EPIPE)$/i.test(errorCode)) {
-    safeError.message = `${safeLabel(options.provider, 'Provider')} ${safeLabel(options.operation, '请求')} 失败 (code ${errorCode})：网络连接失败，请检查服务地址后重试。`;
+    safeError.message = `${labeledProvider(options.provider)} ${labeledOperation(options.operation)}网络连接失败，请检查网络后重试。`;
   }
   return safeError;
 }
 
+function isTimeoutLikeError(error, raw) {
+  if (error?.isTimeout === true || error?.name === 'TimeoutError') return true;
+  const code = String(error?.code || '');
+  if (/(?:^|_)TIME(?:D)?OUT$/i.test(code) || code === 'ETIMEDOUT') return true;
+  return /timeout after|silence timeout|timed?\s*out|请求超时/i.test(String(raw || error?.message || ''));
+}
+
 function toSafeProviderErrorMessage(error, options = {}) {
-  if (error?.[SAFE_PROVIDER_ERROR]) return error.message;
-  if (isUnsafeMediaError(error)) return sanitizeString(error.message || '媒体引用不安全');
+  if (error?.[SAFE_PROVIDER_ERROR] && isTrustedChineseUserError(error.message)) {
+    return error.message;
+  }
+  if (isUnsafeMediaError(error)) {
+    const raw = sanitizeString(error.message || '媒体引用不安全');
+    return isTrustedChineseUserError(raw) ? raw : '媒体引用不安全，请检查地址后重试';
+  }
   const source = typeof error === 'string' ? error : error?.message || error;
+  if (isTimeoutLikeError(error, source)) {
+    return `${labeledProvider(options.provider)} ${labeledOperation(options.operation)}超时，请稍后重试。`;
+  }
   const status = extractHttpStatus(error) || extractHttpStatus(source) || extractHttpStatus(options.status);
   const code = safeProviderCode(error?.providerCode)
     || safeProviderCode(error?.code)
@@ -246,6 +296,18 @@ function toSafeProviderErrorMessage(error, options = {}) {
   });
 }
 
+function toUserFacingGatewayError(error, options = {}) {
+  if (typeof error === 'string') {
+    const text = error.trim();
+    if (isTrustedChineseUserError(text)) return text;
+    return toSafeProviderErrorMessage(error, options);
+  }
+  if (error && typeof error.message === 'string' && isTrustedChineseUserError(error.message)) {
+    return error.message;
+  }
+  return toSafeProviderErrorMessage(error, options);
+}
+
 function providerFailure(options = {}) {
   return { error: buildProviderErrorMessage(options) };
 }
@@ -254,9 +316,43 @@ function isTrustedChineseUserError(value) {
   const text = typeof value === 'string' ? value.trim() : '';
   if (!text || text.length > 240) return false;
   if (!/[\u4e00-\u9fff]/.test(text)) return false;
-  if (/https?:\/\//i.test(text) || /response_bytes=|\bHTTP\s+\d+/i.test(text)) return false;
+  if (/https?:\/\//i.test(text) || /response_bytes=|\bHTTP\s*[:=]?\s*\d{3}\b/i.test(text)) return false;
+  if (/\bcode\s+[A-Za-z0-9_.:/-]+/i.test(text)) return false;
   if (/\bsk-[A-Za-z0-9._-]{6,}\b/i.test(text)) return false;
+  if (/\b(Bearer|Basic)\s+/i.test(text)) return false;
+  if (/\b(unauthorized|forbidden|not found|bad request|internal server error|too many requests|service unavailable|gateway timeout|timed?\s*out|fetch failed)\b/i.test(text)) {
+    return false;
+  }
+  if (/[A-Za-z][A-Za-z0-9]*_[A-Za-z0-9_]+/.test(text)) return false;
+  if (/^[A-Za-z][A-Za-z0-9_]*\s*不能为空/.test(text)) return false;
+  if (/不支持的\s+[A-Za-z_]+/.test(text)) return false;
   return true;
+}
+
+function isSqliteLikeError(error, raw) {
+  const text = `${error && error.code || ''} ${raw || ''}`;
+  return /\bSQLITE_[A-Z0-9]+\b/i.test(text)
+    || /\bno such table\b/i.test(text)
+    || /\bdatabase is locked\b/i.test(text);
+}
+
+function toUserFacingProcessError(error, fallback = '处理失败，请稍后重试') {
+  const raw = typeof error === 'string' ? error.trim() : String(error?.message || '').trim();
+  if (isTimeoutLikeError(error, raw)) {
+    return isTrustedChineseUserError(raw) ? raw : '请求超时，请稍后重试';
+  }
+  if (error?.code === 'OPERATION_CANCELLED' || error?.name === 'AbortError') {
+    return isTrustedChineseUserError(raw) ? raw : '操作已取消';
+  }
+  if (isSqliteLikeError(error, raw)) return fallback;
+  if (error?.[SAFE_PROVIDER_ERROR]) {
+    return isTrustedChineseUserError(raw) ? raw : toSafeProviderErrorMessage(error);
+  }
+  if (isTrustedChineseUserError(raw)) return raw;
+  if (isUnsafeMediaError(error)) {
+    return toSafeProviderErrorMessage(error, { provider: '本地合成', operation: '视频后处理' });
+  }
+  return fallback;
 }
 
 function sanitizeProviderResult(result, options = {}) {
@@ -370,6 +466,56 @@ function createSafeProviderLogger(log) {
   return safeLog;
 }
 
+
+const TTS_HTTP_MESSAGES = Object.freeze({
+  400: '配音参数无效，请检查「AI 配置」后重试',
+  401: 'TTS 认证失败，请检查「AI 配置」中的密钥后重试',
+  403: 'TTS 认证失败，请检查「AI 配置」中的密钥后重试',
+  404: 'TTS 接口不存在，请检查「AI 配置」后重试',
+  408: '配音生成繁忙，请稍后重试',
+  429: '配音生成繁忙，请稍后重试',
+});
+
+function ttsHttpFailureMessage(status) {
+  const code = Number(status);
+  if (TTS_HTTP_MESSAGES[code]) return TTS_HTTP_MESSAGES[code];
+  return '配音生成失败，请稍后重试';
+}
+
+function ttsBusinessFailureMessage(providerCode) {
+  const code = Number(providerCode);
+  if (code === 1001) return '配音生成超时，请稍后重试';
+  if (code === 1002) return '配音生成繁忙，请稍后重试';
+  if (code === 1004 || code === 1008 || code === 2049) return ttsHttpFailureMessage(401);
+  return '配音生成失败，请稍后重试';
+}
+
+function toUserFacingTtsMessage(error, options = {}) {
+  const raw = typeof error === 'string' ? String(error).trim() : String(error?.message || '').trim();
+  if (isTimeoutLikeError(error, raw)) {
+    return '配音生成超时，请稍后重试';
+  }
+  if (error && typeof error === 'object' && (error.code === 'OPERATION_CANCELLED' || error.name === 'AbortError')) {
+    return isTrustedChineseUserError(raw) ? raw : '操作已取消';
+  }
+  const status = extractHttpStatus(error) || extractHttpStatus(options.status);
+  if (status) return ttsHttpFailureMessage(status);
+  const businessCode = safeProviderCode(error?.providerCode)
+    || safeProviderCode(options.code)
+    || safeProviderCode(error?.code);
+  if (businessCode && /^\d+$/.test(businessCode) && Number(businessCode) !== 0) {
+    return ttsBusinessFailureMessage(businessCode);
+  }
+  if (/redirect/i.test(raw) && !isTrustedChineseUserError(raw)) {
+    return 'TTS 请求被重定向，已拦截，请检查服务地址后重试';
+  }
+  if (/ECONNREFUSED|ENOTFOUND|EAI_AGAIN|ECONNRESET|ENETUNREACH|ERR_NETWORK|network error|fetch failed|socket hang up/i.test(`${error?.code || ''} ${raw}`)) {
+    return '配音服务连接失败，请检查网络后重试';
+  }
+  if (isTrustedChineseUserError(raw)) return raw;
+  return '配音生成失败，请稍后重试';
+}
+
 module.exports = {
   buildProviderErrorMessage,
   createProviderHttpError,
@@ -381,5 +527,12 @@ module.exports = {
   sanitizeString,
   sanitizeUrl,
   summarizeProviderResponse,
+  isTimeoutLikeError,
+  isTrustedChineseUserError,
+  ttsBusinessFailureMessage,
+  ttsHttpFailureMessage,
   toSafeProviderErrorMessage,
+  toUserFacingGatewayError,
+  toUserFacingProcessError,
+  toUserFacingTtsMessage,
 };

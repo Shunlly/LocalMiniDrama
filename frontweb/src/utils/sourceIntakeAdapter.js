@@ -49,6 +49,7 @@ export function inferSourceTypeFromFilename(filename) {
   const name = String(filename || '').toLowerCase()
   if (!name) return ''
   if (/\.(srt|vtt|ass)$/.test(name) || /transcript|字幕|转写|caption|subtitle/.test(name)) return 'transcript'
+  if (/\.(mp3|wav|m4a|aac|flac|ogg|oga|mp4|mov|mkv|avi|webm|ogv)$/.test(name)) return 'transcript'
   if (/storyboard|shot|分镜|镜头/.test(name)) return 'storyboard'
   if (/script|剧本|screenplay/.test(name)) return 'script'
   if (/comic|漫画|panel/.test(name)) return 'comic'

@@ -1,6 +1,7 @@
 const { describe, it, afterEach } = require('node:test');
 const assert = require('node:assert/strict');
 const aiConfigService = require('../src/services/aiConfigService');
+const { isTrustedChineseUserError } = require('../src/services/providerErrorSanitizer');
 
 const originalFetch = global.fetch;
 
@@ -132,7 +133,12 @@ describe('aiConfigService.testConnection', () => {
         fetch_impl: global.fetch,
         provider_dns_lookup: async () => [{ address: '93.184.216.34', family: 4 }],
       }),
-      /401.*invalid api key/
+      (error) => {
+        assert.equal(error.message, '认证失败，请检查密钥');
+        assert.equal(isTrustedChineseUserError(error.message), true);
+        assert.doesNotMatch(error.message, /401|invalid api key|API Key/i);
+        return true;
+      }
     );
   });
 
@@ -160,7 +166,8 @@ describe('aiConfigService.testConnection', () => {
       (error) => {
         assert.doesNotMatch(error.message, /sk-connection-secret/);
         assert.doesNotMatch(error.message, /\?token=/);
-        assert.match(error.message, /401/);
+        assert.doesNotMatch(error.message, /401|API Key/i);
+        assert.equal(isTrustedChineseUserError(error.message), true);
         return true;
       }
     );
@@ -220,5 +227,34 @@ describe('aiConfigService.testConnection', () => {
       return true;
     });
     assert.equal(sawSignal, true);
+  });
+
+  it('returns Chinese TTS auth errors without status codes', async () => {
+    const secret = 'tts-secret-key-123456';
+    const fetchImpl = async () => new Response(JSON.stringify({
+      base_resp: { status_msg: `API Key 无效 (401) Bearer ${secret}` },
+    }), {
+      status: 401,
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    await assert.rejects(
+      aiConfigService.testConnection({
+        base_url: 'https://api.minimaxi.com/v1',
+        api_key: secret,
+        provider: 'minimax',
+        api_protocol: 'minimax',
+        service_type: 'tts',
+        model: 'speech-02-hd',
+        fetch_impl: fetchImpl,
+        provider_dns_lookup: async () => [{ address: '93.184.216.34', family: 4 }],
+      }),
+      (error) => {
+        assert.equal(error.message, '认证失败，请检查密钥');
+        assert.equal(isTrustedChineseUserError(error.message), true);
+        assert.doesNotMatch(error.message, /401|API Key|tts-secret-key/i);
+        return true;
+      }
+    );
   });
 });

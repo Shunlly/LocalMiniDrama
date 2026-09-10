@@ -28,6 +28,19 @@ export const AI_SERVICE_COVERAGE_DEFINITIONS = Object.freeze([
   }),
 ])
 
+export const AI_EXTRACTION_COVERAGE_DEFINITIONS = Object.freeze([
+  Object.freeze({
+    type: 'ocr',
+    label: '图片识别 OCR',
+    description: '用于 PDF、扫描件和图片抽文字',
+  }),
+  Object.freeze({
+    type: 'transcription',
+    label: '语音转写',
+    description: '用于音频、视频对白转成文字',
+  }),
+])
+
 function isEnabled(config) {
   const value = String(config?.is_active ?? '').trim().toLowerCase()
   return config?.is_active !== false && config?.is_active !== 0 && !['0', 'false'].includes(value)
@@ -188,9 +201,8 @@ export function getAiServiceCoverageActions(service, options = {}) {
   return []
 }
 
-export function buildAiServiceCoverage(configs = [], sessionTestStatusById = {}) {
-  const source = Array.isArray(configs) ? configs : []
-  const services = AI_SERVICE_COVERAGE_DEFINITIONS.map((definition) => {
+function buildCoverageServices(definitions, source, sessionTestStatusById) {
+  return definitions.map((definition) => {
     const serviceConfigs = source.filter((config) => config?.service_type === definition.type)
     const activeConfigs = serviceConfigs.filter(isEnabled)
     const defaultConfig = activeConfigs.find(isDefault) ?? null
@@ -222,11 +234,17 @@ export function buildAiServiceCoverage(configs = [], sessionTestStatusById = {})
       test,
     }
   })
+}
 
+export function buildAiServiceCoverage(configs = [], sessionTestStatusById = {}) {
+  const source = Array.isArray(configs) ? configs : []
+  const services = buildCoverageServices(AI_SERVICE_COVERAGE_DEFINITIONS, source, sessionTestStatusById)
+  const extractionServices = buildCoverageServices(AI_EXTRACTION_COVERAGE_DEFINITIONS, source, sessionTestStatusById)
   const summary = buildCoverageSummary(services)
 
   return {
     services,
+    extractionServices,
     ...summary,
     totalCount: services.length,
     ready: summary.readyCount === services.length,

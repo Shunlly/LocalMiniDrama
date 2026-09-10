@@ -40,7 +40,7 @@ async function callDashScopeImageApi(config, log, opts) {
   const base = (config.base_url || '').replace(/\/$/, '');
   const url = base + (config.endpoint || '/api/v1/services/aigc/multimodal-generation/generation');
   if (!url.includes('dashscope')) {
-    return { error: '通义万象 base_url 需为 https://dashscope.aliyuncs.com' };
+    return { error: '通义万象接口地址无效，请填写官方服务地址' };
   }
   const isQwenImage = isQwenImageProvider(config, model);
 

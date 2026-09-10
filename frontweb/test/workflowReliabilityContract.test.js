@@ -7,13 +7,20 @@ import {
   hasStoryboardDraftChanges,
 } from '../src/utils/storyboardDraft.js'
 
+import {
+  pollTaskSimple,
+  runImageStep,
+  runWorkflowGroup,
+} from '../src/composables/useCanvasWorkflowRunner.js'
+
 const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8')
 const batchImportSource = read('../src/components/EpisodeBatchImportDialog.vue')
 const dramaDetailSource = read('../src/views/DramaDetail.vue')
 const sourceWorkflowSource = read('../src/components/SourceIntakeWorkflowPanel.vue')
 const storyboardPanelSource = read('../src/components/dramaCanvas/CanvasStoryboardPanel.vue')
 const storyboardNodeSource = read('../src/components/dramaCanvas/CanvasStoryboardNode.vue')
-const dramaCanvasSource = read('../src/views/DramaCanvas.vue')
+const inspectorDockSource = read('../src/components/dramaCanvas/CanvasInspectorDock.vue')
+const dramaCanvasSource = [read('../src/views/DramaCanvas.vue'), read('../src/views/DramaCanvas.css'), read('../src/composables/useDramaCanvasFreeCanvas.js'), read('../src/composables/useDramaCanvasPersist.js'), read('../src/composables/useDramaCanvasProjectLoad.js'), read('../src/composables/useDramaCanvasWorkflow.js')].join('\n')
 
 test('storyboard draft fingerprint distinguishes unsaved text and relation changes', () => {
   const saved = createStoryboardDraftFingerprint({
@@ -56,28 +63,30 @@ test('canvas storyboard panel delegates close, navigation, and focus switching t
   assert.match(dramaCanvasSource, /await focusedNodeGuard\(\)/)
 })
 
-test('expanded storyboard editor is teleported to a bounded inspector dock', () => {
-  assert.match(storyboardNodeSource, /<Teleport\s+to="body">/)
-  assert.match(storyboardNodeSource, /class="canvas-inspector-dock"/)
-  assert.match(storyboardNodeSource, /max-height:\s*min\(/)
-  assert.match(storyboardNodeSource, /overflow-y:\s*auto/)
+test('expanded storyboard editor is hosted in a bounded inspector dock outside VueFlow', () => {
+  assert.doesNotMatch(storyboardNodeSource, /<Teleport\s+to="body">/)
+  assert.match(inspectorDockSource, /class="canvas-inspector-dock"/)
+  assert.match(inspectorDockSource, /max-height:\s*min\(/)
+  assert.match(inspectorDockSource, /overflow-y:\s*auto/)
+  assert.match(dramaCanvasSource, /<CanvasInspectorDock/)
+  assert.match(dramaCanvasSource, /:only-render-visible-elements="true"/)
 })
 
 test('storyboard inspector exposes guarded shot navigation, progress, and media summary', () => {
-  assert.match(storyboardNodeSource, /class="inspector-context"/)
-  assert.match(storyboardNodeSource, /镜头 \{\{ inspectorNavigation\.index \}\} \/ \{\{ inspectorNavigation\.total \}\}/)
-  assert.match(storyboardNodeSource, /aria-label="上一镜"/)
-  assert.match(storyboardNodeSource, /aria-label="下一镜"/)
-  assert.match(storyboardNodeSource, /图片 \{\{ mediaSummary\.imageCount \}\}/)
-  assert.match(storyboardNodeSource, /视频 \{\{ mediaSummary\.videoCount \}\}/)
-  assert.match(storyboardNodeSource, /配音 \{\{ mediaSummary\.audioReady \? '就绪' : '缺失' \}\}/)
-  assert.match(storyboardNodeSource, /await ctx\?\.setFocusedNode\?\.\(`sb:\$\{storyboardId\}`\)/)
+  assert.match(inspectorDockSource, /class="inspector-context"/)
+  assert.match(inspectorDockSource, /镜头 \{\{ inspectorNavigation\.index \}\} \/ \{\{ inspectorNavigation\.total \}\}/)
+  assert.match(inspectorDockSource, /aria-label="上一镜"/)
+  assert.match(inspectorDockSource, /aria-label="下一镜"/)
+  assert.match(inspectorDockSource, /图片 \{\{ mediaSummary\.imageCount \}\}/)
+  assert.match(inspectorDockSource, /视频 \{\{ mediaSummary\.videoCount \}\}/)
+  assert.match(inspectorDockSource, /配音 \{\{ mediaSummary\.audioReady \? '就绪' : '缺失' \}\}/)
+  assert.match(inspectorDockSource, /await ctx\?\.setFocusedNode\?\.\(`sb:\$\{storyboardId\}`\)/)
 })
 
-test('teleported storyboard inspector keeps theme tokens outside the canvas scope', () => {
-  assert.match(storyboardNodeSource, /--canvas-panel-surface:\s*var\(--bg-card/)
-  assert.match(storyboardNodeSource, /--canvas-text-primary:\s*var\(--text-primary/)
-  assert.match(storyboardNodeSource, /:global\(html\.light\)\s+\.canvas-inspector-dock/)
+test('hosted storyboard inspector keeps theme tokens outside the canvas scope', () => {
+  assert.match(inspectorDockSource, /--canvas-panel-surface:\s*var\(--bg-card/)
+  assert.match(inspectorDockSource, /--canvas-text-primary:\s*var\(--text-primary/)
+  assert.match(inspectorDockSource, /:global\(html\.light\)\s+\.canvas-inspector-dock/)
 })
 
 test('every canvas inspector exit uses the shared dirty guard', () => {
@@ -101,7 +110,7 @@ test('every canvas inspector exit uses the shared dirty guard', () => {
 })
 
 test('canvas inspector restores keyboard and selection context when closing or cancelling', () => {
-  assert.match(storyboardNodeSource, /@keydown\.esc\.stop\.prevent="closeInspector"/)
+  assert.match(inspectorDockSource, /@keydown\.esc\.stop\.prevent="closeInspector"/)
   assert.match(storyboardNodeSource, /右侧检查器可编辑与生成/)
   assert.match(dramaCanvasSource, /async function focusCanvasNodeTrigger\(/)
   assert.match(dramaCanvasSource, /function restoreFocusedNodeSelection\(/)
@@ -128,8 +137,11 @@ test('open inspector reserves canvas space so the minimap remains usable', () =>
   assert.match(dramaCanvasSource, /\.drama-canvas-page\.free-inspector-open \.canvas-main\s*\{[\s\S]*margin-right:\s*380px/)
 })
 
-test('canvas keeps the focused teleported inspector mounted while panning', () => {
-  assert.match(dramaCanvasSource, /:only-render-visible-elements="!focusedNodeId && !selectedFreeNodeId"/)
+test('canvas keeps node virtualization on while the lifted inspector stays mounted', () => {
+  assert.match(dramaCanvasSource, /:only-render-visible-elements="true"/)
+  assert.doesNotMatch(dramaCanvasSource, /only-render-visible-elements="!focusedNodeId/)
+  assert.match(dramaCanvasSource, /<CanvasInspectorDock/)
+  assert.match(dramaCanvasSource, /class="free-canvas-inspector-dock"/)
 })
 
 test('canvas saves an immutable draft snapshot and locks generation before persistence', () => {
@@ -151,4 +163,118 @@ test('canvas guards same-route context changes and carries all return context', 
   assert.match(dramaCanvasSource, /function navigateToStoryboard\([\s\S]*returnTo/)
   assert.match(dramaCanvasSource, /function buildCanvasReturnTo\([\s\S]*routeEpisodeId\(\)[\s\S]*routeFocusNodeId\(\)[\s\S]*name: 'film-canvas'/)
   assert.match(dramaCanvasSource, /function goMediaLibrary\(\)[\s\S]*returnTo: buildCanvasReturnTo\(\)/)
+})
+
+
+const PROVIDER_SECRET = 'sk-test-not-a-real-key-aaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+
+function workflowDrama() {
+  return {
+    id: 7,
+    metadata: {},
+    episodes: [{
+      id: 3,
+      storyboards: [{
+        id: 11,
+        storyboard_number: 1,
+        image_prompt: '\u96e8\u591c',
+        dialogue: '\u53f0\u8bcd',
+      }],
+    }],
+  }
+}
+
+function isChineseWithoutSecret(text) {
+  return /[\u4e00-\u9fff]/.test(String(text || ''))
+    && !String(text).includes(PROVIDER_SECRET)
+    && !/sk-[A-Za-z0-9._-]{6,}/i.test(String(text))
+    && !/api[_-]?key/i.test(String(text))
+    && !/Invalid API key/i.test(String(text))
+}
+
+test('workflow polling sanitizes failed provider English and secrets', async () => {
+  const result = await pollTaskSimple('task-provider-fail', {
+    interval: 0,
+    deadlineMs: 1000,
+    getTask: async () => ({
+      status: 'failed',
+      error: { message: `Invalid API key ${PROVIDER_SECRET}` },
+    }),
+  })
+  assert.equal(result.status, 'failed')
+  assert.equal(isChineseWithoutSecret(result.error), true)
+})
+
+test('workflow image step does not leak provider errors into thrown messages', async () => {
+  const drama = workflowDrama()
+  const storyboard = drama.episodes[0].storyboards[0]
+  await assert.rejects(
+    runImageStep(drama, storyboard, { aspectRatio: '16:9' }, {
+      createImage: async () => {
+        throw new Error(`provider 500 api_key=${PROVIDER_SECRET}`)
+      },
+    }),
+    (error) => isChineseWithoutSecret(error.message),
+  )
+})
+
+test('workflow group records sanitized Chinese failures and remains cancellable', async () => {
+  const drama = workflowDrama()
+  const summary = await runWorkflowGroup(
+    drama,
+    { id: 'group-a', storyboard_ids: [11], pipeline: ['image'] },
+    {
+      createImage: async () => {
+        throw new Error(`Invalid API key ${PROVIDER_SECRET}`)
+      },
+    },
+  )
+  assert.equal(summary.ok.length, 0)
+  assert.equal(summary.failed.length, 1)
+  assert.equal(isChineseWithoutSecret(summary.failed[0].error), true)
+
+  const controller = new AbortController()
+  controller.abort()
+  await assert.rejects(
+    runWorkflowGroup(
+      drama,
+      { id: 'group-a', storyboard_ids: [11], pipeline: ['image'] },
+      { signal: controller.signal },
+    ),
+    (error) => error?.name === 'AbortError' && /\u53d6\u6d88/.test(error.message),
+  )
+})
+
+test('canvas batch generation remains cancellable from the page and leave barrier', () => {
+  assert.match(dramaCanvasSource, /abortEpisodeGenerate/)
+  assert.match(dramaCanvasSource, /function cancelEpisodeGenerate\(\) \{[\s\S]*abortEpisodeGenerate\(\)/)
+  assert.match(dramaCanvasSource, /ensureEpisodeGenerationFinished/)
+  assert.match(dramaCanvasSource, /if \(!await ensureEpisodeGenerationFinished\(\)\) return false/)
+  assert.match(dramaCanvasSource, /&& !episodeGenerating\.value/)
+  assert.match(dramaCanvasSource, /abortEpisodeGenerate\(\)/)
+})
+
+test('canvas workflow execution remains cancellable from the page toolbar', () => {
+  const workflowToolbar = read('../src/components/dramaCanvas/CanvasWorkflowToolbarGroup.vue')
+  const desktopToolbar = read('../src/components/dramaCanvas/CanvasDesktopToolbar.vue')
+  assert.match(dramaCanvasSource, /function cancelActiveWorkflow\(\)/)
+  assert.match(dramaCanvasSource, /workflowProgress\.value = '\u6b63\u5728\u53d6\u6d88\u2026'/)
+  assert.match(dramaCanvasSource, /run\.controller\.abort\(\)/)
+  assert.match(dramaCanvasSource, /isWorkflowAbortError/)
+  assert.match(dramaCanvasSource, /@cancel-workflow="cancelActiveWorkflow"/)
+  assert.match(desktopToolbar, /@cancel-workflow="emit\('cancel-workflow'\)"/)
+  assert.match(desktopToolbar, /:workflow-progress="workflowProgress"/)
+  assert.match(workflowToolbar, /aria-label="\u53d6\u6d88\u6267\u884c"/)
+  assert.match(workflowToolbar, /@click="emit\('cancel-workflow'\)"/)
+  assert.match(workflowToolbar, />\s*\u53d6\u6d88\u6267\u884c\s*</)
+  const cancelAt = workflowToolbar.indexOf("emit('cancel-workflow')")
+  assert.ok(cancelAt >= 0, 'missing cancel-workflow emit')
+  const cancelStart = workflowToolbar.lastIndexOf('<el-button', cancelAt)
+  const cancelEnd = workflowToolbar.indexOf('</el-button>', cancelAt)
+  const around = workflowToolbar.slice(cancelStart, cancelEnd)
+  assert.match(around, /v-if="workflowRunning"/)
+  assert.doesNotMatch(around, /CanvasActionGate/)
+  assert.doesNotMatch(around, /actionReasons\.runWorkflow/)
+  assert.doesNotMatch(around, /:disabled=/)
+  assert.match(workflowToolbar, /props\.workflowRunning && props\.workflowProgress/)
 })

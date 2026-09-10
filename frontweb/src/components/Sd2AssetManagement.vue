@@ -4,7 +4,7 @@
       <template #title>
         <span>
           对接 BytePlus ModelArk / 火山方舟<strong>私有资产库</strong>（Seedance 2.0 等使用的 <code>Asset://</code> 素材）。
-          配置完成后请点击下方<strong>「保存到 AI 配置」</strong>，创作页「SD2认证」将优先使用「即梦2角色认证」；若未配置则使用此处保存的官方资产库配置。
+          配置完成后请点击下方<strong>「保存到 AI 配置」</strong>，创作页「认证资产」将优先使用「即梦2角色认证」；若未配置则使用此处保存的官方资产库配置。
           官方流程：<a href="https://docs.byteplus.com/en/docs/ModelArk/2318270" target="_blank" rel="noopener">创建资产组（CreateAssetGroup）</a>
           → 创建资产（CreateAsset）→ 列表 / 查询 / 更新 / 删除。
           带 <code>?Action=</code> 的接口为<strong>控制面 OpenAPI</strong>，须使用控制台
@@ -91,7 +91,7 @@
       <el-form-item label="默认资产组 Id">
         <el-input
           v-model="assetGroupIdForCert"
-          placeholder="创作页 SD2 认证写入此组；可左侧点选资产组自动填入"
+          placeholder="创作页「认证资产」写入此组；可左侧点选资产组自动填入"
           clearable
         />
         <p class="field-hint">保存到 AI 配置时必填。与下方「资产」列表使用的组 Id 一致。</p>
@@ -102,7 +102,7 @@
             保存到 AI 配置
           </el-button>
           <span v-if="savedConfigId" class="sd2-saved-hint">
-            已关联配置 #{{ savedConfigId }}（创作页 SD2 认证在未配置「即梦2角色认证」时使用）
+            已关联配置 #{{ savedConfigId }}（创作页「认证资产」在未配置「即梦2角色认证」时使用）
           </span>
         </div>
       </el-form-item>
@@ -414,7 +414,7 @@ async function saveToAiConfig() {
     return
   }
   if (!assetGroupIdForCert.value.trim()) {
-    ElMessage.warning('请填写默认资产组 Id（创作页 SD2 认证需要）')
+    ElMessage.warning('请填写默认资产组 Id（创作页「认证资产」需要）')
     return
   }
   if (authMode.value === 'bearer' && isMaskedSecret(apiKey.value) && !savedConfigId.value) {
@@ -436,7 +436,7 @@ async function saveToAiConfig() {
   }
   const payload = {
     service_type: 'model_ark_asset',
-    name: 'SD2 资产库',
+    name: '认证资产库',
     provider: 'model_ark',
     base_url: baseUrl.value.trim(),
     api_key: authMode.value === 'bearer'

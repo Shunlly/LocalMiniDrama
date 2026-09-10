@@ -103,7 +103,7 @@ async function openProductionFromList(page, baseUrl) {
   await page.waitForURL((url) => url.pathname === `/film/${PROJECT_ID}`, { timeout: 20000 })
   await page.getByRole('button', { name: '返回剧集', exact: true }).waitFor({ timeout: 30000 })
   await page.getByRole('heading', { name: PROJECT_TITLE, exact: true }).waitFor({ timeout: 10000 })
-  await page.getByRole('button', { name: 'AI配置', exact: true }).waitFor({ timeout: 10000 })
+  await page.getByRole('button', { name: 'AI 配置', exact: true }).waitFor({ timeout: 10000 })
 }
 
 async function expandPipelineDetails(page) {
@@ -134,7 +134,7 @@ test('制作页 AI 配置弹窗未保存时继续编辑会保留内容，放弃�
   await stubProductionWorkspace(page)
 
   await openProductionFromList(page, baseUrl)
-  await page.getByRole('button', { name: 'AI配置', exact: true }).click()
+  await page.getByRole('button', { name: 'AI 配置', exact: true }).click()
 
   const workspace = page.getByRole('dialog', { name: 'AI 配置', exact: true })
   await workspace.waitFor({ state: 'visible', timeout: 20000 })

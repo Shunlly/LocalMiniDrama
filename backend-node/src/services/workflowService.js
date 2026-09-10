@@ -9,6 +9,7 @@ const characterContinuityService = require('./characterContinuityService');
 const readinessService = require('./readinessService');
 const aiClient = require('./aiClient');
 const { backgroundTasks: defaultBackgroundTasks } = require('./legacyAsyncSchedulerService');
+const { isTrustedChineseUserError, toUserFacingProcessError } = require('./providerErrorSanitizer');
 
 const RUN_ACTIVE_STATUSES = new Set(['pending', 'processing']);
 const RUN_TERMINAL_STATUSES = new Set(['completed', 'failed', 'cancelled']);
@@ -33,6 +34,25 @@ const NOVEL2ANIME_STEPS = [
 
 function nowIso() {
   return new Date().toISOString();
+}
+
+/** 将工作流失败原因转成制作页可见中文；步骤名中的下划线不视为泄漏 */
+function toUserFacingWorkflowError(error) {
+  const raw = typeof error === 'string' ? error.trim() : String(error && error.message || error || '').trim();
+  const mapped = toUserFacingProcessError(error, '工作流步骤失败，请稍后重试');
+  if (mapped === raw) return mapped;
+  if (
+    raw
+    && raw.length <= 240
+    && /[一-鿿]/.test(raw)
+    && !/https?:\/\//i.test(raw)
+    && !/\bsk-[A-Za-z0-9._-]{6,}\b/i.test(raw)
+    && !/\bHTTP\s*[:=]?\s*\d{3}\b/i.test(raw)
+    && !/\b(SQLITE_[A-Z0-9]+|no such table|database is locked|fetch failed|AbortError|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|ECONNRESET|ENETUNREACH|ETIMEDOUT|ENOENT|unauthorized|forbidden|not found|bad request|internal server error|too many requests|service unavailable|gateway timeout|timed?\s*out)\b/i.test(raw)
+  ) {
+    return raw;
+  }
+  return mapped;
 }
 
 function parseJson(value, fallback = null) {
@@ -250,7 +270,7 @@ function listWorkflowRuns(db, query = {}) {
 function createWorkflowRun(db, log, params) {
   const dramaId = Number(params.drama_id || params.dramaId);
   if (!dramaId || !dramaService.getDramaById(db, dramaId)) {
-    const err = new Error('drama_id 必填，且必须指向未删除的项目');
+    const err = new Error('项目 ID 必填，且必须指向未删除的项目');
     err.code = 'BAD_REQUEST';
     throw err;
   }
@@ -1322,12 +1342,12 @@ async function processWorkflowRunInner(db, log, runId, options = {}) {
       } : undefined;
       setStepStatus(db, step.id, 'failed', {
         output_json: output,
-        error: err.message || String(err),
+        error: toUserFacingWorkflowError(err),
       });
       setRunStatus(db, runId, 'failed', {
         progress: Math.floor((steps.filter((s) => s.status === 'completed').length / Math.max(steps.length, 1)) * 100),
         current_step: step.step_key,
-        error: err.message || String(err),
+        error: toUserFacingWorkflowError(err),
       });
       log?.error?.('Workflow run failed', { run_id: runId, step_key: step.step_key, error: err.message });
       return getWorkflowRunDetail(db, runId);
@@ -1371,7 +1391,7 @@ async function drainWorkflowQueue(queue) {
             error: error.message || String(error),
           });
           try {
-            setRunStatus(entry.db, entry.runId, 'failed', { error: error.message || String(error) });
+            setRunStatus(entry.db, entry.runId, 'failed', { error: toUserFacingWorkflowError(error) });
           } catch (checkpointError) {
             failures.push(checkpointError);
           }

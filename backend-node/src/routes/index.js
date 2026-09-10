@@ -4,6 +4,7 @@ const os = require('os');
 const path = require('path');
 const { randomUUID } = require('crypto');
 const response = require('../response');
+const { sendCaughtRouteError, sendMappedServiceFailure, publicErrorMessage, uploadFormErrorMessage } = require('./serviceFailure');
 const dramaRoutes = require('./drama');
 const taskRoutes = require('./task');
 const settingsRoutes = require('./settings');
@@ -188,7 +189,7 @@ function setupRouter(cfg, db, log) {
         if (err.code === 'LIMIT_FILE_SIZE') {
           return response.error(res, 413, 'IMPORT_ARCHIVE_TOO_LARGE', 'ZIP 上传超过 256MB 上限，请压缩或拆分后重试');
         }
-        return response.badRequest(res, err.message || 'ZIP 上传失败，请更换文件后重试');
+        return response.badRequest(res, uploadFormErrorMessage(err, 'ZIP 上传失败，请更换文件后重试'));
       }
       if (req.file?.path) {
         const uploadedPath = req.file.path;
@@ -245,7 +246,7 @@ function setupRouter(cfg, db, log) {
           '素材导入文件不能超过 20MB，请拆分或压缩后重试'
         );
       }
-      return response.badRequest(res, err.message || '素材导入失败，请更换文件后重试');
+      return response.badRequest(res, uploadFormErrorMessage(err, '素材导入失败，请更换文件后重试'));
     });
   };
   r.post('/dramas/import', importUploadSingle, drama.importDrama);
@@ -297,8 +298,7 @@ function setupRouter(cfg, db, log) {
       response.success(res, result);
     } catch (err) {
       log.error('dramas import-novel', { error: err.message });
-      if (err.code === 'BAD_REQUEST') return response.badRequest(res, err.message);
-      response.internalError(res, err.message);
+      sendCaughtRouteError(res, err, '导入小说失败，请稍后重试');
     }
   });
   r.get('/dramas/examples', drama.listExamples);
@@ -344,6 +344,7 @@ function setupRouter(cfg, db, log) {
   r.get('/ai-configs', aiConfig.list);
   r.post('/ai-configs', aiConfig.create);
   r.post('/ai-configs/test', providerNetworkBoundary, aiConfig.testConnection);
+  r.post('/ai-configs/discover-models', aiConfig.discoverModels);
   r.post('/ai-configs/jimeng2-list-assets', providerNetworkBoundary, aiConfig.listJimeng2MaterialAssets);
   r.post('/ai-configs/model-ark-asset', providerNetworkBoundary, aiConfig.modelArkAsset);
   r.get('/ai-configs/vendor-lock', aiConfig.vendorLock);  // 必须在 /:id 之前
@@ -358,14 +359,14 @@ function setupRouter(cfg, db, log) {
     try {
       const body = req.body || {};
       if (!body.drama_id) {
-        return response.badRequest(res, 'drama_id 必填');
+        return response.badRequest(res, '项目 ID 必填');
       }
       const taskId = characterGenerationService.generateCharacters(db, cfg, log, body);
       response.success(res, { task_id: taskId, status: 'pending' });
     } catch (err) {
       log.error('generation/characters', { error: err.message });
-      if (err.code === 'BAD_REQUEST') return response.badRequest(res, err.message);
-      response.internalError(res, err.message || '创建任务失败');
+      
+      sendCaughtRouteError(res, err, '创建任务失败');
     }
   });
 
@@ -382,10 +383,7 @@ function setupRouter(cfg, db, log) {
       response.success(res, result);
     } catch (err) {
       log.error('generation/story', { error: err.message });
-      if (err.message && (err.message.includes('未配置') || err.message.includes('必填') || err.message.includes('不存在'))) {
-        return response.badRequest(res, err.message);
-      }
-      response.internalError(res, err.message || '故事生成失败');
+      sendCaughtRouteError(res, err, '故事生成失败');
     }
   });
 
@@ -444,16 +442,19 @@ function setupRouter(cfg, db, log) {
   // ---------- vision: 从图片提取描述（不依赖已有实体 ID）----------
   r.post('/extract-description-from-image', async (req, res) => {
     const { image_url, entity_type, entity_name } = req.body || {};
-    if (!image_url) return response.badRequest(res, '缺少 image_url');
-    if (!['character', 'scene', 'prop'].includes(entity_type)) return response.badRequest(res, 'entity_type 需为 character/scene/prop');
+    if (!image_url) return response.badRequest(res, '缺少图片地址');
+    if (!['character', 'scene', 'prop'].includes(entity_type)) return response.badRequest(res, '提取类型需为角色、场景或道具');
     try {
       const { extractDescriptionFromImage } = require('../services/aiClient');
       const out = await extractDescriptionFromImage(db, log, entity_type, image_url, entity_name);
-      if (!out.ok) return response.badRequest(res, out.error);
+      if (!out.ok) {
+        sendMappedServiceFailure(res, out, { fallback: '从图片提取描述失败，请稍后重试' });
+        return;
+      }
       response.success(res, { description: out.description });
     } catch (err) {
       log.error('extract-description-from-image', { error: err.message });
-      response.internalError(res, err.message);
+      sendCaughtRouteError(res, err, '从图片提取描述失败，请稍后重试');
     }
   });
 
@@ -517,6 +518,7 @@ function setupRouter(cfg, db, log) {
   // ---------- assets ----------
   r.get('/assets', assets.list);
   r.get('/assets/network-search', assets.networkSearch);
+  r.get('/assets/network-thumbnail', assets.networkThumbnail);
   r.post('/assets/network-import', assets.networkImport);
   r.post('/assets/upload', uploadModule.multerMediaSingle, uploadHandlers.uploadAsset);
   r.post('/assets', assets.create);

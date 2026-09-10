@@ -172,6 +172,52 @@ test('network failures toast Chinese copy and keep requestId in logs', async () 
   )
 })
 
+test('Failed to fetch and English HTTP 500 toast Chinese copy without drama_id', async () => {
+  await assert.rejects(
+    request.get('/offline', {
+      adapter: async (config) => {
+        const error = new TypeError('Failed to fetch')
+        error.config = config
+        throw error
+      },
+    }),
+    (error) => {
+      assert.equal(error.category, REQUEST_ERROR_CATEGORY.NETWORK)
+      assert.match(toasts[0], /无法连接服务/)
+      assert.doesNotMatch(toasts[0], /Failed to fetch/)
+      assert.doesNotMatch(error.message, /Failed to fetch/)
+      return true
+    },
+  )
+
+  toasts.length = 0
+  await assert.rejects(
+    request.get('/boom', {
+      adapter: async (config) => ({
+        config,
+        status: 500,
+        statusText: 'Internal Server Error',
+        headers: { 'x-request-id': config.requestId },
+        data: {
+          success: false,
+          error: { code: 'INTERNAL_ERROR', message: 'Internal Server Error drama_id required', request_id: config.requestId },
+          request_id: config.requestId,
+        },
+      }),
+    }),
+    (error) => {
+      assert.equal(error.category, REQUEST_ERROR_CATEGORY.HTTP_5XX)
+      assert.equal(toasts.length, 1)
+      assert.match(toasts[0], /[\u4e00-\u9fff]/)
+      assert.doesNotMatch(toasts[0], /Internal Server Error/)
+      assert.doesNotMatch(toasts[0], /drama_id/)
+      assert.doesNotMatch(error.message, /Internal Server Error/)
+      assert.doesNotMatch(error.message, /drama_id/)
+      return true
+    },
+  )
+})
+
 test('timeout abort stays retryable timeout, not cancel', async () => {
   const timeout = createTimeoutController(20)
   try {

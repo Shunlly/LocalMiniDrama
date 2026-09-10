@@ -1,3 +1,9 @@
+# 生产 Compose：不挂载应用源码。后端/前端生产镜像基于 Node.js 20。
+# 改完代码必须重建：docker compose up -d --build --wait
+# 默认宿主机端口 127.0.0.1:3013 与 127.0.0.1:5679。23013/25679 只属于旧 candidate 覆盖，不是本文件默认值。
+# 后端 healthcheck 探测 /ready（可接业务）；不要改成存活探针 /health。
+# 前端 /healthz 由 Nginx 代理到 backend /ready。
+# 备份/恢复相关环境变量：LOCALMINIDRAMA_DATA_DIR、LOCALMINIDRAMA_CONFIG_DIR、LOCALMINIDRAMA_CONFIG_SOURCE、LOCALMINIDRAMA_CONFIG_PATH、LOCALMINIDRAMA_MAINTENANCE_SCOPE。
 name: localminidrama
 
 services:
@@ -51,6 +57,7 @@ services:
         source: ${LOCALMINIDRAMA_CONFIG_DIR:-./backend-node/configs}
         target: /app/config-source
         read_only: true
+    # Compose --wait 以 /ready 为准；/health 只表示进程存活。
     healthcheck:
       test:
         [
@@ -92,6 +99,7 @@ services:
     depends_on:
       backend:
         condition: service_healthy
+    # /healthz 代理 backend /ready，因此前端 healthy 也要求后端就绪。
     healthcheck:
       test:
         [
@@ -157,6 +165,7 @@ services:
     ports:
       - "127.0.0.1:5688:5688"
     command: ["node", "scripts/e2e-provider.js"]
+    # E2E Provider 自身的 /healthz，不是前端 Nginx 的 /healthz。
     healthcheck:
       test:
         [

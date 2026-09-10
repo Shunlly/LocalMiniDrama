@@ -165,7 +165,7 @@ async function callDashScopeVideoApi(config, log, opts) {
   if (taskId) return { task_id: taskId, status: 'PENDING' };
   const videoUrl = parseDashScopeVideoUrl(data);
   if (videoUrl) return { video_url: videoUrl };
-  return { error: '未返回 task_id 或 video_url' };
+  return { error: '未返回任务编号或视频地址' };
 }
 
 module.exports = {

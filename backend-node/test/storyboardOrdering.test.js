@@ -101,3 +101,31 @@ test('order-integrity migration repairs historic gaps deterministically', () => 
     db.close();
   }
 });
+
+test('existing update API persists storyboard_number for adjacent reorder', () => {
+  const db = createOrderingDb();
+  try {
+    db.prepare(
+      `INSERT INTO storyboards (id, episode_id, storyboard_number, updated_at)
+       VALUES (?, ?, ?, 'before')`
+    ).run(1, 1, 1);
+    db.prepare(
+      `INSERT INTO storyboards (id, episode_id, storyboard_number, updated_at)
+       VALUES (?, ?, ?, 'before')`
+    ).run(2, 1, 2);
+
+    const moved = storyboardService.updateStoryboard(db, log, 1, { storyboard_number: 2 });
+    const neighbor = storyboardService.updateStoryboard(db, log, 2, { storyboard_number: 1 });
+    assert.equal(moved.storyboard_number, 2);
+    assert.equal(neighbor.storyboard_number, 1);
+    assert.equal(db.prepare('SELECT storyboard_number FROM storyboards WHERE id = 1').get().storyboard_number, 2);
+    assert.equal(db.prepare('SELECT storyboard_number FROM storyboards WHERE id = 2').get().storyboard_number, 1);
+
+    assert.throws(
+      () => storyboardService.updateStoryboard(db, log, 1, { storyboard_number: 0 }),
+      /分镜序号无效/
+    );
+  } finally {
+    db.close();
+  }
+});

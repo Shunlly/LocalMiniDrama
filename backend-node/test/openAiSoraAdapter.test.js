@@ -147,7 +147,7 @@ test('Sora 在 POST 失败且没有 task id 时取消不会发送 DELETE', async
         return new Response('failed', { status: 500 });
       },
     }),
-    /HTTP 500/
+    (error) => error.status === 500 && /暂时不可用|失败/.test(error.message) && !/\bHTTP\s+\d+/.test(error.message)
   );
   assert.deepEqual(await remoteCancel(), { confirmed: false });
   assert.equal(deleteCalls, 0);
@@ -192,7 +192,7 @@ test('Sora 仅在有幂等键时重试瞬态创建错误', async () => {
       unsafeCalls += 1;
       return new Response('', { status: 503 });
     },
-  }), /HTTP 503/);
+  }), (error) => error.status === 503 && /暂时不可用|失败/.test(error.message) && !/\bHTTP\s+\d+/.test(error.message));
   assert.equal(unsafeCalls, 1);
 });
 

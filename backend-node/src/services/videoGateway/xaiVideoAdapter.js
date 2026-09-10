@@ -225,7 +225,7 @@ async function callXaiVideoApi(config, log, opts) {
     return { task_id: String(reqId), status: 'submitted' };
   }
 
-  return { error: 'xAI 未返回 request_id 或 video_url' };
+  return { error: 'xAI 未返回任务编号或视频地址' };
 }
 
 module.exports = {

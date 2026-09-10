@@ -160,6 +160,23 @@
         </el-form-item>
       </div>
 
+      <section
+        v-if="useFirstLast && !isUniversal"
+        class="frame-preview-row"
+        aria-label="首尾帧"
+      >
+        <div class="frame-slot">
+          <img v-if="firstFrameUrl" :src="firstFrameUrl" :alt="storyboardControlLabel('首帧')" />
+          <div v-else class="frame-empty">暂无首帧</div>
+          <span class="frame-slot-label">首帧</span>
+        </div>
+        <div class="frame-slot">
+          <img v-if="lastFrameUrl" :src="lastFrameUrl" :alt="storyboardControlLabel('尾帧')" />
+          <div v-else class="frame-empty">暂无尾帧</div>
+          <span class="frame-slot-label">尾帧</span>
+        </div>
+      </section>
+
       <el-form-item v-if="gridImages.length" label="宫格">
         <el-select v-model="form.video_reference_image_id" :aria-label="storyboardControlLabel('视频参考图')" clearable placeholder="视频使用主图/首帧">
           <el-option
@@ -317,7 +334,7 @@ import {
   canvasReferenceSourceLabel,
 } from '@/composables/useCanvasReferenceDisplay'
 import { canvasUserError, isCanvasUserAbort } from '@/composables/useCanvasUserError'
-import { dramaUsesFirstLastFrame } from '@/utils/storyboardMedia'
+import { dramaUsesFirstLastFrame, resolveSbFirstImageRecord, resolveSbLastImageRecord } from '@/utils/storyboardMedia'
 import { createStoryboardDraftFingerprint, hasStoryboardDraftChanges } from '@/utils/storyboardDraft'
 import CanvasActionGate from './CanvasActionGate.vue'
 
@@ -342,6 +359,12 @@ const savedDraftFingerprint = ref('')
 const savedDraftValue = ref(null)
 let leaveConfirmationOpen = false
 let generationRun = null
+let universalPromptRun = null
+
+function abortUniversalPrompt() {
+  universalPromptRun?.abort()
+}
+
 const form = reactive({
   title: '',
   action: '',
@@ -376,6 +399,9 @@ const isUniversal = computed(() => props.storyboard?.creation_mode === 'universa
 const characters = computed(() => ctx?.drama?.value?.characters || [])
 const scenes = computed(() => ctx?.drama?.value?.scenes || [])
 const propsList = computed(() => ctx?.drama?.value?.props || [])
+const storyboardImagesById = computed(() => ({
+  [props.storyboard?.id]: ctx?.imagesBySbId?.value?.[props.storyboard?.id] || [],
+}))
 const gridImages = computed(() => {
   const list = ctx?.imagesBySbId?.value?.[props.storyboard?.id]
   return (Array.isArray(list) ? list : []).filter((image) => (
@@ -384,6 +410,8 @@ const gridImages = computed(() => {
     (image.image_url || image.local_path)
   ))
 })
+const firstFrameUrl = computed(() => assetImageUrl(resolveSbFirstImageRecord(props.storyboard, storyboardImagesById.value)))
+const lastFrameUrl = computed(() => assetImageUrl(resolveSbLastImageRecord(props.storyboard, storyboardImagesById.value)))
 
 function parseFreeReferences(value) {
   if (Array.isArray(value)) return value.filter((item) => item && typeof item === 'object')
@@ -499,6 +527,8 @@ onMounted(() => {
 onBeforeUnmount(() => {
   generationRun?.abort()
   generationRun = null
+  abortUniversalPrompt()
+  universalPromptRun = null
   unregisterFocusGuard?.()
   unregisterFocusGuard = null
 })
@@ -512,7 +542,9 @@ async function confirmStoryboardLeave() {
   if (!hasPendingStoryboardWork.value) return true
   const billableGenerationActive = ['image', 'video', 'audio'].includes(busyStep.value)
     && ctx?.hasNodeGeneration?.()
-  if (saving.value || uploadingReference.value || (busyStep.value && !['image', 'video', 'audio'].includes(busyStep.value)) || billableGenerationActive) {
+  const universalBusy = busyStep.value === 'universal-generate' || busyStep.value === 'universal-polish'
+  if (universalBusy) abortUniversalPrompt()
+  if (saving.value || uploadingReference.value || (busyStep.value && !['image', 'video', 'audio'].includes(busyStep.value) && !universalBusy) || billableGenerationActive) {
     ElMessage.warning('分镜正在保存或生成，请完成后再离开。')
     return false
   }
@@ -539,6 +571,7 @@ async function confirmStoryboardLeave() {
 }
 
 async function closePanel() {
+  abortUniversalPrompt()
   await ctx?.clearFocusedNode?.({ restoreFocus: true })
 }
 
@@ -745,14 +778,23 @@ async function runUniversalPrompt(mode) {
   if (!props.storyboard?.id || busyStep.value) return
   const original = form.universal_segment_text
   const polishing = mode === 'polish' && original.trim()
+  const statusNodeId = sbNodeId.value
   busyStep.value = polishing ? 'universal-polish' : 'universal-generate'
   const message = polishing ? '正在流式润色全能词' : '正在生成全能词'
-  ctx?.nodeStatus?.set(sbNodeId.value, { step: busyStep.value, message })
+  ctx?.nodeStatus?.set(statusNodeId, { step: busyStep.value, message })
+  const controller = new AbortController()
+  universalPromptRun = controller
+  let settled = false
+  const restoreOriginal = () => {
+    if (!settled) form.universal_segment_text = original
+  }
+  controller.signal.addEventListener('abort', restoreOriginal, { once: true })
   let live = ''
   try {
     const draftSnapshot = currentDraftValue()
     await persistForm(true, draftSnapshot)
     markDraftSaved(draftSnapshot)
+    if (controller.signal.aborted) throw new DOMException('操作已取消', 'AbortError')
     const body = {
       duration: form.duration ?? 5,
       field_overrides: universalFieldOverrides(),
@@ -763,22 +805,32 @@ async function runUniversalPrompt(mode) {
       ? storyboardsAPI.polishUniversalSegmentPromptStream
       : storyboardsAPI.generateUniversalSegmentPromptStream
     const result = await stream(props.storyboard.id, body, (delta) => {
+      if (controller.signal.aborted) return
       live += delta
       form.universal_segment_text = live
-    })
+    }, { signal: controller.signal })
+    if (controller.signal.aborted) throw new DOMException('操作已取消', 'AbortError')
     const finalText = String(result?.universal_segment_text || live).trim()
     if (!finalText) throw new Error('未收到完整的全能词')
     form.universal_segment_text = finalText
     await storyboardsAPI.update(props.storyboard.id, { universal_segment_text: finalText })
     markDraftFieldsSaved(['universal_segment_text'])
+    settled = true
     await ctx?.refreshDrama?.(true)
-    ElMessage.success(polishing ? '全能词已润色并保存' : '全能词已生成并保存')
+    if (!controller.signal.aborted) {
+      ElMessage.success(polishing ? '全能词已润色并保存' : '全能词已生成并保存')
+    }
   } catch (e) {
-    form.universal_segment_text = original
-    ElMessage.error(canvasUserError(e, polishing ? '全能词润色失败' : '全能词生成失败'))
+    if (!settled) restoreOriginal()
+    // 已保存成功后的取消只影响刷新，不再回滚正文或报失败
+    if (!(settled && (isCanvasUserAbort(e) || controller.signal.aborted))) {
+      const error = isCanvasUserAbort(e) || controller.signal.aborted ? 'cancel' : e
+      ElMessage.error(canvasUserError(error, polishing ? '全能词润色失败' : '全能词生成失败'))
+    }
   } finally {
+    if (universalPromptRun === controller) universalPromptRun = null
     busyStep.value = ''
-    ctx?.nodeStatus?.clear(sbNodeId.value)
+    ctx?.nodeStatus?.clear(statusNodeId)
   }
 }
 
@@ -1026,6 +1078,44 @@ async function refreshAfterUnknownAudio() {
 }
 .reference-file-input {
   display: none;
+}
+.frame-preview-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin: 0 0 10px;
+}
+.frame-slot {
+  position: relative;
+  overflow: hidden;
+  min-height: 72px;
+  border: 1px solid var(--canvas-divider-strong, #3f3f46);
+  border-radius: 6px;
+  background: var(--canvas-media-well, #09090b);
+}
+.frame-slot img {
+  display: block;
+  width: 100%;
+  height: 72px;
+  object-fit: cover;
+}
+.frame-empty {
+  display: grid;
+  place-items: center;
+  height: 72px;
+  color: var(--canvas-text-subtle, #71717a);
+  font-size: 11px;
+}
+.frame-slot-label {
+  position: absolute;
+  left: 4px;
+  bottom: 4px;
+  padding: 0 5px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.72);
+  color: #fff;
+  font-size: 10px;
+  line-height: 18px;
 }
 .meta-row {
   display: flex;

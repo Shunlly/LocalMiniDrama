@@ -9,8 +9,18 @@ const {
   recoverInterruptedMaintenanceSync,
   resolveDataRoot,
 } = require('../src/services/dataBackupService');
+const { formatBackupCliError } = require('../src/services/backupSettingsService');
+const BACKUP_PUBLIC_MESSAGES = require('../src/services/backupPublicMessages');
 
 const PACKAGE_ROOT = path.resolve(__dirname, '..');
+
+function backupError(code, detail, cause) {
+  if (detail instanceof Error && cause === undefined) {
+    cause = detail;
+    detail = undefined;
+  }
+  return new DataBackupError(code, detail || BACKUP_PUBLIC_MESSAGES[code], cause);
+}
 
 function usage() {
   console.log([
@@ -24,7 +34,7 @@ function usage() {
 function takeValue(argv, index, flag) {
   const value = argv[index + 1];
   if (!value || value.startsWith('--')) {
-    throw new DataBackupError('INVALID_ARGUMENT', `${flag} requires a value.`);
+    throw backupError('INVALID_ARGUMENT', `${flag} 缺少参数值。`);
   }
   return value;
 }
@@ -33,7 +43,7 @@ function parseArguments(argv) {
   const parsed = { confirmed: false, inspect: false, dataRoot: null };
   const seen = new Set();
   const markSeen = (flag) => {
-    if (seen.has(flag)) throw new DataBackupError('INVALID_ARGUMENT', flag + ' 不能重复指定。');
+    if (seen.has(flag)) throw backupError('INVALID_ARGUMENT', flag + ' 不能重复指定。');
     seen.add(flag);
   };
   for (let index = 0; index < argv.length; index += 1) {
@@ -71,7 +81,7 @@ function parseArguments(argv) {
       index += 1;
       continue;
     }
-    throw new DataBackupError('INVALID_ARGUMENT', 'Unknown maintenance recovery option.');
+    throw backupError('INVALID_ARGUMENT', '未知维护恢复选项。');
   }
   return parsed;
 }
@@ -92,16 +102,16 @@ function readMaintenanceLock(databasePath) {
     throw error;
   }
   if (stat.isSymbolicLink() || !stat.isFile()) {
-    throw new DataBackupError('MAINTENANCE_LOCK_INVALID', 'Maintenance lock is not a regular file.');
+    throw backupError('MAINTENANCE_LOCK_INVALID', '维护锁不是普通文件。');
   }
   try {
     const lock = JSON.parse(fs.readFileSync(lockPath, 'utf8'));
     if (!lock || typeof lock !== 'object' || Array.isArray(lock)) throw new Error('invalid lock');
     return lock;
   } catch (error) {
-    throw new DataBackupError(
+    throw backupError(
       'MAINTENANCE_LOCK_INVALID',
-      'Maintenance lock could not be read safely.',
+      '无法安全读取维护锁。',
       error
     );
   }
@@ -122,27 +132,24 @@ function inspectMaintenanceLock(databasePath) {
 
 function recoverMaintenanceLock(options = {}) {
   if (options.confirmed !== true) {
-    throw new DataBackupError('CONFIRMATION_REQUIRED', 'Maintenance recovery requires explicit confirmation with --yes.');
+    throw backupError('CONFIRMATION_REQUIRED', '维护恢复需要使用 --yes 明确确认。');
   }
   if (!options.databasePath || !options.storagePath || !options.storySourcesPath) {
-    throw new DataBackupError('INVALID_ARGUMENT', 'Database, storage, and source-text locations are required.');
+    throw backupError('INVALID_ARGUMENT', '必须提供数据库、素材和原文路径。');
   }
   if (!options.expectedOwnerScope || !Number.isInteger(options.expectedPid) || options.expectedPid <= 0) {
-    throw new DataBackupError('INVALID_ARGUMENT', 'The inspected owner scope and PID are required.');
+    throw backupError('INVALID_ARGUMENT', '必须提供检查到的作用域和 PID。');
   }
 
   const inspected = inspectMaintenanceLock(options.databasePath);
   if (!inspected.present) {
-    throw new DataBackupError('MAINTENANCE_LOCK_MISSING', 'No maintenance lock exists.');
+    throw backupError('MAINTENANCE_LOCK_MISSING');
   }
   if (
     inspected.ownerScope !== options.expectedOwnerScope ||
     inspected.pid !== options.expectedPid
   ) {
-    throw new DataBackupError(
-      'MAINTENANCE_OWNER_MISMATCH',
-      'The maintenance lock owner changed after inspection; inspect it again.'
-    );
+    throw backupError('MAINTENANCE_OWNER_MISMATCH');
   }
 
   const recoveryOptions = {
@@ -211,11 +218,7 @@ if (require.main === module) {
   try {
     main();
   } catch (error) {
-    if (error instanceof DataBackupError) {
-      console.error(`[${error.code}] ${error.publicMessage}`);
-    } else {
-      console.error('[MAINTENANCE_RECOVERY_FAILED] Maintenance state could not be recovered.');
-    }
+    console.error(formatBackupCliError(error));
     process.exitCode = 1;
   }
 }

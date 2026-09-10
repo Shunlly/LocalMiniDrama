@@ -6,12 +6,52 @@ const path = require('path');
 const childProcess = require('child_process');
 const { getFfmpegPath, getFfprobePath } = require('../utils/ffmpegPath');
 const uploadService = require('./uploadService');
+const { toUserFacingProcessError } = require('./providerErrorSanitizer');
 
 const MAX_STORED_AUDIO_BYTES = 256 * 1024 * 1024;
 const PROCESS_OUTPUT_LIMIT_BYTES = 16 * 1024 * 1024;
 const FFMPEG_TIMEOUT_MS = 30 * 60 * 1000;
 const FFPROBE_TIMEOUT_MS = 15 * 1000;
 const PROCESS_KILL_GRACE_MS = 1000;
+const POST_PROCESS_FFMPEG_MISSING = '未找到 ffmpeg，请确认已安装 ffmpeg 后重试';
+const POST_PROCESS_FALLBACK = '视频后处理失败，请确认已安装 ffmpeg 后重试';
+
+function isSpawnMissingBinary(error) {
+  if (!error) return false;
+  if (error.code === 'ENOENT' || error.code === 'FFMPEG_MISSING') return true;
+  const text = typeof error === 'string' ? error : String(error.message || '');
+  return /\bENOENT\b/.test(text);
+}
+
+function missingFfmpegError() {
+  const error = new Error(POST_PROCESS_FFMPEG_MISSING);
+  error.code = 'FFMPEG_MISSING';
+  return error;
+}
+
+function userFacingPostProcessError(error, fallback = POST_PROCESS_FALLBACK) {
+  if (isSpawnMissingBinary(error)) return POST_PROCESS_FFMPEG_MISSING;
+  return toUserFacingProcessError(error, fallback);
+}
+
+function assertMediaBinaryResult(result) {
+  if (!result) return result;
+  if (result.code === 'ENOENT' || result.error === POST_PROCESS_FFMPEG_MISSING || isSpawnMissingBinary(result.error)) {
+    throw missingFfmpegError();
+  }
+  return result;
+}
+
+function failedProcessResult(error, stdout, stderr) {
+  return {
+    ok: false,
+    error: userFacingPostProcessError(error, POST_PROCESS_FALLBACK),
+    stdout,
+    stderr,
+    status: null,
+    code: error?.code || null,
+  };
+}
 
 function operationCancelledError(reason) {
   if (reason instanceof Error && reason.code === 'OPERATION_CANCELLED') return reason;
@@ -68,11 +108,14 @@ function runExternalProcess(command, args, options = {}) {
       }
       finish(resolve, {
         ok: false,
-        error: terminal?.error || `${options.timeoutLabel || command} 执行超时`,
+        error: typeof terminal?.error === 'string'
+          ? terminal.error
+          : `${options.timeoutLabel || '后处理进程'} 执行超时`,
         stdout,
         stderr,
         status: null,
         signal: 'SIGKILL',
+        code: null,
       });
     };
     const terminate = (nextTerminal) => {
@@ -95,7 +138,7 @@ function runExternalProcess(command, args, options = {}) {
         stdio: ['ignore', 'pipe', 'pipe'],
       });
     } catch (error) {
-      finish(resolve, { ok: false, error: error.message, stdout, stderr, status: null });
+      finish(resolve, failedProcessResult(error, stdout, stderr));
       return;
     }
 
@@ -103,7 +146,7 @@ function runExternalProcess(command, args, options = {}) {
     child.stderr?.on('data', (chunk) => { stderr = appendOutput(stderr, chunk); });
     child.once('error', (error) => {
       if (terminal) settleTerminal();
-      else finish(resolve, { ok: false, error: error.message, stdout, stderr, status: null });
+      else finish(resolve, failedProcessResult(error, stdout, stderr));
     });
     child.once('close', (code, closeSignal) => {
       if (terminal || signal?.aborted) {
@@ -113,13 +156,12 @@ function runExternalProcess(command, args, options = {}) {
       }
       finish(resolve, {
         ok: code === 0,
-        error: code === 0
-          ? null
-          : String(stderr || stdout || '').trim() || `${command} 退出码为 ${code}`,
+        error: code === 0 ? null : 'FFmpeg 执行失败',
         stdout,
         stderr,
         status: code,
         signal: closeSignal,
+        code: null,
       });
     });
 
@@ -131,7 +173,7 @@ function runExternalProcess(command, args, options = {}) {
     if (!settled) {
       timeoutTimer = setTimeout(() => terminate({
         type: 'timeout',
-        error: `${options.timeoutLabel || command} 执行超时（${timeoutMs}ms）`,
+        error: `${options.timeoutLabel || '后处理进程'} 执行超时`,
       }), timeoutMs);
     }
   });
@@ -186,11 +228,14 @@ async function ffprobeDurationSec(filePath, options = {}) {
       signal: options.signal,
       timeoutMs: normalizePositiveMs(options.timeoutMs, FFPROBE_TIMEOUT_MS),
       killGraceMs: options.killGraceMs,
-      timeoutLabel: 'ffprobe',
+      timeoutLabel: '媒体探测',
       outputLimitBytes: 1024 * 1024,
     }
   );
-  if (!r.ok) return null;
+  if (!r.ok) {
+    assertMediaBinaryResult(r);
+    return null;
+  }
   const d = parseFloat(String(r.stdout || '').trim());
   return Number.isFinite(d) && d > 0 ? d : null;
 }
@@ -234,14 +279,16 @@ async function runFfmpeg(args, log, tag, options = {}) {
     signal: options.signal,
     timeoutMs: options.timeoutMs,
     killGraceMs: options.killGraceMs,
-    timeoutLabel: `ffmpeg ${tag}`,
+    timeoutLabel: 'FFmpeg',
   });
   if (!r.ok) {
     log.warn('merged post: ffmpeg failed', {
       tag,
       error: r.error,
+      code: r.code,
       stderr: r.stderr?.slice(-1000),
     });
+    assertMediaBinaryResult(r);
     return false;
   }
   return true;
@@ -562,7 +609,7 @@ async function runMergedEpisodePostProcess(db, log, opts) {
               } catch (e) {
                 if (signal?.aborted || e?.code === 'OPERATION_CANCELLED') throw operationCancelledError(signal?.reason || e);
                 log.warn('merged post: narration TTS failed', { segment: i, error: e.message });
-                return { ok: false, error: `解说旁白 TTS 失败：${e.message}` };
+                return { ok: false, error: userFacingPostProcessError(e, '解说旁白 TTS 失败') };
               }
               if (!copyStoredAudioToTemp(storageRoot, synth?.local_path, segRaw)) {
                 return { ok: false, error: '旁白 TTS 文件不存在' };
@@ -717,7 +764,7 @@ async function runMergedEpisodePostProcess(db, log, opts) {
   } catch (e) {
     publication?.rollback();
     log.warn('merged post: exception', { error: e.message });
-    return { ok: false, error: e.message || String(e) };
+    return { ok: false, error: userFacingPostProcessError(e, POST_PROCESS_FALLBACK) };
   } finally {
     try {
       fs.rmSync(tempRoot, { recursive: true, force: true });
@@ -737,11 +784,15 @@ async function ffprobeHasAudio(filePath, options = {}) {
       signal: options.signal,
       timeoutMs: normalizePositiveMs(options.timeoutMs, FFPROBE_TIMEOUT_MS),
       killGraceMs: options.killGraceMs,
-      timeoutLabel: 'ffprobe',
+      timeoutLabel: '媒体探测',
       outputLimitBytes: 1024 * 1024,
     }
   );
-  return r.ok && String(r.stdout || '').trim().length > 0;
+  if (!r.ok) {
+    assertMediaBinaryResult(r);
+    return false;
+  }
+  return String(r.stdout || '').trim().length > 0;
 }
 
 module.exports = {

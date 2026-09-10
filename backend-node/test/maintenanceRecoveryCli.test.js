@@ -184,7 +184,7 @@ test('operator recovery reclaims a stale Docker service lock despite a native re
   const recoveryLockPath = `${workspace.databasePath}.maintenance.recovery.lock`;
   const recoveryPayload = {
     version: 2,
-    pid: 14120,
+    pid: 2147483646,
     ownerScope: `win32:${require('node:os').hostname()}:native`,
     operation: 'restore',
     token: 'b'.repeat(16),

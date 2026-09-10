@@ -10,31 +10,21 @@ const {
   getRuntimeServiceMaintenanceLock,
   restoreDataBackup,
 } = require('./dataBackupService')
+const { isTrustedChineseUserError } = require('./providerErrorSanitizer')
+const BACKUP_PUBLIC_MESSAGES = require('./backupPublicMessages')
 
 const PENDING_RESTORE_SCHEMA = 'localminidrama.pending-restore.v1'
 const PENDING_RESTORE_FILE = '.restore-pending.json'
 const SAFE_BACKUP_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,180}\.zip$/i
 const PENDING_RESTORE_MESSAGE = '已安排在下次启动时恢复，请重启应用。'
 
-const HTTP_BACKUP_MESSAGES = Object.freeze({
-  CONFIRMATION_REQUIRED: '恢复需要明确确认，当前数据不会被覆盖。',
-  INVALID_ARGUMENT: '备份参数不完整，请重新选择备份文件后再试。',
-  SERVICE_RUNNING: '请先停止本地短剧助手服务，再执行全量备份或恢复。',
-  OUTPUT_EXISTS: '目标备份文件已存在，请更换输出位置后再试。',
-  BACKUP_FAILED: '数据备份未能完成。',
-  RESTORE_FAILED: '数据恢复未能完成，原有数据应仍可用。',
-  BACKUP_FILE_REQUIRED: '请先选择备份文件。',
-  BACKUP_FILE_TYPE: '请选择 .zip 格式的备份文件。',
-  BACKUP_FILE_INVALID_NAME: '备份文件名无效，请重新选择。',
-  NOT_FOUND: '找不到该备份文件。',
-  PENDING_RESTORE_INVALID: '待恢复登记无效，请重新确认恢复。',
-  PERMISSION_DENIED: '当前路径没有读写权限，请检查数据目录或备份输出目录的权限后重试。',
-  MAINTENANCE_ACTIVE: '另一项维护操作正在进行，请等待结束后再试。',
-  MAINTENANCE_LOCKED: '维护锁仍有效，请完成或恢复中断的维护后再试。',
-  MAINTENANCE_LOCK_FAILED: '无法创建维护锁，请确认数据目录可写后重试。',
-  MAINTENANCE_LEASE_INVALID: '维护租约无效或已丢失，请稍后重试。',
-  DATABASE_BUSY: '数据库正在使用中，请停止相关进程后再试。',
-})
+const HTTP_BACKUP_MESSAGES = BACKUP_PUBLIC_MESSAGES
+const ENGLISH_CLAIM_OR_LEASE_RE = /\b(?:claim(?:ed|s|ing)?|leases?)\b/i
+
+function isTrustedBackupUserMessage(text) {
+  // 含英文 claim/lease 原文的混合句不能当作可信用户文案。
+  return isTrustedChineseUserError(text) && !ENGLISH_CLAIM_OR_LEASE_RE.test(text)
+}
 
 function backupError(code, message) {
   const error = new DataBackupError(code, message)
@@ -317,7 +307,10 @@ function applyPendingRestoreSync(paths, options = {}) {
   })
   if (result.status !== 0) {
     const detail = String(result.stderr || result.stdout || '').trim()
-    throw new Error(detail || '待恢复备份未能在启动前应用')
+    const message = isTrustedBackupUserMessage(detail)
+      ? detail
+      : HTTP_BACKUP_MESSAGES.RESTORE_FAILED
+    throw backupError('RESTORE_FAILED', message)
   }
   return { applied: true }
 }
@@ -328,22 +321,34 @@ async function applyPendingRestoreFromConfig(cfg, options = {}) {
 }
 
 function describeBackupHttpError(error) {
-  let code = String(error?.code || 'BACKUP_FAILED')
+  let code = String(error?.code || '')
+  if (error?.name === 'AbortError' || ['ABORT_ERR', 'ERR_CANCELED', 'OPERATION_CANCELLED'].includes(code)) {
+    code = 'OPERATION_ABORTED'
+  }
   if (['EACCES', 'EPERM', 'EROFS'].includes(code)) code = 'PERMISSION_DENIED'
-  const message = HTTP_BACKUP_MESSAGES[code]
-    || (error instanceof DataBackupError ? error.publicMessage : '')
-    || HTTP_BACKUP_MESSAGES.BACKUP_FAILED
+  if (code === 'ENOENT') code = 'NOT_FOUND'
+  if (!code || code === 'Error') code = 'BACKUP_FAILED'
+  const publicMessage = error instanceof DataBackupError
+    ? String(error.publicMessage || '')
+    : String(error?.message || '')
+  const mappedMessage = HTTP_BACKUP_MESSAGES[code] || HTTP_BACKUP_MESSAGES.BACKUP_FAILED
+  const message = isTrustedBackupUserMessage(publicMessage) ? publicMessage : mappedMessage
   let status = 500
   if (['CONFIRMATION_REQUIRED', 'INVALID_ARGUMENT', 'BACKUP_FILE_REQUIRED', 'BACKUP_FILE_TYPE', 'BACKUP_FILE_INVALID_NAME', 'PENDING_RESTORE_INVALID'].includes(code)) {
     status = 400
   } else if (code === 'NOT_FOUND') {
     status = 404
-  } else if (['SERVICE_RUNNING', 'OUTPUT_EXISTS', 'MAINTENANCE_ACTIVE', 'MAINTENANCE_LOCKED', 'MAINTENANCE_LEASE_INVALID', 'DATABASE_BUSY'].includes(code)) {
+  } else if (['SERVICE_RUNNING', 'OUTPUT_EXISTS', 'MAINTENANCE_ACTIVE', 'MAINTENANCE_LOCKED', 'MAINTENANCE_LEASE_INVALID', 'DATABASE_BUSY', 'OPERATION_ABORTED'].includes(code)) {
     status = 409
   } else if (code === 'PERMISSION_DENIED') {
     status = 503
   }
   return { status, code, message }
+}
+
+function formatBackupCliError(error) {
+  const mapped = describeBackupHttpError(error)
+  return `[${mapped.code}] ${mapped.message}`
 }
 
 module.exports = {
@@ -355,6 +360,7 @@ module.exports = {
   buildBackupFileName,
   createBackup,
   describeBackupHttpError,
+  formatBackupCliError,
   listBackups,
   placeBackupFile,
   resolveBackupDir,

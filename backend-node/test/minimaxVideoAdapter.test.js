@@ -150,7 +150,7 @@ test('MiniMax 在 POST 失败且没有 task id 时取消不会发送 DELETE', as
         return new Response('failed', { status: 500 });
       },
     }),
-    /HTTP 500/
+    (error) => error.status === 500 && /暂时不可用|失败/.test(error.message) && !/\bHTTP\s+\d+/.test(error.message)
   );
   assert.deepEqual(await remoteCancel(), { confirmed: false });
   assert.equal(deleteCalls, 0);

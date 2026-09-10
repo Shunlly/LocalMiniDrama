@@ -57,9 +57,15 @@ function routes(db, log, cfg) {
         }
         response.success(res, { local_path: result.local_path, url: result.local_path ? '/static/' + result.local_path : '', tts_kind: kind });
       } catch (err) {
-        log.error('audio extract', { error: err.message });
-        if (err.code === 'BAD_REQUEST') return response.badRequest(res, err.message);
-        response.internalError(res, err.message);
+        const { toUserFacingTtsError } = require('../services/ttsService');
+        const mapped = toUserFacingTtsError(err);
+        log.error('audio extract', { error: err.message, userError: mapped.message });
+        if (mapped.code === 'BAD_REQUEST' || err.code === 'BAD_REQUEST') {
+          return response.badRequest(res, mapped.message);
+        }
+        const status = Number(mapped.status) === 401 || Number(mapped.status) === 403 ? 401 : 502;
+        const code = status === 401 ? 'TTS_AUTH' : 'TTS_FAILED';
+        response.error(res, status, code, mapped.message);
       }
     },
 
@@ -94,7 +100,8 @@ function routes(db, log, cfg) {
           }
           results.push({ storyboard_id: sbId, local_path: result.local_path });
         } catch (err) {
-          results.push({ storyboard_id: sbId, error: err.message });
+          const { toUserFacingTtsError } = require('../services/ttsService');
+          results.push({ storyboard_id: sbId, error: toUserFacingTtsError(err).message });
         }
       }
       response.success(res, results);

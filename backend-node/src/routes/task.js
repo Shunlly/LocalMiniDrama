@@ -1,14 +1,15 @@
 const taskService = require('../services/taskService');
 const dramaWriteGuard = require('../services/dramaWriteGuard');
 const response = require('../response');
+const { sendCaughtRouteError, publicErrorMessage } = require('./serviceFailure');
 
 function sendBoundaryError(res, err) {
   if (err.code === 'TASK_SCOPE_CONFLICT') {
-    response.error(res, 409, err.code, err.message, err.details);
+    response.error(res, 409, err.code, publicErrorMessage(err, '任务不属于当前项目'), err.details);
     return true;
   }
   if (dramaWriteGuard.isBoundaryError(err)) {
-    response.error(res, err.statusCode || 409, err.code, err.message, err.details);
+    response.error(res, err.statusCode || 409, err.code, publicErrorMessage(err, '当前项目不可用'), err.details);
     return true;
   }
   return false;
@@ -23,7 +24,7 @@ function getTaskStatus(db, log) {
     } catch (err) {
       if (sendBoundaryError(res, err)) return;
       log.errorw('Get task failed', { error: err.message, task_id: req.params.task_id });
-      return response.internalError(res, err.message);
+      return sendCaughtRouteError(res, err, '任务查询失败，请稍后重试');
     }
   };
 }
@@ -41,7 +42,7 @@ function getResourceTasks(db, log) {
     } catch (err) {
       if (sendBoundaryError(res, err)) return;
       log.errorw('Get resource tasks failed', { error: err.message });
-      response.internalError(res, err.message);
+      sendCaughtRouteError(res, err, '任务查询失败，请稍后重试');
     }
   };
 }
@@ -75,7 +76,7 @@ function cancelTaskStatus(db, log) {
       response.success(res, result.task || { id: req.params.task_id });
     } catch (err) {
       log.errorw('Cancel task failed', { error: err.message, task_id: req.params.task_id });
-      response.internalError(res, err.message);
+      sendCaughtRouteError(res, err, '任务查询失败，请稍后重试');
     }
   };
 }

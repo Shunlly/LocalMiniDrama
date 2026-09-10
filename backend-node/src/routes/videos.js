@@ -1,4 +1,6 @@
 const response = require('../response');
+const { sendCaughtRouteError } = require('./serviceFailure');
+const { isTrustedChineseUserError } = require('../services/providerErrorSanitizer');
 const videoService = require('../services/videoService');
 
 function routes(db, log) {
@@ -10,7 +12,7 @@ function routes(db, log) {
         response.successWithPagination(res, items, total, page, pageSize);
       } catch (err) {
         log.error('videos list', { error: err.message });
-        response.internalError(res, err.message);
+        sendCaughtRouteError(res, err, '视频操作失败，请稍后重试');
       }
     },
     create: (req, res) => {
@@ -18,8 +20,7 @@ function routes(db, log) {
         response.created(res, videoService.createVideoGeneration(db, log, req.body || {}));
       } catch (err) {
         log.error('videos create', { error: err.message });
-        if (err.code === 'BAD_REQUEST') return response.badRequest(res, err.message);
-        response.internalError(res, err.message);
+        sendCaughtRouteError(res, err, '视频操作失败，请稍后重试');
       }
     },
     get: (req, res) => {
@@ -29,7 +30,7 @@ function routes(db, log) {
         response.success(res, item);
       } catch (err) {
         log.error('videos get', { error: err.message });
-        response.internalError(res, err.message);
+        sendCaughtRouteError(res, err, '视频操作失败，请稍后重试');
       }
     },
     delete: async (req, res) => {
@@ -44,9 +45,10 @@ function routes(db, log) {
         'REMOTE_CANCEL_UNCERTAIN',
         'TASK_SCOPE_CONFLICT',
       ].includes(err.code)) {
-          return response.error(res, 409, err.code, err.message);
+          const raw = String(err.message || '');
+          return response.error(res, 409, err.code, isTrustedChineseUserError(raw) ? raw : '无法取消远程任务，请稍后重试');
         }
-        response.internalError(res, err.message);
+        sendCaughtRouteError(res, err, '视频操作失败，请稍后重试');
       }
     },
     fromImage: (_req, res) => response.error(

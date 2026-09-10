@@ -172,6 +172,14 @@
       >
         {{ generateActionLabel }}
       </el-button>
+      <el-button
+        v-if="generating"
+        size="small"
+        type="warning"
+        plain
+        aria-label="取消生成参考图"
+        @click.stop="abortGenerate"
+      >取消</el-button>
       <el-button size="small" plain @click.stop="highlightRelated">关联分镜</el-button>
       <el-button size="small" type="danger" plain @click.stop="deleteAsset">删除</el-button>
     </div>
@@ -179,7 +187,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Picture, Refresh } from '@element-plus/icons-vue'
 import { characterAPI } from '@/api/characters'
@@ -204,6 +212,7 @@ const panelRef = ref(null)
 const saving = ref(false)
 const generating = ref(false)
 const generateError = ref('')
+let generationRun = null
 const panoramaGenerating = ref(false)
 const panoramaError = ref('')
 const panoramaScene = ref(null)
@@ -241,7 +250,7 @@ const panoramaPreviewUrl = computed(() => {
 })
 const hasSceneSource = computed(() => Boolean(previewUrl.value))
 const panoramaDisabledReason = computed(() => {
-  if (!hasSceneSource.value) return '请先生成场景主图'
+  if (!hasSceneSource.value) return '请先为该场景生成或上传主图'
   if (generating.value) return '场景主图正在生成，请等待完成'
   return ''
 })
@@ -302,10 +311,11 @@ async function refreshPanoramaScene() {
   } catch (_) {}
 }
 
-function panoramaTaskError(task) {
+function panoramaTaskError(task, fallback = '全景图生成失败') {
   if (typeof task?.error === 'string' && task.error.trim()) return task.error
   if (task?.error?.message) return task.error.message
-  return task?.message || '全景图生成失败'
+  if (typeof task?.message === 'string' && task.message.trim()) return task.message
+  return fallback
 }
 
 async function waitForPanoramaTask(taskId, maxAttempts = 450, interval = 2000) {
@@ -315,14 +325,21 @@ async function waitForPanoramaTask(taskId, maxAttempts = 450, interval = 2000) {
       const task = await taskAPI.get(taskId)
       if (task?.status === 'completed') return
       if (task?.status === 'failed') throw new Error(canvasUserError(panoramaTaskError(task), '全景图生成失败'))
+      if (task?.status === 'timeout') throw new Error(canvasUserError(panoramaTaskError(task, '全景图生成超时，请稍后重试'), '全景图生成超时，请稍后重试'))
+      if (task?.status === 'cancelled' || task?.status === 'canceled') {
+        throw new Error(canvasUserError(panoramaTaskError(task, '操作已取消'), '操作已取消'))
+      }
     } catch (error) {
       if (!isRequestNetworkError(error) && !isRequestTimeout(error) && error?.message) {
         throw new Error(canvasUserError(error, '全景图生成失败'))
       }
-      if (i === maxAttempts - 1) throw new Error(canvasUserError(error, '全景图任务轮询失败'))
+      if (i === maxAttempts - 1) {
+        if (isRequestTimeout(error)) throw new Error('全景图生成超时，请稍后重试')
+        throw new Error(canvasUserError(error, '全景图任务轮询失败'))
+      }
     }
   }
-  throw new Error('全景图生成超时，请稍后刷新查看')
+  throw new Error('全景图生成超时，请稍后重试')
 }
 
 function onSelectVisibleChange(open) {
@@ -331,6 +348,7 @@ function onSelectVisibleChange(open) {
 }
 
 function closePanel() {
+  abortGenerate()
   ctx?.clearFocusedNode?.()
 }
 
@@ -406,7 +424,19 @@ async function deleteAsset() {
   }
 }
 
+function abortGenerate() {
+  generationRun?.abort()
+}
+
+onBeforeUnmount(() => {
+  abortGenerate()
+})
+
 async function generateImage() {
+  if (generating.value) return
+  abortGenerate()
+  const controller = new AbortController()
+  generationRun = controller
   generating.value = true
   generateError.value = ''
   try {
@@ -414,13 +444,19 @@ async function generateImage() {
       kind: props.kind,
       entity: props.entity,
       nodeId: props.nodeId,
+      signal: generationRun.signal,
     })
+    if (controller.signal.aborted) return
     ElMessage.success('参考图已生成')
   } catch (e) {
+    if (isCanvasUserAbort(e) || controller.signal.aborted) return
     generateError.value = canvasUserError(e, '参考图生成失败')
     ElMessage.error(generateError.value)
   } finally {
-    generating.value = false
+    if (generationRun === controller) {
+      generationRun = null
+      generating.value = false
+    }
   }
 }
 

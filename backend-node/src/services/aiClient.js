@@ -11,6 +11,7 @@ const fs = require('fs');
 const {
   createProviderHttpError,
   createSafeProviderLogger,
+  isTrustedChineseUserError,
   sanitizeProviderException,
   summarizeProviderResponse,
   toSafeProviderErrorMessage,
@@ -29,10 +30,13 @@ function providerNetworkOptions(config, lookup, signal) {
 }
 
 function createAbortError(signal) {
-  if (signal?.reason?.name === 'AbortError') return signal.reason;
-  const error = new Error(signal?.reason?.message || 'AI request was aborted.');
+  const reason = signal?.reason;
+  if (reason?.name === 'AbortError' && isTrustedChineseUserError(reason.message)) {
+    return reason;
+  }
+  const error = new Error('AI 请求已取消。');
   error.name = 'AbortError';
-  if (signal?.reason !== undefined) error.cause = signal.reason;
+  if (reason !== undefined) error.cause = reason;
   return error;
 }
 
@@ -59,7 +63,7 @@ async function pinnedRequestTarget(url, networkOptions = {}) {
 function assertRequestBodyLimit(bodyStr, maxBytes = JSON_REQUEST_MAX_BYTES) {
   const bytes = Buffer.byteLength(bodyStr);
   if (bytes > maxBytes) {
-    throw new uploadService.UnsafeMediaReferenceError('AI request body exceeds the size limit.');
+    throw new uploadService.UnsafeMediaReferenceError('AI 请求内容超过大小限制。');
   }
   return bytes;
 }
@@ -68,7 +72,7 @@ function collectResponse(res, maxBytes, onComplete, onError) {
   const declaredLength = Number(res.headers['content-length'] || 0);
   if (Number.isFinite(declaredLength) && declaredLength > maxBytes) {
     res.destroy();
-    onError(new uploadService.UnsafeMediaReferenceError('AI response exceeds the size limit.'));
+    onError(new uploadService.UnsafeMediaReferenceError('AI 响应内容超过大小限制。'));
     return;
   }
   const chunks = [];
@@ -76,7 +80,7 @@ function collectResponse(res, maxBytes, onComplete, onError) {
   res.on('data', (chunk) => {
     bytes += chunk.length;
     if (bytes > maxBytes) {
-      res.destroy(new uploadService.UnsafeMediaReferenceError('AI response exceeds the size limit.'));
+      res.destroy(new uploadService.UnsafeMediaReferenceError('AI 响应内容超过大小限制。'));
       return;
     }
     chunks.push(chunk);
@@ -87,9 +91,20 @@ function collectResponse(res, maxBytes, onComplete, onError) {
 
 function safeRequestError(error, operation) {
   return sanitizeProviderException(error, {
-    provider: 'AI provider',
+    provider: 'AI 服务',
     operation,
   });
+}
+
+function createTimeoutError(operation) {
+  const error = new Error(operation + '超时，请稍后重试。');
+  error.name = 'TimeoutError';
+  error.isTimeout = true;
+  error.code = 'ETIMEDOUT';
+  const safe = safeRequestError(error, operation);
+  safe.name = 'TimeoutError';
+  safe.isTimeout = true;
+  return safe;
 }
 
 /**
@@ -138,7 +153,7 @@ async function postJSONNonStream(url, headers, body, timeoutMs = 120000, network
       collectResponse(res, networkOptions.maxResponseBytes || TEXT_RESPONSE_MAX_BYTES, (raw) => {
         if (res.statusCode < 200 || res.statusCode >= 300) {
           return fail(createProviderHttpError({
-            provider: 'AI provider',
+            provider: 'AI 服务',
             operation: '视觉请求',
             status: res.statusCode,
             responseBody: raw,
@@ -154,18 +169,16 @@ async function postJSONNonStream(url, headers, body, timeoutMs = 120000, network
         } catch (_) {
           succeed({ status: res.statusCode, body: null, raw });
         }
-      }, (error) => fail(safeRequestError(error, 'vision request')));
+      }, (error) => fail(safeRequestError(error, '视觉请求')));
     });
 
     req.on('error', (error) => {
-      fail(signal?.aborted ? createAbortError(signal) : safeRequestError(error, 'vision request'));
+      fail(signal?.aborted ? createAbortError(signal) : safeRequestError(error, '视觉请求'));
     });
     signal?.addEventListener('abort', onAbort, { once: true });
     timer = setTimeout(() => {
-      const error = new Error(`Vision request timeout after ${timeoutMs}ms`);
-      error.name = 'TimeoutError';
-      req.destroy(error);
-      fail(error);
+      req.destroy();
+      fail(createTimeoutError('视觉请求'));
     }, timeoutMs);
     if (typeof timer.unref === 'function') timer.unref();
     if (signal?.aborted) {
@@ -205,17 +218,17 @@ async function postJSONWithTimeout(url, headers, body, timeoutMs = 600000, netwo
         resolve({ statusCode: res.statusCode || 0, raw });
       }, (e) => {
         clearTimeout(timer);
-        reject(safeRequestError(e, 'image request'));
+        reject(safeRequestError(e, '图片请求'));
       });
     });
 
     const timer = setTimeout(() => {
       req.destroy();
-      reject(new Error(`Image generation HTTP timeout after ${timeoutMs}ms`));
+      reject(createTimeoutError('图片生成请求'));
     }, timeoutMs);
     req.on('error', (e) => {
       clearTimeout(timer);
-      reject(safeRequestError(e, 'image request'));
+      reject(safeRequestError(e, '图片请求'));
     });
     req.write(bodyStr);
     req.end();
@@ -271,10 +284,8 @@ async function postJSONStream(url, headers, body, silenceTimeoutMs = 60000, onPr
       if (settled) return;
       if (silenceTimer) clearTimeout(silenceTimer);
       silenceTimer = setTimeout(() => {
-        const error = new Error(`AI stream silence timeout after ${silenceTimeoutMs}ms`);
-        error.name = 'TimeoutError';
-        req.destroy(error);
-        fail(error);
+        req.destroy();
+        fail(createTimeoutError('流式输出'));
       }, silenceTimeoutMs);
       if (typeof silenceTimer.unref === 'function') silenceTimer.unref();
     };
@@ -285,12 +296,12 @@ async function postJSONStream(url, headers, body, silenceTimeoutMs = 60000, onPr
       if (statusCode < 200 || statusCode >= 300) {
         collectResponse(res, networkOptions.maxErrorBytes || TEXT_RESPONSE_MAX_BYTES, (raw) => {
           fail(createProviderHttpError({
-            provider: 'AI provider',
+            provider: 'AI 服务',
             operation: '流式请求',
             status: statusCode,
             responseBody: raw,
           }));
-        }, (error) => fail(safeRequestError(error, 'stream request')));
+        }, (error) => fail(safeRequestError(error, '流式请求')));
         return;
       }
 
@@ -305,7 +316,7 @@ async function postJSONStream(url, headers, body, silenceTimeoutMs = 60000, onPr
         if (settled) return;
         receivedBytes += chunk.length;
         if (receivedBytes > (networkOptions.maxResponseBytes || STREAM_RESPONSE_MAX_BYTES)) {
-          res.destroy(new uploadService.UnsafeMediaReferenceError('AI stream response exceeds the size limit.'));
+          res.destroy(new uploadService.UnsafeMediaReferenceError('AI 流式响应超过大小限制。'));
           return;
         }
         resetSilenceTimer();
@@ -345,12 +356,12 @@ async function postJSONStream(url, headers, body, silenceTimeoutMs = 60000, onPr
         succeed({ status: statusCode, body: accumulated });
       });
       res.on('error', (error) => {
-        fail(signal?.aborted ? createAbortError(signal) : safeRequestError(error, 'stream request'));
+        fail(signal?.aborted ? createAbortError(signal) : safeRequestError(error, '流式请求'));
       });
     });
 
     req.on('error', (error) => {
-      fail(signal?.aborted ? createAbortError(signal) : safeRequestError(error, 'stream request'));
+      fail(signal?.aborted ? createAbortError(signal) : safeRequestError(error, '流式请求'));
     });
     signal?.addEventListener('abort', onAbort, { once: true });
     if (signal?.aborted) {
@@ -707,7 +718,7 @@ function imageMimeType(detected) {
 
 async function validateVisionImageBuffer(buffer) {
   if (!Buffer.isBuffer(buffer) || buffer.length === 0 || buffer.length > VISION_IMAGE_MAX_BYTES) {
-    throw new uploadService.UnsafeMediaReferenceError('Vision reference image exceeds the size limit.');
+    throw new uploadService.UnsafeMediaReferenceError('视觉参考图超过大小限制。');
   }
   const detected = await uploadService.validateAllowedUpload(buffer, 'image');
   return { buffer, mimeType: imageMimeType(detected) };
@@ -717,14 +728,14 @@ async function loadVisionImage(imageSource, config, options = {}) {
   const providerNetwork = providerNetworkOptions(config, options.media_dns_lookup, options.signal);
   throwIfAborted(options.signal);
   if (!imageSource || typeof imageSource !== 'object') {
-    throw new uploadService.UnsafeMediaReferenceError('Vision reference image is required.');
+    throw new uploadService.UnsafeMediaReferenceError('需要提供视觉参考图。');
   }
 
   if (imageSource.storageReference) {
     const opened = uploadService.openStorageFile(imageSource.storagePath, imageSource.storageReference);
     try {
       if (opened.stat.size > VISION_IMAGE_MAX_BYTES) {
-        throw new uploadService.UnsafeMediaReferenceError('Vision reference image exceeds the size limit.');
+        throw new uploadService.UnsafeMediaReferenceError('视觉参考图超过大小限制。');
       }
       const validated = await validateVisionImageBuffer(fs.readFileSync(opened.fd));
       return { ...validated, sourceType: 'storage', reference: opened.relativePath };
@@ -734,7 +745,7 @@ async function loadVisionImage(imageSource, config, options = {}) {
   }
 
   if (imageSource.localAbsPath) {
-    throw new uploadService.UnsafeMediaReferenceError('Absolute vision reference paths are not allowed.');
+    throw new uploadService.UnsafeMediaReferenceError('不允许使用绝对路径作为视觉参考图。');
   }
 
   const value = String(imageSource.imageUrl || '').trim();
@@ -742,7 +753,7 @@ async function loadVisionImage(imageSource, config, options = {}) {
     const match = value.match(/^data:(image\/[a-z0-9.+-]+);base64,([a-z0-9+/=\s]+)$/i);
     const encodedLimit = Math.ceil(VISION_IMAGE_MAX_BYTES * 4 / 3) + 16;
     if (!match || match[2].length > encodedLimit) {
-      throw new uploadService.UnsafeMediaReferenceError('Vision data URL is invalid or too large.');
+      throw new uploadService.UnsafeMediaReferenceError('视觉参考图 data URL 无效或过大。');
     }
     const validated = await validateVisionImageBuffer(Buffer.from(match[2].replace(/\s/g, ''), 'base64'));
     return { ...validated, sourceType: 'data' };
@@ -845,7 +856,7 @@ async function generateTextWithVision(db, log, serviceType, userPrompt, systemPr
       ...summarizeProviderResponse(res.raw),
     });
     throw createProviderHttpError({
-      provider: 'AI provider',
+      provider: 'AI 服务',
       operation: '视觉响应',
       status: res.status,
       responseBody: res.raw,
@@ -922,7 +933,7 @@ async function extractDescriptionFromImage(db, log, entityType, imageUrl, entity
     return {
       ok: false,
       error: toSafeProviderErrorMessage(err, {
-        provider: 'AI provider',
+        provider: 'AI 服务',
         operation: '视觉分析',
       }),
     };

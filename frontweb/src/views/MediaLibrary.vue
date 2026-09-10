@@ -2,7 +2,7 @@
   <main class="media-library-page">
     <div class="page-header">
       <div class="header-left">
-        <el-button text class="back-link" @click="goBack">
+        <el-button text class="back-link" :aria-label="returnTo ? '返回制作台' : '返回项目首页'" @click="goBack">
           <el-icon><ArrowLeft /></el-icon>
           {{ returnTo ? '返回制作台' : '项目首页' }}
         </el-button>
@@ -20,6 +20,7 @@
           :type="mediaItems.length === 0 && !loading ? 'default' : 'primary'"
           :loading="uploading"
           :disabled="mediaWriteLocked"
+          aria-label="上传图片或视频到素材中心"
           @click="triggerUpload"
         >
           <el-icon><Upload /></el-icon>
@@ -223,7 +224,7 @@
         <div class="empty-actions">
           <template v-if="hasActiveFilters">
             <el-button @click="clearFilters">清除筛选</el-button>
-            <el-button type="primary" :disabled="mediaWriteLocked" @click="triggerUpload">
+            <el-button type="primary" :disabled="mediaWriteLocked" aria-label="上传图片或视频到素材中心" @click="triggerUpload">
               <el-icon><Upload /></el-icon>上传素材
             </el-button>
           </template>
@@ -259,6 +260,7 @@
         :page-size="pageSize"
         :total="total"
         layout="prev, pager, next"
+        aria-label="素材列表分页"
         @current-change="loadMedia"
       />
     </div>
@@ -276,10 +278,19 @@
         <div>
           <h2 id="network-search-title" class="section-title">搜索网络素材</h2>
           <p class="section-description">
-            导入目标：<strong>{{ networkImportTargetLabel }}</strong>。只有来源和许可证据完整的素材才能导入。
+            导入目标：<strong>{{ networkImportTargetLabel }}</strong>。这些是公开许可素材，具体用途是否兼容仍需用户自行核对。只有来源和许可证据完整的素材才能导入。
           </p>
         </div>
         <div class="network-search-controls">
+          <el-radio-group
+            v-model="networkSource"
+            aria-label="网络素材来源"
+            @change="handleNetworkSourceChange"
+          >
+            <el-radio-button value="all">全部</el-radio-button>
+            <el-radio-button value="commons">Wikimedia Commons</el-radio-button>
+            <el-radio-button value="openverse">Openverse</el-radio-button>
+          </el-radio-group>
           <el-radio-group
             v-model="networkMediaType"
             aria-label="网络素材类型"
@@ -303,6 +314,7 @@
             type="primary"
             :loading="networkLoading"
             :disabled="!networkKeyword.trim()"
+            :title="!networkKeyword.trim() ? '请输入关键词后再搜索' : undefined"
             @click="searchNetworkMedia"
           >
             <el-icon><Search /></el-icon>搜索
@@ -323,11 +335,16 @@
           plain
           :loading="networkLoading"
           :disabled="!networkKeyword.trim()"
+          :title="!networkKeyword.trim() ? '请输入关键词后再搜索' : undefined"
           aria-label="重试搜索网络素材"
           @click="searchNetworkMedia"
         >
           <el-icon><Refresh /></el-icon>重试
         </el-button>
+      </section>
+
+      <section v-if="networkNotice && !networkError" class="network-state" role="status">
+        <p>{{ networkNotice }}</p>
       </section>
 
       <div v-loading="networkLoading" class="network-grid" :aria-busy="networkLoading">
@@ -360,6 +377,7 @@
               <span>{{ item.author || '作者未知' }}</span>
               <span>{{ networkDimensions(item) }}</span>
             </p>
+            <p class="network-source" :title="networkItemSourceLabel(item)">来源：{{ networkItemSourceLabel(item) }}</p>
             <p class="network-license" :title="item.license || '未注明许可'">许可：{{ item.license || '未注明许可' }}</p>
             <p
               v-if="!networkItemImportability(item).allowed"
@@ -446,10 +464,25 @@
         <div v-if="safeExternalUrl(sourceEvidence(previewItem, 'source_url'), true)" class="meta-row">
           <span>来源页面：</span>
           <a
+            v-if="isOpenversePreview(previewItem)"
+            :href="safeExternalUrl(sourceEvidence(previewItem, 'source_url'), true)"
+            target="_blank"
+            rel="noopener noreferrer"
+          >查看 Openverse 来源</a>
+          <a
+            v-else
             :href="safeExternalUrl(sourceEvidence(previewItem, 'source_url'), true)"
             target="_blank"
             rel="noopener noreferrer"
           >查看 Wikimedia Commons 来源</a>
+        </div>
+        <div v-if="safeExternalUrl(sourceEvidence(previewItem, 'landing_page'), true)" class="meta-row">
+          <span>原始发布页：</span>
+          <a
+            :href="safeExternalUrl(sourceEvidence(previewItem, 'landing_page'), true)"
+            target="_blank"
+            rel="noopener noreferrer"
+          >查看原始发布页</a>
         </div>
         <div v-if="sourceEvidence(previewItem, 'commons_page_id')" class="meta-row">
           <span>Commons 页面 ID：</span>{{ sourceEvidence(previewItem, 'commons_page_id') }}
@@ -512,6 +545,7 @@
       <div class="preview-meta">
         <div class="meta-row"><span>名称：</span>{{ networkItemTitle(networkPreviewItem) }}</div>
         <div class="meta-row"><span>作者：</span>{{ networkPreviewItem?.author || '未知' }}</div>
+        <div class="meta-row"><span>来源：</span>{{ networkItemSourceLabel(networkPreviewItem) }}</div>
         <div class="meta-row"><span>许可：</span>{{ networkPreviewItem?.license || '未注明许可' }}</div>
         <div v-if="safeExternalUrl(networkPreviewItem?.license_url, true)" class="meta-row">
           <span>许可条款：</span>
@@ -544,6 +578,7 @@ import request from '@/utils/request'
 import { describeServiceLoadError, isRequestCanceled, withRequestRetry } from '@/utils/requestError'
 import { describeMediaLibraryUserError, isMediaLibraryUserAbort } from '@/utils/mediaLibraryUserError'
 import { normalizeMediaLibraryReturnTo } from '@/router'
+import { openWorkspaceNavItem } from '@/layouts/AppWorkspaceNav.js'
 import {
   createLatestMediaRequestGuard,
   formatMediaSize as formatSize,
@@ -598,9 +633,11 @@ const hoveredCardId = ref(null)
 const focusedCardId = ref(null)
 const networkKeyword = ref(initialNetworkRoute.keyword)
 const networkMediaType = ref(initialNetworkRoute.type)
+const networkSource = ref(normalizeNetworkSourceQuery(initialNetworkRoute.source || route.query.network_source))
 const networkItems = ref([])
 const networkLoading = ref(false)
 const networkError = ref('')
+const networkNotice = ref('')
 const networkSearched = ref(false)
 const networkImportingKeys = reactive(new Set())
 const showNetworkPreview = ref(false)
@@ -643,12 +680,15 @@ watch(
   () => route.query,
   (query) => {
     const state = normalizeMediaLibraryNetworkRoute(query)
+    const nextSource = normalizeNetworkSourceQuery(query?.network_source)
     const changed = libraryMode.value !== state.mode
       || networkKeyword.value !== state.keyword
       || networkMediaType.value !== state.type
+      || networkSource.value !== nextSource
     libraryMode.value = state.mode
     networkKeyword.value = state.keyword
     networkMediaType.value = state.type
+    networkSource.value = nextSource
     if (!mediaLibraryMounted || !changed) return
 
     invalidateNetworkSearch()
@@ -658,7 +698,7 @@ watch(
 )
 
 watch(
-  [libraryMode, networkKeyword, networkMediaType],
+  [libraryMode, networkKeyword, networkMediaType, networkSource],
   () => {
     if (libraryMode.value === 'network' && !networkKeyword.value.trim()) {
       invalidateNetworkSearch()
@@ -668,6 +708,8 @@ watch(
       keyword: networkKeyword.value,
       type: networkMediaType.value,
     })
+    if (networkSource.value && networkSource.value !== 'all') nextQuery.network_source = networkSource.value
+    else delete nextQuery.network_source
     if (resolvedMediaLibraryPath(nextQuery) === route.fullPath) return
     router.replace({ path: route.path, query: nextQuery, hash: route.hash }).catch(() => {})
   },
@@ -675,21 +717,22 @@ watch(
 )
 
 function goHome() {
-  router.push('/')
+  openWorkspaceNavItem(router, 'list')
 }
 
 function goBack() {
-  router.push(returnTo.value || '/')
+  if (returnTo.value) router.push(returnTo.value)
+  else openWorkspaceNavItem(router, 'list')
 }
 
 function goNewProject() {
   if (mediaAccessState.value.navigationLocked) return
-  router.push({ path: '/', query: { new: '1' } })
+  openWorkspaceNavItem(router, 'list', { query: { new: '1' } })
 }
 
 function goSourceImport() {
   if (mediaAccessState.value.navigationLocked) return
-  router.push({ path: '/', query: { intent: 'source-import' } })
+  openWorkspaceNavItem(router, 'list', { query: { intent: 'source-import' } })
 }
 
 function triggerUpload() {
@@ -826,6 +869,7 @@ function invalidateNetworkSearch() {
   networkAbortController = null
   networkItems.value = []
   networkError.value = ''
+  networkNotice.value = ''
   networkSearched.value = false
   networkLoading.value = false
 }
@@ -836,6 +880,26 @@ function networkItemKey(item, index = 0) {
 
 function networkItemTitle(item) {
   return item?.title?.trim() || '未命名网络素材'
+}
+
+function normalizeNetworkSourceQuery(value) {
+  const raw = Array.isArray(value) ? value[0] : value
+  return raw === 'commons' || raw === 'openverse' || raw === 'all' ? raw : 'all'
+}
+
+function isOpenversePreview(item) {
+  return item?.source === 'openverse'
+    || item?.source_provider === 'Openverse'
+    || item?.source_metadata?.kind === 'openverse'
+    || Boolean(item?.openverse_id)
+}
+
+function networkItemSourceLabel(item) {
+  if (!item) return '未知来源'
+  if (item.source_site && (item.source === 'openverse' || item.source_provider === 'Openverse' || item.source_metadata?.kind === 'openverse')) {
+    return `Openverse · ${item.source_site}`
+  }
+  return item.source_provider || item.source_site || (isOpenversePreview(item) ? 'Openverse' : 'Wikimedia Commons')
 }
 
 function networkCardImageUrl(item) {
@@ -905,8 +969,9 @@ async function searchNetworkMedia() {
   const requestId = networkRequestGuard.begin()
   networkLoading.value = true
   networkError.value = ''
+  networkNotice.value = ''
   try {
-    const params = { keyword: query }
+    const params = { keyword: query, source: networkSource.value }
     if (networkMediaType.value !== 'all') params.type = networkMediaType.value
     const result = await mediaLibraryAPI.searchNetwork(params, {
       suppressErrorToast: true,
@@ -914,12 +979,14 @@ async function searchNetworkMedia() {
     })
     networkRequestGuard.commit(requestId, () => {
       networkItems.value = result?.items || []
+      networkNotice.value = result?.notice || ''
       networkSearched.value = true
     })
   } catch (error) {
     if (isMediaLibraryUserAbort(error)) return
     networkRequestGuard.commit(requestId, () => {
       networkItems.value = []
+      networkNotice.value = ''
       networkSearched.value = true
       networkError.value = describeNetworkError(error, '暂时无法搜索网络素材，请稍后重试')
     })
@@ -932,6 +999,11 @@ async function searchNetworkMedia() {
 }
 
 function handleNetworkTypeChange() {
+  invalidateNetworkSearch()
+  if (networkKeyword.value.trim()) searchNetworkMedia()
+}
+
+function handleNetworkSourceChange() {
   invalidateNetworkSearch()
   if (networkKeyword.value.trim()) searchNetworkMedia()
 }
@@ -1364,6 +1436,7 @@ onBeforeUnmount(() => {
   white-space: nowrap;
 }
 
+.network-source,
 .network-license {
   margin: 5px 0 0;
   overflow: hidden;

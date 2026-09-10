@@ -65,18 +65,53 @@
         </el-button>
       </el-tooltip>
 
-      <div v-if="selectionCount >= 2" class="multi-selection-actions" aria-label="多选操作">
+      <CanvasActionGate
+        :reason="alignDisabledReason"
+        label="对齐所选节点"
+        description-id="free-canvas-reason-align"
+      >
+        <el-dropdown trigger="click" :disabled="Boolean(alignDisabledReason)" @command="alignSelection">
+          <el-button
+            size="small"
+            :disabled="Boolean(alignDisabledReason)"
+            aria-label="对齐所选节点"
+            :title="alignDisabledReason || '对齐所选节点'"
+          >
+            对齐
+          </el-button>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item command="left">左对齐</el-dropdown-item>
+              <el-dropdown-item command="top">顶对齐</el-dropdown-item>
+              <el-dropdown-item command="center-x">水平居中</el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
+      </CanvasActionGate>
+
+      <div v-if="isEmptyCanvas" class="empty-next-steps" aria-label="空画布下一步">
+        <span class="empty-next-copy" role="status">画布是空的，下一步可直接开始</span>
+        <el-button size="small" type="primary" aria-label="新建文本" @click="emit('create-node', 'text')">新建文本</el-button>
+        <el-button size="small" aria-label="新建配置" @click="emit('create-node', 'config')">新建配置</el-button>
+        <el-button size="small" aria-label="打开素材栏" @click="emit('toggle-library')">打开素材栏</el-button>
+      </div>
+
+      <p v-if="densityHint" class="density-hint" role="status">{{ densityHint }}</p>
+
+      <div v-if="selectionCount >= 1" class="multi-selection-actions" aria-label="多选操作">
         <span class="selection-summary" role="status">已选 {{ selectionCount }} 项</span>
-        <el-tooltip content="复制所选节点" placement="bottom">
-          <el-button size="small" circle aria-label="复制所选节点" title="复制所选节点" @click="emit('copy-selection')">
-            <el-icon><CopyDocument /></el-icon>
-          </el-button>
-        </el-tooltip>
-        <el-tooltip content="删除所选节点" placement="bottom">
-          <el-button size="small" circle type="danger" aria-label="删除所选节点" title="删除所选节点" @click="emit('delete-selection')">
-            <el-icon><Delete /></el-icon>
-          </el-button>
-        </el-tooltip>
+        <template v-if="selectionCount >= 2">
+          <el-tooltip content="复制所选节点" placement="bottom">
+            <el-button size="small" circle aria-label="复制所选节点" title="复制所选节点" @click="emit('copy-selection')">
+              <el-icon><CopyDocument /></el-icon>
+            </el-button>
+          </el-tooltip>
+          <el-tooltip content="删除所选节点" placement="bottom">
+            <el-button size="small" circle type="danger" aria-label="删除所选节点" title="删除所选节点" @click="emit('delete-selection')">
+              <el-icon><Delete /></el-icon>
+            </el-button>
+          </el-tooltip>
+        </template>
       </div>
     </template>
   </section>
@@ -98,6 +133,13 @@ import {
   VideoPlay,
 } from '@element-plus/icons-vue'
 import { computed } from 'vue'
+
+import CanvasActionGate from './CanvasActionGate.vue'
+import {
+  freeCanvasUxState,
+  getFreeCanvasAlignDisabledReason,
+  getFreeCanvasNodeCapacityHint,
+} from './freeCanvasUx.js'
 
 const props = defineProps({
   mode: { type: String, default: 'production' },
@@ -124,6 +166,18 @@ const emit = defineEmits([
 const backgroundModes = ['dots', 'lines', 'none']
 const isFreeMode = computed(() => props.mode === 'free')
 const libraryActionLabel = computed(() => props.libraryVisible ? '收起素材栏' : '展开素材栏')
+const effectiveNodeCount = computed(() => freeCanvasUxState.nodeCount)
+const isEmptyCanvas = computed(() => isFreeMode.value && effectiveNodeCount.value === 0)
+const densityHint = computed(() => getFreeCanvasNodeCapacityHint(effectiveNodeCount.value))
+const alignDisabledReason = computed(() => getFreeCanvasAlignDisabledReason({
+  selectionCount: props.selectionCount,
+  readonly: Boolean(freeCanvasUxState.readonly),
+}))
+
+function alignSelection(mode) {
+  if (alignDisabledReason.value) return
+  freeCanvasUxState.alignSelection?.(mode)
+}
 
 function createNode(type) {
   if (!isFreeMode.value) return
@@ -175,11 +229,32 @@ function cycleBackground() {
   border-left: 1px solid var(--border-color, #3f3f46);
 }
 
-.selection-summary {
-  min-width: 64px;
+.selection-summary,
+.empty-next-copy,
+.density-hint {
   color: var(--canvas-text-secondary, #d4d4d8);
   font-size: 12px;
   white-space: nowrap;
+}
+
+.selection-summary {
+  min-width: 64px;
+}
+
+.empty-next-steps,
+.density-hint {
+  display: inline-flex;
+  min-height: 28px;
+  align-items: center;
+  gap: 6px;
+  padding-left: 8px;
+  border-left: 1px solid var(--border-color, #3f3f46);
+}
+
+.density-hint {
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .free-canvas-toolbar :deep(.el-button:focus-visible) {

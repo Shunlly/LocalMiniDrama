@@ -271,7 +271,7 @@ async function callModelArkAsset(opts, log) {
     });
   } else {
     const token = normalizeBearerToken(api_key);
-    if (!token) throw new Error('缺少 api_key');
+    if (!token) throw new Error('缺少密钥');
     const url = buildRequestUrl(base, pathMode, act, api_version, pnScope);
     res = await fetchBearer(url, method, token, bodyObj, networkOptions);
   }

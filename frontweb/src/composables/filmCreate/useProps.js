@@ -128,8 +128,12 @@ export function useProps(deps) {
         const pollRes = await pollTask(taskId, () => loadDrama(), meta)
         if (pollRes?.status === 'completed') {
           ElMessage.success('道具提取完成')
+        } else if (pollRes?.status === 'timeout') {
+          ElMessage.warning(toUserFacingError(pollRes?.error, '道具提取超时，请稍后重试'))
+        } else if (pollRes?.status === 'cancelled' || pollRes?.status === 'canceled') {
+          ElMessage.info(toUserFacingError(pollRes?.error, '操作已取消'))
         } else {
-          ElMessage.warning(pollRes?.error || '道具提取未完成')
+          ElMessage.warning(toUserFacingError(pollRes?.error, '道具提取未完成'))
         }
       } else {
         await loadDrama()
@@ -224,7 +228,8 @@ export function useProps(deps) {
       form.ref_image = ''
       ElMessage.success('参考图已移除')
     } catch (e) {
-      ElMessage.error('移除失败')
+      if (isUserFacingAbort(e)) return
+      ElMessage.error(toUserFacingError(e, '移除失败'))
     }
   }
 
@@ -327,11 +332,16 @@ export function useProps(deps) {
       if (taskId) {
         const pollRes = await pollTask(taskId, () => loadDrama(), meta)
         if (pollRes?.status === 'failed') {
-          prop.errorMsg = pollRes.error || '生成失败'
+          prop.errorMsg = toUserFacingError(pollRes.error, '生成失败')
         } else if (pollRes?.status === 'completed') {
           ElMessage.success('道具图片已生成')
+        } else if (pollRes?.status === 'timeout') {
+          prop.errorMsg = toUserFacingError(pollRes?.error, '生成超时，请稍后重试')
+          ElMessage.warning(prop.errorMsg)
+        } else if (pollRes?.status === 'cancelled' || pollRes?.status === 'canceled') {
+          prop.errorMsg = toUserFacingError(pollRes?.error, '操作已取消')
         } else {
-          prop.errorMsg = pollRes?.error || '道具图片生成未完成'
+          prop.errorMsg = toUserFacingError(pollRes?.error, '道具图片生成未完成')
           ElMessage.warning(prop.errorMsg)
         }
       } else {
@@ -344,8 +354,9 @@ export function useProps(deps) {
         ElMessage.success('道具图片已生成')
       }
     } catch (e) {
-      console.error(e)
       prop.errorMsg = toUserFacingError(e, '生成失败')
+      if (isUserFacingAbort(e)) return
+      console.error(e)
       ElMessage.error(toUserFacingError(e, '提交失败'))
     } finally {
       generatingPropIds.delete(prop.id)

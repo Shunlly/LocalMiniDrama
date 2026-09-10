@@ -1,3 +1,4 @@
+import { canvasUserError } from '@/composables/useCanvasUserError'
 import { taskAPI } from '@/api/task'
 import { imagesAPI } from '@/api/images'
 import { videosAPI } from '@/api/videos'
@@ -48,14 +49,43 @@ function createAbortError(message = '任务已取消') {
   return error
 }
 
-function isAbortError(error) {
+function isAbortError(error, signal) {
+  if (isRequestTimeout(error, signal)) return false
   return error?.name === 'AbortError'
+    || error?.name === 'CanceledError'
+    || error?.code === 'ERR_CANCELED'
+}
+
+const CANVAS_SECRET_LEAK_RE = /sk-[A-Za-z0-9._-]{6,}|api[_-]?key|bearer\s+[A-Za-z0-9._-]+|password\s*=|client_secret|authorization\s*:|https?:\/\//i
+
+function sanitizeCanvasError(error, fallback) {
+  const text = canvasUserError(error, fallback)
+  if (!text || !/[\u4e00-\u9fff]/.test(text) || CANVAS_SECRET_LEAK_RE.test(text)) return fallback
+  return text
+}
+
+function sanitizeAbortMessage(raw) {
+  const text = typeof raw === 'string' ? raw.trim() : String(raw?.message || raw || '').trim()
+  if (text && /[\u4e00-\u9fff]/.test(text) && !CANVAS_SECRET_LEAK_RE.test(text)) return text
+  return '任务已取消'
+}
+
+function throwAborted(signal, error) {
+  const raw = signal?.aborted ? (signal.reason || error) : error
+  throw createAbortError(sanitizeAbortMessage(raw))
+}
+
+function rethrowUnlessAbort(error, fallback, signal) {
+  if (isAbortError(error, signal) || signal?.aborted) throwAborted(signal, error)
+  if (error?.code === 'SUBMISSION_OUTCOME_UNKNOWN') throw error
+  const next = new Error(sanitizeCanvasError(error, fallback))
+  if (error?.code) next.code = error.code
+  throw next
 }
 
 function throwIfAborted(signal) {
   if (!signal?.aborted) return
-  const message = typeof signal.reason?.message === 'string' ? signal.reason.message : '任务已取消'
-  throw createAbortError(message)
+  throw createAbortError(sanitizeAbortMessage(signal.reason))
 }
 
 function waitForPoll(ms, signal) {
@@ -69,10 +99,21 @@ function waitForPoll(ms, signal) {
     function onAbort() {
       clearTimeout(timer)
       signal?.removeEventListener('abort', onAbort)
-      reject(createAbortError(signal?.reason?.message || '任务已取消'))
+      reject(createAbortError(sanitizeAbortMessage(signal?.reason)))
     }
     signal?.addEventListener('abort', onAbort, { once: true })
   })
+}
+
+function pollTaskOptions(options = {}) {
+  return {
+    signal: options.signal,
+    getTask: options.getTask,
+    maxAttempts: options.maxAttempts,
+    interval: options.interval,
+    deadlineMs: options.deadlineMs,
+    requestTimeoutMs: options.requestTimeoutMs,
+  }
 }
 
 export async function pollTaskSimple(taskId, options = {}) {
@@ -86,6 +127,7 @@ export async function pollTaskSimple(taskId, options = {}) {
   )
   const deadlineAt = Date.now() + deadlineMs
   const signal = options.signal
+  const getTask = options.getTask || ((id, reqOpts) => taskAPI.get(id, reqOpts))
   throwIfAborted(signal)
   for (let i = 0; i < maxAttempts; i++) {
     const waitMs = Math.min(Math.max(0, interval), Math.max(0, deadlineAt - Date.now()))
@@ -94,26 +136,22 @@ export async function pollTaskSimple(taskId, options = {}) {
     const remainingMs = deadlineAt - Date.now()
     if (remainingMs <= 0) return { status: 'timeout', error: '任务超时' }
     try {
-      const t = await taskAPI.get(taskId, {
+      const t = await getTask(taskId, {
         signal,
         timeout: Math.max(1, Math.min(requestTimeoutMs, remainingMs)),
       })
       throwIfAborted(signal)
       if (t.status === 'completed') return { status: 'completed', result: t.result }
       if (t.status === 'failed') {
-        return { status: 'failed', error: t.error?.message || t.error || '任务失败' }
+        return { status: 'failed', error: sanitizeCanvasError(t.error || '任务失败', '任务失败') }
       }
       if (t.status === 'cancelled' || t.status === 'canceled') {
-        throw createAbortError(t.error?.message || t.error || '任务已取消')
+        throw createAbortError(sanitizeAbortMessage(t.error?.message || t.error || '任务已取消'))
       }
     } catch (e) {
-      if (isAbortError(e) || signal?.aborted) {
-        throw signal?.aborted
-          ? createAbortError(signal.reason?.message || e?.message || '任务已取消')
-          : e
-      }
+      if (isAbortError(e, signal) || signal?.aborted) throwAborted(signal, e)
       if (Date.now() >= deadlineAt) return { status: 'timeout', error: '任务超时' }
-      if (i === maxAttempts - 1) return { status: 'failed', error: e.message || '轮询失败' }
+      if (i === maxAttempts - 1) return { status: 'failed', error: sanitizeCanvasError(e, '轮询失败') }
     }
   }
   return { status: 'timeout', error: '任务超时' }
@@ -122,22 +160,27 @@ export async function pollTaskSimple(taskId, options = {}) {
 export async function runImageStep(drama, sb, genOpts, options = {}) {
   const signal = options.signal
   throwIfAborted(signal)
-  const prompt = sb.polished_prompt || sb.image_prompt || sb.description || sb.action || ''
-  if (!prompt.trim()) throw new Error(`分镜 #${sb.storyboard_number ?? sb.id} 缺少图片提示词`)
-  const references = collectStoryboardReferenceUrls(drama, sb, { toAbsolute: toAbsoluteMediaUrl })
-  const res = await imagesAPI.create({
-    storyboard_id: sb.id,
-    drama_id: drama.id,
-    prompt,
-    style: genOpts.style || undefined,
-    aspect_ratio: genOpts.aspectRatio,
-    reference_images: references.length ? references : undefined,
-  }, submissionRequestOptions(signal))
-  throwIfAborted(signal)
-  if (res?.task_id) {
-    const polled = await pollTaskSimple(res.task_id, { signal })
+  try {
+    const prompt = sb.polished_prompt || sb.image_prompt || sb.description || sb.action || ''
+    if (!prompt.trim()) throw new Error(`分镜 #${sb.storyboard_number ?? sb.id} 缺少图片提示词`)
+    const createImage = options.createImage || ((body, reqOpts) => imagesAPI.create(body, reqOpts))
+    const references = collectStoryboardReferenceUrls(drama, sb, { toAbsolute: toAbsoluteMediaUrl })
+    const res = await createImage({
+      storyboard_id: sb.id,
+      drama_id: drama.id,
+      prompt,
+      style: genOpts.style || undefined,
+      aspect_ratio: genOpts.aspectRatio,
+      reference_images: references.length ? references : undefined,
+    }, submissionRequestOptions(signal))
     throwIfAborted(signal)
-    if (polled.status !== 'completed') throw new Error(polled.error || '分镜图生成失败')
+    if (res?.task_id) {
+      const polled = await pollTaskSimple(res.task_id, pollTaskOptions(options))
+      throwIfAborted(signal)
+      if (polled.status !== 'completed') throw new Error(sanitizeCanvasError(polled.error, '分镜图生成失败'))
+    }
+  } catch (error) {
+    rethrowUnlessAbort(error, '分镜图生成失败', signal)
   }
 }
 
@@ -146,7 +189,8 @@ async function resolveProfessionalFramePrompt(sb, frameKind, options = {}) {
   throwIfAborted(signal)
   const frameType = frameKind === 'last' ? 'last' : 'first'
   const readCached = async () => {
-    const result = await storyboardsAPI.getFramePrompts(sb.id, submissionRequestOptions(signal))
+    const getFramePrompts = options.getFramePrompts || ((id, reqOpts) => storyboardsAPI.getFramePrompts(id, reqOpts))
+    const result = await getFramePrompts(sb.id, submissionRequestOptions(signal))
     throwIfAborted(signal)
     const row = (result?.frame_prompts || []).find((item) => item.frame_type === frameType)
     return String(row?.prompt || '').trim()
@@ -155,16 +199,17 @@ async function resolveProfessionalFramePrompt(sb, frameKind, options = {}) {
     const cached = await readCached()
     throwIfAborted(signal)
     if (cached) return cached
-    const created = await storyboardsAPI.generateFramePrompt(
+    const generateFramePrompt = options.generateFramePrompt || ((id, body, reqOpts) => storyboardsAPI.generateFramePrompt(id, body, reqOpts))
+    const created = await generateFramePrompt(
       sb.id,
       { frame_type: frameType },
       submissionRequestOptions(signal),
     )
     throwIfAborted(signal)
     if (created?.task_id) {
-      const polled = await pollTaskSimple(created.task_id, { signal })
+      const polled = await pollTaskSimple(created.task_id, pollTaskOptions(options))
       throwIfAborted(signal)
-      if (polled.status !== 'completed') throw new Error(polled.error || '帧提示词生成失败')
+      if (polled.status !== 'completed') throw new Error(sanitizeCanvasError(polled.error, '帧提示词生成失败'))
       const fromTask = String(polled.result?.response?.single_frame?.prompt || '').trim()
       if (fromTask) return fromTask
     }
@@ -172,7 +217,7 @@ async function resolveProfessionalFramePrompt(sb, frameKind, options = {}) {
     throwIfAborted(signal)
     if (generated) return generated
   } catch (error) {
-    if (isAbortError(error) || signal?.aborted) throw error
+    if (isAbortError(error, signal) || signal?.aborted) throwAborted(signal, error)
     options.onWarning?.({
       code: 'frame-prompt-fallback',
       message: '专业帧提示词服务不可用，已改用本地提示词；请检查文本模型配置。',
@@ -187,11 +232,9 @@ async function resolveProfessionalFramePrompt(sb, frameKind, options = {}) {
 export async function runFrameImageStep(drama, sb, genOpts, frameKind, options = {}) {
   const signal = options.signal
   throwIfAborted(signal)
+  try {
   const kind = frameKind === 'last' ? 'last' : 'first'
-  const prompt = await resolveProfessionalFramePrompt(sb, kind, {
-    signal,
-    onWarning: options.onWarning,
-  })
+  const prompt = await resolveProfessionalFramePrompt(sb, kind, options)
   throwIfAborted(signal)
   if (!prompt) throw new Error(`分镜 #${sb.storyboard_number ?? sb.id} 缺少${kind === 'last' ? '尾帧' : '首帧'}提示词`)
   const imagesBySbId = genOpts?.imagesBySbId || {}
@@ -202,7 +245,8 @@ export async function runFrameImageStep(drama, sb, genOpts, frameKind, options =
   }
   const entityReferences = collectStoryboardReferenceUrls(drama, sb, { toAbsolute: toAbsoluteMediaUrl })
   const frameReferences = [firstReference, ...entityReferences].filter(Boolean).slice(0, 10)
-  const result = await imagesAPI.create({
+  const createImage = options.createImage || ((body, reqOpts) => imagesAPI.create(body, reqOpts))
+  const result = await createImage({
     storyboard_id: sb.id,
     drama_id: drama.id,
     prompt,
@@ -214,15 +258,19 @@ export async function runFrameImageStep(drama, sb, genOpts, frameKind, options =
   }, submissionRequestOptions(signal))
   throwIfAborted(signal)
   if (result?.task_id) {
-    const polled = await pollTaskSimple(result.task_id, { signal })
+    const polled = await pollTaskSimple(result.task_id, pollTaskOptions(options))
     throwIfAborted(signal)
-    if (polled.status !== 'completed') throw new Error(polled.error || `${kind === 'last' ? '尾帧' : '首帧'}生成失败`)
+    if (polled.status !== 'completed') throw new Error(sanitizeCanvasError(polled.error, `${kind === 'last' ? '尾帧' : '首帧'}生成失败`))
+  }
+  } catch (error) {
+    rethrowUnlessAbort(error, '分镜图生成失败', signal)
   }
 }
 
 export async function runVideoStep(drama, sb, genOpts, options = {}) {
   const signal = options.signal
   throwIfAborted(signal)
+  try {
   const useFirstLast = dramaUsesFirstLastFrame(drama)
   const imagesBySbId = genOpts?.imagesBySbId || {}
   const universal = sb?.creation_mode === 'universal'
@@ -240,12 +288,13 @@ export async function runVideoStep(drama, sb, genOpts, options = {}) {
   let activeVideoConfig = null
   if (universal || selectedGrid) {
     try {
-      const configs = await aiAPI.list('video', submissionRequestOptions(signal))
+      const listAi = options.listAi || ((type, reqOpts) => aiAPI.list(type, reqOpts))
+      const configs = await listAi('video', submissionRequestOptions(signal))
       throwIfAborted(signal)
       const enabled = (Array.isArray(configs) ? configs : []).filter((item) => item?.is_active !== false)
       activeVideoConfig = enabled.find((item) => item?.is_default) || enabled[0] || null
     } catch (error) {
-      if (isAbortError(error) || signal?.aborted) throw error
+      if (isAbortError(error, signal) || signal?.aborted) throwAborted(signal, error)
       activeVideoConfig = null
     }
   }
@@ -286,7 +335,8 @@ export async function runVideoStep(drama, sb, genOpts, options = {}) {
   } else {
     referenceImageUrls = [absoluteFirst, absoluteLast].filter(Boolean)
   }
-  const res = await videosAPI.create(buildStoryboardVideoRequest({
+  const createVideo = options.createVideo || ((body, reqOpts) => videosAPI.create(body, reqOpts))
+  const res = await createVideo(buildStoryboardVideoRequest({
     dramaId: drama.id,
     storyboard: sb,
     prompt,
@@ -302,9 +352,12 @@ export async function runVideoStep(drama, sb, genOpts, options = {}) {
   }), submissionRequestOptions(signal))
   throwIfAborted(signal)
   if (res?.task_id) {
-    const polled = await pollTaskSimple(res.task_id, { signal })
+    const polled = await pollTaskSimple(res.task_id, pollTaskOptions(options))
     throwIfAborted(signal)
-    if (polled.status !== 'completed') throw new Error(polled.error || '视频生成失败')
+    if (polled.status !== 'completed') throw new Error(sanitizeCanvasError(polled.error, '视频生成失败'))
+  }
+  } catch (error) {
+    rethrowUnlessAbort(error, '视频生成失败', signal)
   }
 }
 
@@ -314,19 +367,20 @@ export async function runAudioStep(sb, options = {}) {
   const text = (sb.dialogue || '').trim()
   if (!text) return { skipped: true, reason: '无对白' }
   try {
-    await request.post('/audio/extract', {
+    const postRequest = options.postRequest || ((url, body, reqOpts) => request.post(url, body, reqOpts))
+    await postRequest('/audio/extract', {
       storyboard_id: sb.id,
       text,
       tts_kind: 'dialogue',
     }, audioSubmissionRequestOptions(signal))
   } catch (error) {
-    if (signal?.aborted || isAbortError(error)) throw error
+    if (signal?.aborted || isAbortError(error, signal)) throwAborted(signal, error)
     if (isRequestTimeout(error)) {
       const uncertain = new Error('语音请求等待超时，服务端可能仍在合成并产生费用。请先刷新分镜状态，确认结果后再决定是否重试。')
       uncertain.code = 'SUBMISSION_OUTCOME_UNKNOWN'
       throw uncertain
     }
-    throw error
+    rethrowUnlessAbort(error, '配音生成失败', signal)
   }
   throwIfAborted(signal)
   return { skipped: false }
@@ -355,21 +409,21 @@ export async function runStoryboardPipeline(drama, storyboardId, pipeline, hooks
     throwIfAborted(signal)
     try {
       if (step === 'image') {
-        await runImageStep(drama, sb, genOpts, { signal })
+        await runImageStep(drama, sb, genOpts, hooks)
         throwIfAborted(signal)
         if (hooks.reloadStoryboard) {
           sb = (await hooks.reloadStoryboard(storyboardId, submissionRequestOptions(signal))) || sb
           throwIfAborted(signal)
         }
       } else if (step === 'video') {
-        await runVideoStep(drama, sb, genOpts, { signal })
+        await runVideoStep(drama, sb, genOpts, hooks)
         throwIfAborted(signal)
         if (hooks.reloadStoryboard) {
           sb = (await hooks.reloadStoryboard(storyboardId, submissionRequestOptions(signal))) || sb
           throwIfAborted(signal)
         }
       } else if (step === 'audio') {
-        const audioRes = await runAudioStep(sb, { signal })
+        const audioRes = await runAudioStep(sb, hooks)
         throwIfAborted(signal)
         results.push({ step, ...audioRes })
       }
@@ -377,13 +431,11 @@ export async function runStoryboardPipeline(drama, storyboardId, pipeline, hooks
       hooks.onStepComplete?.({ storyboardId, step, sb })
     } catch (err) {
       if (isAbortError(err) || signal?.aborted) {
-        throw signal?.aborted
-          ? createAbortError(signal.reason?.message || err?.message || '任务已取消')
-          : err
+        throwAborted(signal, err)
       }
       throwIfAborted(signal)
       hooks.onStepError?.({ storyboardId, step, error: err })
-      throw err
+      rethrowUnlessAbort(err, '生成失败', signal)
     }
   }
   return results
@@ -409,15 +461,13 @@ export async function runWorkflowGroup(drama, group, hooks = {}) {
       hooks.onStoryboardComplete?.({ group, storyboardId: sbId })
     } catch (err) {
       if (isAbortError(err) || signal?.aborted) {
-        throw signal?.aborted
-          ? createAbortError(signal.reason?.message || err?.message || '任务已取消')
-          : err
+        throwAborted(signal, err)
       }
       if (err?.code === 'SUBMISSION_OUTCOME_UNKNOWN') {
         err.storyboardId = sbId
         throw err
       }
-      summary.failed.push({ storyboardId: sbId, error: err.message || String(err) })
+      summary.failed.push({ storyboardId: sbId, error: sanitizeCanvasError(err, '生成失败') })
       throwIfAborted(signal)
       hooks.onStoryboardError?.({ group, storyboardId: sbId, error: err })
       if (hooks.stopOnError) break

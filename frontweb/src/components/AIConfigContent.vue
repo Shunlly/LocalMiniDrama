@@ -77,7 +77,7 @@
                     {{ serviceCoverage.readyCount }}/{{ serviceCoverage.totalCount }} 类可用
                   </el-tag>
                 </div>
-                <p>每类服务可用需启用默认配置；默认配置还需凭据、模型或工作流完整。</p>
+                <p>每类服务可用需启用默认配置；默认配置还需凭据、模型或工作流完整。上方统计只看五类正式制作服务。</p>
               </div>
               <span class="coverage-test-note">连接测试结果来自后端记录或此设备保存的最近结果</span>
             </div>
@@ -178,6 +178,73 @@
                 </span>
               </article>
             </div>
+            <section class="extraction-coverage" aria-labelledby="ai-extraction-coverage-title">
+              <div class="extraction-coverage-header">
+                <h3 id="ai-extraction-coverage-title">素材抽取</h3>
+                <p>用于 PDF/图片识别和音频/视频转写。缺省不会把正式制作标成未就绪。</p>
+              </div>
+              <div class="coverage-grid coverage-grid-extraction">
+                <article
+                  v-for="item in orderedExtractionCoverageServices"
+                  :key="item.type"
+                  :ref="(element) => setCoverageCardRef(item.type, element)"
+                  class="coverage-item coverage-item-compact"
+                  tabindex="-1"
+                  :aria-label="`${item.label}，${coverageStateLabel(item)}，${coverageTestLabel(item.test)}`"
+                  :class="[
+                    `coverage-${item.state}`,
+                    { 'is-selected': activeServiceFilter === item.type },
+                  ]"
+                >
+                  <button
+                    type="button"
+                    class="coverage-select"
+                    :aria-pressed="activeServiceFilter === item.type"
+                    @click="onCoverageSelect(item)"
+                  >
+                    <span :class="['coverage-icon', `coverage-icon-${item.type}`]">
+                      <el-icon>
+                        <Document v-if="item.type === 'ocr'" />
+                        <Headset v-else />
+                      </el-icon>
+                    </span>
+                    <span class="coverage-item-main">
+                      <span class="coverage-item-heading">
+                        <strong>{{ item.label }}</strong>
+                        <el-tag :type="coverageStateTagType(item)" size="small" effect="plain">
+                          {{ coverageStateLabel(item) }}
+                        </el-tag>
+                      </span>
+                      <span class="coverage-description">{{ item.description }}</span>
+                      <span class="coverage-config-count">{{ coverageInventoryLabel(item) }}</span>
+                      <span class="coverage-config-detail">{{ coverageConfigDetail(item) }}</span>
+                      <span :class="['coverage-test-status', `test-${item.test.status}`]">
+                        <span class="coverage-status-dot" />
+                        {{ coverageTestLabel(item.test) }}
+                      </span>
+                    </span>
+                  </button>
+                  <span class="coverage-actions">
+                    <el-button
+                      v-for="action in coverageActions(item)"
+                      :key="`${item.type}-${action.key}`"
+                      :link="action.action !== 'test'"
+                      :plain="action.action === 'test'"
+                      size="small"
+                      :type="action.action === 'test' ? 'primary' : (action.emphasis === 'primary' ? 'primary' : 'info')"
+                      :class="['coverage-action-link', { 'coverage-action-test': action.action === 'test' }]"
+                      :aria-label="action.label"
+                      :aria-busy="isCoverageActionTesting(item, action)"
+                      :loading="isCoverageActionTesting(item, action)"
+                      :disabled="isCoverageActionDisabled(item, action)"
+                      @click.stop="onCoverageAction(item, action)"
+                    >
+                      {{ action.label }}
+                    </el-button>
+                  </span>
+                </article>
+              </div>
+            </section>
             </template>
           </section>
           </div>
@@ -204,7 +271,7 @@
                 <el-icon><Upload /></el-icon>
                 导入配置
               </el-button>
-              <input ref="importFileRef" type="file" accept=".json" style="display:none" :disabled="configWriteLocked" @change="importConfigs" />
+              <input ref="importFileRef" type="file" accept=".json" style="display:none" aria-hidden="true" tabindex="-1" :disabled="configWriteLocked" @change="importConfigs" />
               <el-button type="success" plain :disabled="configWriteLocked" @click="openOneKeyVolc">
                 <el-icon><MagicStick /></el-icon>
                 一键配置火山
@@ -242,7 +309,7 @@
               class="vendor-lock-tip"
             >
               <template #title>
-                <span>🔒 当前为厂商锁定模式，AI 服务由管理员统一配置。你只能修改 <b>API Key</b> 和 <b>默认模型</b>。</span>
+                <span>🔒 当前为厂商锁定模式，AI 服务由管理员统一配置。你只能修改 <b>API 密钥</b> 和 <b>默认模型</b>。</span>
               </template>
             </el-alert>
             <el-button plain size="small" @click="exportConfigs">
@@ -251,7 +318,7 @@
             </el-button>
             <el-button type="primary" size="small" class="vendor-bulk-key-btn" :disabled="configWriteLocked" @click="openBulkKey">
               <el-icon><Key /></el-icon>
-              一键换Key
+              一键换密钥
             </el-button>
           </div>
           <div v-if="activeServiceFilter" class="config-filter-bar">
@@ -261,7 +328,7 @@
             </span>
             <el-button link type="primary" @click="clearServiceFilter">查看全部配置</el-button>
           </div>
-          <p class="default-tip">生成任务会优先使用同类服务中已启用的默认配置。即梦2角色认证和 SD2 资产库属于扩展能力，不计入上方五类基础生成服务。</p>
+          <p class="default-tip">生成任务会优先使用同类服务中已启用的默认配置。即梦2角色认证、认证资产库、图片识别和语音转写属于扩展能力，不计入上方五类基础生成服务。</p>
           <div ref="configListSectionRef" class="config-list-section">
           <el-table
             v-loading="loading"
@@ -273,7 +340,7 @@
             <el-table-column v-if="!vendorLock.enabled" type="selection" width="46" :selectable="isConfigRowSelectable" />
             <el-table-column prop="name" label="名称" min-width="220" show-overflow-tooltip />
             <el-table-column prop="provider" label="提供商" min-width="180" show-overflow-tooltip />
-            <el-table-column prop="base_url" label="Base URL" min-width="170" show-overflow-tooltip />
+            <el-table-column prop="base_url" label="接口地址（Base URL）" min-width="170" show-overflow-tooltip />
             <el-table-column prop="default_model" label="默认模型" min-width="130" show-overflow-tooltip>
               <template #default="{ row }">
                 {{ row.default_model || (Array.isArray(row.model) && row.model[0]) || '—' }}
@@ -288,6 +355,8 @@
                     <Film v-else-if="row.service_type === 'storyboard_image'" />
                     <VideoCamera v-else-if="row.service_type === 'video'" />
                     <Microphone v-else-if="row.service_type === 'tts'" />
+                    <Document v-else-if="row.service_type === 'ocr'" />
+                    <Headset v-else-if="row.service_type === 'transcription'" />
                     <Key v-else-if="row.service_type === 'jimeng2_character_auth'" />
                     <Folder v-else-if="row.service_type === 'model_ark_asset'" />
                   </el-icon>
@@ -303,9 +372,9 @@
             </el-table-column>
             <el-table-column label="操作" width="180" fixed="right">
               <template #default="{ row }">
-                <el-button link type="primary" size="small" @click="openTest(row)">测试</el-button>
-                <el-button link type="primary" size="small" :disabled="configWriteLocked" @click="onRowEdit(row)">{{ vendorLock.enabled ? '修改Key' : '编辑' }}</el-button>
-                <el-button v-if="!vendorLock.enabled" link type="danger" size="small" :disabled="configWriteLocked" @click="onDelete(row)">删除</el-button>
+                <el-button link type="primary" size="small" :aria-label="configActionLabel('测试', row)" @click="openTest(row)">测试</el-button>
+                <el-button link type="primary" size="small" :disabled="configWriteLocked" :aria-label="configActionLabel(vendorLock.enabled ? '修改密钥' : '编辑', row)" @click="onRowEdit(row)">{{ vendorLock.enabled ? '修改密钥' : '编辑' }}</el-button>
+                <el-button v-if="!vendorLock.enabled" link type="danger" size="small" :disabled="configWriteLocked" :aria-label="configActionLabel('删除', row)" @click="onDelete(row)">删除</el-button>
               </template>
             </el-table-column>
             <template #empty>
@@ -385,7 +454,9 @@
               filterable
               allow-create
               default-first-option
+              aria-label="图片并发数"
               placeholder="选择或输入并发数"
+              no-data-text="暂无可选项，可直接输入"
               style="width: 180px"
               @change="onConcurrencyChange"
             >
@@ -406,7 +477,9 @@
               filterable
               allow-create
               default-first-option
+              aria-label="视频并发数"
               placeholder="选择或输入并发数"
+              no-data-text="暂无可选项，可直接输入"
               style="width: 180px"
               @change="onVideoConcurrencyChange"
             >
@@ -424,6 +497,7 @@
             <el-button
               type="primary"
               size="small"
+              aria-label="保存生成设置"
               :loading="genSettingSaving"
               :disabled="generationSettingsWriteLocked"
               @click="saveGenerationSettings"
@@ -447,7 +521,7 @@
           </div>
         </div>
       </el-tab-pane>
-      <el-tab-pane v-if="hasSavedConfigs" label="SD2 资产管理" name="sd2_assets">
+      <el-tab-pane v-if="hasSavedConfigs" label="认证资产管理" name="sd2_assets">
         <div class="tab-content">
         <Sd2AssetManagement :configs="list" :write-locked="configWriteLocked || vendorLock.enabled" @saved="handleSd2AssetSaved" />
         </div>
@@ -457,7 +531,7 @@
     <!-- 添加/编辑 -->
     <AccessibleDialog
       v-model="dialogVisible"
-      :title="vendorLock.enabled ? '修改 API Key / 默认模型' : (editingId ? '编辑配置' : '添加配置')"
+      :title="vendorLock.enabled ? '修改 API 密钥 / 默认模型' : (editingId ? '编辑配置' : '添加配置')"
       width="720px"
       top="4vh"
       class="ai-config-dialog ai-config-form-dialog ai-config-overlay"
@@ -477,7 +551,7 @@
           <strong>无法保存，请检查以下字段：</strong>
           <ul>
             <li v-for="item in configValidationSummary" :key="item.prop">
-              {{ item.label }}：{{ item.message }}
+              {{ configFieldDisplayLabel(item.label) }}：{{ item.message }}
             </li>
           </ul>
         </div>
@@ -489,8 +563,8 @@
           <el-descriptions-item label="厂商">{{ form.provider }}</el-descriptions-item>
         </el-descriptions>
         <el-form ref="formRef" :model="form" label-width="100px" @validate="handleConfigFieldValidated">
-          <el-form-item prop="api_key" :rules="[{ required: true, message: '请输入 API Key', trigger: 'blur' }]">
-            <template #label><span class="form-label-tip">API Key</span></template>
+          <el-form-item prop="api_key" :rules="[{ required: true, message: '请输入 API 密钥', trigger: 'blur' }]">
+            <template #label><span class="form-label-tip">API 密钥</span></template>
             <el-input
               ref="apiKeyInputRef"
               v-model="form.api_key"
@@ -513,7 +587,9 @@
               clearable
               filterable
               default-first-option
+              aria-label="默认模型"
               placeholder="搜索或选择已有模型"
+              no-data-text="暂无可用模型"
               style="width: 100%"
               :aria-invalid="isConfigFieldInvalid('default_model') || isDefaultModelUnavailable"
               :aria-describedby="configFieldDescriptionId('default_model')"
@@ -574,7 +650,9 @@
                     <b>分镜图片生成</b>：生成分镜图片，支持传入角色参考图<br>
                     <b>视频生成</b>：根据分镜图生成视频片段<br>
                     <b>语音合成 TTS</b>：为分镜对白自动合成语音（点分镜配音按钮时使用）<br>
-                    <b>即梦2角色认证</b>：将角色主图登记到即梦业务素材库（SD2 认证），仅填网关 URL 与 Token
+                    <b>图片识别 OCR</b>：用于 PDF、扫描件和图片抽文字。本机也可安装 Tesseract。预设只用于填表，不代表已跑通该厂商<br>
+                    <b>语音转写</b>：用于音频、视频对白转成文字。预设只用于填表，不代表已跑通该厂商<br>
+                    <b>即梦2角色认证</b>：将角色主图登记到即梦业务素材库（认证资产），仅填网关 URL 与 Token
                   </div>
                 </template>
                 <el-icon class="tip-icon"><QuestionFilled /></el-icon>
@@ -584,7 +662,9 @@
           <el-select
             v-model="form.service_type"
             data-ai-config-field="service_type"
+            aria-label="服务类型"
             placeholder="选择类型"
+            no-data-text="暂无可选服务类型"
             style="width: 100%"
             :disabled="Boolean(editingId)"
             :aria-invalid="isConfigFieldInvalid('service_type')"
@@ -596,6 +676,8 @@
             <el-option label="分镜图片生成" value="storyboard_image" />
             <el-option label="视频生成" value="video" />
             <el-option label="语音合成 TTS" value="tts" />
+            <el-option label="图片识别 OCR" value="ocr" />
+            <el-option label="语音转写" value="transcription" />
             <el-option label="即梦2角色认证" value="jimeng2_character_auth" />
           </el-select>
           <span :id="configFieldDescriptionId('service_type')" class="config-field-a11y-description">
@@ -627,7 +709,7 @@
           <div class="config-section-header">
             <div>
               <h4>厂商与认证</h4>
-              <p>选择预设厂商可自动带入模型和接口参数，也支持自定义兼容服务。</p>
+              <p>选择预设厂商可自动带入中文名称、Base URL 和常用模型，也支持自定义兼容服务。预设只用于填表，不代表对应厂商已在本应用中真实跑通生成。</p>
             </div>
             <span class="config-section-index">02</span>
           </div>
@@ -638,8 +720,9 @@
                 <template #content>
                   <div class="cfg-tip-content">
                     从下拉选择预设厂商，会自动填入 Base URL 和模型列表。<br>
-                    也可直接输入自定义厂商名（需手动填写其他字段）。<br>
-                    <b>推荐</b>：通义千问 / 火山引擎，国内访问稳定。
+                    覆盖 OpenRouter、硅基流动、Moonshot、DeepSeek、智谱、MiniMax、可灵、Runway、Luma、Ollama、ComfyUI 等常见目录。<br>
+                    也可选择「自定义」并直接输入厂商名（需手动填写其他字段）。<br>
+                    <b>推荐</b>：通义千问 / 火山引擎 / 硅基流动，国内访问较稳。预设不代表已真实接入生成。
                   </div>
                 </template>
                 <el-icon class="tip-icon"><QuestionFilled /></el-icon>
@@ -649,7 +732,9 @@
           <el-select
             v-model="form.provider"
             data-ai-config-field="provider"
+            aria-label="厂商"
             placeholder="选择预设厂商（自动填充 URL 和模型）"
+            no-data-text="没有匹配的厂商，可直接输入自定义名称"
             clearable
             filterable
             allow-create
@@ -674,8 +759,55 @@
 
         <!-- 接口规范帮助 Dialog -->
         <AccessibleDialog v-model="showProtocolHelp" title="接口规范说明" width="700px" top="5vh" class="ai-config-overlay">
-          <div class="protocol-help">
-            <div class="ph-section-title">🖼 图片 / 分镜图 协议</div>
+                    <div class="protocol-help">
+            <p class="ph-disclaimer">选择预设只会自动填入公开 Base URL 和常见模型名，方便保存配置。以下说明用于对照填写，不代表本应用已真实接入或跑通对应厂商的图片、视频或语音生成。</p>
+            <div class="ph-section-title">文本 / OpenAI 兼容</div>
+            <el-collapse accordion>
+              <el-collapse-item name="openai-text">
+                <template #title><span class="ph-tag ph-tag-text">文本</span> OpenAI 兼容网关</template>
+                <div class="ph-body">
+                  <b>适用：</b>OpenAI 官方、OpenAI 兼容网关、多数中转站。<br>
+                  <b>Base URL：</b><code>https://api.openai.com/v1</code><br>
+                  <b>常见模型：</b><code>gpt-5.5</code>、<code>gpt-4.1</code>、<code>gpt-4o-mini</code><br>
+                  文本服务默认走 <code>/chat/completions</code>。自定义网关请改 Base URL，不要改服务类型。
+                </div>
+              </el-collapse-item>
+              <el-collapse-item name="openrouter-text">
+                <template #title><span class="ph-tag ph-tag-text">文本</span> OpenRouter 聚合网关</template>
+                <div class="ph-body">
+                  <b>Base URL：</b><code>https://openrouter.ai/api/v1</code><br>
+                  <b>常见模型：</b><code>openai/gpt-5.5</code>、<code>anthropic/claude-sonnet-4.5</code>、<code>google/gemini-3-pro-preview</code><br>
+                  模型名通常带厂商前缀。选此预设只填表，实际能否对话取决于你的密钥和网关。
+                </div>
+              </el-collapse-item>
+              <el-collapse-item name="siliconflow-text">
+                <template #title><span class="ph-tag ph-tag-text">文本</span> 硅基流动 SiliconFlow</template>
+                <div class="ph-body">
+                  <b>Base URL：</b><code>https://api.siliconflow.cn/v1</code><br>
+                  <b>常见模型：</b><code>Qwen/Qwen3-235B-A22B-Instruct-2507</code>、<code>deepseek-ai/DeepSeek-V3.1</code>、<code>moonshotai/Kimi-K2-Instruct</code>
+                </div>
+              </el-collapse-item>
+              <el-collapse-item name="cn-cloud-text">
+                <template #title><span class="ph-tag ph-tag-text">文本</span> Moonshot / DeepSeek / 智谱 / MiniMax</template>
+                <div class="ph-body">
+                  <b>Moonshot：</b><code>https://api.moonshot.cn/v1</code>，模型如 <code>kimi-k2-0711-preview</code><br>
+                  <b>DeepSeek：</b><code>https://api.deepseek.com</code>，模型如 <code>deepseek-chat</code>、<code>deepseek-reasoner</code><br>
+                  <b>智谱 GLM：</b><code>https://open.bigmodel.cn/api/paas/v4</code>，模型如 <code>glm-4.5</code>、<code>glm-4.6</code><br>
+                  <b>MiniMax：</b><code>https://api.minimaxi.com/v1</code>，文本模型如 <code>MiniMax-M1</code>。视频海螺请改选视频服务类型。
+                </div>
+              </el-collapse-item>
+              <el-collapse-item name="ollama-text">
+                <template #title><span class="ph-tag ph-tag-text">文本</span> Ollama / LM Studio / vLLM 本地</template>
+                <div class="ph-body">
+                  <b>Ollama：</b><code>http://127.0.0.1:11434/v1</code>，模型如 <code>qwen3:8b</code>。本地服务通常可不填 API Key。<br>
+                  <b>LM Studio：</b><code>http://127.0.0.1:1234/v1</code><br>
+                  <b>vLLM：</b><code>http://127.0.0.1:8000/v1</code><br>
+                  请先在本机启动对应服务。保存时请使用本机地址，例如 127.0.0.1。
+                </div>
+              </el-collapse-item>
+            </el-collapse>
+
+            <div class="ph-section-title" style="margin-top:16px">🖼 图片 / 分镜图 协议</div>
             <el-collapse accordion>
               <el-collapse-item name="openai-img">
                 <template #title><span class="ph-tag ph-tag-img">图片</span> OpenAI 兼容 — 绝大多数中转站默认</template>
@@ -705,6 +837,29 @@
                 <div class="ph-body">
                   <b>认证：</b>URL 参数 <code>?key=API_KEY</code><br>
                   <b>Endpoint：</b><code>POST /v1beta/models/{model}:generateContent</code>
+                </div>
+              </el-collapse-item>
+              <el-collapse-item name="siliconflow-img">
+                <template #title><span class="ph-tag ph-tag-img">图片</span> 硅基流动 / OpenRouter 图像</template>
+                <div class="ph-body">
+                  <b>硅基流动：</b><code>https://api.siliconflow.cn/v1</code>，模型如 <code>black-forest-labs/FLUX.1-dev</code>、<code>Qwen/Qwen-Image</code><br>
+                  <b>OpenRouter：</b><code>https://openrouter.ai/api/v1</code>，模型如 <code>google/gemini-2.5-flash-image</code><br>
+                  接口规范可选 OpenAI 兼容。这只是目录预设，不代表生图链路已官方跑通。
+                </div>
+              </el-collapse-item>
+              <el-collapse-item name="kling-img">
+                <template #title><span class="ph-tag ph-tag-img">图片</span> 可灵 Kling 图像</template>
+                <div class="ph-body">
+                  <b>Base URL：</b><code>https://api.klingai.com</code><br>
+                  <b>常见模型：</b><code>kling-image</code>、<code>kling-omni-image</code>
+                </div>
+              </el-collapse-item>
+              <el-collapse-item name="comfyui-img">
+                <template #title><span class="ph-tag ph-tag-img">图片</span> ComfyUI 本地工作流</template>
+                <div class="ph-body">
+                  <b>Base URL：</b><code>http://127.0.0.1:8188</code><br>
+                  <b>默认路径：</b>提交 <code>/prompt</code>，查询 <code>/history/{promptId}</code><br>
+                  本地工作流通常可不填 API Key。请先启动 ComfyUI。模型栏可保留 <code>custom-workflow</code>。
                 </div>
               </el-collapse-item>
             </el-collapse>
@@ -825,6 +980,65 @@ input_reference = (图片文件，可选)</pre>
                   <b>默认路径：</b><code>POST /v1/videos/generations</code>（可在「Endpoint」覆盖）。Seedance 多图需分镜参考图；响应为同步 <code>data[0].url</code>。
                 </div>
               </el-collapse-item>
+              <el-collapse-item name="minimax-vid">
+                <template #title><span class="ph-tag ph-tag-vid">视频</span> MiniMax 海螺</template>
+                <div class="ph-body">
+                  <b>Base URL：</b><code>https://api.minimaxi.com/v1</code><br>
+                  <b>常见模型：</b><code>MiniMax-Hailuo-2.3</code>、<code>MiniMax-Hailuo-2.3-Fast</code><br>
+                  预设会带入海螺视频端点。是否真正生成成功取决于密钥和后端适配，当前只提供配置目录。
+                </div>
+              </el-collapse-item>
+              <el-collapse-item name="runway-vid">
+                <template #title><span class="ph-tag ph-tag-vid">视频</span> Runway</template>
+                <div class="ph-body">
+                  <b>Base URL：</b><code>https://api.dev.runwayml.com/v1</code><br>
+                  <b>常见模型：</b><code>gen4_turbo</code>、<code>gen4_aleph</code>、<code>gen3a_turbo</code><br>
+                  接口规范可先选 OpenAI 兼容，再按 Runway 文档补端点。此条目只用于自动填表。
+                </div>
+              </el-collapse-item>
+              <el-collapse-item name="luma-vid">
+                <template #title><span class="ph-tag ph-tag-vid">视频</span> Luma 梦境引擎</template>
+                <div class="ph-body">
+                  <b>Base URL：</b><code>https://api.lumalabs.ai/dream-machine/v1</code><br>
+                  <b>常见模型：</b><code>ray-2</code>、<code>ray-flash-2</code>、<code>ray-1-6</code><br>
+                  预设不代表 Dream Machine 已在本应用中真实跑通。
+                </div>
+              </el-collapse-item>
+              <el-collapse-item name="siliconflow-vid">
+                <template #title><span class="ph-tag ph-tag-vid">视频</span> 硅基流动 / OpenRouter 视频</template>
+                <div class="ph-body">
+                  <b>硅基流动：</b><code>https://api.siliconflow.cn/v1</code>，模型如 <code>Wan-AI/Wan2.1-T2V-14B</code><br>
+                  <b>OpenRouter：</b><code>https://openrouter.ai/api/v1</code>，模型如 <code>openai/sora</code>
+                </div>
+              </el-collapse-item>
+            </el-collapse>
+
+            <div class="ph-section-title" style="margin-top:16px">语音 TTS</div>
+            <el-collapse accordion>
+              <el-collapse-item name="openai-tts">
+                <template #title><span class="ph-tag ph-tag-tts">语音</span> OpenAI 兼容 TTS</template>
+                <div class="ph-body">
+                  <b>Base URL：</b><code>https://api.openai.com/v1</code><br>
+                  <b>常见模型：</b><code>gpt-4o-mini-tts</code>、<code>tts-1-hd</code>
+                </div>
+              </el-collapse-item>
+              <el-collapse-item name="minimax-tts">
+                <template #title><span class="ph-tag ph-tag-tts">语音</span> MiniMax T2A</template>
+                <div class="ph-body">
+                  <b>Base URL：</b><code>https://api.minimaxi.com/v1</code><br>
+                  <b>常见模型：</b><code>speech-02-hd</code>、<code>speech-02-turbo</code>
+                </div>
+              </el-collapse-item>
+              <el-collapse-item name="siliconflow-tts">
+                <template #title><span class="ph-tag ph-tag-tts">语音</span> 硅基流动 / 通义 / 智谱 / ElevenLabs</template>
+                <div class="ph-body">
+                  <b>硅基流动：</b><code>https://api.siliconflow.cn/v1</code>，模型如 <code>FunAudioLLM/CosyVoice2-0.5B</code><br>
+                  <b>通义：</b><code>https://dashscope.aliyuncs.com</code>，模型如 <code>qwen3-tts-flash</code><br>
+                  <b>智谱：</b><code>https://open.bigmodel.cn/api/paas/v4</code>，模型如 <code>glm-tts</code><br>
+                  <b>ElevenLabs：</b><code>https://api.elevenlabs.io/v1</code>，模型如 <code>eleven_multilingual_v2</code><br>
+                  这些是配置目录，不代表语音合成已真实接入。
+                </div>
+              </el-collapse-item>
             </el-collapse>
           </div>
           <template #footer>
@@ -833,7 +1047,7 @@ input_reference = (图片文件，可选)</pre>
         </AccessibleDialog>
         <el-form-item prop="api_key">
           <template #label>
-            <span class="form-label-tip">{{ form.service_type === 'jimeng2_character_auth' ? 'Token' : 'API Key' }}
+            <span class="form-label-tip">{{ form.service_type === 'jimeng2_character_auth' ? '令牌（Token）' : 'API 密钥' }}
               <el-tooltip placement="top" popper-class="cfg-tip-popper">
                 <template #content>
                   <div class="cfg-tip-content">
@@ -856,7 +1070,7 @@ input_reference = (图片文件，可选)</pre>
             v-model="form.api_key"
             data-ai-config-field="api_key"
             type="password"
-            :placeholder="form.service_type === 'jimeng2_character_auth' ? 'Bearer Token' : (form.provider === 'jimeng_ai_api' ? '即梦 Session，多个用英文逗号分隔' : 'API 密钥')"
+            :placeholder="form.service_type === 'jimeng2_character_auth' ? '请输入 Bearer 令牌' : (form.provider === 'jimeng_ai_api' ? '即梦 Session，多个用英文逗号分隔' : 'API 密钥')"
             show-password
             :aria-invalid="isConfigFieldInvalid('api_key')"
             :aria-describedby="configFieldDescriptionId('api_key')"
@@ -886,12 +1100,12 @@ input_reference = (图片文件，可选)</pre>
           :closable="false"
           show-icon
           style="margin-bottom: 12px"
-          title="用于创作页「角色」面板的 SD2 认证"
+          title="用于创作页「角色」面板的「认证资产」"
           description="保存后，系统从此处读取网关与 Token 调用 POST /api/business/v1/assets 登记角色图；可用「列出素材」核对素材状态。角色主图需为外网可访问的 http(s) 地址（图床或本服务 storage.base_url）。"
         />
         <template v-if="form.service_type === 'video' && form.api_protocol === 'kling_omni'">
           <el-form-item>
-            <template #label><span class="form-label-tip">AccessKey</span></template>
+            <template #label><span class="form-label-tip">访问密钥（AccessKey）</span></template>
             <el-input
               v-model="form.kling_access_key"
               type="password"
@@ -909,7 +1123,7 @@ input_reference = (图片文件，可选)</pre>
             </p>
           </el-form-item>
           <el-form-item>
-            <template #label><span class="form-label-tip">SecretKey</span></template>
+            <template #label><span class="form-label-tip">私有密钥（SecretKey）</span></template>
             <el-input
               v-model="form.kling_secret_key"
               type="password"
@@ -953,7 +1167,9 @@ input_reference = (图片文件，可选)</pre>
               filterable
               allow-create
               default-first-option
+              aria-label="声音 ID"
               placeholder="选择或输入声音 ID"
+              no-data-text="暂无预设声音，可直接输入"
               style="width: 100%"
             >
               <el-option-group label="MiniMax 女声">
@@ -972,7 +1188,7 @@ input_reference = (图片文件，可选)</pre>
           </el-form-item>
           <el-form-item>
             <template #label>
-              <span class="form-label-tip">Group ID
+              <span class="form-label-tip">组 ID（GroupId）
                 <el-tooltip placement="top" popper-class="cfg-tip-popper">
                   <template #content>
                     <div class="cfg-tip-content">
@@ -1002,9 +1218,9 @@ input_reference = (图片文件，可选)</pre>
               </div>
             </template>
             <div class="advanced-config-content">
-              <!-- 接口规范：仅图片/分镜/视频类型显示，预设厂商自动填充；自定义厂商必选 -->
+              <!-- 接口规范：仅图片/分镜/视频类型显示；文本、语音、图片识别、语音转写按 OpenAI 兼容处理 -->
               <el-form-item
-                v-if="form.service_type !== 'text' && form.service_type !== 'tts' && form.service_type !== 'jimeng2_character_auth'"
+                v-if="!hidesApiProtocolField(form.service_type)"
                 prop="api_protocol"
               >
                 <template #label>
@@ -1017,8 +1233,10 @@ input_reference = (图片文件，可选)</pre>
                 <el-select
                   v-model="form.api_protocol"
                   data-ai-config-field="api_protocol"
+                  aria-label="接口规范"
                   style="width: 100%"
                   placeholder="选择接口规范（自定义厂商必选）"
+                  no-data-text="暂无匹配的接口规范"
                   clearable
                   :aria-invalid="isConfigFieldInvalid('api_protocol')"
                   :aria-describedby="configFieldDescriptionId('api_protocol')"
@@ -1033,7 +1251,9 @@ input_reference = (图片文件，可选)</pre>
                   <el-option label="Vidu 视频" value="vidu" />
                   <el-option label="可灵 Omni-Video（官方 api-beijing / ffir 中转，O1 全能）" value="kling_omni" />
                   <el-option label="xAI Grok Imagine（官方 prompt + aspect_ratio，/v1/videos/generations）" value="xai" />
-                  <el-option label="NanoBanana" value="nano_banana" />
+                  <el-option label="NanoBanana（图像）" value="nano_banana" />
+                  <el-option label="Fal.ai" value="fal" />
+                  <el-option label="Replicate" value="replicate" />
                   <el-option label="ComfyUI 本地工作流" value="comfyui" />
                 </el-select>
                 <span :id="configFieldDescriptionId('api_protocol')" class="config-field-a11y-description">
@@ -1042,7 +1262,7 @@ input_reference = (图片文件，可选)</pre>
               </el-form-item>
               <el-form-item prop="base_url">
                 <template #label>
-                  <span class="form-label-tip">{{ form.service_type === 'jimeng2_character_auth' ? '网关 URL' : 'Base URL' }}
+                  <span class="form-label-tip">{{ form.service_type === 'jimeng2_character_auth' ? '网关 URL' : '接口地址（Base URL）' }}
                     <el-tooltip placement="top" popper-class="cfg-tip-popper">
                       <template #content>
                         <div class="cfg-tip-content">
@@ -1076,7 +1296,7 @@ input_reference = (图片文件，可选)</pre>
                 <p class="field-tip">仅用于明确选择的本地或内网网关；公网服务仍需使用 HTTPS。</p>
               </el-form-item>
 
-              <el-form-item v-if="isComfyUiForm" prop="comfy_workflow_json" label="Workflow JSON">
+              <el-form-item v-if="isComfyUiForm" prop="comfy_workflow_json" label="工作流 JSON">
                 <el-input
                   ref="workflowInputRef"
                   v-model="form.comfy_workflow_json"
@@ -1096,7 +1316,7 @@ input_reference = (图片文件，可选)</pre>
               </el-form-item>
 
         <!-- 端点配置：视频必填（自定义厂商）；图片/分镜在使用代理或特殊厂商时填写 -->
-        <template v-if="form.service_type !== 'text' && form.service_type !== 'tts' && form.service_type !== 'jimeng2_character_auth'">
+        <template v-if="!hidesApiProtocolField(form.service_type)">
           <el-form-item prop="endpoint">
             <template #label>
               <span class="form-label-tip">提交端点
@@ -1163,7 +1383,7 @@ input_reference = (图片文件，可选)</pre>
           <p v-if="endpointPreviewInfo.isGemini" class="ep-tip ep-tip-warn">
             ⚠️ Gemini 端点由系统根据模型名固定生成，上方「提交端点」和「查询端点」字段对 Gemini 无效，填了也不生效。
           </p>
-          <p v-else-if="endpointPreviewInfo.isJimeng2Auth" class="ep-tip">角色「SD2认证」将调用上述地址注册素材（POST 创建、GET 查询状态）。</p>
+          <p v-else-if="endpointPreviewInfo.isJimeng2Auth" class="ep-tip">角色「认证资产」将调用上述地址注册素材（POST 创建、GET 查询状态）。</p>
           <p v-else class="ep-tip">以上为系统推断的实际调用地址（可手动填写上方端点字段来覆盖）</p>
         </div>
             </div>
@@ -1196,7 +1416,9 @@ input_reference = (图片文件，可选)</pre>
           <div class="model-row">
             <el-select
               v-model="presetModelPick"
+              aria-label="追加预设模型"
               placeholder="追加或输入模型名"
+              no-data-text="暂无预设模型，可直接输入"
               clearable
               filterable
               allow-create
@@ -1206,13 +1428,24 @@ input_reference = (图片文件，可选)</pre>
             >
               <el-option v-for="m in availableModels" :key="m" :label="m" :value="m" />
             </el-select>
+            <el-button
+              type="primary"
+              plain
+              :loading="discoverModelsLoading"
+              :disabled="discoverModelsDisabled"
+              @click="discoverModelsFromService"
+            >从服务读取模型</el-button>
           </div>
+          <p v-if="discoverModelsLoading" class="field-tip">正在从服务读取模型…</p>
+          <p v-else-if="discoverModelsDisabledReason" class="field-tip">{{ discoverModelsDisabledReason }}</p>
+          <p v-if="providerModelEmptyHint" class="field-tip">{{ providerModelEmptyHint }}</p>
           <el-input
             ref="modelListInputRef"
             v-model="form.modelText"
             data-ai-config-field="model"
             type="textarea"
             :rows="2"
+            aria-label="模型列表"
             placeholder="选择预设厂商后自动填入，可编辑；多个用逗号或换行分隔"
             :aria-invalid="isConfigFieldInvalid('model')"
             :aria-describedby="configFieldDescriptionId('model')"
@@ -1232,7 +1465,9 @@ input_reference = (图片文件，可选)</pre>
           <el-select
             v-model="form.default_model"
             data-ai-config-field="default_model"
+            aria-label="默认模型"
             placeholder="选择或输入默认模型名"
+            no-data-text="暂无模型，可直接输入或先填写模型列表"
             clearable
             filterable
             allow-create
@@ -1280,10 +1515,12 @@ input_reference = (图片文件，可选)</pre>
             <el-select
               v-if="form.deepseek_thinking === 'enabled'"
               v-model="form.deepseek_reasoning_effort"
+              aria-label="思考强度"
+              no-data-text="暂无可选思考强度"
               style="width: 140px"
             >
-              <el-option label="high" value="high" />
-              <el-option label="max" value="max" />
+              <el-option label="高（high）" value="high" />
+              <el-option label="最高（max）" value="max" />
             </el-select>
           </div>
           <p class="field-tip">官方旧模型名将在 2026-07-24 废弃；新配置建议使用 deepseek-v4-flash 或 deepseek-v4-pro。</p>
@@ -1299,7 +1536,7 @@ input_reference = (图片文件，可选)</pre>
             </div>
             <span class="config-section-index">{{ form.service_type === 'jimeng2_character_auth' ? '03' : '04' }}</span>
           </div>
-        <template v-if="filterableServiceTypes.has(form.service_type)">
+        <template v-if="['text', 'image', 'storyboard_image', 'video', 'tts'].includes(form.service_type)">
           <el-form-item v-if="form.service_type === 'text'" label="输入单价">
             <div class="pricing-field-row">
               <el-input-number v-model="form.pricing_input_per_million_tokens" :min="0" :precision="4" :step="0.1" controls-position="right" />
@@ -1363,7 +1600,7 @@ input_reference = (图片文件，可选)</pre>
       </div>
       <template #footer>
         <el-button @click="requestConfigDialogClose">取消</el-button>
-        <el-button type="primary" :loading="saving" :disabled="configWriteLocked" @click="submit">确定</el-button>
+        <el-button type="primary" aria-label="保存配置" :loading="saving" :disabled="configWriteLocked" @click="submit">保存</el-button>
       </template>
     </AccessibleDialog>
 
@@ -1404,6 +1641,7 @@ input_reference = (图片文件，可选)</pre>
           <el-input
             v-model="oneKeyTongyiKey"
             type="password"
+            aria-label="通义 API Key"
             placeholder="请输入通义（DashScope）API Key，格式：sk-xxxxxxxx"
             show-password-on="click"
             clearable
@@ -1455,6 +1693,7 @@ input_reference = (图片文件，可选)</pre>
           <el-input
             v-model="oneKeyVolcKey"
             type="password"
+            aria-label="火山引擎 API Key"
             placeholder="请输入火山引擎（方舟）API Key"
             show-password-on="click"
             clearable
@@ -1505,6 +1744,7 @@ input_reference = (图片文件，可选)</pre>
           <el-input
             v-model="oneKeyAgnesKey"
             type="password"
+            aria-label="Agnes API Key"
             placeholder="请输入 Agnes API Key"
             show-password-on="click"
             clearable
@@ -1536,15 +1776,17 @@ input_reference = (图片文件，可选)</pre>
       <el-table v-loading="jimeng2AssetsLoading" :data="jimeng2AssetsRows" stripe max-height="420" empty-text="暂无数据或未加载">
         <el-table-column prop="id" label="素材 ID" min-width="120" show-overflow-tooltip />
         <el-table-column prop="name" label="名称" width="100" show-overflow-tooltip />
-        <el-table-column prop="asset_type" label="类型" width="88" />
+        <el-table-column prop="asset_type" label="类型" width="88">
+          <template #default="{ row }">{{ jimeng2AssetTypeLabel(row.asset_type) }}</template>
+        </el-table-column>
         <el-table-column prop="status" label="状态" width="96">
           <template #default="{ row }">
             <el-tag :type="row.status === 'active' ? 'success' : row.status === 'failed' ? 'danger' : 'info'" size="small">
-              {{ row.status || '—' }}
+              {{ jimeng2AssetStatusLabel(row.status) }}
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="asset_url" label="asset_url" min-width="160" show-overflow-tooltip />
+        <el-table-column prop="asset_url" label="素材地址" min-width="160" show-overflow-tooltip />
         <el-table-column prop="url" label="原始 URL" min-width="120" show-overflow-tooltip />
         <el-table-column prop="created_at" label="创建时间" width="160" show-overflow-tooltip />
       </el-table>
@@ -1570,6 +1812,22 @@ input_reference = (图片文件，可选)</pre>
           :closable="false"
         />
         <el-alert
+          v-else-if="testServiceType === 'ocr'"
+          type="success"
+          title="连接成功"
+          description="图片识别接口已正常响应。测试只验证连通性，不代表 PDF/图片识别已真实跑通。"
+          show-icon
+          :closable="false"
+        />
+        <el-alert
+          v-else-if="testServiceType === 'transcription'"
+          type="success"
+          title="连接成功"
+          description="语音转写接口已正常响应。测试只验证连通性，不代表音频/视频转写已真实跑通。"
+          show-icon
+          :closable="false"
+        />
+        <el-alert
           v-else
           type="success"
           title="连接成功"
@@ -1577,6 +1835,7 @@ input_reference = (图片文件，可选)</pre>
           show-icon
           :closable="false"
         />
+        <p v-if="testSuggestDiscoverModels" class="field-tip">也可以读取模型目录，不会自动覆盖已填写的模型列表。</p>
       </template>
       <el-alert
         v-else
@@ -1597,22 +1856,23 @@ input_reference = (图片文件，可选)</pre>
       </template>
     </AccessibleDialog>
 
-    <!-- 一键换Key（锁定模式） -->
-    <AccessibleDialog v-model="bulkKeyVisible" title="一键换Key" width="440px" class="ai-config-overlay" :close-on-click-modal="false" :before-close="confirmBulkKeyClose">
+    <!-- 一键换密钥（锁定模式） -->
+    <AccessibleDialog v-model="bulkKeyVisible" title="一键换密钥" width="440px" class="ai-config-overlay" :close-on-click-modal="false" :before-close="confirmBulkKeyClose">
       <el-alert
         type="warning"
         :closable="false"
         style="margin-bottom: 16px"
-        title="此操作将替换所有配置的 API Key，请确认新 Key 可用后再提交。"
+        title="此操作将替换所有配置的 API 密钥，请确认新密钥可用后再提交。"
         show-icon
       />
       <el-form label-width="80px">
-        <el-form-item label="新 API Key">
+        <el-form-item label="新 API 密钥">
           <el-input
             v-model="bulkKeyInput"
             type="password"
             show-password
-            placeholder="粘贴新的 API Key"
+            aria-label="新 API 密钥"
+            placeholder="粘贴新的 API 密钥"
             clearable
           />
         </el-form-item>
@@ -1630,7 +1890,7 @@ import { ref, computed, nextTick, onMounted, onBeforeUnmount, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { toUserFacingError, isUserFacingAbort } from '@/utils/userFacingError'
 import { runWithOwnedRequestErrorToast } from '@/utils/request'
-import { Plus, MagicStick, QuestionFilled, Download, Upload, Delete, ChatDotRound, Picture, Film, VideoCamera, Key, Microphone, Folder } from '@element-plus/icons-vue'
+import { Plus, MagicStick, QuestionFilled, Download, Upload, Delete, ChatDotRound, Picture, Film, VideoCamera, Key, Microphone, Folder, Document, Headset } from '@element-plus/icons-vue'
 import { aiAPI } from '@/api/ai'
 import { generationSettingsAPI } from '@/api/prompts'
 import { sanitizeConfigForExport, stripMaskedSecretsFromSettings } from '@/utils/aiConfigExport.js'
@@ -1692,7 +1952,7 @@ function notifyConfigurationChanged() {
   emit('configuration-changed')
 }
 
-const filterableServiceTypes = new Set(['text', 'image', 'storyboard_image', 'video', 'tts'])
+const filterableServiceTypes = new Set(['text', 'image', 'storyboard_image', 'video', 'tts', 'ocr', 'transcription'])
 
 function normalizeInitialServiceType(value) {
   const normalized = String(value || '').trim()
@@ -1835,6 +2095,8 @@ let vendorLockAbortController = null
 let generationSettingsAbortController = null
 let connectionTestAbortController = null
 let connectionStatusScopeAbortController = null
+let discoverModelsAbortController = null
+let discoverModelsSequence = 0
 let lastTestedConfig = null
 
 function abortAiConfigPageRequests() {
@@ -1843,11 +2105,13 @@ function abortAiConfigPageRequests() {
   generationSettingsAbortController?.abort()
   connectionTestAbortController?.abort()
   connectionStatusScopeAbortController?.abort()
+  discoverModelsAbortController?.abort()
   configListAbortController = null
   vendorLockAbortController = null
   generationSettingsAbortController = null
   connectionTestAbortController = null
   connectionStatusScopeAbortController = null
+  discoverModelsAbortController = null
 }
 
 function jsonRequestOptions(signal, timeout = DEFAULT_JSON_TIMEOUT_MS) {
@@ -1888,6 +2152,7 @@ const bulkKeyInput = ref('')
 const bulkKeySaving = ref(false)
 const jimeng2AssetsDialogVisible = ref(false)
 const jimeng2AssetsLoading = ref(false)
+const discoverModelsLoading = ref(false)
 const jimeng2AssetsRows = ref([])
 const jimeng2AssetsHasMore = ref(false)
 const jimeng2AssetsNextCursor = ref(null)
@@ -1925,6 +2190,12 @@ const form = ref({
 const presetModelPick = ref('')
 
 const formModelList = computed(() => parseModelText(form.value.modelText))
+const discoverModelsDisabledReason = computed(() => {
+  if (!String(form.value.base_url || '').trim()) return '请先填写接口地址'
+  if (hasDiscoverableCredential()) return ''
+  return '请先填写 API 密钥后再读取模型'
+})
+const discoverModelsDisabled = computed(() => Boolean(discoverModelsDisabledReason.value))
 const isDefaultModelUnavailable = computed(() => {
   const selected = String(form.value.default_model || '').trim()
   return Boolean(selected && !formModelList.value.includes(selected))
@@ -2025,14 +2296,14 @@ const rules = computed(() => ({
   service_type: [{ required: true, message: '请选择服务类型', trigger: 'change' }],
   name: [{ required: true, message: '请输入名称', trigger: 'blur' }],
   provider: [{ required: true, message: '请选择或输入厂商', trigger: 'change' }],
-  base_url: [{ required: true, message: '请输入 Base URL', trigger: 'blur' }],
+  base_url: [{ required: true, message: '请输入接口地址（Base URL）', trigger: 'blur' }],
   api_key: [
     {
       validator: (_rule, v, cb) => {
         const st = form.value.service_type
         if (st === 'jimeng2_character_auth') {
           if (v != null && String(v).trim()) return cb()
-          return cb(new Error('请填写 Token'))
+          return cb(new Error('请填写令牌（Token）'))
         }
         const proto = form.value.api_protocol
         if (isApiKeyOptionalProvider(form.value.provider, proto)) return cb()
@@ -2040,7 +2311,7 @@ const rules = computed(() => ({
         const sk = (form.value.kling_secret_key || '').trim()
         if (st === 'video' && proto === 'kling_omni' && ak && sk) return cb()
         if (v != null && String(v).trim()) return cb()
-        cb(new Error('请输入 API Key，或使用官方 AccessKey + SecretKey（可不填 API Key）'))
+        cb(new Error('请输入 API 密钥，或使用官方 AccessKey + SecretKey（可不填 API 密钥）'))
       },
       trigger: 'blur',
     },
@@ -2049,7 +2320,7 @@ const rules = computed(() => ({
     {
       validator: (_rule, value, cb) => {
         const st = form.value.service_type
-        const protocolVisible = st !== 'text' && st !== 'tts' && st !== 'jimeng2_character_auth'
+        const protocolVisible = !hidesApiProtocolField(st)
         const presetProvider = (providerConfigs[st] || []).some((item) => item.id === form.value.provider)
         if (!protocolVisible || presetProvider || String(value || '').trim()) return cb()
         cb(new Error('自定义厂商请选择接口规范'))
@@ -2099,6 +2370,7 @@ const testServiceType = ref('')
 const testError = ref('')
 const testErrorDetail = ref('')
 const testResultAnnouncement = ref('')
+const testSuggestDiscoverModels = ref(false)
 const testingConfigId = ref(null)
 const oneKeyTongyiVisible = ref(false)
 const oneKeyTongyiKey = ref('')
@@ -2114,6 +2386,9 @@ const serviceCoverage = computed(() => (
   buildAiServiceCoverage(list.value, sessionTestStatusById.value)
 ))
 const orderedCoverageServices = computed(() => sortAiServiceCoverage(serviceCoverage.value.services))
+const orderedExtractionCoverageServices = computed(() => (
+  sortAiServiceCoverage(serviceCoverage.value.extractionServices || [])
+))
 
 const coverageSummaryCards = computed(() => ([
   {
@@ -2175,6 +2450,8 @@ const configEmptyDescription = computed(() => {
     return configLoadError.value || '请点击重试后再查看或添加配置。'
   }
   if (configListPendingEmpty.value) return '正在从本地服务读取已保存的厂商配置。'
+  if (activeServiceFilter.value === 'ocr') return '添加一个配置并设为默认，即可用于 PDF/图片识别。'
+  if (activeServiceFilter.value === 'transcription') return '添加一个配置并设为默认，即可用于音频/视频转写。'
   if (activeServiceFilter.value) return '添加一个配置并设为默认，即可用于对应生成环节。'
   return '先添加文本、图片或视频厂商，生成流程会自动使用默认配置。'
 })
@@ -2263,10 +2540,10 @@ function parseComfyWorkflowJson(value) {
   try {
     parsed = typeof value === 'string' ? JSON.parse(value) : value
   } catch (_) {
-    throw new Error('Workflow JSON 格式无效')
+    throw new Error('工作流 JSON 格式无效')
   }
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed) || Object.keys(parsed).length === 0) {
-    throw new Error('Workflow JSON 必须是非空对象')
+    throw new Error('工作流 JSON 必须是非空对象')
   }
   return parsed
 }
@@ -2308,7 +2585,7 @@ const availableProviderOptions = computed(() => {
   const current = form.value.provider
   let result = [...listByType]
   if (editingId.value && current && current !== CUSTOM_PROVIDER_SENTINEL && !listByType.some((p) => p.id === current)) {
-    result = [{ id: current, name: current + ' (当前)', models: [] }, ...result]
+    result = [{ id: current, name: current + '（当前）', models: [] }, ...result]
   }
   result.push({ id: CUSTOM_PROVIDER_SENTINEL, name: '✏️ 自定义（直接输入厂商名）', models: [] })
   return result
@@ -2322,6 +2599,18 @@ const availableModels = computed(() => {
   const p = (providerConfigs[st] || []).find((x) => x.id === provider)
   return p?.models || []
 })
+
+const providerModelEmptyHint = computed(() => {
+  if (form.value.service_type === 'jimeng2_character_auth') return ''
+  if (!String(form.value.provider || '').trim()) return '请先选择厂商，或直接输入模型名。'
+  if (!availableModels.value.length) return '当前厂商没有预设模型，可直接输入模型名。'
+  return ''
+})
+
+function configActionLabel(action, row) {
+  const name = String(row?.name || '').trim() || '未命名配置'
+  return `${action}「${name}」`
+}
 
 /** 根据当前厂商/协议/base_url 推算实际将使用的接口地址，供用户核对 */
 const endpointPreviewInfo = computed(() => {
@@ -2401,7 +2690,7 @@ const endpointPreviewInfo = computed(() => {
     } else if (proto === 'jimeng_ai_api' || p === 'jimeng_ai_api') {
       submitPath = endpoint || '/v1/videos/generations'
       return {
-        submit: (base || '(请填 Base URL)') + submitPath + '  （Bearer 为即梦 Session，可多账号英文逗号分隔；同步返回 data[0].url）',
+        submit: (base || '(请填接口地址)') + submitPath + '  （Bearer 为即梦 Session，可多账号英文逗号分隔；同步返回 data[0].url）',
         query: null,
         isAuto: true,
       }
@@ -2452,8 +2741,8 @@ const endpointPreviewInfo = computed(() => {
     }
   }
 
-  const submitUrl = base ? (base + submitPath) : ('(未填 Base URL)' + submitPath)
-  const queryUrl = queryPath ? (base ? base + queryPath : '(未填 Base URL)' + queryPath) : null
+  const submitUrl = base ? (base + submitPath) : ('(未填接口地址)' + submitPath)
+  const queryUrl = queryPath ? (base ? base + queryPath : '(未填接口地址)' + queryPath) : null
 
   if (!submitPath) return null
   return {
@@ -2544,6 +2833,10 @@ const AGNES_CONFIGS = [
   { service_type: 'video', name: 'Agnes 视频', base_url: 'https://apihub.agnes-ai.com/v1', provider: 'agnes', api_protocol: 'agnes', endpoint: '/videos', query_endpoint: '/videos/{taskId}', model: ['agnes-video-v2.0'] },
 ]
 
+function hidesApiProtocolField(serviceType) {
+  return ['text', 'tts', 'ocr', 'transcription', 'jimeng2_character_auth'].includes(String(serviceType || ''))
+}
+
 function serviceTypeLabel(t) {
   const map = {
     text: '文本',
@@ -2551,17 +2844,53 @@ function serviceTypeLabel(t) {
     storyboard_image: '分镜图片生成',
     video: '视频',
     tts: '语音合成 TTS',
+    ocr: '图片识别 OCR',
+    transcription: '语音转写',
     jimeng2_character_auth: '即梦2角色认证',
-    model_ark_asset: 'SD2 资产库',
+    model_ark_asset: '认证资产库',
   }
   return map[t] || t
+}
+
+function configFieldDisplayLabel(label) {
+  const map = {
+    'API Key': 'API 密钥',
+    'Base URL': '接口地址（Base URL）',
+    'Workflow JSON': '工作流 JSON',
+  }
+  return map[label] || label
+}
+
+function jimeng2AssetTypeLabel(type) {
+  const map = {
+    image: '图片',
+    video: '视频',
+    audio: '音频',
+    Image: '图片',
+    Video: '视频',
+    Audio: '音频',
+  }
+  const raw = String(type || '').trim()
+  return map[raw] || raw || '—'
+}
+
+function jimeng2AssetStatusLabel(status) {
+  const map = {
+    active: '可用',
+    failed: '失败',
+    pending: '处理中',
+    processing: '处理中',
+    inactive: '未启用',
+  }
+  const raw = String(status || '').trim()
+  return map[raw] || raw || '—'
 }
 
 function onRowEdit(row) {
   if (configWriteLocked.value) return
   if (row.service_type === 'model_ark_asset') {
     activeTab.value = 'sd2_assets'
-    ElMessage.info('请在「SD2 资产管理」标签页编辑此配置')
+    ElMessage.info('请在「认证资产管理」标签页编辑此配置')
     return
   }
   openEdit(row)
@@ -2614,7 +2943,122 @@ function parseModelText(text) {
     .filter(Boolean)
 }
 
+function extractDiscoveredModelIds(payload) {
+  if (payload == null) return []
+  const list = Array.isArray(payload.models)
+    ? payload.models
+    : Array.isArray(payload.data)
+      ? payload.data
+      : Array.isArray(payload)
+        ? payload
+        : []
+  const ids = []
+  for (const item of list) {
+    if (item == null) continue
+    if (typeof item === 'string' || typeof item === 'number') {
+      const id = String(item).trim()
+      if (id) ids.push(id)
+      continue
+    }
+    const id = String(item.id || item.model || item.name || '').trim()
+    if (id) ids.push(id)
+  }
+  return ids
+}
+
+function mergeModelTextWithDiscovered(existingText, discoveredIds) {
+  const existing = parseModelText(existingText)
+  const extra = []
+  for (const raw of discoveredIds || []) {
+    const id = String(raw || '').trim()
+    if (!id || existing.includes(id) || extra.includes(id)) continue
+    extra.push(id)
+  }
+  if (!extra.length) {
+    return { text: existingText || '', merged: existing, appended: extra }
+  }
+  const prefix = String(existingText || '').trim()
+  return {
+    text: prefix ? (prefix + '\n' + extra.join('\n')) : extra.join('\n'),
+    merged: existing.concat(extra),
+    appended: extra,
+  }
+}
+
+function isOpenAiCompatibleConfig(config) {
+  const protocol = String(config?.api_protocol || getProviderProtocol(config?.provider, config?.service_type) || '')
+    .toLowerCase()
+    .replace(/-/g, '_')
+  return protocol === 'openai' || protocol === 'openai_compatible'
+}
+
+function hasDiscoverableCredential() {
+  if (String(form.value.api_key || '').trim()) return true
+  if (isApiKeyOptionalProvider(form.value.provider, form.value.api_protocol)) return true
+  const proto = String(form.value.api_protocol || '').toLowerCase()
+  if (form.value.service_type === 'video' && proto === 'kling_omni') {
+    return Boolean(String(form.value.kling_access_key || '').trim() && String(form.value.kling_secret_key || '').trim())
+  }
+  return false
+}
+
+async function discoverModelsFromService() {
+  if (discoverModelsDisabled.value) return
+  discoverModelsAbortController?.abort()
+  const controller = new AbortController()
+  discoverModelsAbortController = controller
+  const requestId = ++discoverModelsSequence
+  const targetEditingId = editingId.value
+  discoverModelsLoading.value = true
+  try {
+    const data = await aiAPI.discoverModels({
+      id: editingId.value || undefined,
+      base_url: String(form.value.base_url || '').trim(),
+      api_key: isMaskedSecret(form.value.api_key) ? undefined : form.value.api_key,
+      provider: form.value.provider,
+      api_protocol: form.value.api_protocol,
+      endpoint: form.value.endpoint,
+      service_type: form.value.service_type,
+    }, {
+      signal: controller.signal,
+      timeout: DEFAULT_CONNECTION_TEST_TIMEOUT_MS,
+      suppressErrorToast: true,
+    })
+    if (requestId !== discoverModelsSequence || !dialogVisible.value) return
+    if (editingId.value !== targetEditingId) return
+    const ids = extractDiscoveredModelIds(data)
+    if (!ids.length) {
+      ElMessage.warning('服务没有返回模型目录，请手工填写模型名')
+      return
+    }
+    const result = mergeModelTextWithDiscovered(form.value.modelText, ids)
+    form.value.modelText = result.text
+    if (!String(form.value.default_model || '').trim() && result.merged.length) {
+      form.value.default_model = result.merged[0]
+    }
+    if (result.appended.length) {
+      ElMessage.success('已从服务追加 ' + result.appended.length + ' 个模型')
+    } else {
+      ElMessage.success('未发现新模型，已保留当前模型列表')
+    }
+  } catch (e) {
+    if (requestId !== discoverModelsSequence) return
+    if (isUserFacingAbort(e, controller.signal) || controller.signal.aborted) return
+    ElMessage.error(toUserFacingError(e, '暂时无法读取模型目录，请稍后重试或手工填写模型名。', {
+      serviceLabel: '模型目录服务',
+      signal: controller.signal,
+    }))
+  } finally {
+    if (requestId === discoverModelsSequence) discoverModelsLoading.value = false
+    if (discoverModelsAbortController === controller) discoverModelsAbortController = null
+  }
+}
+
 function resetForm() {
+  discoverModelsAbortController?.abort()
+  discoverModelsAbortController = null
+  discoverModelsSequence += 1
+  discoverModelsLoading.value = false
   editingId.value = null
   editingUpdatedAt.value = ''
   presetModelPick.value = ''
@@ -2824,6 +3268,33 @@ async function openEdit(row, { repairIssue = '' } = {}) {
   })
 }
 
+async function confirmReplaceDefaultConfig() {
+  if (!form.value.is_default) return true
+  const serviceType = form.value.service_type
+  const currentId = editingId.value
+  const existing = list.value.find((row) => (
+    row.service_type === serviceType
+    && row.is_default
+    && String(row.id) !== String(currentId || '')
+  ))
+  if (!existing) return true
+  const nextName = String(form.value.name || '').trim() || '未命名配置'
+  const previousName = String(existing.name || '').trim() || '未命名配置'
+  try {
+    await ElMessageBox.confirm(
+      `确定将「${nextName}」设为${serviceTypeLabel(serviceType)}的默认配置？当前默认「${previousName}」会被替换。`,
+      '保存确认',
+      { type: 'warning', confirmButtonText: '确认保存', cancelButtonText: '取消' },
+    )
+    return true
+  } catch (error) {
+    if (!isUserFacingAbort(error)) {
+      ElMessage.error(toUserFacingError(error, '无法确认保存'))
+    }
+    return false
+  }
+}
+
 async function submit() {
   if (configWriteLocked.value) return
   try {
@@ -2833,6 +3304,8 @@ async function submit() {
     return
   }
   clearConfigValidationSummary()
+  if (!await confirmReplaceDefaultConfig()) return
+  if (configWriteLocked.value) return
   saving.value = true
   try {
     let modelList = parseModelText(form.value.modelText)
@@ -2942,7 +3415,7 @@ async function submitBulkKey() {
     const res = await aiAPI.bulkUpdateKey(key)
     if (!isAiConfigBulkKeyResult(res)) {
       await loadList()
-      ElMessage.error('服务端未返回完整的批量换 Key 确认结果，请刷新后复核。')
+      ElMessage.error('服务端未返回完整的批量换密钥确认结果，请刷新后复核。')
       return
     }
     const listConfirmed = await loadList()
@@ -2952,8 +3425,8 @@ async function submitBulkKey() {
       notifyConfigurationChanged()
     }
     bulkKeyVisible.value = false
-    if (listMatches) ElMessage.success(res?.message || '所有配置的 API Key 已更新')
-    else ElMessage.warning('服务端已确认批量换 Key，但配置列表刷新或并发校验未完全一致，请刷新后复核。')
+    if (listMatches) ElMessage.success(res?.message || '所有配置的 API 密钥已更新')
+    else ElMessage.warning('服务端已确认批量换密钥，但配置列表刷新或并发校验未完全一致，请刷新后复核。')
   } catch (_) {
   } finally {
     bulkKeySaving.value = false
@@ -3035,7 +3508,7 @@ function pickConnectionTestTitle(message) {
   return message
 }
 
-function describeConnectionTestError(error, signal) {
+function describeConnectionTestError(error, signal, serviceType = '') {
   if (isRequestTimeout(error, signal)) {
     return {
       title: '连接测试超时',
@@ -3065,19 +3538,25 @@ function describeConnectionTestError(error, signal) {
     title = '暂时无法完成连接测试，请稍后重试。'
   }
   const authLike = /认证失败|凭据|API Key|密钥/i.test(`${title}\n${cleaned}`)
-  const detail = authLike
-    ? '请检查 API Key、Session 或 AccessKey 是否填写正确。如果该服务不提供模型目录，也可直接在配置里手工填写模型名。'
+  const st = String(serviceType || '').toLowerCase()
+  let detail = authLike
+    ? '请检查 API 密钥、Session 或 AccessKey 是否填写正确。如果该服务不提供模型目录，也可直接在配置里手工填写模型名。'
     : '请检查厂商地址、密钥和网络后重试。连接测试有时会读取模型目录；若该服务不提供模型列表，可直接在配置里手工填写模型名。'
+  if (!authLike && st === 'ocr') {
+    detail = '请检查厂商地址、密钥和网络后重试。图片识别用于 PDF/图片抽文字，通常走视觉对话接口；若该服务不提供模型列表，可直接在配置里手工填写模型名。'
+  } else if (!authLike && st === 'transcription') {
+    detail = '请检查厂商地址、密钥和网络后重试。语音转写用于音频/视频，通常走音频转写接口；若该服务不提供模型列表，可直接在配置里手工填写模型名。'
+  }
   return { title, detail }
 }
 
 async function openTest(row) {
   if (row.service_type === 'jimeng2_character_auth') {
-    ElMessage.info('即梦2角色认证无需在此联调；保存后请在创作页「角色」面板中点击「SD2认证」验证。')
+    ElMessage.info('即梦2角色认证无需在此联调；保存后请在创作页「角色」面板中点击「认证资产」验证。')
     return
   }
   if (row.service_type === 'model_ark_asset') {
-    ElMessage.info('SD2 资产库请在「SD2 资产管理」标签页使用「刷新列表」验证连接。')
+    ElMessage.info('认证资产库请在「认证资产管理」标签页使用「刷新列表」验证连接。')
     return
   }
   if (testingConfigId.value !== null && lastTestedConfig && String(lastTestedConfig.id) === String(row.id)) return
@@ -3092,6 +3571,7 @@ async function openTest(row) {
   testErrorDetail.value = ''
   testResultAnnouncement.value = '正在测试连接'
   testServiceType.value = row.service_type || 'text'
+  testSuggestDiscoverModels.value = isOpenAiCompatibleConfig(row)
   const testModel = row.default_model || (Array.isArray(row.model) ? row.model[0] : row.model)
   const operationId = createOperationId('ai_config_test')
   const startedAt = Date.now()
@@ -3141,7 +3621,7 @@ async function openTest(row) {
       return
     }
     testResult.value = false
-    const described = describeConnectionTestError(e, controller.signal)
+    const described = describeConnectionTestError(e, controller.signal, row.service_type)
     testError.value = described.title
     testErrorDetail.value = described.detail
     const testedAt = new Date().toISOString()
@@ -3173,18 +3653,31 @@ function retryConnectionTest() {
 
 async function onDelete(row) {
   if (configWriteLocked.value) return
-  await ElMessageBox.confirm(`确定删除配置「${row.name}」？`, '删除确认', {
-    type: 'warning',
-    confirmButtonText: '确定删除',
-    cancelButtonText: '取消',
-  })
+  const name = String(row?.name || '').trim() || '未命名配置'
+  try {
+    await ElMessageBox.confirm(`确定删除配置「${name}」？此操作不可恢复。`, '删除确认', {
+      type: 'warning',
+      confirmButtonText: '确定删除',
+      cancelButtonText: '取消',
+      confirmButtonClass: 'el-button--danger',
+    })
+  } catch (error) {
+    if (!isUserFacingAbort(error)) {
+      ElMessage.error(toUserFacingError(error, '无法确认删除'))
+    }
+    return
+  }
+  if (configWriteLocked.value) return
   try {
     await aiAPI.delete(row.id)
     ElMessage.success('已删除')
     invalidateConnectionTestResults()
     notifyConfigurationChanged()
     await loadList()
-  } catch (_) {}
+  } catch (error) {
+    if (isUserFacingAbort(error)) return
+    ElMessage.error(toUserFacingError(error, '删除失败'))
+  }
 }
 
 function onSelectionChange(rows) {
@@ -3194,11 +3687,19 @@ function onSelectionChange(rows) {
 async function onBatchDelete() {
   if (configWriteLocked.value) return
   if (!selectedRows.value.length) return
-  await ElMessageBox.confirm(
-    `确定删除选中的 ${selectedRows.value.length} 条配置？此操作不可恢复。`,
-    '批量删除确认',
-    { type: 'warning', confirmButtonText: '确定删除', cancelButtonText: '取消', confirmButtonClass: 'el-button--danger' }
-  )
+  try {
+    await ElMessageBox.confirm(
+      `确定删除选中的 ${selectedRows.value.length} 条配置？此操作不可恢复。`,
+      '批量删除确认',
+      { type: 'warning', confirmButtonText: '确定删除', cancelButtonText: '取消', confirmButtonClass: 'el-button--danger' },
+    )
+  } catch (error) {
+    if (!isUserFacingAbort(error)) {
+      ElMessage.error(toUserFacingError(error, '无法确认删除'))
+    }
+    return
+  }
+  if (configWriteLocked.value) return
   batchDeleting.value = true
   let success = 0, failed = 0
   for (const row of selectedRows.value) {
@@ -3213,7 +3714,9 @@ async function onBatchDelete() {
     invalidateConnectionTestResults()
     notifyConfigurationChanged()
   }
-  ElMessage.success(`已删除 ${success} 条${failed ? `，${failed} 条失败` : ''}`)
+  if (!success && failed) ElMessage.error(`删除失败，${failed} 条未能删除`)
+  else if (failed) ElMessage.warning(`已删除 ${success} 条，${failed} 条失败`)
+  else ElMessage.success(`已删除 ${success} 条`)
   await loadList()
 }
 
@@ -3888,6 +4391,31 @@ html.dark :is(.ai-config-content, .ai-config-overlay) :is(
 .coverage-icon-storyboard_image { color: #7c3aed; background: #f5f3ff; }
 .coverage-icon-video { color: var(--ai-config-warning-text, #c2410c); background: var(--ai-config-warning-surface, #fff7ed); }
 .coverage-icon-tts { color: #0f766e; background: #f0fdfa; }
+.coverage-icon-ocr { color: #0369a1; background: #e0f2fe; }
+.coverage-icon-transcription { color: #7c2d12; background: #fff7ed; }
+.extraction-coverage {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--el-border-color-light, #e4e7ed);
+}
+.extraction-coverage-header h3 {
+  margin: 0 0 4px;
+  font-size: 14px;
+  font-weight: 650;
+  color: var(--el-text-color-primary, #303133);
+}
+.extraction-coverage-header p {
+  margin: 0 0 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--el-text-color-secondary, #909399);
+}
+.coverage-grid-extraction {
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+.coverage-item-compact {
+  min-height: 108px;
+}
 .coverage-item-main {
   min-width: 0;
   display: flex;
@@ -4184,6 +4712,16 @@ html.dark :is(.ai-config-content, .ai-config-overlay) :is(
   color: #f97316;
   border-color: rgba(249, 115, 22, 0.25);
 }
+.type-ocr {
+  background: rgba(14, 165, 233, 0.12);
+  color: #0284c7;
+  border-color: rgba(14, 165, 233, 0.25);
+}
+.type-transcription {
+  background: rgba(234, 88, 12, 0.12);
+  color: #c2410c;
+  border-color: rgba(234, 88, 12, 0.25);
+}
 .jimeng2-assets-actions {
   display: flex;
   flex-wrap: wrap;
@@ -4315,7 +4853,13 @@ code {
 .vendor-lock-tip {
   margin-bottom: 16px;
 }
-.model-row { margin-bottom: 4px; }
+.model-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
 .deepseek-settings {
   display: flex;
   align-items: center;
@@ -4364,6 +4908,22 @@ code {
   background: #f0f9eb;
   color: #67c23a;
   border: 1px solid #b3e19d;
+}
+.ph-tag-text {
+  background: #f4f4f5;
+  color: #606266;
+  border: 1px solid #d3d4d6;
+}
+.ph-tag-tts {
+  background: #fdf6ec;
+  color: #e6a23c;
+  border: 1px solid #f5dab1;
+}
+.protocol-help .ph-disclaimer {
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--el-text-color-regular, #606266);
+  margin: 0 0 12px;
 }
 .protocol-help .ph-body {
   font-size: 13px;

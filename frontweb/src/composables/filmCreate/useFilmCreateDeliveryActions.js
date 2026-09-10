@@ -9,6 +9,39 @@ import {
   validateDeliveryBlob,
 } from '@/utils/filmCreateDelivery'
 import { isPlaceholderMediaUrl } from '@/utils/mediaUrl'
+import { isUserFacingAbort, toUserFacingError } from '@/utils/userFacingError'
+
+function readHttpStatus(error) {
+  const status = Number(error?.status || error?.response?.status)
+  return Number.isInteger(status) && status > 0 ? status : 0
+}
+
+function friendlySubtitleExportError(error) {
+  if (isUserFacingAbort(error)) return '字幕下载已取消。'
+  const status = readHttpStatus(error)
+  const raw = String(error?.message || '')
+  if (status === 404 || /没有可导出的字幕/.test(raw)) {
+    return '字幕下载失败，可能是本集还没有可导出的字幕。'
+  }
+  if (/未返回文件|为空/.test(raw)) return '字幕文件为空，未下载任何文件。'
+  if (/错误信息/.test(raw)) return '字幕接口返回了错误信息，未下载任何文件。'
+  if (/超时/.test(raw) || error?.isTimeout) return '字幕下载超时，请稍后重试。'
+  return toUserFacingError(error, '字幕下载失败，可能是本集还没有可导出的字幕。', {
+    serviceLabel: '字幕导出',
+  })
+}
+
+function friendlyProjectExportError(error) {
+  if (isUserFacingAbort(error)) return '项目包导出已取消。'
+  const raw = String(error?.message || '')
+  if (/格式无效/.test(raw)) return '项目包格式无效，未下载任何文件。'
+  if (/未返回文件|为空/.test(raw)) return '项目包为空，未下载任何文件。'
+  if (/错误信息/.test(raw)) return '项目包接口返回了错误信息，未下载任何文件。'
+  if (/超时/.test(raw) || error?.isTimeout) return '项目包导出超时，请稍后重试。'
+  return toUserFacingError(error, '项目包导出失败，请检查本地服务后重试。', {
+    serviceLabel: '项目包导出',
+  })
+}
 
 export function useFilmCreateDeliveryActions(deps = {}) {
   const {
@@ -106,8 +139,8 @@ export function useFilmCreateDeliveryActions(deps = {}) {
       triggerBlobDownload(blob, filename)
       deliveryExportStatus.subtitle = 'success'
       ElMessage.success('字幕下载已完成')
-    } catch (_) {
-      deliveryExportError.value = '字幕下载失败，可能是本集还没有可导出的字幕。'
+    } catch (error) {
+      deliveryExportError.value = friendlySubtitleExportError(error)
       deliveryExportStatus.subtitle = 'error'
       ElMessage.error(deliveryExportError.value)
     }
@@ -125,8 +158,8 @@ export function useFilmCreateDeliveryActions(deps = {}) {
       triggerBlobDownload(blob, filename)
       deliveryExportStatus.project = 'success'
       ElMessage.success('项目包导出已完成')
-    } catch (_) {
-      deliveryExportError.value = '项目包导出失败，请检查本地服务后重试。'
+    } catch (error) {
+      deliveryExportError.value = friendlyProjectExportError(error)
       deliveryExportStatus.project = 'error'
       ElMessage.error(deliveryExportError.value)
     }

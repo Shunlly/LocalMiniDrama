@@ -1,7 +1,7 @@
 export function isRecoverableNotFoundBackPath(path) {
   if (typeof path !== 'string' || !path.startsWith('/') || path.startsWith('//')) return false
   const pathname = path.split(/[?#]/, 1)[0]
-  return /^\/(?:(?:ai-config|free-create|media-library)|(?:drama|film)\/[1-9]\d*(?:\/canvas)?)?$/.test(pathname)
+  return /^\/(?:(?:ai-config|backup|free-create|media-library)|(?:drama|film)\/[1-9]\d*(?:\/canvas)?)?$/.test(pathname)
 }
 
 export function resolveNotFoundFromPath(value) {
@@ -20,4 +20,13 @@ export function resolveNotFoundNavigation(historyState, currentFullPath = '') {
   const backPath = back.split(/[?#]/, 1)[0]
   if (!isRecoverableNotFoundBackPath(backPath)) return { type: 'home' }
   return { type: 'back' }
+}
+
+export function resolveCatchallNotFoundLocation(unknownFullPath = '', currentPath = '') {
+  const from = resolveNotFoundFromPath(unknownFullPath)
+  return {
+    name: 'not-found',
+    replace: !isRecoverableNotFoundBackPath(currentPath),
+    query: from ? { from } : {},
+  }
 }

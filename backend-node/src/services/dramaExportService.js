@@ -321,6 +321,7 @@ function declaredCommonsEvidence(category, sourcePath) {
   } catch (_) {
     return null;
   }
+  if (metadata?.kind === 'openverse') return declaredOpenverseEvidence(metadata, sourcePath);
   if (metadata?.kind !== 'wikimedia_commons') return null;
   let source;
   let resolvedDownload;
@@ -369,6 +370,52 @@ function declaredCommonsEvidence(category, sourcePath) {
   return {
     contentSha256: metadata.content_sha256.toLowerCase(),
     commonsSha1: metadata.commons_sha1.toLowerCase(),
+  };
+}
+
+
+function declaredOpenverseEvidence(metadata, sourcePath) {
+  let source;
+  let resolvedDownload;
+  let landing;
+  try {
+    source = new URL(metadata.source_url);
+    resolvedDownload = new URL(metadata.resolved_download_url);
+    landing = metadata.landing_page ? new URL(metadata.landing_page) : null;
+  } catch (_) {
+    source = null;
+  }
+  const id = String(metadata.openverse_id || '').toLowerCase();
+  const sourceMatch = source?.pathname.match(/^\/image\/([0-9a-f-]{36})\/?$/i);
+  const unknownLicense = '\u672a\u6ce8\u660e';
+  if (
+    metadata.source_provider !== 'Openverse'
+    || source?.protocol !== 'https:'
+    || source?.origin !== 'https://openverse.org'
+    || source?.username
+    || source?.password
+    || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)
+    || !sourceMatch
+    || sourceMatch[1].toLowerCase() !== id
+    || typeof metadata.license !== 'string'
+    || !metadata.license.trim()
+    || metadata.license === unknownLicense
+    || !/^[a-f0-9]{64}$/i.test(String(metadata.content_sha256 || ''))
+    || resolvedDownload?.protocol !== 'https:'
+    || resolvedDownload?.username
+    || resolvedDownload?.password
+    || (landing && (landing.protocol !== 'https:' || landing.username || landing.password))
+  ) {
+    throw exportError(
+      'INVALID_NETWORK_MEDIA_EVIDENCE',
+      '\u9879\u76ee\u5bfc\u51fa\u62d2\u7edd\u4e86\u4e0d\u5b8c\u6574\u6216\u4e0d\u4e00\u81f4\u7684\u7f51\u7edc\u7d20\u6750\u8bc1\u636e\u3002',
+      { source_path: sourcePath },
+      400
+    );
+  }
+  return {
+    contentSha256: metadata.content_sha256.toLowerCase(),
+    commonsSha1: null,
   };
 }
 
@@ -575,7 +622,7 @@ function collectSourceIntakeOriginals(db, storagePath, dramaId, archive) {
     sources.push({
       source_ref: sourceRef,
       source_type: String(row.source_type || 'outline').slice(0, 32),
-      title: String(row.title || 'Imported source').slice(0, 500),
+      title: String(row.title || '导入素材').slice(0, 500),
       content_hash: /^[a-f0-9]{64}$/i.test(String(row.content_hash || ''))
         ? String(row.content_hash).toLowerCase()
         : null,
@@ -1113,8 +1160,8 @@ function collectFreeCanvasImportManifest({
     }
     Object.assign(entry, inspectFreeCanvasMedia(buffer, entry.source_path, entry.category));
     const evidence = commonsEvidenceByPath.get(entry.source_path);
-    const actualSha1 = evidence ? createHash('sha1').update(buffer).digest('hex') : null;
-    if (evidence && (evidence.contentSha256 !== entry.sha256 || evidence.commonsSha1 !== actualSha1)) {
+    const actualSha1 = evidence?.commonsSha1 ? createHash('sha1').update(buffer).digest('hex') : null;
+    if (evidence && (evidence.contentSha256 !== entry.sha256 || (evidence.commonsSha1 && evidence.commonsSha1 !== actualSha1))) {
       throw exportError(
         'NETWORK_MEDIA_CONTENT_HASH_MISMATCH',
         '项目导出拒绝了证据与本地文件不符的网络素材。',

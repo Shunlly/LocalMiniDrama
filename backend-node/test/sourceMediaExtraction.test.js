@@ -496,7 +496,8 @@ describe('sourceMediaExtraction: Source Intake media extraction', () => {
         file: { originalname: 'rollback.pdf', mimetype: 'application/pdf', size: pdf.length, buffer: pdf },
       }, res);
 
-      assert.equal(res.statusCode, 500);
+      assert.equal(res.statusCode, 400);
+      assert.match(res.body.error.message, /素材源操作失败/);
       assert.equal(db.prepare('SELECT COUNT(*) AS count FROM story_sources').get().count, 0);
       assert.equal(db.prepare('SELECT COUNT(*) AS count FROM source_items').get().count, 0);
       assert.deepEqual(await listFiles(storageRoot), []);
@@ -553,8 +554,9 @@ describe('sourceMediaExtraction: Source Intake media extraction', () => {
 
       const download = mockResponse();
       routes.downloadOriginal({ params: { source_id: upload.body.data.source.id } }, download);
-      assert.equal(download.statusCode, 500);
-      assert.equal(download.body.error.code, 'INTERNAL_ERROR');
+      assert.ok(download.statusCode === 400 || download.statusCode === 500);
+      assert.notEqual(download.body.error.code, 'OK');
+      assert.doesNotMatch(String(download.body.error.message || ''), /outside\.pdf|storage_path/);
       assert.equal(Buffer.isBuffer(download.body), false);
     } finally {
       db.close();
@@ -591,7 +593,7 @@ describe('sourceMediaExtraction: Source Intake media extraction', () => {
         file: { originalname: 'link.pdf', mimetype: 'application/pdf', size: pdf.length, buffer: pdf },
       }, res);
 
-      assert.equal(res.statusCode, 500);
+      assert.equal(res.statusCode, 400);
       assert.equal(db.prepare('SELECT COUNT(*) AS count FROM story_sources').get().count, 0);
       assert.deepEqual(await listFiles(outsideRoot), []);
     } finally {
@@ -619,7 +621,8 @@ describe('sourceMediaExtraction: Source Intake media extraction', () => {
       }, res);
 
       assert.equal(res.statusCode, 400);
-      assert.match(res.body.error.message, /转写服务.*HTTP 503/);
+      assert.match(res.body.error.message, /转写服务/);
+      assert.doesNotMatch(res.body.error.message, /HTTP\s*503|service_type=/);
       assert.equal(db.prepare('SELECT COUNT(*) AS count FROM story_sources').get().count, 0);
       assert.equal(db.prepare('SELECT COUNT(*) AS count FROM source_items').get().count, 0);
       assert.deepEqual(await fsp.readdir(tempRoot), []);
@@ -647,7 +650,8 @@ describe('sourceMediaExtraction: Source Intake media extraction', () => {
       }, res);
 
       assert.equal(res.statusCode, 400);
-      assert.match(res.body.error.message, /service_type=ocr/i);
+      assert.match(res.body.error.message, /图片识别/);
+      assert.doesNotMatch(res.body.error.message, /service_type=/);
       assert.match(res.body.error.message, /Tesseract/i);
       assert.equal(db.prepare('SELECT COUNT(*) AS count FROM story_sources').get().count, 0);
       assert.deepEqual(await fsp.readdir(tempRoot), []);

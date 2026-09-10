@@ -80,6 +80,7 @@ export function useScenes(deps) {
     isEpisodeExtractRunning(genStore, dramaId.value, currentEpisodeId.value, GEN_RESOURCE.EXTRACT_SCENES)
   )
   const generatingSceneIds = reactive(new Set())
+  const generatingPanoramaIds = reactive(new Set())
 
   // ── 场景库状态 ────────────────────────────────────────
   const showSceneLibrary = ref(false)
@@ -124,8 +125,12 @@ export function useScenes(deps) {
         const pollRes = await pollTask(taskId, () => loadDrama(), meta)
         if (pollRes?.status === 'completed') {
           ElMessage.success('场景提取完成')
+        } else if (pollRes?.status === 'timeout') {
+          ElMessage.warning(toUserFacingError(pollRes?.error, '场景提取超时，请稍后重试'))
+        } else if (pollRes?.status === 'cancelled' || pollRes?.status === 'canceled') {
+          ElMessage.info(toUserFacingError(pollRes?.error, '操作已取消'))
         } else {
-          ElMessage.warning(pollRes?.error || '场景提取未完成')
+          ElMessage.warning(toUserFacingError(pollRes?.error, '场景提取未完成'))
         }
       } else {
         await loadDrama()
@@ -245,7 +250,8 @@ export function useScenes(deps) {
       form.ref_image = ''
       ElMessage.success('参考图已移除')
     } catch (e) {
-      ElMessage.error('移除失败')
+      if (isUserFacingAbort(e)) return
+      ElMessage.error(toUserFacingError(e, '移除失败'))
     }
   }
 
@@ -349,11 +355,16 @@ export function useScenes(deps) {
       if (taskId) {
         const pollRes = await pollTask(taskId, () => loadDrama(), meta)
         if (pollRes?.status === 'failed') {
-          scene.errorMsg = pollRes.error || '生成失败'
+          scene.errorMsg = toUserFacingError(pollRes.error, '生成失败')
         } else if (pollRes?.status === 'completed') {
           ElMessage.success('场景图片已生成')
+        } else if (pollRes?.status === 'timeout') {
+          scene.errorMsg = toUserFacingError(pollRes?.error, '生成超时，请稍后重试')
+          ElMessage.warning(scene.errorMsg)
+        } else if (pollRes?.status === 'cancelled' || pollRes?.status === 'canceled') {
+          scene.errorMsg = toUserFacingError(pollRes?.error, '操作已取消')
         } else {
-          scene.errorMsg = pollRes?.error || '场景图片生成未完成'
+          scene.errorMsg = toUserFacingError(pollRes?.error, '场景图片生成未完成')
           ElMessage.warning(scene.errorMsg)
         }
       } else {
@@ -366,11 +377,53 @@ export function useScenes(deps) {
         ElMessage.success('场景图片已生成')
       }
     } catch (e) {
+      scene.errorMsg = toUserFacingError(e, '生成失败')
+      if (isUserFacingAbort(e)) return
       console.error(e)
-      scene.errorMsg = e.message || '生成失败'
       ElMessage.error(toUserFacingError(e, '提交失败'))
     } finally {
       generatingSceneIds.delete(scene.id)
+      genStore.markDone(meta)
+    }
+  }
+
+
+  async function onGenerateScenePanorama(scene) {
+    if (!scene?.id) return
+    if (!hasAssetImage(scene)) {
+      ElMessage.warning('请先为该场景生成或上传主图')
+      return
+    }
+    const meta = {
+      dramaId: dramaId.value,
+      episodeId: currentEpisodeId.value,
+      resourceType: 'scene_panorama',
+      resourceId: scene.id,
+      label: `全景图: ${scene.location || scene.id}`,
+    }
+    generatingPanoramaIds.add(scene.id)
+    genStore.markRunning(meta)
+    try {
+      const res = await sceneAPI.generatePanorama(scene.id)
+      const taskId = res?.image_generation?.task_id ?? res?.task_id
+      if (!taskId) throw new Error('全景图任务未返回')
+      const pollRes = await pollTask(taskId, () => loadDrama(), meta)
+      if (pollRes?.status === 'failed') {
+        ElMessage.error(toUserFacingError(pollRes.error, '全景图生成失败'))
+      } else if (pollRes?.status === 'completed') {
+        ElMessage.success('全景图已生成')
+      } else if (pollRes?.status === 'timeout') {
+        ElMessage.warning(toUserFacingError(pollRes?.error, '全景图生成超时，请稍后重试'))
+      } else if (pollRes?.status === 'cancelled' || pollRes?.status === 'canceled') {
+        ElMessage.info(toUserFacingError(pollRes?.error, '操作已取消'))
+      } else {
+        ElMessage.warning(toUserFacingError(pollRes?.error, '全景图生成未完成'))
+      }
+    } catch (e) {
+      if (isUserFacingAbort(e)) return
+      ElMessage.error(toUserFacingError(e, '全景图生成失败'))
+    } finally {
+      generatingPanoramaIds.delete(scene.id)
       genStore.markDone(meta)
     }
   }
@@ -610,6 +663,7 @@ export function useScenes(deps) {
     // 生成状态
     scenesExtracting,
     generatingSceneIds,
+    generatingPanoramaIds,
     // 库状态
     showSceneLibrary,
     sceneLibraryList,
@@ -652,6 +706,7 @@ export function useScenes(deps) {
     onCloseSceneDialog,
     onDeleteScene,
     onGenerateSceneImage,
+    onGenerateScenePanorama,
     loadSceneLibraryList,
     debouncedLoadSceneLibrary,
     loadDramaAllSceneList,

@@ -1,6 +1,8 @@
 const propService = require('../services/propService');
 const propLibraryService = require('../services/propLibraryService');
 const response = require('../response');
+const { sendMappedServiceFailure, sendCaughtRouteError } = require('./serviceFailure');
+const { toUserFacingProcessError } = require('../services/providerErrorSanitizer');
 
 function listProps(db) {
   return (req, res) => {
@@ -54,10 +56,10 @@ function generateImage(db, log) {
       const taskId = propImageGenerationService.generatePropImage(db, log, id, { model, style });
       response.success(res, { task_id: taskId });
     } catch (err) {
-      if (err.message === '道具不存在') return response.notFound(res, err.message);
-      if (err.message === '道具没有图片提示词') return response.badRequest(res, err.message);
+      if (err.message === '道具不存在') return response.notFound(res, '道具不存在');
+      if (err.message === '道具没有图片提示词') return response.badRequest(res, '道具没有图片提示词');
       log.error('generatePropImage failed', { error: err.message });
-      response.internalError(res, err.message || '生成失败');
+      sendCaughtRouteError(res, err, '生成失败');
     }
   };
 }
@@ -66,16 +68,13 @@ function extractProps(db, log, cfg) {
   const propExtractionService = require('../services/propExtractionService');
   return (req, res) => {
     const episodeId = req.params.episode_id;
-    if (!episodeId) return response.badRequest(res, '缺少 episode_id');
+    if (!episodeId) return response.badRequest(res, '缺少剧集 ID');
     try {
       const taskId = propExtractionService.extractPropsForEpisode(db, log, episodeId, cfg);
       response.success(res, { task_id: taskId });
     } catch (err) {
-      if (err.message?.includes('剧集不存在') || err.message?.includes('剧本内容为空')) {
-        return response.badRequest(res, err.message);
-      }
       log.error('extractProps failed', { error: err.message });
-      response.internalError(res, err.message || '提取失败');
+      sendCaughtRouteError(res, err, '提取失败');
     }
   };
 }
@@ -95,9 +94,7 @@ function addToLibrary(db, log) {
     if (isNaN(id)) return response.badRequest(res, '无效的ID');
     const out = propLibraryService.addPropToLibrary(db, log, id);
     if (!out.ok) {
-      if (out.error === 'prop not found') return response.notFound(res, '道具不存在');
-      if (out.error === 'unauthorized') return response.forbidden(res, '无权限');
-      return response.badRequest(res, out.error);
+      return sendMappedServiceFailure(res, out, { unauthorizedAsForbidden: true });
     }
     response.success(res, { message: '已加入本剧道具库', item: out.item });
   };
@@ -109,9 +106,7 @@ function addToMaterialLibrary(db, log) {
     if (isNaN(id)) return response.badRequest(res, '无效的ID');
     const out = propLibraryService.addPropToMaterialLibrary(db, log, id);
     if (!out.ok) {
-      if (out.error === 'prop not found') return response.notFound(res, '道具不存在');
-      if (out.error === 'unauthorized') return response.forbidden(res, '无权限');
-      return response.badRequest(res, out.error);
+      return sendMappedServiceFailure(res, out, { unauthorizedAsForbidden: true });
     }
     response.success(res, { message: '已加入全局素材库', item: out.item });
   };
@@ -135,13 +130,12 @@ function generatePropPrompt(db, log, cfg) {
       const body = req.body || {};
       const out = await propService.generatePropPromptOnly(db, log, cfg, id, body.model || undefined, body.style || undefined);
       if (!out.ok) {
-        if (out.error === 'prop not found') return response.notFound(res, '道具不存在');
-        return response.badRequest(res, out.error);
+        return sendMappedServiceFailure(res, out);
       }
       response.success(res, { message: '提示词已生成', prompt: out.prompt });
     } catch (err) {
       log.error('generatePropPrompt failed', { error: err.message });
-      response.internalError(res, err.message);
+      response.internalError(res, toUserFacingProcessError(err, '操作失败，请稍后重试'));
     }
   };
 }
@@ -153,13 +147,12 @@ function extractPropFromImage(db, log, cfg) {
     try {
       const out = await propService.extractPropFromImage(db, log, cfg, id);
       if (!out.ok) {
-        if (out.error === 'prop not found') return response.notFound(res, '道具不存在');
-        return response.badRequest(res, out.error);
+        return sendMappedServiceFailure(res, out);
       }
       response.success(res, { message: '道具描述已提取', description: out.description });
     } catch (err) {
       log.error('extractPropFromImage failed', { error: err.message });
-      response.internalError(res, err.message);
+      response.internalError(res, toUserFacingProcessError(err, '操作失败，请稍后重试'));
     }
   };
 }

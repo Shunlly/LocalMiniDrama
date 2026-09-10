@@ -35,12 +35,6 @@
         <div class="kind">{{ kindLabel }}</div>
       </div>
     </div>
-    <CanvasAssetPanel
-      v-if="showPanel"
-      :kind="data.kind"
-      :entity="data.entity"
-      :node-id="id"
-    />
   </div>
 </template>
 
@@ -49,7 +43,6 @@ import { computed } from 'vue'
 import { Handle, Position } from '@vue-flow/core'
 import { assetImageUrl } from '@/utils/mediaUrl'
 import { useCanvasContext } from '@/composables/useCanvasContext'
-import CanvasAssetPanel from './CanvasAssetPanel.vue'
 import CanvasNodeStatusOverlay from './CanvasNodeStatusOverlay.vue'
 
 const props = defineProps({

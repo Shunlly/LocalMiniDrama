@@ -135,6 +135,7 @@ test('userFacingGeneration source 不再包含已列出的英文用户错误', (
     'backgroundExtractionService.js',
     'propExtractionService.js',
     'mergedEpisodePostProcess.js',
+    'narrationVideoPostProcess.js',
     'providerSdkService.js',
   ];
   const forbidden = [
@@ -158,6 +159,7 @@ test('userFacingGeneration source 不再包含已列出的英文用户错误', (
     'requires voice or dialogue',
     'Compositor merge did not acquire',
     'Compositor merge no longer owns',
+    'e.message || String(e)',
   ];
   for (const name of files) {
     const source = fs.readFileSync(path.join(__dirname, '../src/services', name), 'utf8');
@@ -165,4 +167,242 @@ test('userFacingGeneration source 不再包含已列出的英文用户错误', (
       assert.equal(source.includes(phrase), false, `${name} 仍包含：${phrase}`);
     }
   }
+});
+
+test('providerNetworkPolicy 与 serviceFailure 用户错误为简体中文', () => {
+  const { requireCompleteProviderNetworkPolicy } = require('../src/services/providerNetworkPolicy');
+  const { sendMappedServiceFailure } = require('../src/routes/serviceFailure');
+
+  assert.throws(
+    () => requireCompleteProviderNetworkPolicy(null),
+    (error) => error.code === 'PROVIDER_NETWORK_POLICY_REQUIRED'
+      && /[\u4e00-\u9fff]/.test(error.message)
+      && !/complete provider network policy/i.test(error.message)
+  );
+  assert.throws(
+    () => requireCompleteProviderNetworkPolicy({
+      requireHttpsForPublic: true,
+      trustedOrigins: ['https://ok.example'],
+      allowPrivateOrigins: 'nope',
+    }),
+    (error) => error.code === 'PROVIDER_NETWORK_POLICY_INVALID'
+      && /[\u4e00-\u9fff]/.test(error.message)
+      && !/The provider network policy/i.test(error.message)
+  );
+  assert.throws(
+    () => requireCompleteProviderNetworkPolicy({
+      requireHttpsForPublic: true,
+      trustedOrigins: ['https://ok.example'],
+      allowPrivateOrigins: [],
+    }, 'https://other.example/v1'),
+    (error) => error.code === 'PROVIDER_NETWORK_AUTHORITY_MISMATCH'
+      && /[\u4e00-\u9fff]/.test(error.message)
+      && !/not authorized/i.test(error.message)
+  );
+
+  const policySource = fs.readFileSync(path.join(__dirname, '../src/services/providerNetworkPolicy.js'), 'utf8');
+  for (const phrase of [
+    'A complete provider network policy is required',
+    'The provider network policy is incomplete or invalid.',
+    'The provider endpoint is not authorized',
+    'Private provider origins must also be trusted provider origins.',
+  ]) {
+    assert.equal(policySource.includes(phrase), false, phrase);
+  }
+
+  function mockRes() {
+    return {
+      statusCode: 0,
+      body: null,
+      status(code) { this.statusCode = code; return this; },
+      json(body) { this.body = body; return this; },
+      setHeader() { return this; },
+      getHeader() {},
+    };
+  }
+  const missing = mockRes();
+  assert.equal(sendMappedServiceFailure(missing, { ok: false, error: 'character not found' }), true);
+  assert.equal(missing.statusCode, 404);
+  assert.match(missing.body.error.message, /[\u4e00-\u9fff]/);
+  assert.doesNotMatch(missing.body.error.message, /character not found/i);
+
+  const aborted = mockRes();
+  assert.equal(sendMappedServiceFailure(aborted, { ok: false, error: 'The operation was aborted.' }), true);
+  assert.equal(aborted.statusCode, 400);
+  assert.match(aborted.body.error.message, /[\u4e00-\u9fff]/);
+  assert.doesNotMatch(aborted.body.error.message, /aborted/i);
+
+  const english = mockRes();
+  assert.equal(sendMappedServiceFailure(english, { ok: false, error: 'ENOENT: no such file or directory' }), true);
+  assert.equal(english.statusCode, 400);
+  assert.match(english.body.error.message, /[\u4e00-\u9fff]/);
+  assert.doesNotMatch(english.body.error.message, /ENOENT|no such file/i);
+});
+
+test('角色/场景/道具路由与 AI 客户端不再把英文超时或密钥回给前端', async (t) => {
+  const Database = require('better-sqlite3');
+  const { runMigrationsAndEnsure } = require('../src/db/migrate');
+  const aiClient = require('../src/services/aiClient');
+  const characterGenerationService = require('../src/services/characterGenerationService');
+  const dramaService = require('../src/services/dramaService');
+  const { getLegacyAsyncSchedulerState } = require('../src/services/legacyAsyncSchedulerService');
+  const taskService = require('../src/services/taskService');
+  const sceneRoutes = require('../src/routes/scenes');
+  const characterRoutes = require('../src/routes/characters');
+  const propRoutes = require('../src/routes/prop');
+  const propService = require('../src/services/propService');
+  const {
+    createProviderHttpError,
+    toSafeProviderErrorMessage,
+    toUserFacingProcessError,
+  } = require('../src/services/providerErrorSanitizer');
+
+  function hasCjk(value) {
+    return /[\u4e00-\u9fff]/.test(String(value || ''));
+  }
+
+  function mockRes() {
+    return {
+      statusCode: 0,
+      body: null,
+      headers: {},
+      status(code) { this.statusCode = code; return this; },
+      json(body) { this.body = body; return this; },
+      setHeader(name, value) { this.headers[String(name).toLowerCase()] = String(value); return this; },
+      getHeader(name) { return this.headers[String(name).toLowerCase()]; },
+    };
+  }
+
+  const previousEnv = process.env.NODE_ENV;
+  process.env.NODE_ENV = 'test';
+  t.after(() => {
+    process.env.NODE_ENV = previousEnv;
+  });
+
+  const timeout = Object.assign(new Error('Vision request timeout after 120000ms'), { name: 'TimeoutError' });
+  assert.equal(toUserFacingProcessError(timeout, '处理失败'), '请求超时，请稍后重试');
+  assert.match(toSafeProviderErrorMessage(timeout, { provider: 'AI 服务', operation: '视觉请求' }), /超时/);
+  assert.doesNotMatch(toSafeProviderErrorMessage(timeout, { provider: 'AI 服务', operation: '视觉请求' }), /timeout after/i);
+
+  const secret = new Error('Invalid API key sk-test-not-a-real-key-aaaaaaaaaaaaaaaaaaaaaaaaaaaa');
+  assert.equal(toUserFacingProcessError(secret, '操作失败，请稍后重试'), '操作失败，请稍后重试');
+  assert.doesNotMatch(toUserFacingProcessError(secret, '操作失败，请稍后重试'), /sk-/);
+
+  const provider = createProviderHttpError({
+    provider: 'AI 服务',
+    operation: '视觉请求',
+    status: 401,
+    responseBody: JSON.stringify({ error: 'Bearer sk-provider-secret' }),
+  });
+  const providerMessage = toUserFacingProcessError(provider, '操作失败，请稍后重试');
+  assert.match(providerMessage, /认证失败|失败/);
+  assert.doesNotMatch(providerMessage, /sk-provider-secret|Bearer /i);
+
+  const sceneService = require('../src/services/sceneService');
+  const characterLibraryService = require('../src/services/characterLibraryService');
+  const originalListScenes = sceneService.listByDramaId;
+  const originalGenerateCharacterPrompt = characterLibraryService.generateCharacterPromptOnly;
+  t.after(() => {
+    sceneService.listByDramaId = originalListScenes;
+    characterLibraryService.generateCharacterPromptOnly = originalGenerateCharacterPrompt;
+  });
+  sceneService.listByDramaId = () => {
+    throw new Error('Vision request timeout after 15000ms');
+  };
+  const sceneRes = mockRes();
+  sceneRoutes({}, silentLog, {}).list({ params: { id: '1' } }, sceneRes);
+  assert.equal(sceneRes.statusCode, 500);
+  assert.equal(hasCjk(sceneRes.body.error.message), true);
+  assert.doesNotMatch(sceneRes.body.error.message, /timeout after|Vision request/i);
+
+  characterLibraryService.generateCharacterPromptOnly = async () => {
+    throw new Error('Invalid API key sk-provider-secret');
+  };
+
+  const originalGeneratePrompt = propService.generatePropPromptOnly;
+  t.after(() => {
+    propService.generatePropPromptOnly = originalGeneratePrompt;
+  });
+  propService.generatePropPromptOnly = async () => {
+    throw new Error('Invalid API key sk-provider-secret');
+  };
+  const routeDb = new Database(':memory:');
+  runMigrationsAndEnsure(routeDb);
+  const now = new Date().toISOString();
+  routeDb.prepare(
+    "INSERT INTO dramas (id, title, status, created_at, updated_at, deleted_at, trash_state, recycle_phase) VALUES (11, '主项目', 'draft', ?, ?, NULL, NULL, NULL)"
+  ).run(now, now);
+  routeDb.prepare(
+    "INSERT INTO characters (id, drama_id, name, appearance, created_at, updated_at, deleted_at) VALUES (55, 11, '林夏', '黑发', ?, ?, NULL)"
+  ).run(now, now);
+  const characterRes = mockRes();
+  await characterRoutes(routeDb, {}, silentLog, {}).generatePrompt({ params: { id: '55' }, body: {} }, characterRes);
+  assert.equal(characterRes.statusCode, 500);
+  assert.equal(hasCjk(characterRes.body.error.message), true);
+  assert.doesNotMatch(characterRes.body.error.message, /Invalid API key|sk-provider-secret/i);
+  routeDb.close();
+
+  const propRes = mockRes();
+  await propRoutes({}, silentLog, {}).generatePropPrompt({ params: { id: '8' }, body: {} }, propRes);
+  assert.equal(propRes.statusCode, 500);
+  assert.equal(hasCjk(propRes.body.error.message), true);
+  assert.doesNotMatch(propRes.body.error.message, /Invalid API key|sk-provider-secret/i);
+
+  const files = [
+    path.join(__dirname, '../src/routes/characters.js'),
+    path.join(__dirname, '../src/routes/scenes.js'),
+    path.join(__dirname, '../src/routes/prop.js'),
+    path.join(__dirname, '../src/services/aiClient.js'),
+    path.join(__dirname, '../src/services/characterGenerationService.js'),
+    path.join(__dirname, '../src/services/providerErrorSanitizer.js'),
+  ];
+  const forbidden = [
+    'AI request was aborted.',
+    'Vision request timeout after',
+    'Image generation HTTP timeout after',
+    'AI stream silence timeout after',
+    'episode_id must belong to drama_id',
+    'Vision reference image is required.',
+    'Vision reference image exceeds the size limit.',
+    'AI request body exceeds the size limit.',
+    'stream failed',
+    "response.internalError(res, err.message)",
+    "'AI生成失败: ' + err.message",
+  ];
+  for (const file of files) {
+    const source = fs.readFileSync(file, 'utf8');
+    for (const phrase of forbidden) {
+      assert.equal(source.includes(phrase), false, `${path.basename(file)} 仍包含：${phrase}`);
+    }
+  }
+
+  const db = new Database(':memory:');
+  runMigrationsAndEnsure(db);
+  const drama = dramaService.createDrama(db, silentLog, { title: '失败任务中文' });
+  const originalGenerateText = aiClient.generateText;
+  aiClient.generateText = async () => {
+    throw new Error('Invalid API key sk-test-not-a-real-key-aaaaaaaaaaaaaaaaaaaaaaaaaaaa');
+  };
+  t.after(async () => {
+    aiClient.generateText = originalGenerateText;
+    const deadline = Date.now() + 2000;
+    while (Date.now() < deadline && getLegacyAsyncSchedulerState().active !== 0) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    db.close();
+  });
+  const taskId = characterGenerationService.generateCharacters(db, {}, silentLog, {
+    drama_id: drama.id,
+    outline: '生成一个角色',
+  });
+  const deadline = Date.now() + 3000;
+  let task;
+  while (Date.now() < deadline) {
+    task = taskService.getTask(db, taskId);
+    if (task?.status === 'failed') break;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  assert.equal(task?.status, 'failed');
+  assert.equal(hasCjk(task.message), true);
+  assert.doesNotMatch(String(task.message || ''), /sk-|Invalid API key/i);
 });

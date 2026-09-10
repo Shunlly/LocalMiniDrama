@@ -1,6 +1,5 @@
-import { describeServiceLoadError, isRequestCanceled, isRequestTimeout } from '@/utils/requestError'
+import { describeServiceLoadError, isRequestCanceled, isRequestTimeout, isSafeUserFacingMessage } from '@/utils/requestError'
 
-const SECRET_RE = /password\s*=|client_secret|cookie\s*:|authorization\s*:|api[_-]?key\s*[:=]/i
 const UNSET = '\0'
 
 function errorText(error) {
@@ -12,10 +11,6 @@ function hasChinese(text) {
   return /[\u4e00-\u9fff]/.test(text)
 }
 
-function isSafeChinese(text) {
-  return Boolean(text) && hasChinese(text) && !SECRET_RE.test(text) && !/https?:\/\//i.test(text)
-}
-
 /** 把操作异常转成可展示的简体中文 */
 export function toUserFacingError(error, fallback = '操作失败，请稍后重试', options = {}) {
   if (error === 'cancel' || isRequestCanceled(error, options.signal)) return '操作已取消'
@@ -24,11 +19,14 @@ export function toUserFacingError(error, fallback = '操作失败，请稍后重
     fallback: UNSET,
     signal: options.signal,
   })
-  if (described && described !== UNSET && isSafeChinese(described)) return described
+  if (described && described !== UNSET && isSafeUserFacingMessage(described)) return described
   const raw = errorText(error)
-  if (raw && isSafeChinese(raw)) return raw
+  if (raw && isSafeUserFacingMessage(raw)) return raw
   if (isRequestTimeout(error, options.signal)) return '连接超时，请稍后重试'
-  return fallback
+  const fallbackText = fallback == null ? '' : String(fallback)
+  if (fallbackText === '') return ''
+  if (hasChinese(fallbackText) && !/\bdrama_id\b/i.test(fallbackText)) return fallbackText
+  return '操作失败，请稍后重试'
 }
 
 export function isUserFacingAbort(error, signal) {

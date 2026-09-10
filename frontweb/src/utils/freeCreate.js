@@ -1,8 +1,102 @@
+import { describeServiceLoadError, isRequestCanceled, isRequestTimeout } from './requestError.js'
+
 export const FREE_CREATE_VIDEO_ASPECT_RATIOS = Object.freeze(['16:9', '9:16', '1:1'])
 export const FREE_CREATE_IMAGE_ASPECT_RATIOS = Object.freeze([...FREE_CREATE_VIDEO_ASPECT_RATIOS, '4:3'])
 
+const SECRET_RE = /password\s*=|client_secret|cookie\s*:|authorization\s*:|api[_-]?key\s*[:=]/i
+const TECHNICAL_ENGLISH_RE = /network error|timeout of \d+ms|request failed with status code|err_network|econnaborted|etimedout|failed to fetch|load failed|internal server error|econnrefused|enotfound/i
+const UNSET_ERROR = '\0'
+
 function nonEmpty(value) {
   return String(value || '').trim()
+}
+
+function hasChineseText(text) {
+  return /[\u4e00-\u9fff]/.test(String(text || ''))
+}
+
+function readErrorText(error) {
+  if (typeof error === 'string') return error.trim()
+  if (!error || typeof error !== 'object') return ''
+  return String(error.message || error.error || '').trim()
+}
+
+/** 仅放行不含密钥、链接和英文技术异常的简体中文 */
+export function isSafeFreeCreateUserText(text) {
+  const value = String(text || '').trim()
+  return Boolean(value)
+    && hasChineseText(value)
+    && !SECRET_RE.test(value)
+    && !/https?:\/\//i.test(value)
+    && !TECHNICAL_ENGLISH_RE.test(value)
+}
+
+export function sanitizeFreeCreateCapabilityDetail(value) {
+  const text = nonEmpty(value)
+  if (!text) return ''
+  if (SECRET_RE.test(text) || /https?:\/\//i.test(text) || TECHNICAL_ENGLISH_RE.test(text)) return ''
+  return text
+}
+
+/** 自由创作不可用时的中文能力说明，不拼接异常原文 */
+export function getFreeCreateCapabilityNotice({
+  status = '',
+  issue = '',
+  serviceLabel = '图片',
+} = {}) {
+  const label = nonEmpty(serviceLabel) || '图片'
+  if (status === 'loading') return `正在检查${label}服务...`
+  if (status === 'error') return `无法读取${label}服务配置`
+  if (status === 'ready') return `${label}服务已就绪`
+  if (issue === 'missing_config') return `尚未配置可用的${label}服务`
+  if (issue === 'missing_model') return `${label}服务尚未选择可用模型`
+  if (issue === 'missing_credentials') return `${label}服务缺少访问凭据`
+  if (issue === 'missing_workflow') return `${label}服务缺少生成工作流`
+  return `${label}服务尚未就绪`
+}
+
+export function getFreeCreateReadyMessage({
+  serviceLabel = '图片',
+  name,
+  provider,
+  model,
+} = {}) {
+  const label = nonEmpty(serviceLabel) || '图片'
+  const identity = sanitizeFreeCreateCapabilityDetail(name) || sanitizeFreeCreateCapabilityDetail(provider)
+  const safeModel = sanitizeFreeCreateCapabilityDetail(model)
+  const detail = [identity, safeModel].filter(Boolean).join(' / ')
+  return detail ? `${label}服务已就绪：${detail}` : `${label}服务已就绪`
+}
+
+export function toFreeCreateUserError(error, fallback = '生成失败，请稍后重试') {
+  if (error == null || error === '') return fallback
+  if (error === 'cancel' || isRequestCanceled(error)) return '操作已取消'
+
+  const raw = readErrorText(error)
+  if (isSafeFreeCreateUserText(raw)) return raw
+
+  if (error && typeof error === 'object') {
+    const backendMessage = error?.response?.data?.error?.message
+    if (isSafeFreeCreateUserText(backendMessage)) return String(backendMessage).trim()
+    const described = describeServiceLoadError(error, {
+      serviceLabel: '自由创作服务',
+      fallback: UNSET_ERROR,
+    })
+    if (described && described !== UNSET_ERROR && isSafeFreeCreateUserText(described)) {
+      return described
+    }
+    const status = Number(error?.status || error?.response?.status)
+    if (Number.isInteger(status) && status > 0) return `自由创作服务暂时不可用（HTTP ${status}）`
+    if (isRequestTimeout(error)) return '连接自由创作服务超时，请稍后重试'
+  }
+
+  if (raw && TECHNICAL_ENGLISH_RE.test(raw)) {
+    if (/timeout/i.test(raw)) return '连接自由创作服务超时，请稍后重试'
+    if (/network error|failed to fetch|err_network|econnrefused|enotfound/i.test(raw)) {
+      return '无法连接自由创作服务，请检查服务是否已启动'
+    }
+  }
+  return fallback
 }
 
 function aspectRatiosForMode(mode) {
@@ -141,7 +235,9 @@ export function createFreeCreateTaskOwner(cancelTask) {
 
 export function getReferenceUploadBlockReason(status, errorMessage, localPath) {
   if (status === 'uploading') return '参考图正在上传，请等待上传完成'
-  if (status === 'error') return nonEmpty(errorMessage) || '参考图上传失败，请重试或移除'
+  if (status === 'error') {
+    return isSafeFreeCreateUserText(errorMessage) ? nonEmpty(errorMessage) : '参考图上传失败，请重试或移除'
+  }
   if (status === 'success' && !nonEmpty(localPath)) {
     return '参考图上传结果无效，请重试或移除'
   }

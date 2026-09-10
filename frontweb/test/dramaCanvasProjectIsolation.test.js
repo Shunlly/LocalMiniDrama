@@ -20,11 +20,21 @@ import * as freeCanvasMedia from '../src/utils/freeCanvasMedia.js'
 import { createCanvasSaveCoordinator } from '../src/utils/canvasSaveCoordinator.js'
 import { remainingExtractNamedFunction } from './helpers/remainingSourceBetween.js'
 import { canvasUserError } from '../src/composables/useCanvasUserError.js'
+import {
+  alignFreeCanvasNodePositions,
+  getFreeCanvasAlignDisabledReason,
+  isFreeCanvasDeleteShortcutBlocked as isDeleteShortcutBlockedByUx,
+} from '../src/components/dramaCanvas/freeCanvasUx.js'
 
 const canvasSource = [
   readFileSync(new URL('../src/views/DramaCanvas.vue', import.meta.url), 'utf8'),
+  readFileSync(new URL('../src/views/DramaCanvas.css', import.meta.url), 'utf8'),
   readFileSync(new URL('../src/composables/useDramaCanvasFreeCanvas.js', import.meta.url), 'utf8'),
   readFileSync(new URL('../src/composables/useDramaCanvasPersist.js', import.meta.url), 'utf8'),
+  readFileSync(new URL('../src/composables/useDramaCanvasProjectLoad.js', import.meta.url), 'utf8'),
+  readFileSync(new URL('../src/composables/useDramaCanvasWorkflow.js', import.meta.url), 'utf8'),
+  readFileSync(new URL('../src/composables/useDramaCanvasGraph.js', import.meta.url), 'utf8'),
+  readFileSync(new URL('../src/composables/useDramaCanvasViewport.js', import.meta.url), 'utf8'),
 ].join('\n')
 
 function deferred() {
@@ -338,6 +348,7 @@ function keyboardControllerHarness() {
   const controller = loadCanvasFunctions([
     'isTypingTarget',
     'isEditableKeyTarget',
+    'isFreeCanvasDeleteShortcutBlocked',
     'activateFreeCanvasNode',
     'removeFreeCanvasItems',
     'currentVisualFreeCanvasSelection',
@@ -366,6 +377,7 @@ function keyboardControllerHarness() {
     serializeFreeCanvas,
     normalizeFreeCanvas,
     ElMessage: { warning() {} },
+    isDeleteShortcutBlockedByUx,
     isFreeCanvasNodeId: (id) => freeCanvas.value.nodes.some((node) => String(node.id) === String(id)),
     synchronizeFreeCanvasSelection,
     normalizeFreeCanvasForProject: normalizeFreeCanvas,
@@ -514,6 +526,49 @@ test('delete shortcut uses current visual selection even when internal ids are e
   assert.deepEqual(harness.freeCanvas.value.nodes.map((node) => node.id), [])
 })
 
+
+test('inspector chrome blocks delete even when the selected node is still in the graph', () => {
+  const harness = keyboardControllerHarness()
+  harness.nodes.value = harness.nodes.value.map((node) => ({
+    ...node,
+    selected: node.id === 'text-b',
+  }))
+  harness.selectedFreeNodeIds.value = ['text-b']
+  harness.selectedFreeNodeId.value = 'text-b'
+
+  const inspectorTarget = {
+    closest(selector) {
+      return String(selector).includes('.free-canvas-inspector-dock') ? this : null
+    },
+  }
+  harness.document.activeElement = inspectorTarget
+  const deletion = harness.keyEvent('Backspace', inspectorTarget)
+  harness.handleFreeCanvasKeydown(deletion)
+
+  assert.equal(deletion.defaultPrevented, false)
+  assert.deepEqual(harness.freeCanvas.value.nodes.map((node) => node.id), ['config-a', 'text-b'])
+})
+
+test('inspector activeElement blocks delete when the event target is the canvas pane', () => {
+  const harness = keyboardControllerHarness()
+  harness.nodes.value = harness.nodes.value.map((node) => ({ ...node, selected: true }))
+  harness.selectedFreeNodeIds.value = ['config-a', 'text-b']
+
+  const inspectorTarget = {
+    closest(selector) {
+      return String(selector).includes('.el-select') ? this : null
+    },
+  }
+  const paneTarget = {
+    closest() { return null },
+  }
+  harness.document.activeElement = inspectorTarget
+  const deletion = harness.keyEvent('Delete', paneTarget)
+  harness.handleFreeCanvasKeydown(deletion)
+
+  assert.equal(deletion.defaultPrevented, false)
+  assert.equal(harness.freeCanvas.value.nodes.length, 2)
+})
 
 test('delete shortcut falls back to internal ids when the flow has not marked selected flags', () => {
   const harness = keyboardControllerHarness()
@@ -1667,6 +1722,12 @@ function alignActionDependencies(overrides = {}) {
     nodes: { value: [{ id: 'node-a', position: { x: 0, y: 0 } }] },
     aligningNodes: { value: false },
     canvasMode: { value: 'production' },
+    selectedFreeNodeIds: { value: [] },
+    freeCanvas: { value: { nodes: [], edges: [] } },
+    commitFreeCanvasState: (next) => next,
+    getFreeCanvasAlignDisabledReason,
+    alignFreeCanvasNodePositions,
+    freeCanvasUxState: { readonly: false },
     setFocusedCanvasNode: async () => true,
     computeAutoLayoutPositions: () => ({ positions: { 'node-a': { x: 100, y: 80 } } }),
     filterEpisodeId: { value: null },
@@ -1726,6 +1787,45 @@ test('auto-align rejects an already mismatched route and loaded project', async 
   assert.equal(layoutCalls, 0)
   assert.equal(persists, 0)
   assert.deepEqual(nodes.value, [{ id: 'node-a', position: { x: 0, y: 0 } }])
+})
+
+test('free-mode align left-aligns selected nodes and explains a short selection in Chinese', async () => {
+  const messages = []
+  let committed = null
+  const freeNodes = [
+    { id: 'a', position: { x: 40, y: 10 }, width: 280, height: 208 },
+    { id: 'b', position: { x: 180, y: 90 }, width: 280, height: 208 },
+  ]
+  const onAlignNodes = loadCanvasFunction('onAlignNodes', alignActionDependencies({
+    canvasMode: { value: 'free' },
+    selectedFreeNodeIds: { value: ['a', 'b'] },
+    freeCanvas: { value: { nodes: freeNodes, edges: [] } },
+    commitFreeCanvasState: (next) => { committed = next; return next },
+    ElMessage: {
+      info: (message) => messages.push(['info', message]),
+      success: (message) => messages.push(['success', message]),
+      error: () => {},
+    },
+  }))
+
+  await onAlignNodes()
+  assert.equal(committed.nodes[0].position.x, committed.nodes[1].position.x)
+  assert.equal(committed.nodes[0].position.x, 40)
+  assert.equal(messages[0][0], 'success')
+  assert.match(messages[0][1], /左对齐/)
+
+  const blocked = loadCanvasFunction('onAlignNodes', alignActionDependencies({
+    canvasMode: { value: 'free' },
+    selectedFreeNodeIds: { value: ['a'] },
+    freeCanvas: { value: { nodes: freeNodes, edges: [] } },
+    ElMessage: {
+      info: (message) => messages.push(['info', message]),
+      success: (message) => messages.push(['success', message]),
+      error: () => {},
+    },
+  }))
+  await blocked()
+  assert.match(messages.at(-1)[1], /至少 2 个节点/)
 })
 
 function workflowRunDependencies(overrides = {}) {
@@ -1858,6 +1958,49 @@ test('whole-group run passes an abort signal and detached callbacks cannot updat
   await pending
 })
 
+test('in-page cancel aborts the active workflow without a failure toast', async () => {
+  const running = deferred()
+  const progress = []
+  const errors = []
+  let capturedHooks
+  const dependencies = workflowRunDependencies({
+    runWorkflowGroup: async (_drama, _group, hooks) => {
+      capturedHooks = hooks
+      return running.promise
+    },
+    workflowProgress: {
+      get value() { return progress.at(-1) || '' },
+      set value(next) { progress.push(next) },
+    },
+    ElMessage: { warning: () => {}, success: () => {}, error: (message) => errors.push(message) },
+  })
+  const { onRunActiveGroup, cancelActiveWorkflow } = loadCanvasFunctions(
+    ['onRunActiveGroup', 'cancelActiveWorkflow'],
+    dependencies,
+  )
+
+  const pending = onRunActiveGroup()
+  await Promise.resolve()
+  await Promise.resolve()
+  assert.equal(dependencies.workflowRunning.value, true)
+  assert.equal(capturedHooks.signal instanceof AbortSignal, true)
+
+  cancelActiveWorkflow()
+  assert.equal(capturedHooks.signal.aborted, true)
+  assert.equal(progress.at(-1), '\u6b63\u5728\u53d6\u6d88\u2026')
+  assert.equal(dependencies.workflowRunning.value, true)
+
+  const abortError = new Error('\u64cd\u4f5c\u5df2\u53d6\u6d88')
+  abortError.name = 'AbortError'
+  running.reject(abortError)
+  await pending
+
+  assert.deepEqual(errors, [])
+  assert.equal(dependencies.workflowRunning.value, false)
+  assert.equal(dependencies.activeWorkflowRun.value, null)
+  assert.equal(dependencies.workflowProgress.value, '')
+})
+
 test('beforeunload warns while a whole-group workflow is running', () => {
   const event = {
     defaultPrevented: false,
@@ -1928,6 +2071,7 @@ test('navigation barrier awaits the workflow detach decision before continuing',
     },
     ensureWorkflowFinished: async () => false,
     ensureNodeGenerationFinished: async () => true,
+    ensureEpisodeGenerationFinished: async () => true,
     ensureFreeCanvasUploadFinished: () => { uploadChecks += 1; return true },
     confirmFocusedNodeLeave: async () => true,
     flushCanvasSaveBeforeLeave: async () => true,

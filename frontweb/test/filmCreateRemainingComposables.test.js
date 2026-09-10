@@ -352,6 +352,196 @@ test('pipeline stages surface Chinese warnings for missing script, storyboard an
   }
 })
 
+
+function createRunnablePipelineStages(overrides = {}) {
+  const errors = []
+  const pipelineErrorLog = overrides.pipelineErrorLog || refOf([])
+  const store = overrides.store || {
+    currentEpisode: {
+      id: EPISODE_ID,
+      characters: [],
+      scenes: [],
+      storyboards: [],
+    },
+    scriptContent: '李华走进办公室。',
+    props: [],
+    storyboards: [],
+  }
+  const api = useFilmCreatePipelineStages(createPipelineStageDeps({
+    store,
+    storyInput: refOf(''),
+    scriptLanguage: refOf('zh'),
+    pipelineErrorLog,
+    pipelineCurrentStep: refOf(''),
+    getSelectedStyle: () => 'realistic',
+    checkPause: async () => {},
+    pipelineRest: async () => {},
+    setPipelineStep() {},
+    loadDrama: async () => {},
+    loadStoryboardMedia: async () => {},
+    refreshStoryboardsOnly() {},
+    captureDramaRefresh: () => async () => {},
+    pollTaskWithPause: async () => ({}),
+    projectAspectRatio: refOf('16:9'),
+    getStoryboardCountForApi: () => 1,
+    getVideoDurationForApi: () => 5,
+    storyboardIncludeNarration: refOf(false),
+    storyboardUniversalOmni: refOf(false),
+    polishUniversalSegmentsAfterGeneration: async () => {},
+    addPipelineError(step, message) {
+      errors.push({ step, message })
+      pipelineErrorLog.value = [...pipelineErrorLog.value, { time: '00:00:00', step, message }]
+    },
+    trackFilmCreateAction() {},
+    ...overrides,
+  }))
+  return { api, errors, store, pipelineErrorLog }
+}
+
+test('流水线阶段把英文/密钥错误收成中文日志', async () => {
+  assertDistinctIds(DRAMA_ID, EPISODE_ID)
+  const secret = new Error('Invalid API key sk-secret')
+  const extractThrow = createRunnablePipelineStages({
+    generationAPI: {
+      async generateCharacters(dramaId) {
+        assert.equal(dramaId, DRAMA_ID)
+        assert.notEqual(dramaId, EPISODE_ID)
+        throw secret
+      },
+    },
+  })
+  await extractThrow.api.runOneClickPipeline(true)
+  assert.equal(extractThrow.errors.length, 1)
+  assert.equal(extractThrow.errors[0].step, '提取角色')
+  assert.equal(extractThrow.errors[0].message, '提取角色失败')
+  assert.doesNotMatch(extractThrow.errors[0].message, /sk-secret|Invalid API key/i)
+
+  const pollSecret = createRunnablePipelineStages({
+    generationAPI: {
+      async generateCharacters() {
+        return { task_id: 'char-1' }
+      },
+    },
+    pollTaskWithPause: async () => ({ error: 'Invalid API key sk-secret' }),
+  })
+  await pollSecret.api.runOneClickPipeline(true)
+  assert.equal(pollSecret.errors[0].step, '提取角色')
+  assert.equal(pollSecret.errors[0].message, '提取角色失败')
+  assert.doesNotMatch(pollSecret.errors[0].message, /sk-secret|Invalid API key/i)
+
+  const pollChinese = createRunnablePipelineStages({
+    generationAPI: {
+      async generateCharacters() {
+        return { task_id: 'char-2' }
+      },
+    },
+    pollTaskWithPause: async () => ({ error: '请先配置文本模型' }),
+  })
+  await pollChinese.api.runOneClickPipeline(true)
+  assert.equal(pollChinese.errors[0].message, '请先配置文本模型')
+
+  const flow = createRunnablePipelineStages({
+    storyboardMediaActionReason: refOf('Invalid API key sk-secret'),
+  })
+  await flow.api.runOneClickPipeline(false)
+  assert.equal(flow.errors[0].step, '流程')
+  assert.equal(flow.errors[0].message, '流程失败')
+  assert.doesNotMatch(flow.errors[0].message, /sk-secret|Invalid API key/i)
+
+  const polishStore = {
+    currentEpisode: {
+      id: EPISODE_ID,
+      characters: [{ id: 1, name: '李华' }],
+      scenes: [{ id: 2, location: '办公室' }],
+      storyboards: [],
+    },
+    scriptContent: '李华走进办公室。',
+    props: [{ id: 3, name: '钥匙' }],
+    storyboards: [],
+  }
+  const polish = createRunnablePipelineStages({
+    store: polishStore,
+    storyboardUniversalOmni: refOf(true),
+    dramaAPI: {
+      async generateStoryboard(episodeId) {
+        assert.equal(episodeId, EPISODE_ID)
+        assert.notEqual(episodeId, DRAMA_ID)
+        return { task_id: 'sb-1' }
+      },
+    },
+    async loadDrama() {
+      polishStore.storyboards = [{ id: STORYBOARD_ID, storyboard_number: 1, title: '推门' }]
+    },
+    async polishUniversalSegmentsAfterGeneration({ onShotError }) {
+      onShotError({ id: STORYBOARD_ID, storyboard_number: 1 }, 'Invalid API key sk-secret')
+    },
+  })
+  const feedback = stubElementPlusFeedback()
+  try {
+    await polish.api.runOneClickPipeline(true)
+    assert.equal(polish.errors[0].step, '润色全能分镜')
+    assert.equal(polish.errors[0].message, '镜#1: 润色失败')
+    assert.doesNotMatch(polish.errors[0].message, /sk-secret|Invalid API key/i)
+  } finally {
+    feedback.restore()
+  }
+
+  const repair = createRunnablePipelineStages({
+    generationAPI: {
+      async generateCharacters() {
+        throw secret
+      },
+    },
+  })
+  await repair.api.runRepairPipeline()
+  assert.equal(repair.errors[0].step, '生成角色')
+  assert.equal(repair.errors[0].message, '生成角色失败')
+  assert.doesNotMatch(repair.errors[0].message, /sk-secret|Invalid API key/i)
+
+  const aborted = createRunnablePipelineStages({
+    generationAPI: {
+      async generateCharacters() {
+        const error = new Error('The user aborted a request')
+        error.name = 'AbortError'
+        error.stack = 'Error: The user aborted a request\n    at Axios.request (http://localhost/axios.js:1:1)'
+        throw error
+      },
+    },
+  })
+  await assert.rejects(
+    () => aborted.api.runOneClickPipeline(true),
+    (error) => error?.name === 'AbortError',
+  )
+  assert.equal(aborted.errors.length, 0)
+
+  const timedOut = createRunnablePipelineStages({
+    generationAPI: {
+      async generateCharacters() {
+        return { task_id: 'char-timeout' }
+      },
+    },
+    pollTaskWithPause: async () => ({ status: 'timeout', error: 'ETIMEDOUT' }),
+  })
+  await timedOut.api.runOneClickPipeline(true)
+  assert.equal(timedOut.errors[0].step, '提取角色')
+  assert.equal(timedOut.errors[0].message, '提取角色超时，请稍后重试')
+  assert.match(timedOut.errors[0].message, /[\u4e00-\u9fff]/)
+
+  const cancelledPoll = createRunnablePipelineStages({
+    generationAPI: {
+      async generateCharacters() {
+        return { task_id: 'char-cancel' }
+      },
+    },
+    pollTaskWithPause: async () => ({ status: 'cancelled', error: 'canceled' }),
+  })
+  await assert.rejects(
+    () => cancelledPoll.api.runOneClickPipeline(true),
+    (error) => error?.name === 'AbortError',
+  )
+  assert.equal(cancelledPoll.errors.length, 0)
+})
+
 function createScriptWorkspace(overrides = {}) {
   const showSelectScriptDialog = overrides.showSelectScriptDialog || refOf(false)
   const scriptWorkbenchMode = overrides.scriptWorkbenchMode || refOf('select')
@@ -405,9 +595,13 @@ function createScriptWorkspace(overrides = {}) {
     selectPreviewEpisodeId,
     showSelectScriptDialog,
     scriptWorkbenchMode,
-    showCharLibrary: refOf(false),
-    resourcePanelCollapsed: refOf(false),
-    charactersBlockCollapsed: refOf(false),
+    showCharLibrary: overrides.showCharLibrary || refOf(false),
+    showPropLibrary: overrides.showPropLibrary || refOf(false),
+    showSceneLibrary: overrides.showSceneLibrary || refOf(false),
+    resourcePanelCollapsed: overrides.resourcePanelCollapsed || refOf(false),
+    charactersBlockCollapsed: overrides.charactersBlockCollapsed || refOf(false),
+    propsBlockCollapsed: overrides.propsBlockCollapsed || refOf(false),
+    scenesBlockCollapsed: overrides.scenesBlockCollapsed || refOf(false),
     selectScriptLoading: refOf(false),
     selectScriptDramas: refOf([]),
     selectScriptImporting: refOf(false),
@@ -427,6 +621,13 @@ function createScriptWorkspace(overrides = {}) {
     scriptGenerating,
     anchors,
     actions,
+    showCharLibrary: overrides.showCharLibrary,
+    showPropLibrary: overrides.showPropLibrary,
+    showSceneLibrary: overrides.showSceneLibrary,
+    resourcePanelCollapsed: overrides.resourcePanelCollapsed,
+    charactersBlockCollapsed: overrides.charactersBlockCollapsed,
+    propsBlockCollapsed: overrides.propsBlockCollapsed,
+    scenesBlockCollapsed: overrides.scenesBlockCollapsed,
   }
 }
 
@@ -440,6 +641,39 @@ test('script workspace open and return toggles dialog and workbench mode', async
   assert.equal(harness.showSelectScriptDialog.value, false)
   assert.equal(harness.scriptWorkbenchMode.value, 'create')
   assert.deepEqual(harness.anchors, ['anchor-script'])
+})
+
+test('空资源库下一步会关闭弹窗并滚到对应面板', async () => {
+  assertDistinctIds(DRAMA_ID, EPISODE_ID)
+  const showCharLibrary = refOf(true)
+  const showPropLibrary = refOf(true)
+  const showSceneLibrary = refOf(true)
+  const resourcePanelCollapsed = refOf(true)
+  const charactersBlockCollapsed = refOf(true)
+  const propsBlockCollapsed = refOf(true)
+  const scenesBlockCollapsed = refOf(true)
+  const harness = createScriptWorkspace({
+    showCharLibrary,
+    showPropLibrary,
+    showSceneLibrary,
+    resourcePanelCollapsed,
+    charactersBlockCollapsed,
+    propsBlockCollapsed,
+    scenesBlockCollapsed,
+  })
+  await harness.workspace.returnToCharacterPanel()
+  assert.equal(showCharLibrary.value, false)
+  assert.equal(resourcePanelCollapsed.value, false)
+  assert.equal(charactersBlockCollapsed.value, false)
+  assert.deepEqual(harness.anchors, ['anchor-characters'])
+  await harness.workspace.returnToPropPanel()
+  assert.equal(showPropLibrary.value, false)
+  assert.equal(propsBlockCollapsed.value, false)
+  assert.deepEqual(harness.anchors, ['anchor-characters', 'anchor-props'])
+  await harness.workspace.returnToScenePanel()
+  assert.equal(showSceneLibrary.value, false)
+  assert.equal(scenesBlockCollapsed.value, false)
+  assert.deepEqual(harness.anchors, ['anchor-characters', 'anchor-props', 'anchor-scenes'])
 })
 
 test('script workspace reports Chinese ElMessage when save or pick fails', async () => {
@@ -774,3 +1008,4 @@ test('production readiness reports a Chinese failure when capability lookup fail
     globalThis.fetch = originalFetch
   }
 })
+
