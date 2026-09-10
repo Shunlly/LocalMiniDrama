@@ -163,3 +163,30 @@ test('全流程错误日志和阻断原因把英文技术失败收成中文', ()
   assert.match(pipelinePanelSource, /toPipelineDisabledReason\(\s*props\.productionDisabledReason \|\| props\.disabledReason/)
   assert.match(pipelinePanelSource, /toPipelineDisabledReason\(controlReasons\.value\.retry/)
 })
+
+test('制作页离开保护覆盖批量生图生视频和单条生成', () => {
+  const filmCreateSource = readFileSync(
+    new URL('../src/views/FilmCreate.vue', import.meta.url),
+    'utf8',
+  ).replace(/\r\n?/g, '\n')
+  const guardsSource = readFileSync(
+    new URL('../src/composables/filmCreate/useFilmCreateNavigationGuards.js', import.meta.url),
+    'utf8',
+  ).replace(/\r\n?/g, '\n')
+  const batchSource = readFileSync(
+    new URL('../src/composables/filmCreate/useFilmCreateBatchGeneration.js', import.meta.url),
+    'utf8',
+  ).replace(/\r\n?/g, '\n')
+  const call = filmCreateSource.match(/useFilmCreateNavigationGuards\(\{[\s\S]*?\}\)/)?.[0] || ''
+  assert.match(call, /batchImageRunning/)
+  assert.match(call, /batchImageStopping/)
+  assert.match(call, /batchVideoRunning/)
+  assert.match(call, /batchVideoStopping/)
+  assert.match(call, /generatingSbImageIds/)
+  assert.match(call, /generatingSbVideoIds/)
+  assert.match(guardsSource, /hasActiveMediaGenerationWork/)
+  assert.match(guardsSource, /媒体生成仍在执行/)
+  assert.match(guardsSource, /计费可能继续/)
+  assert.match(batchSource, /export function hasActiveMediaGenerationWork/)
+  assert.match(filmCreateSource, /onBeforeRouteLeave\(allowNavigationAfterDraftFlush\)/)
+})

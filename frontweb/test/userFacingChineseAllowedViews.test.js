@@ -155,17 +155,22 @@ test('自由创作、项目列表、提示词和场景映射的用户可见句�
   assert.doesNotMatch(filmListSource, /微信我/)
   assert.match(filmListSource, /ElMessageBox\.confirm\(`确定删除公共角色「/)
 
+  assert.match(sceneModelMapSource, /当文本生成请求指定业务场景时/)
+  assert.match(sceneModelMapSource, /description="暂无场景模型映射配置"/)
+  assert.match(sceneModelMapSource, /确定要删除场景「\$\{getSceneKeyLabel\(row\.key\) \|\| row\.key\}」的模型映射配置吗？/)
+  assert.match(sceneModelMapSource, /ElMessage\.error\(toUserFacingError\(err, '加载场景模型映射失败'\)\)/)
+  assert.doesNotMatch(sceneModelMapSource, /当调用 generateText 时传入 scene_key/)
+  assert.doesNotMatch(sceneModelMapSource, /scene_key/)
+})
+
+test('提示词编辑页用户可见句子是简体中文', () => {
   assert.match(promptEditorSource, /系统提示词/)
   assert.doesNotMatch(promptEditorSource, /System Prompt/)
   assert.match(promptEditorSource, /confirmButtonText: '恢复默认'/)
   assert.match(promptEditorSource, /cancelButtonText: '取消'/)
   assert.match(promptEditorSource, /ElMessage\.error\('加载提示词失败'\)/)
-
-  assert.match(sceneModelMapSource, /当文本生成请求传入场景键 scene_key 时/)
-  assert.match(sceneModelMapSource, /description="暂无场景模型映射配置"/)
-  assert.match(sceneModelMapSource, /确定要删除场景「\$\{row\.key\}」的模型映射配置吗？/)
-  assert.match(sceneModelMapSource, /ElMessage\.error\(toUserFacingError\(err, '加载场景模型映射失败'\)\)/)
-  assert.doesNotMatch(sceneModelMapSource, /当调用 generateText 时传入 scene_key/)
+  assert.match(promptEditorSource, /当前没有未保存的修改/)
+  assert.match(promptEditorSource, /当前已是系统默认提示词，无需恢复/)
 })
 
 test('素材中心、剧详情、剧本生成和任务轮询的反馈文案保持简体中文', () => {

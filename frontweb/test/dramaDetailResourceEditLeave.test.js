@@ -61,9 +61,36 @@ test('角色场景道具编辑弹窗未保存关闭和离开都要中文确认',
   assert.match(dramaDetailSource, /放弃未保存修改？/)
   assert.match(dramaDetailSource, /confirmButtonText: '放弃修改'/)
   assert.match(dramaDetailSource, /cancelButtonText: '继续编辑'/)
-  assert.match(dramaDetailSource, /:title="assetImageUrl\(editDramaCharForm\) \? undefined : '暂无图片'"/)
-  assert.match(dramaDetailSource, /:title="assetImageUrl\(editPropForm\) \? undefined : '暂无图片'"/)
+  const untitledForms = [
+    'editDramaCharForm',
+    'editDramaSceneForm',
+    'editDramaPropForm',
+    'editCharForm',
+    'editSceneForm',
+    'editPropForm',
+  ]
+  for (const form of untitledForms) {
+    assert.match(
+      dramaDetailSource,
+      new RegExp(`:title="assetImageUrl\\(${form}\\) \\? undefined : '暂无图片'"`),
+    )
+  }
   assert.match(dramaDetailSource, /<header class="header">/)
+  assert.match(dramaDetailSource, /@click="goList"/)
+  for (const visible of [
+    'editDramaCharVisible',
+    'editDramaSceneVisible',
+    'editDramaPropVisible',
+    'editCharVisible',
+    'editSceneVisible',
+    'editPropVisible',
+  ]) {
+    assert.equal(dramaDetailSource.includes(`@click="${visible} = false"`), false)
+  }
+  assert.match(dramaDetailSource, /await characterAPI\.update\(editDramaCharForm\.value\.id/)
+  assert.match(dramaDetailSource, /await sceneAPI\.update\(editDramaSceneForm\.value\.id/)
+  assert.match(dramaDetailSource, /await propAPI\.update\(editDramaPropForm\.value\.id/)
+  assert.match(dramaDetailSource, /await characterLibraryAPI\.update\(editCharForm\.value\.id/)
   assert.match(dramaDetailSource, /editDramaCharVisible\.value = false/)
   assert.match(dramaDetailSource, /editCharVisible\.value = false/)
 })

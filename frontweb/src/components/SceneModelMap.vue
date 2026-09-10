@@ -509,19 +509,9 @@ onMounted(() => {
   padding: 40px;
 }
 
-.scene-key {
-  background: #f5f7fa;
-  padding: 2px 8px;
-  border-radius: 4px;
-  font-family: 'Courier New', monospace;
-  font-size: 13px;
-  color: #409eff;
-  width: fit-content;
-}
-
 .scene-key-label {
-  font-size: 12px;
-  color: #666;
+  font-size: 14px;
+  color: #303133;
 }
 
 .model-override {
