@@ -25,7 +25,7 @@ test('AI 配置页在卸载和重新加载时取消过期请求', () => {
   assert.match(source, /restoreTestedCoverageCardFocus\(\) \{\s*connectionTestAbortController\?\.abort\(\)/)
 
   const loaders = [
-    sourceBetween('async function loadList()', 'function parseModelText'),
+    sourceBetween('async function loadList()', 'function resetForm'),
     sourceBetween('async function loadVendorLock()', 'async function retryConfigDependencies'),
   ]
   for (const loader of loaders) {
@@ -36,6 +36,8 @@ test('AI 配置页在卸载和重新加载时取消过期请求', () => {
   }
   assert.match(source, /abortGenerationSettingsRequest\(\)/)
   assert.doesNotMatch(source, /generationSettingsAbortController/)
+  assert.match(source, /abortDiscoverModelsRequest\(\)/)
+  assert.doesNotMatch(source, /discoverModelsAbortController/)
   const generationStart = generationSettingsSource.indexOf('async function loadGenerationSettings')
   const generationEnd = generationSettingsSource.indexOf('function onConcurrencyChange', generationStart)
   assert.ok(generationStart >= 0 && generationEnd > generationStart)

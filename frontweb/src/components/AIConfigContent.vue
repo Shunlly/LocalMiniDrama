@@ -1455,6 +1455,12 @@ import { generationSettingsAPI } from '@/api/prompts'
 import { useAiConfigGenerationSettings } from '@/composables/useAiConfigGenerationSettings.js'
 import { useAiConfigOneKeyPresets } from '@/composables/useAiConfigOneKeyPresets.js'
 import { useAiConfigImportExport } from '@/composables/useAiConfigImportExport.js'
+import { useAiConfigDiscoverModels } from '@/composables/useAiConfigDiscoverModels.js'
+import {
+  parseModelText,
+  isOpenAiCompatibleConfig,
+  hasDiscoverableCredential,
+} from '@/utils/aiConfigDiscoverModels.js'
 import { buildAiServiceCoverage, sortAiServiceCoverage } from '@/utils/aiConfigCoverage.js'
 import { useAiConfigCoverage } from '@/composables/useAiConfigCoverage.js'
 import {
@@ -1592,9 +1598,9 @@ let configListAbortController = null
 let vendorLockAbortController = null
 let connectionTestAbortController = null
 let connectionStatusScopeAbortController = null
-let discoverModelsAbortController = null
-let discoverModelsSequence = 0
 let lastTestedConfig = null
+let abortDiscoverModelsRequest = () => {}
+let resetDiscoverModelsState = () => {}
 
 function abortAiConfigPageRequests() {
   configListAbortController?.abort()
@@ -1602,12 +1608,11 @@ function abortAiConfigPageRequests() {
   abortGenerationSettingsRequest()
   connectionTestAbortController?.abort()
   connectionStatusScopeAbortController?.abort()
-  discoverModelsAbortController?.abort()
+  abortDiscoverModelsRequest()
   configListAbortController = null
   vendorLockAbortController = null
   connectionTestAbortController = null
   connectionStatusScopeAbortController = null
-  discoverModelsAbortController = null
 }
 
 function jsonRequestOptions(signal, timeout = DEFAULT_JSON_TIMEOUT_MS) {
@@ -1648,7 +1653,6 @@ const bulkKeyInput = ref('')
 const bulkKeySaving = ref(false)
 const jimeng2AssetsDialogVisible = ref(false)
 const jimeng2AssetsLoading = ref(false)
-const discoverModelsLoading = ref(false)
 const jimeng2AssetsRows = ref([])
 const jimeng2AssetsHasMore = ref(false)
 const jimeng2AssetsNextCursor = ref(null)
@@ -1691,10 +1695,25 @@ const presetModelPick = ref('')
 const formModelList = computed(() => parseModelText(form.value.modelText))
 const discoverModelsDisabledReason = computed(() => {
   if (!String(form.value.base_url || '').trim()) return '请先填写接口地址'
-  if (hasDiscoverableCredential()) return ''
+  if (hasDiscoverableCredential(form.value)) return ''
   return '请先填写 API 密钥后再读取模型'
 })
 const discoverModelsDisabled = computed(() => Boolean(discoverModelsDisabledReason.value))
+const {
+  discoverModelsLoading,
+  discoverModelsFromService,
+  abortDiscoverModelsRequest: abortDiscoverModelsRequestFromComposable,
+  resetDiscoverModelsState: resetDiscoverModelsStateFromComposable,
+} = useAiConfigDiscoverModels({
+  ElMessage,
+  aiAPI,
+  form,
+  editingId,
+  dialogVisible,
+  discoverModelsDisabled,
+})
+abortDiscoverModelsRequest = abortDiscoverModelsRequestFromComposable
+resetDiscoverModelsState = resetDiscoverModelsStateFromComposable
 const isDefaultModelUnavailable = computed(() => {
   const selected = String(form.value.default_model || '').trim()
   return Boolean(selected && !formModelList.value.includes(selected))
@@ -2449,130 +2468,8 @@ async function loadList() {
   }
 }
 
-function parseModelText(text) {
-  if (!text || !String(text).trim()) return []
-  return String(text)
-    .split(/[\n,，]/)
-    .map((s) => s.trim())
-    .filter(Boolean)
-}
-
-function extractDiscoveredModelIds(payload) {
-  if (payload == null) return []
-  const list = Array.isArray(payload.models)
-    ? payload.models
-    : Array.isArray(payload.data)
-      ? payload.data
-      : Array.isArray(payload)
-        ? payload
-        : []
-  const ids = []
-  for (const item of list) {
-    if (item == null) continue
-    if (typeof item === 'string' || typeof item === 'number') {
-      const id = String(item).trim()
-      if (id) ids.push(id)
-      continue
-    }
-    const id = String(item.id || item.model || item.name || '').trim()
-    if (id) ids.push(id)
-  }
-  return ids
-}
-
-function mergeModelTextWithDiscovered(existingText, discoveredIds) {
-  const existing = parseModelText(existingText)
-  const extra = []
-  for (const raw of discoveredIds || []) {
-    const id = String(raw || '').trim()
-    if (!id || existing.includes(id) || extra.includes(id)) continue
-    extra.push(id)
-  }
-  if (!extra.length) {
-    return { text: existingText || '', merged: existing, appended: extra }
-  }
-  const prefix = String(existingText || '').trim()
-  return {
-    text: prefix ? (prefix + '\n' + extra.join('\n')) : extra.join('\n'),
-    merged: existing.concat(extra),
-    appended: extra,
-  }
-}
-
-function isOpenAiCompatibleConfig(config) {
-  const protocol = String(config?.api_protocol || getProviderProtocol(config?.provider, config?.service_type) || '')
-    .toLowerCase()
-    .replace(/-/g, '_')
-  return protocol === 'openai' || protocol === 'openai_compatible'
-}
-
-function hasDiscoverableCredential() {
-  if (String(form.value.api_key || '').trim()) return true
-  if (isApiKeyOptionalProvider(form.value.provider, form.value.api_protocol)) return true
-  const proto = String(form.value.api_protocol || '').toLowerCase()
-  if (form.value.service_type === 'video' && proto === 'kling_omni') {
-    return Boolean(String(form.value.kling_access_key || '').trim() && String(form.value.kling_secret_key || '').trim())
-  }
-  return false
-}
-
-async function discoverModelsFromService() {
-  if (discoverModelsDisabled.value) return
-  discoverModelsAbortController?.abort()
-  const controller = new AbortController()
-  discoverModelsAbortController = controller
-  const requestId = ++discoverModelsSequence
-  const targetEditingId = editingId.value
-  discoverModelsLoading.value = true
-  try {
-    const data = await aiAPI.discoverModels({
-      id: editingId.value || undefined,
-      base_url: String(form.value.base_url || '').trim(),
-      api_key: isMaskedSecret(form.value.api_key) ? undefined : form.value.api_key,
-      provider: form.value.provider,
-      api_protocol: form.value.api_protocol,
-      endpoint: form.value.endpoint,
-      service_type: form.value.service_type,
-    }, {
-      signal: controller.signal,
-      timeout: DEFAULT_CONNECTION_TEST_TIMEOUT_MS,
-      suppressErrorToast: true,
-    })
-    if (requestId !== discoverModelsSequence || !dialogVisible.value) return
-    if (editingId.value !== targetEditingId) return
-    const ids = extractDiscoveredModelIds(data)
-    if (!ids.length) {
-      ElMessage.warning('服务没有返回模型目录，请手工填写模型名')
-      return
-    }
-    const result = mergeModelTextWithDiscovered(form.value.modelText, ids)
-    form.value.modelText = result.text
-    if (!String(form.value.default_model || '').trim() && result.merged.length) {
-      form.value.default_model = result.merged[0]
-    }
-    if (result.appended.length) {
-      ElMessage.success('已从服务追加 ' + result.appended.length + ' 个模型')
-    } else {
-      ElMessage.success('未发现新模型，已保留当前模型列表')
-    }
-  } catch (e) {
-    if (requestId !== discoverModelsSequence) return
-    if (isUserFacingAbort(e, controller.signal) || controller.signal.aborted) return
-    ElMessage.error(toUserFacingError(e, '暂时无法读取模型目录，请稍后重试或手工填写模型名。', {
-      serviceLabel: '模型目录服务',
-      signal: controller.signal,
-    }))
-  } finally {
-    if (requestId === discoverModelsSequence) discoverModelsLoading.value = false
-    if (discoverModelsAbortController === controller) discoverModelsAbortController = null
-  }
-}
-
 function resetForm() {
-  discoverModelsAbortController?.abort()
-  discoverModelsAbortController = null
-  discoverModelsSequence += 1
-  discoverModelsLoading.value = false
+  resetDiscoverModelsState()
   editingId.value = null
   editingUpdatedAt.value = ''
   presetModelPick.value = ''

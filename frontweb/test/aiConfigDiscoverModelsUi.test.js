@@ -2,11 +2,18 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
+import {
+  parseModelText,
+  extractDiscoveredModelIds,
+  mergeModelTextWithDiscovered,
+} from '../src/utils/aiConfigDiscoverModels.js'
+
 function readSource(url) {
   return readFileSync(url, 'utf8').replace(/\r\n?/g, '\n')
 }
 
 const vueSource = readSource(new URL('../src/components/AIConfigContent.vue', import.meta.url))
+const discoverSource = readSource(new URL('../src/composables/useAiConfigDiscoverModels.js', import.meta.url))
 const modelListSource = readSource(new URL('../src/components/aiConfig/AiConfigModelListSection.vue', import.meta.url))
 const sd2Source = readSource(new URL('../src/components/Sd2AssetManagement.vue', import.meta.url))
 const apiSource = readSource(new URL('../src/api/ai.js', import.meta.url))
@@ -27,12 +34,6 @@ function extractNamedFunction(source, name) {
     }
   }
   throw new Error(`unclosed ${name}`)
-}
-
-function loadHelper(name) {
-  const parseModelTextCode = extractNamedFunction(vueSource, 'parseModelText')
-  const code = extractNamedFunction(vueSource, name)
-  return new Function(`${parseModelTextCode}; ${code}; return ${name};`)()
 }
 
 function templateWithoutScript(source) {
@@ -71,10 +72,6 @@ function collectUserFacingText(source) {
   return [template, ...attrValues, ...collectElMessageLiterals(source)].join('\n')
 }
 
-const parseModelText = loadHelper('parseModelText')
-const extractDiscoveredModelIds = loadHelper('extractDiscoveredModelIds')
-const mergeModelTextWithDiscovered = loadHelper('mergeModelTextWithDiscovered')
-
 test('AI 配置页提供从服务读取模型按钮，并接上 discoverModels API', () => {
   assert.match(apiSource, /discoverModels\(body, options = \{\}\) \{\s*return request\.post\('\/ai-configs\/discover-models', body, options\)/)
   assert.match(vueSource, /:discover-models-from-service="discoverModelsFromService"/)
@@ -109,7 +106,7 @@ test('读取到的模型 id 去重追加，不覆盖用户已有项', () => {
 })
 
 test('读取模型失败或目录为空时不改已填模型列表', () => {
-  const discoverFn = extractNamedFunction(vueSource, 'discoverModelsFromService')
+  const discoverFn = extractNamedFunction(discoverSource, 'discoverModelsFromService')
   assert.match(discoverFn, /ElMessage\.warning\('服务没有返回模型目录，请手工填写模型名'\)/)
   assert.match(discoverFn, /const result = mergeModelTextWithDiscovered\(form\.value\.modelText, ids\)/)
   const emptyIdx = discoverFn.indexOf("服务没有返回模型目录，请手工填写模型名")
@@ -125,7 +122,7 @@ test('读取模型失败或目录为空时不改已填模型列表', () => {
   assert.doesNotMatch(catchBody, /Network Error/)
   assert.doesNotMatch(discoverFn, /form\.value\.modelText = ids/)
   assert.match(vueSource, /suppressErrorToast: true/)
-  assert.match(vueSource, /if \(!String\(form\.value\.default_model \|\| ''\)\.trim\(\) && result\.merged\.length\)/)
+  assert.match(discoverSource, /if \(!String\(form\.value\.default_model \|\| ''\)\.trim\(\) && result\.merged\.length\)/)
 })
 
 test('连接测试成功后仅轻量提示读取模型目录，不自动覆盖列表', () => {
