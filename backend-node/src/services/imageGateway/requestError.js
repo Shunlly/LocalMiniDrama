@@ -103,7 +103,7 @@ function operationLabel(operation) {
 function providerLabel(provider) {
   const label = String(provider || '').trim();
   if (!label) return '图片服务';
-  if (/^video provider$/i.test(label)) return '视频服务';
+  if (/^video(?:\s+provider)?$/i.test(label)) return '视频服务';
   return label;
 }
 

@@ -561,6 +561,10 @@ test('FilmCreate generic AI config entry resets a prior service-specific filter'
 
     ctx.api.openAiConfig('tts')
     assert.equal(ctx.aiConfigInitialServiceType.value, 'tts')
+    ctx.api.openAiConfig('ocr')
+    assert.equal(ctx.aiConfigInitialServiceType.value, 'ocr')
+    ctx.api.openAiConfig('transcription')
+    assert.equal(ctx.aiConfigInitialServiceType.value, 'transcription')
     ctx.api.openAiConfig('not-a-service')
     assert.equal(ctx.aiConfigInitialServiceType.value, '')
   } finally {

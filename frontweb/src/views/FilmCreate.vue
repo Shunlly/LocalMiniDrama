@@ -1293,6 +1293,11 @@ const {
   ttsSbIds,
   ttsSbNarrationIds,
   upscalingSbIds,
+  generatingCharIds,
+  generatingSceneIds,
+  generatingPropIds,
+  generatingPanoramaIds,
+  getRunningGenerationTasks: () => genStore.getAllRunningTasks(),
 })
 
 onBeforeRouteLeave(allowNavigationAfterDraftFlush)

@@ -103,6 +103,13 @@ export function useFilmListLoad(deps = {}) {
       loaded = true
     } catch (error) {
       if (isRequestCanceled(error) || requestId !== listRequestSequence) {
+        logOperation({
+          operation: 'project_list_load',
+          operationId,
+          phase: 'cancel',
+          status: isRequestCanceled(error) ? 'cancelled' : 'stale',
+          durationMs: Date.now() - startedAt,
+        })
         return false
       }
       if (requestId === listRequestSequence) {

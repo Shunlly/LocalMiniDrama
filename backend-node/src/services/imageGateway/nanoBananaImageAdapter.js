@@ -12,8 +12,10 @@ const {
   imageProviderFailure,
   imageProviderException,
   imageProviderCaughtError,
+  operationCancelledError,
   rethrowIfRequestCanceled,
 } = require('./runtime');
+const { isProviderTaskCancelledStatus } = require('./requestError');
 const { nanoBananaAspectRatio } = require('./sizeAdapters');
 const { resolveImageRef } = require('./referenceUtils');
 
@@ -190,7 +192,9 @@ async function callNanoBananaImageApi(config, log, opts) {
     config_query_endpoint: config.query_endpoint || '(not set)',
   });
   const maxAttempts = 60;
-  const intervalMs = 3000;
+  const intervalMs = Number.isFinite(Number(opts.poll_interval_ms))
+    ? Math.max(0, Number(opts.poll_interval_ms))
+    : 3000;
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     await abortableDelay(intervalMs, opts.signal);
     const pollUrl = buildQueryUrl(taskId);
@@ -225,6 +229,9 @@ async function callNanoBananaImageApi(config, log, opts) {
         image_gen_id, task_id: taskId, attempt,
         code: queryData?.code, successFlag, state, status,
       });
+      if (isProviderTaskCancelledStatus(state) || isProviderTaskCancelledStatus(status)) {
+        throw operationCancelledError('图片任务已取消');
+      }
       if (successFlag === 1 || state === 'succeeded' || status === '3') {
         const respImgs = queryData?.data?.response?.images;
         const fromSdWrapped = Array.isArray(respImgs) && typeof respImgs[0] === 'string' && respImgs[0].length > 0

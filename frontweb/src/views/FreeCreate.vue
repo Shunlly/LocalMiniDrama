@@ -46,6 +46,7 @@
         :save-item-aria-label="saveItemAriaLabel"
         @clear-results="clearResults"
         @load-service-configs="loadServiceConfigs"
+        @open-ai-config="openAiConfig"
         @cancel-generation="cancelGeneration"
         @retry-generation="retryGeneration"
         @download-item="downloadItem"

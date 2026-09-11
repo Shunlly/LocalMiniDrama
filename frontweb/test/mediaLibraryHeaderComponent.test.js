@@ -56,7 +56,7 @@ test('素材中心页头按 returnTo 切换返回文案，上传和新建交给�
     assert.match(textContent(home.root), /上传后的图片和视频会在所有项目里复用/)
     const backHome = buttonByAriaLabel(home.root, '返回项目首页')
     assert.ok(backHome)
-    assert.match(textContent(backHome), /项目首页/)
+    assert.match(textContent(backHome), /返回项目首页/)
     assert.equal(buttonByAriaLabel(home.root, '返回制作台'), undefined)
     click(backHome)
     click(buttonByAriaLabel(home.root, '新建项目'))

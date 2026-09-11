@@ -1,7 +1,25 @@
+import { APP_PATH_ALIASES, APP_VIEW_DEFINITIONS } from '@/router/views.js'
+
+function viewPathPattern(path) {
+  const escaped = String(path || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  return new RegExp('^' + escaped.replace(/:id/g, '[1-9]\\d*') + '$')
+}
+
+const RECOVERABLE_PATH_PATTERNS = Object.values(APP_VIEW_DEFINITIONS)
+  .filter((view) => view.allowed && view.persist)
+  .map((view) => viewPathPattern(view.path))
+
+const RECOVERABLE_ALIAS_PATHS = new Set(
+  APP_PATH_ALIASES
+    .filter((alias) => APP_VIEW_DEFINITIONS[alias.view]?.allowed && APP_VIEW_DEFINITIONS[alias.view]?.persist)
+    .map((alias) => alias.path),
+)
+
 export function isRecoverableNotFoundBackPath(path) {
   if (typeof path !== 'string' || !path.startsWith('/') || path.startsWith('//')) return false
   const pathname = path.split(/[?#]/, 1)[0]
-  return /^\/(?:(?:ai-config|backup|free-create|media-library)|(?:drama|film)\/[1-9]\d*(?:\/canvas)?)?$/.test(pathname)
+  if (RECOVERABLE_ALIAS_PATHS.has(pathname)) return true
+  return RECOVERABLE_PATH_PATTERNS.some((pattern) => pattern.test(pathname))
 }
 
 export function resolveNotFoundFromPath(value) {

@@ -56,6 +56,7 @@ test('制作页取消/配音/上传失败不再直出 e.message', () => {
     '../src/composables/filmCreate/useCharacters.js',
     '../src/composables/filmCreate/useScenes.js',
     '../src/composables/filmCreate/useFilmCreateRefImageDrop.js',
+    '../src/api/storyboards.js',
   ]
   for (const rel of files) {
     const source = readFileSync(new URL(rel, import.meta.url), 'utf8')
@@ -222,4 +223,54 @@ test('超时 AbortError 不能当成用户取消，必须给出中文超时原�
   assert.doesNotMatch(message, /操作已取消|The operation was aborted|AbortError/i)
   assert.match(message, /请求编号：req-timeout-11/)
   assert.doesNotMatch(message, /req-config-99/)
+})
+
+test('中英混杂的 fallback 和日志原文不会漏到用户', () => {
+  assert.equal(
+    toUserFacingError({ message: 'Network Error' }, '保存失败: Network Error'),
+    '操作失败，请稍后重试',
+  )
+  assert.equal(
+    toUserFacingError({ message: 'PROJECT_LOAD_FAILED' }, '加载失败 PROJECT_LOAD_FAILED'),
+    '操作失败，请稍后重试',
+  )
+  assert.equal(
+    toUserFacingError({ message: 'TypeError: Failed to fetch' }, '生成失败'),
+    '生成失败',
+  )
+  assert.doesNotMatch(
+    toUserFacingError({ message: 'The user aborted a request.' }, '保存失败'),
+    /aborted|request/i,
+  )
+  assert.equal(
+    toUserFacingError({ message: '图片生成失败: Image generation did not complete' }, '生成失败'),
+    '生成失败',
+  )
+  assert.equal(
+    toUserFacingError({ message: '生成失败: This model does not support vision' }, '生成失败'),
+    '生成失败',
+  )
+  assert.equal(
+    toUserFacingError({ message: '认证失败: Invalid API key' }, '生成失败'),
+    '生成失败',
+  )
+  assert.equal(
+    toUserFacingError({ message: '烧录字幕或混音失败（请确认已安装 ffmpeg 且支持 libx264）' }, '处理失败'),
+    '烧录字幕或混音失败（请确认已安装 ffmpeg 且支持 libx264）',
+  )
+})
+
+test('中英混杂的密钥、Bearer、堆栈和 Network Error 不会进 toast', () => {
+  const leak = /sk-provider-secret|Bearer |Network Error|Failed to fetch|ECONNREFUSED|at ClientRequest\.request/i
+  const samples = [
+    '认证失败 Bearer sk-provider-secret-123456',
+    '连接失败: Network Error',
+    '图片请求失败: Failed to fetch',
+    '失败\n    at ClientRequest.request (node:http:1:1)',
+  ]
+  for (const message of samples) {
+    const text = toUserFacingError({ message }, '操作失败，请稍后重试')
+    assert.match(text, /[\u4e00-\u9fff]/)
+    assert.doesNotMatch(text, leak)
+  }
 })

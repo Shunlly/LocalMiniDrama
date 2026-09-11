@@ -36,6 +36,11 @@ const {
   dispatchVideoProtocol,
 } = require('./videoGateway/protocolDispatch');
 const { pollVideoTask } = require('./videoClientPoll');
+const {
+  isRequestCanceled,
+  operationCancelledError,
+  throwIfAborted,
+} = require('./videoGateway/requestError');
 
 /**
  * 调用视频生成 API。
@@ -49,13 +54,24 @@ async function callVideoApiInternal(db, log, opts) {
 
 async function callVideoApi(db, log, opts = {}) {
   const idempotencyKey = normalizeIdempotencyKey(opts.idempotency_key);
-  return videoRequestContext.run({ idempotencyKey }, async () => {
+  return videoRequestContext.run({
+    idempotencyKey,
+    networkOptions: {
+      ...(opts.signal ? { signal: opts.signal } : {}),
+      ...((opts.fetch_impl || opts.fetchImpl) ? { fetchImpl: opts.fetch_impl || opts.fetchImpl } : {}),
+    },
+  }, async () => {
     const provider = videoProviderLabel(opts.preferred_provider || opts.preferredProvider || opts.provider);
     try {
+      throwIfAborted(opts.signal);
       const result = await callVideoApiInternal(db, log, opts);
+      throwIfAborted(opts.signal);
       return sanitizeProviderResult(result, { provider, operation: '视频生成' });
     } catch (error) {
       if (error?.code === 'VIDEO_INPUT_INVALID') throw error;
+      if (isRequestCanceled(error, opts.signal)) {
+        throw operationCancelledError(opts.signal?.reason || error);
+      }
       throw sanitizeProviderException(error, { provider, operation: '视频生成' });
     }
   });

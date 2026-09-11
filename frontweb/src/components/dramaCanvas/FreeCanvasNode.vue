@@ -4,7 +4,7 @@
     :class="[`type-${node.type}`, configStateClass, { readonly, loading: isLoading, failed: hasError }]"
     :data-free-node-id="String(node.id)"
     tabindex="0"
-    :aria-label="`${typeLabel}：${displayTitle}`"
+    :aria-label="accessibleLabel"
   >
     <Handle
       v-if="isFreeMode"
@@ -40,7 +40,12 @@
       <p v-if="configRuntime.providerLabel" class="config-provider">
         {{ configRuntime.providerLabel }}<span v-if="configRuntime.modelLabel"> · {{ configRuntime.modelLabel }}</span>
       </p>
-      <p class="config-reason" :class="`state-${configRuntime.status}`">{{ configRuntime.reason }}</p>
+      <p
+        class="config-reason"
+        :class="`state-${configRuntime.status}`"
+        :role="['failed', 'error'].includes(configRuntime.status) ? 'alert' : undefined"
+        :aria-live="['failed', 'error'].includes(configRuntime.status) ? 'assertive' : undefined"
+      >{{ configRuntime.reason }}</p>
     </section>
     <div
       v-else-if="isMediaNode"
@@ -93,27 +98,27 @@
 
     <footer class="node-footer nodrag nopan">
       <el-tooltip v-if="isConfigNode && configRuntime.canConfigure && !readonly" content="打开 AI 配置" placement="bottom">
-        <el-button size="small" circle aria-label="打开 AI 配置" title="打开 AI 配置" @click="emit('request-configure', node.id)">
+        <el-button size="small" circle aria-label="打开 AI 配置" title="打开 AI 配置" @click.stop="emit('request-configure', node.id)">
           <el-icon><Setting /></el-icon>
         </el-button>
       </el-tooltip>
       <el-tooltip v-if="isConfigNode && configRuntime.canRetry && !readonly" content="重试配置检查" placement="bottom">
-        <el-button size="small" circle aria-label="重试配置检查" title="重试配置检查" @click="emit('request-retry-config', node.id)">
+        <el-button size="small" circle aria-label="重试配置检查" title="重试配置检查" @click.stop="emit('request-retry-config', node.id)">
           <el-icon><RefreshRight /></el-icon>
         </el-button>
       </el-tooltip>
       <el-tooltip v-if="hasError && !readonly" content="重试" placement="bottom">
-        <el-button size="small" circle aria-label="重试" title="重试" @click="retryMedia">
+        <el-button size="small" circle aria-label="重试" title="重试" @click.stop="retryMedia">
           <el-icon><RefreshRight /></el-icon>
         </el-button>
       </el-tooltip>
       <el-tooltip v-if="node.type === 'reference' && !readonly" content="转换为制作内容" placement="bottom">
-        <el-button size="small" circle aria-label="转换为制作内容" title="转换为制作内容" @click="emit('request-convert', node.id)">
+        <el-button size="small" circle aria-label="转换为制作内容" title="转换为制作内容" @click.stop="emit('request-convert', node.id)">
           <el-icon><Switch /></el-icon>
         </el-button>
       </el-tooltip>
       <el-tooltip v-if="!readonly" content="删除节点" placement="bottom">
-        <el-button size="small" circle aria-label="删除节点" title="删除节点" @click="emit('request-delete', node.id)">
+        <el-button size="small" circle aria-label="删除节点" title="删除节点" @click.stop="emit('request-delete', node.id)">
           <el-icon><Delete /></el-icon>
         </el-button>
       </el-tooltip>
@@ -175,6 +180,7 @@ const labels = {
 
 const typeLabel = computed(() => labels[props.node.type] || '节点')
 const displayTitle = computed(() => String(props.node.title || props.node.label || typeLabel.value))
+const accessibleLabel = computed(() => `${typeLabel.value}：${displayTitle.value}，按 Enter 或空格打开设置`)
 const displayContent = computed(() => String(props.node.content ?? props.node.text ?? props.node.description ?? ''))
 const isFreeMode = computed(() => props.freeMode)
 const isConfigNode = computed(() => props.node.type === 'config')

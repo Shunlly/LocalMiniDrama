@@ -40,10 +40,16 @@
             :loading="networkLoading"
             :disabled="!networkKeyword.trim() || networkLoading"
             :title="networkSearchDisableReason || undefined"
-            :aria-label="networkLoading ? '正在搜索网络素材' : (networkSearchDisableReason || '搜索网络素材')" @click="searchNetworkMedia"
+            :aria-label="networkLoading ? '正在搜索网络素材' : (networkSearchDisableReason || '搜索网络素材')"
+            @click="searchNetworkMedia"
           >
             <el-icon><Search /></el-icon>搜索
           </el-button>
+          <el-button
+            v-if="networkLoading"
+            aria-label="取消网络素材搜索"
+            @click="cancelNetworkSearch"
+          >取消搜索</el-button>
         </div>
       </section>
       <p class="visually-hidden" role="status" aria-live="polite" aria-atomic="true">
@@ -61,8 +67,8 @@
           :loading="networkLoading"
           :disabled="!networkKeyword.trim() || networkLoading"
           :title="networkSearchDisableReason || undefined"
-          aria-label="重试搜索网络素材"
-          :aria-label="networkLoading ? '正在搜索网络素材' : (networkSearchDisableReason || '搜索网络素材')" @click="searchNetworkMedia"
+          :aria-label="networkLoading ? '正在搜索网络素材' : (networkSearchDisableReason || '重试搜索网络素材')"
+          @click="searchNetworkMedia"
         >
           <el-icon><Refresh /></el-icon>重试
         </el-button>
@@ -72,7 +78,7 @@
         <p>{{ networkNotice }}</p>
       </section>
 
-      <div v-loading="networkLoading" class="network-grid" :aria-busy="networkLoading">
+      <div v-loading="networkLoading" element-loading-text="正在搜索网络素材" class="network-grid" :aria-busy="networkLoading">
         <MediaLibraryNetworkCard
           v-for="(item, index) in networkItems"
           :key="networkItemKey(item, index)"
@@ -134,6 +140,7 @@ defineProps({
   isNetworkImporting: { type: Function, required: true },
   importNetworkItem: { type: Function, required: true },
   clearNetworkSearch: { type: Function, required: true },
+  cancelNetworkSearch: { type: Function, required: true },
 })
 </script>
 

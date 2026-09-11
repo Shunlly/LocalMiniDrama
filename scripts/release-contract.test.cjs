@@ -1807,7 +1807,23 @@ test('production containers and tag releases bind, harden, and scan final images
   assert.match(backendEntrypoint, /find \/app\/data -xdev/)
   assert.match(backendEntrypoint, /\.localminidrama-owner-v1/)
   assert.doesNotMatch(backendEntrypoint, /chown -R node:node \/app\/data/)
-  assert.match(frontendNginxConfig, /location = \/healthz[\s\S]*proxy_pass http:\/\/backend:5679\/ready/)
+  const healthzBlock = frontendNginxConfig.slice(
+    frontendNginxConfig.indexOf('location = /healthz {'),
+    frontendNginxConfig.indexOf('}', frontendNginxConfig.indexOf('location = /healthz {')) + 1,
+  )
+  const readyBlock = frontendNginxConfig.slice(
+    frontendNginxConfig.indexOf('location = /ready {'),
+    frontendNginxConfig.indexOf('}', frontendNginxConfig.indexOf('location = /ready {')) + 1,
+  )
+  assert.match(healthzBlock, /location = \/healthz/)
+  assert.match(healthzBlock, /proxy_pass http:\/\/backend:5679\/ready/)
+  assert.match(readyBlock, /location = \/ready/)
+  assert.match(readyBlock, /proxy_pass http:\/\/backend:5679\/ready/)
+  assert.ok(
+    frontendNginxConfig.indexOf('location = /ready {') >= 0
+      && frontendNginxConfig.indexOf('location = /ready {') < frontendNginxConfig.indexOf('location / {'),
+    '/ready 必须写在 SPA location / 之前',
+  )
   assert.match(dockerCompose, /docker compose up -d --build --wait/)
   assert.match(dockerCompose, /127\.0\.0\.1:5679:5679/)
   assert.match(dockerCompose, /LOCALMINIDRAMA_FRONTEND_HOST_PORT:-3013/)
@@ -1836,6 +1852,31 @@ test('production containers and tag releases bind, harden, and scan final images
   assert.doesNotMatch(ciProduction, /docker compose --profile e2e up/)
   assert.match(ciProduction, /docker-image-ids\.txt/)
   assert.match(ciProduction, /trivy-backend\.json[\s\S]*trivy-frontend\.json/)
+})
+
+test('生产 Nginx 必须把 /ready 和 /healthz 精确代理到后端，并写在 SPA 回退之前', () => {
+  const healthzStart = frontendNginxConfig.indexOf('location = /healthz {')
+  const readyStart = frontendNginxConfig.indexOf('location = /ready {')
+  const spaStart = frontendNginxConfig.indexOf('location / {')
+  assert.ok(healthzStart >= 0, '缺少 location = /healthz')
+  assert.ok(readyStart >= 0, '缺少 location = /ready')
+  assert.ok(spaStart > healthzStart, '/healthz 必须写在 SPA 回退之前')
+  assert.ok(spaStart > readyStart, '/ready 必须写在 SPA 回退之前')
+
+  const healthzBlock = frontendNginxConfig.slice(healthzStart, frontendNginxConfig.indexOf('}', healthzStart) + 1)
+  const readyBlock = frontendNginxConfig.slice(readyStart, frontendNginxConfig.indexOf('}', readyStart) + 1)
+  assert.match(healthzBlock, /proxy_pass http:\/\/backend:5679\/ready/)
+  assert.match(readyBlock, /proxy_pass http:\/\/backend:5679\/ready/)
+  assert.doesNotMatch(healthzBlock, /try_files|index\.html/)
+  assert.doesNotMatch(readyBlock, /try_files|index\.html/)
+
+  assert.match(frontendDockerfile, /COPY frontweb\/nginx\.conf \/etc\/nginx\/conf\.d\/default\.conf/)
+  assert.match(frontendDockerfile, /wget -q -O - http:\/\/127\.0\.0\.1:3013\/healthz/)
+  assert.match(dockerCompose, /127\.0\.0\.1:3013\/healthz/)
+  assert.match(dockerCompose, /fetch\('http:\/\/127\.0\.0\.1:5679\/ready'\)/)
+  assert.doesNotMatch(dockerCompose, /fetch\('http:\/\/127\.0\.0\.1:5679\/health'\)/)
+  assert.match(quickstart, /location = \/ready/)
+  assert.match(backendDockerfile, /FROM runtime AS production[\s\S]*HEALTHCHECK --interval=10s --timeout=5s --start-period=20s --retries=12[\s\S]*5679\/ready/)
 })
 
 test('tag releases require a successful pre-tag push CI run for the exact main commit', () => {

@@ -16,6 +16,7 @@ import {
   validateBackupFile,
 } from '../src/composables/useBackupSettings.js'
 import {
+  getOperationLogs,
   installOperationLogSink,
   resetOperationLogs,
 } from '../src/utils/operationLog.js'
@@ -291,6 +292,7 @@ test('恢复必须先确认，未确认不会请求接口', async () => {
   harness.cancelRestore()
   assert.equal(harness.restoreDialogVisible.value, false)
   assert.equal(api.calls.restore.length, 0)
+  assert.equal(harness.actionError.value, '')
   harness.requestRestoreFromSelection()
   const result = await harness.confirmRestore()
   assert.equal(result.ok, true)
@@ -576,4 +578,76 @@ test('恢复确认取消按钮可见文案也是取消恢复备份，过期维�
   assert.match(template, /:show-close="!restoring"/)
   assert.match(template, /onRestoreDialogVisible/)
   assert.match(pageSource, /if \(restoring\.value\) \{[\s\S]*restoreDialogVisible\.value = true/)
+})
+
+test('恢复过程中取消不会记成失败，也不把英文异常漏出', async () => {
+  const englishCancelRe = /canceled|cancelled|\babort(?:ed|error)?\b/i
+  const cancelErrors = [
+    Object.assign(new Error('canceled'), { name: 'CanceledError', code: 'ERR_CANCELED' }),
+    Object.assign(new Error('The user aborted a request.'), { name: 'AbortError' }),
+  ]
+  for (const error of cancelErrors) {
+    resetOperationLogs()
+    const api = createApi({
+      restore: async () => {
+        throw error
+      },
+    })
+    const harness = useBackupSettings({ api })
+    harness.selectBackupFile(fileStub('keep.zip', 64))
+    harness.requestRestoreFromSelection()
+    harness.actionError.value = '数据恢复未能完成，原有数据应仍可用。'
+    const result = await harness.confirmRestore()
+    assert.equal(result.ok, false)
+    assert.equal(result.cancelled, true)
+    assert.equal(result.message, '操作已取消')
+    assert.equal(harness.actionError.value, '')
+    assert.equal(harness.lastFailedAction.value, '')
+    assert.equal(harness.fileError.value, '')
+    assert.doesNotMatch(result.message, englishCancelRe)
+    assert.doesNotMatch(harness.actionError.value, englishCancelRe)
+    const logs = getOperationLogs().filter((item) => item.operation === 'backup_restore')
+    assert.deepEqual(logs.map((item) => item.phase), ['start', 'cancel'])
+    assert.equal(logs.some((item) => item.phase === 'error'), false)
+    assert.equal(logs.some((item) => item.phase === 'success'), false)
+    assert.ok(logs.every((item) => item.operationId))
+
+    const retry = await harness.retryRestore()
+    assert.equal(retry.ok, false)
+    assert.equal(retry.cancelled, true)
+    assert.equal(retry.message, '操作已取消')
+    assert.equal(harness.actionError.value, '')
+    assert.equal(harness.lastFailedAction.value, '')
+    assert.doesNotMatch(retry.message, englishCancelRe)
+    const retryLogs = getOperationLogs().filter((item) => item.operation === 'backup_restore')
+    assert.deepEqual(retryLogs.map((item) => item.phase), ['start', 'cancel', 'start', 'cancel'])
+    assert.equal(retryLogs.some((item) => item.phase === 'error' || item.phase === 'success'), false)
+  }
+
+  assert.match(pageSource, /async function onConfirmRestore\(\) \{\s*const result = await confirmRestore\(\)\s*if \(result\.ok\) ElMessage\.success/)
+  assert.match(pageSource, /async function onRetryRestore\(\) \{\s*const result = await retryRestore\(\)\s*if \(result\.ok\) ElMessage\.success/)
+  assert.doesNotMatch(pageSource, /ElMessage\.error/)
+  assert.match(pageSource, /v-if="actionError"[\s\S]*备份操作失败/)
+  assert.match(pageSource, /aria-label="取消恢复备份"/)
+  assert.match(pageSource, />取消恢复备份<\/el-button>/)
+})
+
+test('恢复超时仍记失败，不会当成取消', async () => {
+  resetOperationLogs()
+  const api = createApi({
+    restore: async () => {
+      throw Object.assign(new Error('timeout of 15000ms exceeded'), { code: 'ECONNABORTED', isTimeout: true })
+    },
+  })
+  const harness = useBackupSettings({ api })
+  harness.selectBackupFile(fileStub('keep.zip', 64))
+  harness.requestRestoreFromSelection()
+  const result = await harness.confirmRestore()
+  assert.equal(result.ok, false)
+  assert.notEqual(result.cancelled, true)
+  assert.equal(harness.lastFailedAction.value, 'restore')
+  assert.match(harness.actionError.value, /[\u3400-\u9fff]/)
+  assert.doesNotMatch(harness.actionError.value, /timeout|canceled|cancelled|\babort/i)
+  const logs = getOperationLogs().filter((item) => item.operation === 'backup_restore')
+  assert.deepEqual(logs.map((item) => item.phase), ['start', 'error'])
 })

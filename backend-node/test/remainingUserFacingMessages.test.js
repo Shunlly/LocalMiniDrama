@@ -1405,6 +1405,39 @@ test('生成提示词失败不会把英文 err.message 回给前端', async () =
   }
 });
 
+
+test('中英混杂 fallback 不会被当成可信中文，图片空厂商名也不会变成视频服务', () => {
+  const { isTrustedChineseUserError, toUserFacingProcessError, toUserFacingGatewayError, buildProviderErrorMessage } = require('../src/services/providerErrorSanitizer');
+  assert.equal(isTrustedChineseUserError('图片生成失败: Image generation did not complete'), false);
+  assert.equal(isTrustedChineseUserError('保存失败: Network Error'), false);
+  assert.equal(isTrustedChineseUserError('生成失败: model is overloaded, retry later'), false);
+  assert.equal(isTrustedChineseUserError('认证失败: Invalid API key'), false);
+  assert.equal(isTrustedChineseUserError('烧录字幕或混音失败（请确认已安装 ffmpeg 且支持 libx264）'), true);
+  assert.equal(isTrustedChineseUserError('未配置图片模型，请在「AI 配置」中添加图片类型且已启用的配置'), true);
+  assert.equal(
+    toUserFacingProcessError(new Error('图片生成失败: Image generation did not complete'), '图片生成失败，请稍后重试'),
+    '图片生成失败，请稍后重试',
+  );
+  assert.doesNotMatch(
+    toUserFacingProcessError(new Error('生成失败: This model does not support vision'), '从图片提取描述失败，请稍后重试'),
+    /This model does not support|vision/i,
+  );
+  const imageMessage = toUserFacingGatewayError(new Error('图片生成失败: Image generation did not complete'), {
+    provider: 'Image',
+    operation: 'image request',
+  });
+  assert.match(imageMessage, /图片/);
+  assert.doesNotMatch(imageMessage, /Image generation did not complete|\bImage\b|视频服务/i);
+  const emptyImage = toUserFacingGatewayError(new Error('timed out'), { provider: '', operation: 'image request' });
+  assert.match(emptyImage, /图片服务/);
+  assert.match(emptyImage, /超时/);
+  assert.doesNotMatch(emptyImage, /视频服务|\bImage\b/i);
+  const built = buildProviderErrorMessage({ provider: 'Image', operation: 'image request', status: 401 });
+  assert.match(built, /图片服务/);
+  assert.match(built, /认证失败/);
+  assert.doesNotMatch(built, /\bImage\b|视频服务/);
+});
+
 test('连接测试失败对用户是中文，日志是脱敏后的技术错误且不含密钥', async () => {
   const aiConfigService = require('../src/services/aiConfigService');
   const secret = 'sk-connection-user-secret-123456';

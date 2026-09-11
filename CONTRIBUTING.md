@@ -112,7 +112,7 @@ npm run dev       # 默认端口 3013
 docker compose up -d --build --wait
 ```
 
-Compose 不 bind-mount 应用源码，生产镜像固定 Node.js 20。改完代码必须 `--build`。健康检查：后端 `/ready`（未就绪时 `checks.*.error` 为简体中文），前端 `/healthz`（代理 `/ready`）。生产 Nginx 还必须有 `location = /ready`，精确代理到后端，并写在 SPA 回退之前。`/health` 只是存活探针。容器级校验用根目录 `npm run verify:docker`。生产 E2E 必须在干净工作树执行，见 [快速开始](docs/quickstart.md#运行方式二docker)。
+Compose 不 bind-mount 应用源码，生产镜像固定 Node.js 20。改完代码必须 `--build`。健康检查：后端 `/ready`（未就绪时 `checks.*.error` 为简体中文），前端 `/healthz`（仅生产 Nginx，代理 `/ready`；开发 Vite 没有此路径）。生产 Nginx 还必须有 `location = /ready`，精确代理到后端，并写在 SPA 回退之前。后端 `/health` 只是存活探针；生产 Nginx 不代理前端 `/health`。容器级校验用根目录 `npm run verify:docker`。生产 E2E 必须在干净工作树执行，见 [快速开始](docs/quickstart.md#运行方式二docker)。
 
 ### 桌面端开发（Electron）
 

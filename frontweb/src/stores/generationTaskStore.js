@@ -11,6 +11,8 @@ import {
   findTaskKeysByTaskId,
   finishCleanupDelayMs,
   isActiveTaskStatus,
+  isCanceledTaskStatus,
+  isCanceledOrCancellingTaskStatus,
   isInvalidTaskKey,
   isMarkedRunning,
   isOrphanedProcessingTask,
@@ -22,6 +24,7 @@ import {
   normalizeRunningTask,
   resolveFinishTaskKeys,
   resolveTaskLookupKey,
+  shouldPreserveCanceledTask,
   taskFailMessage,
   taskKey,
 } from './generationTaskStore.helpers.js'
@@ -77,9 +80,24 @@ export const useGenerationTaskStore = defineStore('generationTask', () => {
     for (const key of keys) {
       const existing = tasks.value.get(key)
       if (!existing) continue
+      if (shouldPreserveCanceledTask(existing.status, status)) continue
+      if (String(existing.status || '').trim().toLowerCase() === 'failed' && String(status || '').trim().toLowerCase() === 'completed') continue
       _setTask(key, normalizeFinishedTask(existing, status, error))
       setTimeout(() => _deleteTask(key), finishCleanupDelayMs(status))
     }
+  }
+
+  function readStatusByTaskId(taskId, fallbackKey) {
+    for (const key of _findKeysByTaskId(taskId)) {
+      const current = tasks.value.get(key)
+      if (current?.status) return current.status
+    }
+    return fallbackKey ? (tasks.value.get(fallbackKey)?.status || '') : ''
+  }
+
+  function shouldKeepCanceledOnCompleted(taskId, fallbackKey) {
+    return pollStopStatuses.value.get(taskId) === 'cancelled'
+      || shouldPreserveCanceledTask(readStatusByTaskId(taskId, fallbackKey), 'completed')
   }
 
   function markRunning(meta) {
@@ -146,6 +164,8 @@ export const useGenerationTaskStore = defineStore('generationTask', () => {
         phase: 'start',
         taskId,
       })
+      markCancelling(taskId, typeof meta === 'object' ? meta : null, reason)
+      pollStopStatuses.value = new Map([...pollStopStatuses.value, [taskId, 'cancelled']])
       try {
         await taskAPI.cancel(taskId, { reason })
         stopPollingTask(taskId, reason, 'cancelled')
@@ -226,6 +246,11 @@ export const useGenerationTaskStore = defineStore('generationTask', () => {
         try {
           const remote = await taskAPI.get(t.taskId)
           if (remote.status === 'completed') {
+            if (shouldKeepCanceledOnCompleted(t.taskId, t.key)) {
+              if (t.taskId) stopPollingTask(t.taskId, USER_CANCEL_TASK_MSG, 'cancelled')
+              else _finishKeys([t.key].filter(Boolean), 'cancelled', USER_CANCEL_TASK_MSG)
+              continue
+            }
             markDone(t)
             continue
           }
@@ -233,8 +258,11 @@ export const useGenerationTaskStore = defineStore('generationTask', () => {
             markFailed(t, taskFailMessage(remote))
             continue
           }
-          if (remote.status === 'cancelled') {
+          if (isCanceledTaskStatus(remote.status)) {
             stopPollingTask(t.taskId, taskFailMessage(remote) || USER_CANCEL_TASK_MSG, 'cancelled')
+            continue
+          }
+          if (isCanceledOrCancellingTaskStatus(remote.status)) {
             continue
           }
           if (!isActiveTaskStatus(remote.status)) {
@@ -296,6 +324,10 @@ export const useGenerationTaskStore = defineStore('generationTask', () => {
             return resolve({ status: 'failed', error: errMsg })
           }
           if (t.status === 'completed') {
+            if (shouldKeepCanceledOnCompleted(taskId, key)) {
+              stopPollingTask(taskId, USER_CANCEL_TASK_MSG, 'cancelled')
+              return resolve({ status: 'cancelled', error: USER_CANCEL_TASK_MSG })
+            }
             if (onDone) {
               try {
                 await onDone()
@@ -314,7 +346,7 @@ export const useGenerationTaskStore = defineStore('generationTask', () => {
             }
             return resolve({ status: 'failed', error: errMsg })
           }
-          if (t.status === 'cancelled') {
+          if (isCanceledTaskStatus(t.status)) {
             stopPollingTask(taskId, taskFailMessage(t) || USER_CANCEL_TASK_MSG, 'cancelled')
             return resolve({ status: 'cancelled', error: taskFailMessage(t) || USER_CANCEL_TASK_MSG })
           }
@@ -375,6 +407,10 @@ export const useGenerationTaskStore = defineStore('generationTask', () => {
         return { status: 'failed', error: ORPHAN_TASK_MSG }
       }
       if (t.status === 'completed') {
+        if (shouldKeepCanceledOnCompleted(taskId, taskKey(meta))) {
+          stopPollingTask(taskId, USER_CANCEL_TASK_MSG, 'cancelled')
+          return { status: 'cancelled', error: USER_CANCEL_TASK_MSG }
+        }
         if (onDone) await onDone()
         markDone({ ...meta, taskId })
         return { status: 'completed', result: t.result }
@@ -383,7 +419,11 @@ export const useGenerationTaskStore = defineStore('generationTask', () => {
         markFailed({ ...meta, taskId }, taskFailMessage(t))
         return { status: 'failed', error: taskFailMessage(t) }
       }
-      if (!isActiveTaskStatus(t.status)) {
+      if (isCanceledTaskStatus(t.status)) {
+        stopPollingTask(taskId, taskFailMessage(t) || USER_CANCEL_TASK_MSG, 'cancelled')
+        return { status: 'cancelled', error: taskFailMessage(t) || USER_CANCEL_TASK_MSG }
+      }
+      if (!isActiveTaskStatus(t.status) && !isCanceledOrCancellingTaskStatus(t.status)) {
         markDone({ ...meta, taskId })
         return { status: 'completed', result: t.result }
       }
@@ -400,9 +440,16 @@ export const useGenerationTaskStore = defineStore('generationTask', () => {
     if (recoveredTaskIds.value.has(taskId)) {
       try {
         const t = await taskAPI.get(taskId)
-        if (t.status === 'completed') markDone({ ...meta, taskId })
+        if (t.status === 'completed') {
+          if (shouldKeepCanceledOnCompleted(taskId, taskKey(meta))) {
+            stopPollingTask(taskId, USER_CANCEL_TASK_MSG, 'cancelled')
+          } else {
+            markDone({ ...meta, taskId })
+          }
+        }
         else if (t.status === 'failed') markFailed({ ...meta, taskId }, taskFailMessage(t))
-        else if (!isActiveTaskStatus(t.status)) markDone({ ...meta, taskId })
+        else if (isCanceledTaskStatus(t.status)) stopPollingTask(taskId, taskFailMessage(t) || USER_CANCEL_TASK_MSG, 'cancelled')
+        else if (!isActiveTaskStatus(t.status) && !isCanceledOrCancellingTaskStatus(t.status)) markDone({ ...meta, taskId })
         else if (cancelledPollTaskIds.value.has(taskId)) markFailed({ ...meta, taskId }, '任务轮询已停止')
       } catch (_) {}
       return

@@ -1,6 +1,15 @@
 /**
  * 画布路由焦点：解析查询、认领焦点、同步实体和项目重置。只搬家，不改焦点所有权和集数过滤。
  */
+
+/** 检查器打开后不要落在关闭按钮上，优先可编辑字段，其次主操作。 */
+export function resolveFreeCanvasInspectorFocusTarget(inspector) {
+  if (!inspector) return null
+  return inspector.querySelector('input:not([disabled]), textarea:not([disabled])')
+    || inspector.querySelector('[data-inspector-primary-action]:not([disabled])')
+    || inspector
+}
+
 function ctxFn(ctx, key) {
   return (...args) => ctx[key](...args)
 }
@@ -124,7 +133,7 @@ export function createDramaCanvasRouteFocus(ctx = {}) {
       const inspector = document.querySelector('.free-canvas-inspector-dock')
       const inspectorNodeId = String(inspector?.dataset?.freeNodeId || '')
       const focusTarget = inspectorNodeId === ownership.nodeId
-        ? inspector.querySelector('input:not([disabled]), textarea:not([disabled]), button:not([disabled])')
+        ? resolveFreeCanvasInspectorFocusTarget(inspector)
         : null
       if (focusTarget) {
         focusTarget.focus({ preventScroll: true })

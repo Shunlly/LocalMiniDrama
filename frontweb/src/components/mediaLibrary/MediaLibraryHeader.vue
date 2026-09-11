@@ -3,7 +3,7 @@
       <div class="header-left">
         <el-button text class="back-link" :aria-label="returnTo ? '返回制作台' : '返回项目首页'" @click="goBack">
           <el-icon><ArrowLeft /></el-icon>
-          {{ returnTo ? '返回制作台' : '项目首页' }}
+          {{ returnTo ? '返回制作台' : '返回项目首页' }}
         </el-button>
         <div class="title-wrap">
           <h1 class="page-title">素材中心</h1>

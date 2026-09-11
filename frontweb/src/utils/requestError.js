@@ -26,19 +26,36 @@ const NETWORK_ERROR_CODES = new Set([
   'ERR_INTERNET_DISCONNECTED',
   'ERR_FAILED',
 ])
-const SECRET_RE = /password\s*=|client_secret|cookie\s*:|authorization\s*:|api[_-]?key\s*[:=]/i
-const TECHNICAL_ENGLISH_RE = /network error|timeout of \d+ms|request failed with status code|err_network|econnaborted|etimedout|failed to fetch|fetch failed|load failed|internal server error|econnrefused|enotfound|econnreset|eai_again|socket hang up|getaddrinfo|und_err_|project_load_failed|\baborterror\b|\baborted\b|\btypeerror\b|\breferenceerror\b|the operation was aborted|this operation was aborted|the user aborted|\bcanceled\b|\bcancelled\b/i
+const SECRET_RE = /password\s*=|client_secret|cookie\s*:|authorization\s*:|api[_-]?key\s*[:=]|\bsk-[A-Za-z0-9._-]{6,}\b|\b(Bearer|Basic|Token)\s+\S+/i
+const TECHNICAL_ENGLISH_RE = /network error|timeout of \d+ms|request failed with status code|err_network|econnaborted|etimedout|failed to fetch|fetch failed|load failed|internal server error|econnrefused|enotfound|econnreset|eai_again|socket hang up|getaddrinfo|und_err_|project_load_failed|\baborterror\b|\baborted\b|\btypeerror\b|\breferenceerror\b|the operation was aborted|this operation was aborted|the user aborted|\bcanceled\b|\bcancelled\b|invalid api key|incorrect api key|this model does not support|image generation did not complete|video generation did not complete|model is overloaded|retry later/i
 const NETWORK_ERROR_MESSAGE_RE = /network error|failed to fetch|fetch failed|load failed|socket hang up|econnrefused|enotfound|econnreset|eai_again|getaddrinfo/i
+const STACK_RE = /\bat\s+[A-Za-z_$][\w.$]*\s*\([^)]*:\d+:\d+\)/
 const INTERNAL_FIELD_RE = /\bdrama_id\b/i
+const ALLOWED_LATIN_TOKEN_RE = /^(?:ffmpeg|libx264|tesseract|comfyui|openai|minimax|seedance|kling|gemini|sora|http|https|json|pdf|txt|zip|api|tts|ocr|url|jwt|bearer)$/i
 
-/** 仅放行不含密钥、链接、内部字段和英文技术异常的简体中文 */
+function hasUntrustedEnglishRun(text) {
+  const words = String(text).match(/[A-Za-z][A-Za-z0-9+.-]{3,}/g) || []
+  let run = 0
+  for (const word of words) {
+    if (ALLOWED_LATIN_TOKEN_RE.test(word)) {
+      run = 0
+      continue
+    }
+    run += 1
+    if (run >= 2) return true
+  }
+  return false
+}
+
+/** 仅放行不含密钥、链接、内部字段、堆栈和英文技术异常的简体中文 */
 export function isSafeUserFacingMessage(text) {
   const value = String(text || '').trim()
   if (!value || !/[\u4e00-\u9fff]/.test(value)) return false
   if (SECRET_RE.test(value) || /https?:\/\//i.test(value)) return false
   if (INTERNAL_FIELD_RE.test(value)) return false
-  if (TECHNICAL_ENGLISH_RE.test(value)) return false
+  if (TECHNICAL_ENGLISH_RE.test(value) || STACK_RE.test(value)) return false
   if (/^http\s*\d{3}$/i.test(value)) return false
+  if (hasUntrustedEnglishRun(value)) return false
   return true
 }
 

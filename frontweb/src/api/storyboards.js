@@ -1,4 +1,6 @@
 import request from '@/utils/request'
+import { isSafeUserFacingMessage } from '@/utils/requestError.js'
+import { toUserFacingError } from '@/utils/userFacingError.js'
 
 /**
  * @param {string} url
@@ -6,6 +8,12 @@ import request from '@/utils/request'
  * @param {(delta: string) => void} [onDelta]
  * @returns {Promise<{ universal_segment_text: string }>}
  */
+function streamUserError(raw, fallback = '请求失败') {
+  const text = String(raw || '').trim()
+  if (isSafeUserFacingMessage(text)) return text
+  return toUserFacingError({ message: text }, fallback)
+}
+
 function createAbortError(message = '操作已取消') {
   if (typeof DOMException === 'function') return new DOMException(message, 'AbortError')
   const error = new Error(message)
@@ -34,17 +42,17 @@ async function postUniversalSegmentNdjsonStream(url, body, onDelta, options = {}
     throw error
   }
     if (!res.ok) {
-      let msg = `请求失败 (${res.status})`
+      let msg = `请求失败（${res.status}）`
       try {
         const j = await res.json()
-        if (j?.error?.message) msg = j.error.message
+        if (j?.error?.message) msg = streamUserError(j.error.message, msg)
       } catch (_) {
         try {
           const t = await res.text()
-          if (t) msg = t.slice(0, 200)
+          if (t) msg = streamUserError(t.slice(0, 200), msg)
         } catch (_) {}
       }
-      throw new Error(msg)
+      throw new Error(streamUserError(msg, '请求失败'))
     }
     const reader = res.body && res.body.getReader()
     if (!reader) throw new Error('浏览器不支持流式读取')
@@ -68,7 +76,7 @@ async function postUniversalSegmentNdjsonStream(url, body, onDelta, options = {}
           continue
         }
         if (obj.type === 'delta' && obj.text && typeof onDelta === 'function') onDelta(String(obj.text))
-        if (obj.type === 'error') throw new Error(obj.message || '请求失败')
+        if (obj.type === 'error') throw new Error(streamUserError(obj.message, '请求失败'))
         if (obj.type === 'done') {
           finalText = (obj.universal_segment_text && String(obj.universal_segment_text).trim()) || ''
         }
@@ -78,7 +86,7 @@ async function postUniversalSegmentNdjsonStream(url, body, onDelta, options = {}
     if (tail) {
       try {
         const obj = JSON.parse(tail)
-        if (obj.type === 'error') throw new Error(obj.message || '请求失败')
+        if (obj.type === 'error') throw new Error(streamUserError(obj.message, '请求失败'))
         if (obj.type === 'done') finalText = (obj.universal_segment_text && String(obj.universal_segment_text).trim()) || finalText
       } catch (e) {
         if (e instanceof Error && e.message && !e.message.includes('JSON')) throw e

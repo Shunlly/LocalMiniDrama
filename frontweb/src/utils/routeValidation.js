@@ -1,3 +1,5 @@
+import { resolveNotFoundFromPath } from './notFoundNavigation.js'
+
 export function firstRouteValue(value) {
   return Array.isArray(value) ? value[0] : value
 }
@@ -16,10 +18,11 @@ export function isValidResourceId(value) {
 export function requireValidDramaId(to) {
   const id = normalizeResourceId(to?.params?.id)
   if (!id) {
+    const from = resolveNotFoundFromPath(to?.fullPath || '')
     return {
       name: 'not-found',
       replace: true,
-      query: { from: to?.fullPath || '' },
+      query: from ? { from } : {},
     }
   }
   const raw = to?.params?.id

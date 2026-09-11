@@ -83,3 +83,35 @@ test('切到正式制作会检查 readiness；草稿模式只清空旧状态', a
   })
   assert.equal(productionReadiness.value.ready, false)
 })
+
+test('抽取失败会深链到图片识别或语音转写，正式制作缺口仍只走成片服务', () => {
+  const pushed = []
+  const productionReadiness = ref({
+    ready: false,
+    missing_capabilities: [
+      { service_type: 'ocr' },
+      { service_type: 'video' },
+    ],
+  })
+  const { controller } = createFlow({
+    productionReadiness,
+    route: { query: {}, hash: '#source-intake-workflow', fullPath: '/drama/3#source-intake-workflow' },
+    router: {
+      replace: async () => {},
+      push: (location) => { pushed.push(location) },
+    },
+  })
+  controller.openAiConfigForReadiness()
+  assert.equal(pushed[0].query.service_type, 'video')
+  assert.equal(pushed[0].query.returnTo, '/drama/3#source-intake-workflow')
+  controller.openAiConfigForExtraction('ocr')
+  assert.deepEqual(pushed[1], {
+    name: 'ai-config',
+    query: {
+      service_type: 'ocr',
+      returnTo: '/drama/3#source-intake-workflow',
+    },
+  })
+  controller.openAiConfigForExtraction('transcription')
+  assert.equal(pushed[2].query.service_type, 'transcription')
+})

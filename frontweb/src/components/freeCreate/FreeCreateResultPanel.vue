@@ -22,20 +22,34 @@
             <VideoCamera v-else />
           </el-icon>
           <p>{{ emptyResultCopy }}</p>
-          <el-button
-            v-if="generationCapability.status === 'error'"
-            size="small"
-            type="primary"
-            plain
-            aria-label="重新检查服务" @click="loadServiceConfigs"
+          <div
+            v-if="generationCapability.status !== 'loading' && !generationCapability.ready"
+            class="empty-result-actions"
+            aria-label="空结果下一步"
           >
-            重新检查服务
-          </el-button>
+            <el-button
+              v-if="generationCapability.status === 'error'"
+              size="small"
+              type="primary"
+              plain
+              aria-label="重新检查服务" @click="loadServiceConfigs"
+            >
+              重新检查服务
+            </el-button>
+            <el-button
+              size="small"
+              type="primary"
+              :plain="generationCapability.status === 'error'"
+              aria-label="前往 AI 配置" @click="openAiConfig"
+            >
+              前往 AI 配置
+            </el-button>
+          </div>
         </div>
 
         <div v-if="generating" class="generating-tip">
           <el-icon class="is-loading"><Loading /></el-icon>
-          <span>{{ cancelling ? '正在取消生成...' : '正在生成，请稍候...' }}</span>
+          <span>{{ cancelling ? '正在取消生成…' : '正在生成，请稍候…' }}</span>
           <el-button
             type="danger"
             size="small"
@@ -73,9 +87,9 @@
               </button>
               <div v-else-if="item.status === 'pending' || item.status === 'processing'" class="media-loading">
                 <el-icon class="is-loading"><Loading /></el-icon>
-                <span>{{ item.status === 'processing' ? '生成中...' : '排队中...' }}</span>
+                <span>{{ item.status === 'processing' ? '生成中…' : '排队中…' }}</span>
               </div>
-              <div v-else-if="item.status === 'failed'" class="media-error">
+              <div v-else-if="item.status === 'failed'" class="media-error" role="alert">
                 <el-icon><CircleClose /></el-icon>
                 <span>{{ item.error || '生成失败' }}</span>
                 <el-button
@@ -181,6 +195,7 @@ const emit = defineEmits([
   'download-item',
   'preview-image',
   'save-item',
+  'open-ai-config',
 ])
 
 function clearResults() {
@@ -204,6 +219,9 @@ function openImagePreview(item, idx) {
 function saveItemToAssets(item) {
   emit('save-item', item)
 }
+function openAiConfig() {
+  emit('open-ai-config')
+}
 </script>
 
 <style scoped>
@@ -212,6 +230,13 @@ function saveItemToAssets(item) {
   max-width: 22em;
   text-align: center;
   overflow-wrap: anywhere;
+}
+
+.empty-result-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
 }
 
 .result-panel {

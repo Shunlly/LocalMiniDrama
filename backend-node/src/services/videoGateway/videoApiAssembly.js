@@ -114,6 +114,7 @@ async function assembleVideoApiCall(db, log, opts) {
   opts = await applySeedance2VoiceReferenceToVideoOpts(db, log, opts, model);
 
   return {
+    db,
     log,
     opts,
     config,

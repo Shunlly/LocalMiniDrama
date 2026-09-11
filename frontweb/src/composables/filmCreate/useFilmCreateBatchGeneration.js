@@ -40,7 +40,16 @@ function hasActiveIdCollection(value) {
   return false
 }
 
-/** 批量/单条生图、生视频、配音、超分是否仍在前端等待；不含普通编辑和全流程。 */
+function hasRunningTaskList(value) {
+  if (value == null) return false
+  const list = typeof value === 'object' && 'value' in value ? value.value : value
+  if (list == null) return false
+  if (typeof list.size === 'number') return list.size > 0
+  if (typeof list.length === 'number') return list.length > 0
+  return false
+}
+
+/** 批量/单条生图、生视频、配音、超分、角色/场景/道具/全景，以及任务中心里的进行中任务。不含普通编辑。 */
 export function hasActiveMediaGenerationWork(state = {}) {
   return readActiveFlag(state.batchImageRunning)
     || readActiveFlag(state.batchImageStopping)
@@ -54,6 +63,11 @@ export function hasActiveMediaGenerationWork(state = {}) {
     || hasActiveIdCollection(state.ttsSbIds)
     || hasActiveIdCollection(state.ttsSbNarrationIds)
     || hasActiveIdCollection(state.upscalingSbIds)
+    || hasActiveIdCollection(state.generatingCharIds)
+    || hasActiveIdCollection(state.generatingSceneIds)
+    || hasActiveIdCollection(state.generatingPropIds)
+    || hasActiveIdCollection(state.generatingPanoramaIds)
+    || hasRunningTaskList(state.runningGenerationTasks)
 }
 
 export function useFilmCreateBatchGeneration(deps = {}) {

@@ -176,12 +176,14 @@ function log(level, msg, ...args) {
 function operation(event = {}) {
   const phase = String(event.phase || 'info');
   const requestId = event.request_id || getRequestId();
+  const scopedRequestId = getRequestId();
   const record = sanitizeLogValue({
     ...(isSafeRequestId(requestId) ? { request_id: requestId } : {}),
     ...event,
     event: 'operation',
     operation: event.operation || 'unknown',
-    operationId: event.operationId || null,
+    // 缺省 operationId 只回落到当前 ALS requestId，避免串入 event.request_id 里的其他请求编号。
+    operationId: event.operationId || (isSafeRequestId(scopedRequestId) ? scopedRequestId : null),
     phase,
     status: event.status || phase,
     durationMs: Number.isFinite(event.durationMs) ? event.durationMs : null,

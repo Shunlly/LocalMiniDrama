@@ -64,7 +64,7 @@ async function callVisionOcr(config, image, options = {}) {
     {
       timeoutMs,
       maxResponseBytes,
-      label: 'OCR 服务',
+      label: '图片识别',
       fetchImpl: options.fetchImpl,
       trustedOrigins: [config.base_url],
       networkLookup: options.networkLookup,
@@ -86,7 +86,7 @@ async function tryTesseract(image, options, settings) {
         timeoutMs: clampInteger(settings.tesseract_timeout_ms, 60000, 1000, 120000),
         maxStdoutBytes: MAX_EXTRACTED_TEXT_BYTES,
         maxStderrBytes: 128 * 1024,
-        label: 'Tesseract OCR',
+        label: '本机 Tesseract 识别',
         cwd: temp.dir,
       }
     );

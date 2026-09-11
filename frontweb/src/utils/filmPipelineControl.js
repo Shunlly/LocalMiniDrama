@@ -114,7 +114,7 @@ export async function cancelPipelineTasksAroundRun({
     logOperation({
       operation: 'pipeline_task_cancel',
       operationId,
-      phase: result.complete ? 'success' : 'error',
+      phase: result.complete ? 'cancel' : 'error',
       status: result.complete ? 'cancelled' : 'partial',
       durationMs: Date.now() - startedAt,
       cancelledCount: result.cancelledTaskIds.length,

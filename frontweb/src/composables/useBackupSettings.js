@@ -5,15 +5,13 @@
  */
 import { computed, ref } from 'vue'
 import request from '@/utils/request'
-import { describeServiceLoadError, isRequestCanceled, withRequestRetry } from '@/utils/requestError'
+import { describeServiceLoadError, isRequestCanceled, isSafeUserFacingMessage, withRequestRetry } from '@/utils/requestError'
 import { createOperationId, logOperation } from '@/utils/operationLog'
 import {
   createValidateBackupFile,
   restoreConfirmationCopy,
   useBackupSettingsRestore,
 } from './useBackupSettingsRestore.js'
-
-const HAN_RE = /[\u3400-\u9fff]/
 
 export const BACKUP_ERROR_MESSAGES = Object.freeze({
   ARCHIVE_CHANGED: '校验过程中备份文件发生了变化，请重新选择。',
@@ -135,10 +133,6 @@ const ENGLISH_BACKUP_MESSAGE_MAP = Object.freeze([
   [/current path has no read.?write permission|permission denied/i, BACKUP_ERROR_MESSAGES.PERMISSION_DENIED],
 ])
 
-function hasHan(text) {
-  return HAN_RE.test(String(text || ''))
-}
-
 function backupErrorCode(error) {
   return String(
     error?.code
@@ -160,7 +154,7 @@ export function describeBackupError(error, options = {}) {
   const code = backupErrorCode(error)
   if (code && BACKUP_ERROR_MESSAGES[code]) return BACKUP_ERROR_MESSAGES[code]
   const backendMessage = backupErrorMessage(error)
-  if (hasHan(backendMessage)) return backendMessage
+  if (isSafeUserFacingMessage(backendMessage)) return backendMessage
   for (const [pattern, message] of ENGLISH_BACKUP_MESSAGE_MAP) {
     if (pattern.test(backendMessage)) return message
   }
@@ -182,7 +176,7 @@ export function describeMaintenanceLoadError(error, signal) {
 export function describeMaintenanceStatusError(raw) {
   const text = String(raw || '').trim()
   if (!text) return ''
-  if (HAN_RE.test(text)) return text
+  if (isSafeUserFacingMessage(text)) return text
   return describeBackupError({ message: text }, {
     serviceLabel: '维护服务',
     fallback: '当前不能安全执行备份或恢复。',
@@ -439,7 +433,16 @@ export function useBackupSettings(options = {}) {
       })
       return true
     } catch (error) {
-      if (isRequestCanceled(error) || requestId !== listRequestSequence) return false
+      if (isRequestCanceled(error) || requestId !== listRequestSequence) {
+        logOperation({
+          operation: 'backup_list_load',
+          operationId,
+          phase: 'cancel',
+          status: isRequestCanceled(error) ? 'cancelled' : 'stale',
+          durationMs: Date.now() - startedAt,
+        })
+        return false
+      }
       listError.value = describeBackupError(error, { signal: controller.signal })
       logOperation({
         operation: 'backup_list_load',
@@ -467,14 +470,30 @@ export function useBackupSettings(options = {}) {
     logOperation({ operation: 'maintenance_status_load', operationId, phase: 'start' })
     try {
       const payload = await api.readiness({ signal: controller.signal })
-      if (requestId !== readinessRequestSequence) return false
+      if (requestId !== readinessRequestSequence) {
+        logOperation({
+          operation: 'maintenance_status_load',
+          operationId,
+          phase: 'cancel',
+          status: 'stale',
+        })
+        return false
+      }
       readiness.value = parseReadinessPayload(payload)
       hasSuccessfulReadinessLoad.value = true
       readinessError.value = ''
       logOperation({ operation: 'maintenance_status_load', operationId, phase: 'success' })
       return true
     } catch (error) {
-      if (isRequestCanceled(error) || requestId !== readinessRequestSequence) return false
+      if (isRequestCanceled(error) || requestId !== readinessRequestSequence) {
+        logOperation({
+          operation: 'maintenance_status_load',
+          operationId,
+          phase: 'cancel',
+          status: isRequestCanceled(error) ? 'cancelled' : 'stale',
+        })
+        return false
+      }
       const failedPayload = error?.response?.data
       if (hasReadinessChecksPayload(failedPayload)) {
         readiness.value = parseReadinessPayload(failedPayload)

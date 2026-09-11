@@ -172,9 +172,7 @@ async function callJimengAiApiVideo(config, log, opts) {
   let fetchOpts = { method: 'POST', headers };
 
   const longWaitMs = resolveVideoTimeoutMs('synchronous');
-  if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
-    fetchOpts.signal = AbortSignal.timeout(longWaitMs);
-  }
+  if (opts.signal) fetchOpts.signal = opts.signal;
 
   if (fileParts.length > 0) {
     const form = new FormData();

@@ -110,18 +110,27 @@ export function createSourceIntakeLaunchController({
     } catch (e) {
       if (!lifecycle.isActive()) return
       if (e?.readiness) productionReadiness.value = e.readiness
+      const aborted = isUserFacingAbort(e)
       if (createdSource) {
         resetSourceInput()
-        sourceOperationMessage.value = '素材已导入，但处理流程未启动。可从“已导入素材”中重试。'
         try {
           await loadSources()
         } catch (_) {}
       }
-      if (isUserFacingAbort(e)) return
-      sourceOperationError.value = createdSource
+      if (aborted) {
+        sourceOperationMessage.value = createdSource
+          ? '素材已导入，但处理流程未启动。可从“已导入素材”中重试。'
+          : ''
+        return
+      }
+      const failure = createdSource
         ? toUserFacingError(e, '启动失败')
         : sourceIntakeFailureMessage(e, '启动失败')
-      if (!sourceOperationError.value) return
+      if (!failure) return
+      sourceOperationMessage.value = ''
+      sourceOperationError.value = createdSource
+        ? `素材已导入，但处理流程未启动。${failure}`
+        : failure
       showWorkflowMessage('error', sourceOperationError.value)
     } finally {
       workflowStarting.value = false

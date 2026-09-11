@@ -5,6 +5,14 @@ import { readFileSync } from 'node:fs'
 import { defineComponent, h, nextTick, reactive } from 'vue'
 
 import {
+  SOURCE_FILE_FORMAT_UNSUPPORTED_MESSAGE,
+  SOURCE_OCR_CONFIG_GUIDANCE,
+  SOURCE_OCR_LOCAL_NEXT_STEP_HINT,
+  SOURCE_OCR_NEXT_STEP_LABEL,
+  SOURCE_TRANSCRIPTION_CONFIG_GUIDANCE,
+  SOURCE_TRANSCRIPTION_NEXT_STEP_LABEL,
+} from '../src/utils/sourceWorkflowState.js'
+import {
   actionGateReasons,
   buttonByText,
   compileSfc,
@@ -29,6 +37,7 @@ const SourceIntakeIntakeStageForm = await loadCompiledSfc(
     ['vue', vueUrl],
     ['@/components/filmCreate/ActionGate.vue', compiledActionGateUrl],
     ['@/components/sourceIntake/SourceIntakeSourceTextPanel.vue', compiledTextPanelUrl],
+    ['@/utils/sourceWorkflowState.js', new URL('../src/utils/sourceWorkflowState.js', import.meta.url).href],
   ]),
 )
 const renderer = createHostRenderer()
@@ -105,6 +114,7 @@ function mountForm(initial = {}) {
     onRefreshImportedSources: () => events.push('refresh-imported-sources'),
     onImportSource: () => events.push('import-source'),
     onStartWorkflow: () => events.push('start-workflow'),
+    onOpenExtractionAiConfig: (serviceType) => events.push(['open-extraction-ai-config', serviceType]),
   }), { components: formStubs })
   return { ...mounted, events, form }
 }
@@ -126,6 +136,8 @@ test('\u7236\u9762\u677f\u628a intake \u8868\u5355\u4ea4\u7ed9\u5b50\u7ec4\u4ef6
   assert.match(formSource, /v-model="form\.source_type"/)
   assert.match(formSource, /ref="sourceUrlInput"[\s\S]*v-model="form\.source_url"/)
   assert.match(formSource, /<SourceIntakeSourceTextPanel v-model:text="form\.text" \/>/)
+  assert.match(panelSource, /@open-extraction-ai-config="openAiConfigForExtraction"/)
+  assert.match(formSource, /resolveSourceIntakeExtractionNextStep/)
 })
 
 test('\u7d20\u6750\u7c7b\u578b\u3001URL \u548c\u539f\u59cb\u6587\u672c\u4ecd\u5199\u5165\u540c\u4e00 form \u5bf9\u8c61', async () => {
@@ -213,5 +225,61 @@ test('\u5df2\u9009\u6587\u4ef6\u53ef\u79fb\u9664\uff0cURL \u6821\u9a8c\u9519\u8b
     assert.ok(actionGateReasons(harness.root).includes(busy))
   } finally {
     harness.app.unmount()
+  }
+})
+
+test('PDF/图片失败展示可点击的图片识别下一步，并保留本机 Tesseract 提示', () => {
+  const harness = mountForm({
+    selectedFilename: 'scan.png',
+    sourceFile: { name: 'scan.png', type: 'image/png' },
+    sourceOperationError: SOURCE_OCR_CONFIG_GUIDANCE,
+  })
+  try {
+    const text = textContent(harness.root)
+    assert.match(text, /下一步/)
+    assert.ok(text.includes(SOURCE_OCR_NEXT_STEP_LABEL))
+    assert.ok(text.includes(SOURCE_OCR_LOCAL_NEXT_STEP_HINT))
+    assert.doesNotMatch(text, /service_type=ocr/)
+    const button = buttonByText(harness.root, SOURCE_OCR_NEXT_STEP_LABEL)
+    assert.ok(button)
+    assert.equal(button.props['aria-label'], SOURCE_OCR_NEXT_STEP_LABEL)
+    button.props.onClick()
+    assert.deepEqual(harness.events, [['open-extraction-ai-config', 'ocr']])
+  } finally {
+    harness.app.unmount()
+  }
+})
+
+test('音视频失败展示语音转写下一步，不提示 Tesseract', () => {
+  const harness = mountForm({
+    selectedFilename: 'talk.mp3',
+    sourceFile: { name: 'talk.mp3', type: 'audio/mpeg' },
+    sourceOperationError: SOURCE_TRANSCRIPTION_CONFIG_GUIDANCE,
+  })
+  try {
+    const text = textContent(harness.root)
+    assert.match(text, /下一步/)
+    assert.doesNotMatch(text, /Tesseract/)
+    buttonByText(harness.root, SOURCE_TRANSCRIPTION_NEXT_STEP_LABEL).props.onClick()
+    assert.deepEqual(harness.events, [['open-extraction-ai-config', 'transcription']])
+  } finally {
+    harness.app.unmount()
+  }
+})
+
+test('非抽取失败不会给出 AI 配置下一步', () => {
+  const cases = [
+    { sourceOperationError: '素材列表加载失败', selectedFilename: 'scan.png' },
+    { sourceOperationError: SOURCE_FILE_FORMAT_UNSUPPORTED_MESSAGE, selectedFilename: 'scan.png' },
+    { sourceOperationError: '暂时无法检查正式制作能力，请稍后重试。', selectedFilename: 'scan.png' },
+  ]
+  for (const initial of cases) {
+    const harness = mountForm(initial)
+    try {
+      assert.equal(buttonByText(harness.root, SOURCE_OCR_NEXT_STEP_LABEL), undefined, initial.sourceOperationError)
+      assert.doesNotMatch(textContent(harness.root), /下一步/)
+    } finally {
+      harness.app.unmount()
+    }
   }
 })

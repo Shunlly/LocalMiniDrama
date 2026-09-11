@@ -57,7 +57,20 @@
         {{ sourceOperationStatus }}
       </div>
       <div v-if="sourceOperationError" class="source-operation-error" role="alert" aria-live="assertive">
-        {{ sourceOperationError }}
+        <span>{{ sourceOperationError }}</span>
+        <div v-if="extractionNextStep" class="source-extraction-next-step">
+          <span class="next-step-kicker">下一步</span>
+          <el-button
+            size="small"
+            type="primary"
+            plain
+            :aria-label="extractionNextStep.actionLabel"
+            @click="emit('open-extraction-ai-config', extractionNextStep.serviceType)"
+          >
+            {{ extractionNextStep.actionLabel }}
+          </el-button>
+          <span v-if="extractionNextStep.extraHint">{{ extractionNextStep.extraHint }}</span>
+        </div>
       </div>
       <div
         v-if="sourceListRefreshError"
@@ -99,9 +112,10 @@
 </template>
 
 <script setup>
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import ActionGate from '@/components/filmCreate/ActionGate.vue'
 import SourceIntakeSourceTextPanel from '@/components/sourceIntake/SourceIntakeSourceTextPanel.vue'
+import { resolveSourceIntakeExtractionNextStep } from '@/utils/sourceWorkflowState.js'
 
 const props = defineProps({
   sourceTypeOptions: { type: Array, required: true },
@@ -125,13 +139,21 @@ const props = defineProps({
   workflowStartButtonLabel: { type: String, required: true },
 })
 
-defineEmits([
+const emit = defineEmits([
   'source-file-change',
   'clear-selected-file',
   'refresh-imported-sources',
   'import-source',
   'start-workflow',
+  'open-extraction-ai-config',
 ])
+const extractionNextStep = computed(() => resolveSourceIntakeExtractionNextStep(
+  props.sourceOperationError,
+  {
+    file: props.sourceFile,
+    filename: props.selectedFilename,
+  },
+))
 
 const form = defineModel({ type: Object, required: true })
 const sourceFileInput = ref(null)
@@ -193,6 +215,18 @@ defineExpose({
   align-items: center;
   justify-content: space-between;
   gap: 10px;
+}
+.source-extraction-next-step {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+  color: var(--source-text-muted);
+}
+.next-step-kicker {
+  font-weight: 600;
+  color: var(--el-color-danger);
 }
 @media (max-width: 900px) {
   .form-row {

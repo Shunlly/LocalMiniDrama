@@ -12,6 +12,10 @@
 
 - `1.3.3` 当前处于发布候选验证阶段。Git 目前只有 `v1.3.0`、`v1.3.1`、`v1.3.2` 标签，没有 `v1.3.3` 标签或正式 Release；当前建议从源码或 Docker 运行。正式发布仅在 `v1.3.3` 标签指向 `main`、同提交 Release 工作流成功生成 draft GitHub Release，且该 draft 经人工复核并正式发布后成立。
 
+### 文档
+
+- 校正 README、开发指南与健康检查说明：生产 Nginx 必须有 `location = /ready`；`/healthz` 只存在于生产 Nginx 并代理 `/ready`；Compose 写入的 `LOCALMINIDRAMA_CORS_ORIGINS` 是字面量，宿主机同名变量盖不掉；官方默认端口仍是 `3013`/`5679`；厂商预设填表不等于真实图片/视频/TTS 接入已跑通。
+
 ### 新增
 
 - **制作 + 自由双模式画布**：在原 `/film/:id/canvas` 路由保留生产流水线，并加入 `text`、`image`、`video`、`config`、`reference` 五类自由节点、自由连线、选择/框选、复制粘贴、删除、撤销重做与 `metadata.free_canvas` 持久化。

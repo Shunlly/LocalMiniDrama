@@ -51,21 +51,56 @@ const PROVIDER_LABELS = Object.freeze({
   provider: '厂商',
   'Video provider': '视频服务',
   'video provider': '视频服务',
+  Video: '视频服务',
+  video: '视频服务',
+  'Image provider': '图片服务',
+  'image provider': '图片服务',
+  Image: '图片服务',
+  image: '图片服务',
   'Jimeng material hub': '即梦素材库',
   TTS: 'TTS',
   MiniMax: 'MiniMax',
   OpenAI: 'OpenAI',
 });
 
+const ALLOWED_LATIN_TOKEN_RE = /^(?:ffmpeg|libx264|tesseract|comfyui|openai|minimax|seedance|kling|gemini|sora|dashscope|volcengine|vidu|agnes|jimeng|http|https|json|pdf|txt|zip|api|tts|ocr|url|jwt|bearer|sqlite|modelark)$/i;
+const MIXED_TECHNICAL_ENGLISH_RE = /invalid api key|incorrect api key|this model does not support|image generation did not complete|video generation did not complete|model is overloaded|retry later/i;
+
 function safeLabel(value, fallback) {
   const label = String(value || '').trim();
   return /^[A-Za-z0-9\u4e00-\u9fff][A-Za-z0-9\u4e00-\u9fff ._/-]{0,63}$/.test(label) ? label : fallback;
 }
 
-function labeledProvider(value) {
+function defaultProviderLabel(operation) {
+  const op = String(operation || '').toLowerCase();
+  if (op.includes('video') || op.includes('视频')) return '视频服务';
+  if (op.includes('image') || op.includes('图片') || op.includes('视觉')) return '图片服务';
+  return '厂商';
+}
+
+function labeledProvider(value, operation) {
   const raw = String(value || '').trim();
-  if (!raw) return '厂商';
-  return PROVIDER_LABELS[raw] || safeLabel(raw, '厂商');
+  if (!raw) return defaultProviderLabel(operation);
+  if (PROVIDER_LABELS[raw]) return PROVIDER_LABELS[raw];
+  const lower = raw.toLowerCase();
+  for (const [key, label] of Object.entries(PROVIDER_LABELS)) {
+    if (key.toLowerCase() === lower) return label;
+  }
+  return safeLabel(raw, defaultProviderLabel(operation));
+}
+
+function hasUntrustedEnglishRun(text) {
+  const words = String(text).match(/[A-Za-z][A-Za-z0-9+.-]{3,}/g) || [];
+  let run = 0;
+  for (const word of words) {
+    if (ALLOWED_LATIN_TOKEN_RE.test(word)) {
+      run = 0;
+      continue;
+    }
+    run += 1;
+    if (run >= 2) return true;
+  }
+  return false;
 }
 
 function labeledOperation(value) {
@@ -211,7 +246,7 @@ function statusAction(status, responseFormat) {
 }
 
 function buildProviderErrorMessage(options = {}) {
-  const provider = labeledProvider(options.provider);
+  const provider = labeledProvider(options.provider, options.operation);
   const operation = labeledOperation(options.operation);
   const status = extractHttpStatus(options.status);
   const responseValue = options.responseBody !== undefined
@@ -253,7 +288,7 @@ function isCancelLikeError(error) {
 function isNetworkLikeError(error, errorCode) {
   const code = String(errorCode || error?.code || '');
   if (/^(?:ERR_NETWORK|EAI_AGAIN|ECONNREFUSED|ECONNRESET|ENETUNREACH|ENOTFOUND|EPIPE)$/i.test(code)) return true;
-  return /network error|fetch failed|socket hang up|ECONNREFUSED|ENOTFOUND/i.test(`${code} ${error?.message || error || ''}`);
+  return /network error|failed to fetch|fetch failed|load failed|socket hang up|ECONNREFUSED|ENOTFOUND/i.test(`${code} ${error?.message || error || ''}`);
 }
 
 function cancelProviderError(error) {
@@ -285,10 +320,10 @@ function sanitizeProviderException(error, options = {}) {
   });
   if (error?.retryable === true) safeError.retryable = true;
   if (isTimeoutLikeError(error) || /(?:^|_)TIME(?:D)?OUT$/i.test(errorCode || '')) {
-    safeError.message = `${labeledProvider(options.provider)} ${labeledOperation(options.operation)}超时，请稍后重试。`;
+    safeError.message = `${labeledProvider(options.provider, options.operation)} ${labeledOperation(options.operation)}超时，请稍后重试。`;
     safeError.retryable = true;
   } else if (isNetworkLikeError(error, errorCode)) {
-    safeError.message = `${labeledProvider(options.provider)} ${labeledOperation(options.operation)}网络连接失败，请检查网络后重试。`;
+    safeError.message = `${labeledProvider(options.provider, options.operation)} ${labeledOperation(options.operation)}网络连接失败，请检查网络后重试。`;
     safeError.retryable = true;
   }
   return safeError;
@@ -311,14 +346,14 @@ function toSafeProviderErrorMessage(error, options = {}) {
   }
   const source = typeof error === 'string' ? error : error?.message || error;
   if (isTimeoutLikeError(error, source)) {
-    return `${labeledProvider(options.provider)} ${labeledOperation(options.operation)}超时，请稍后重试。`;
+    return `${labeledProvider(options.provider, options.operation)} ${labeledOperation(options.operation)}超时，请稍后重试。`;
   }
   if (isCancelLikeError(error)) {
     const raw = String(error?.message || '').trim();
     return isTrustedChineseUserError(raw) ? raw : '操作已取消';
   }
   if (isNetworkLikeError(error, error?.code) || isNetworkLikeError(source)) {
-    return `${labeledProvider(options.provider)} ${labeledOperation(options.operation)}网络连接失败，请检查网络后重试。`;
+    return `${labeledProvider(options.provider, options.operation)} ${labeledOperation(options.operation)}网络连接失败，请检查网络后重试。`;
   }
   const status = extractHttpStatus(error) || extractHttpStatus(source) || extractHttpStatus(options.status);
   const code = safeProviderCode(error?.providerCode)
@@ -358,15 +393,18 @@ function isTrustedChineseUserError(value) {
   if (/\bcode\s+[A-Za-z0-9_.:/-]+/i.test(text)) return false;
   if (/\bsk-[A-Za-z0-9._-]{6,}\b/i.test(text)) return false;
   if (/\b(Bearer|Basic)\s+/i.test(text)) return false;
-  if (/\b(unauthorized|forbidden|not found|bad request|internal server error|too many requests|service unavailable|gateway timeout|timed?\s*out|fetch failed|aborted)\b/i.test(text)) {
+  if (/\b(unauthorized|forbidden|not found|bad request|internal server error|too many requests|service unavailable|gateway timeout|timed?\s*out|network error|failed to fetch|fetch failed|load failed|typeerror|referenceerror|aborted)\b/i.test(text)) {
     return false;
   }
+  if (MIXED_TECHNICAL_ENGLISH_RE.test(text)) return false;
   if (/\b(ECONNREFUSED|ENOTFOUND|ECONNRESET|ETIMEDOUT|EAI_AGAIN|EHOSTUNREACH|ENETUNREACH|EPROTO|ENOENT|EACCES|EPERM|EPIPE|ENOSPC|SQLITE_[A-Z0-9]+|getaddrinfo|socket hang up)\b/i.test(text)) {
     return false;
   }
+  if (/\bat\s+[A-Za-z_$][\w.$]*\s*\([^)]*:\d+:\d+\)/.test(text)) return false;
   if (/[A-Za-z][A-Za-z0-9]*_[A-Za-z0-9_]+/.test(text)) return false;
   if (/^[A-Za-z][A-Za-z0-9_]*\s*不能为空/.test(text)) return false;
   if (/不支持的\s+[A-Za-z_]+/.test(text)) return false;
+  if (hasUntrustedEnglishRun(text)) return false;
   return true;
 }
 
@@ -558,7 +596,7 @@ function toUserFacingTtsMessage(error, options = {}) {
   if (/redirect/i.test(raw) && !isTrustedChineseUserError(raw)) {
     return 'TTS 请求被重定向，已拦截，请检查服务地址后重试';
   }
-  if (/ECONNREFUSED|ENOTFOUND|EAI_AGAIN|ECONNRESET|ENETUNREACH|ERR_NETWORK|network error|fetch failed|socket hang up/i.test(`${error?.code || ''} ${raw}`)) {
+  if (/ECONNREFUSED|ENOTFOUND|EAI_AGAIN|ECONNRESET|ENETUNREACH|ERR_NETWORK|network error|failed to fetch|fetch failed|load failed|socket hang up/i.test(`${error?.code || ''} ${raw}`)) {
     return '配音服务连接失败，请检查网络后重试';
   }
   if (isTrustedChineseUserError(raw)) return raw;

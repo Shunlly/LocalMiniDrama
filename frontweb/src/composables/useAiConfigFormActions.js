@@ -17,6 +17,7 @@ import {
   confirmAiConfigMutationResult,
 } from '@/utils/aiConfigMutations.js'
 import { applyAiConfigRepairTarget } from '@/utils/aiConfigRepairTarget.js'
+import { publishAiConfigChanged as defaultPublishAiConfigChanged } from '@/utils/aiConfigChangeBus.js'
 import { configFormFingerprint as fingerprintConfigForm } from '@/composables/useAiConfigUnsaved.js'
 
 export function useAiConfigFormActions(deps = {}) {
@@ -52,9 +53,11 @@ export function useAiConfigFormActions(deps = {}) {
   const isDeepSeekOfficialForm = deps.isDeepSeekOfficialForm
   const invalidateConnectionTestResults = deps.invalidateConnectionTestResults
   const revealSavedConfigs = deps.revealSavedConfigs
+  const publishAiConfigChanged = deps.publishAiConfigChanged || defaultPublishAiConfigChanged
 
   function notifyConfigurationChanged() {
     emit('configuration-changed')
+    publishAiConfigChanged({ action: 'changed' })
   }
 
   function resetForm() {

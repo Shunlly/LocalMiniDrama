@@ -12,6 +12,7 @@ const composePath = path.join(repositoryRoot, 'docker-compose.yml');
 const entrypointPath = path.join(backendRoot, 'docker-entrypoint.sh');
 const dockerfilePath = path.join(backendRoot, 'Dockerfile');
 const frontendProdDockerfilePath = path.join(repositoryRoot, 'frontweb', 'Dockerfile.prod');
+const frontendNginxConfigPath = path.join(repositoryRoot, 'frontweb', 'nginx.conf');
 const dockerignorePath = path.join(repositoryRoot, '.dockerignore');
 const artifactVerificationPath = path.join(repositoryRoot, 'scripts', 'verify-docker-artifact.cjs');
 const repositoryAssetsAvailable = [
@@ -19,6 +20,7 @@ const repositoryAssetsAvailable = [
   entrypointPath,
   dockerfilePath,
   frontendProdDockerfilePath,
+  frontendNginxConfigPath,
   dockerignorePath,
   artifactVerificationPath,
 ].every(fs.existsSync);
@@ -139,7 +141,24 @@ test('Compose 生产探针走 /ready，默认端口 3013/5679，并保留备份�
   assert.doesNotMatch(productionStage, /5679\/health(?:z|\b)/);
   assert.match(frontendProdDockerfile, /HEALTHCHECK --interval=10s --timeout=3s --start-period=10s --retries=12/);
   assert.match(frontendProdDockerfile, /127\.0\.0\.1:3013\/healthz/);
+  assert.match(frontendProdDockerfile, /COPY frontweb\/nginx\.conf \/etc\/nginx\/conf\.d\/default\.conf/);
   assert.doesNotMatch(frontendProdDockerfile, /NODE_TLS_REJECT_UNAUTHORIZED|insecure_tls/);
+
+  const nginxSource = fs.readFileSync(frontendNginxConfigPath, 'utf8');
+  const healthzStart = nginxSource.indexOf('location = /healthz {');
+  const readyStart = nginxSource.indexOf('location = /ready {');
+  const spaStart = nginxSource.indexOf('location / {');
+  assert.ok(healthzStart >= 0, '缺少 location = /healthz');
+  assert.ok(readyStart >= 0, '缺少 location = /ready');
+  assert.ok(spaStart > healthzStart, '/healthz 必须写在 SPA 回退之前');
+  assert.ok(spaStart > readyStart, '/ready 必须写在 SPA 回退之前');
+  const healthzBlock = nginxSource.slice(healthzStart, nginxSource.indexOf('}', healthzStart) + 1);
+  const readyBlock = nginxSource.slice(readyStart, nginxSource.indexOf('}', readyStart) + 1);
+  assert.match(healthzBlock, /proxy_pass http:\/\/backend:5679\/ready/);
+  assert.match(readyBlock, /proxy_pass http:\/\/backend:5679\/ready/);
+  assert.doesNotMatch(healthzBlock, /try_files|index\.html/);
+  assert.doesNotMatch(readyBlock, /try_files|index\.html/);
+  assert.match(verificationStage, /COPY --chown=node:node frontweb\/nginx\.conf \/frontweb\/nginx\.conf/);
 });
 
 test('Compose E2E provider has the same init, resource, and log boundaries', repositoryOnly, () => {

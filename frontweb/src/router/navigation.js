@@ -9,7 +9,7 @@ import { getViewDefinition, isAllowedView } from './views.js'
 export const RESTORE_FAILURE_MESSAGE = '无法恢复上次页面：地址无效或已失效。'
 export const RETURN_TO_REJECTED_MESSAGE = '返回地址无效，已回到安全页面。'
 
-const AI_CONFIG_SERVICE_TYPES = new Set(['text', 'image', 'storyboard_image', 'video', 'tts'])
+const AI_CONFIG_SERVICE_TYPES = new Set(['text', 'image', 'storyboard_image', 'video', 'tts', 'ocr', 'transcription'])
 
 export function firstQueryValue(value) {
   return Array.isArray(value) ? value[0] : value
@@ -111,6 +111,11 @@ export function createLocationSanitizer(normalizers = {}) {
   const normalizeBackupReturnTo = normalizers.normalizeBackupReturnTo || (() => '')
 
   return function sanitizeAppLocation(to = {}) {
+    const view = getViewDefinition(to.name)
+    if (view?.resourceId && !isValidResourceId(to.params?.id)) {
+      return buildNotFoundLocation(typeof to.fullPath === 'string' ? to.fullPath : '')
+    }
+
     const query = cloneQuery(to.query)
     let changed = false
 

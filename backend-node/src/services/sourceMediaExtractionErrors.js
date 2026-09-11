@@ -33,7 +33,10 @@ function processFailedError(label, code) {
 }
 
 function processTimeoutError(label) {
-  return actionableError(`${label}超时。请缩短源文件或稍后重试。`);
+  return withProcessCode(
+    Object.assign(actionableError(`${label}超时。请缩短源文件或稍后重试。`), { isTimeout: true }),
+    'PROCESS_TIMEOUT'
+  );
 }
 
 function processOutputOverflowError(label) {
@@ -45,7 +48,7 @@ function processDiagnosticOverflowError(label) {
 }
 
 function providerTimeoutError(label, cause) {
-  return actionableError(`${label}超时，请检查当前 AI 配置后重试。`, cause);
+  return Object.assign(actionableError(`${label}超时，请检查当前 AI 配置后重试。`, cause), { isTimeout: true });
 }
 
 function providerUnreachableError(label, cause) {
@@ -56,7 +59,13 @@ function providerBadResponseError(label) {
   return actionableError(`${label}返回了无法处理的响应。请检查当前 AI 配置。`);
 }
 
+function isExtractionTimeout(error) {
+  return error?.isTimeout === true || error?.process_code === 'PROCESS_TIMEOUT';
+}
+
 function throwOcrFallbackError(config, tesseract, providerError) {
+  if (isExtractionTimeout(providerError)) throw providerError;
+  if (!providerError && isExtractionTimeout(tesseract?.error)) throw tesseract.error;
   if (!config && tesseract.unavailable) {
     throw actionableError('未配置图片识别服务，且本机 Tesseract 不可用。请在「AI 配置」中添加并启用「图片识别」，或安装 Tesseract 命令行工具。');
   }
@@ -66,6 +75,7 @@ function throwOcrFallbackError(config, tesseract, providerError) {
 
 module.exports = {
   actionableError,
+  isExtractionTimeout,
   processUnavailableError,
   processChildError,
   processFailedError,

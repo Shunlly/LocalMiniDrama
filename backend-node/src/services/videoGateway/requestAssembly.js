@@ -160,6 +160,7 @@ async function dispatchCompatibleVideoRequest(ctx) {
       Authorization: 'Bearer ' + (config.api_key || ''),
     },
     body: JSON.stringify(body),
+    signal: ctx.opts?.signal,
   });
   const raw = await res.text();
   log.info('Video API response summary', {

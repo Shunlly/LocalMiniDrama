@@ -1,4 +1,4 @@
-import { isRequestCanceled, isSafeUserFacingMessage } from './requestError.js'
+import { isRequestCanceled, isRequestTimeout, isSafeUserFacingMessage } from './requestError.js'
 import { toUserFacingError } from './userFacingError.js'
 import { normalizeWorkflowStatus, workflowStepLabel } from './workflowRunStatus.js'
 
@@ -278,6 +278,13 @@ export const SOURCE_MEDIA_URL_UPLOAD_HINT = '网页 URL 仅支持公开文本或
 export const SOURCE_OCR_CONFIG_GUIDANCE = '图片识别失败。请到「AI 配置」添加「图片识别」服务，或先使用本机 Tesseract。'
 export const SOURCE_TRANSCRIPTION_CONFIG_GUIDANCE = '语音转写失败。请到「AI 配置」添加「语音转写」服务。'
 export const SOURCE_MEDIA_EXTRACTION_CONFIG_GUIDANCE = '自动抽取失败。请到「AI 配置」添加「图片识别」或「语音转写」服务，PDF/图片也可先使用本机 Tesseract。'
+export const SOURCE_OCR_TIMEOUT_GUIDANCE = '图片识别超时。请到「AI 配置」检查「图片识别」服务后重试。'
+export const SOURCE_TRANSCRIPTION_TIMEOUT_GUIDANCE = '语音转写超时。请到「AI 配置」检查「语音转写」服务后重试。'
+export const SOURCE_MEDIA_EXTRACTION_TIMEOUT_GUIDANCE = '自动抽取超时。请到「AI 配置」检查「图片识别」或「语音转写」服务后重试。'
+export const SOURCE_OCR_NEXT_STEP_LABEL = '去「AI 配置」添加图片识别'
+export const SOURCE_TRANSCRIPTION_NEXT_STEP_LABEL = '去「AI 配置」添加语音转写'
+export const SOURCE_MEDIA_EXTRACTION_NEXT_STEP_LABEL = '去「AI 配置」添加对应服务'
+export const SOURCE_OCR_LOCAL_NEXT_STEP_HINT = '也可先安装本机 Tesseract。'
 
 export const TEXT_SOURCE_FILE_EXTENSIONS = Object.freeze([
   '.txt', '.md', '.csv', '.tsv', '.srt', '.vtt', '.ass', '.json',
@@ -337,6 +344,16 @@ function mediaConfigGuidance(kind) {
   return SOURCE_MEDIA_EXTRACTION_CONFIG_GUIDANCE
 }
 
+function mediaTimeoutGuidance(kind) {
+  if (kind === 'ocr') return SOURCE_OCR_TIMEOUT_GUIDANCE
+  if (kind === 'transcription') return SOURCE_TRANSCRIPTION_TIMEOUT_GUIDANCE
+  return SOURCE_MEDIA_EXTRACTION_TIMEOUT_GUIDANCE
+}
+
+function hasInternalServiceToken(text) {
+  return /service_type\s*=/i.test(text) || /\b(drama_id|source_id|asset_id)\b/i.test(text)
+}
+
 function readIntakeFailureTexts(error) {
   if (typeof error === 'string') return [error.trim()].filter(Boolean)
   const texts = []
@@ -356,7 +373,75 @@ export function isDeferredAutoExtractionSource(input) {
   return MEDIA_AUTO_EXTRACTION_EXTENSION_SET.has(sourceFileExtension(sourcePathnameFromInput(input)))
 }
 
+const NON_EXTRACTION_NEXT_STEP_PATTERN = /单个素材文件最大 20MB|素材文件为空|读取文本文件失败|暂时无法检查正式制作能力|素材已导入，但处理流程未启动|正式制作条件未满足|尚未完成正式制作能力检查|素材列表加载失败/
+
+function extractionKindFromFailureText(text) {
+  const hasTranscription = TRANSCRIPTION_ENGLISH_FAILURE_PATTERN.test(text) || text.includes('语音转写')
+  const hasOcr = OCR_ENGLISH_FAILURE_PATTERN.test(text) || text.includes('图片识别') || text.includes('本机 Tesseract')
+  if (hasTranscription && hasOcr) return 'media'
+  if (hasTranscription) return 'transcription'
+  if (hasOcr) return 'ocr'
+  return ''
+}
+
+function shouldOfferExtractionNextStep(text) {
+  if (!text) return false
+  if (text === SOURCE_FILE_FORMAT_UNSUPPORTED_MESSAGE || text === SOURCE_MEDIA_URL_UPLOAD_HINT) return false
+  if (SOURCE_FORMAT_ENGLISH_FAILURE_PATTERN.test(text)) return false
+  if (NON_EXTRACTION_NEXT_STEP_PATTERN.test(text)) return false
+  if (text === SOURCE_WORKFLOW_CANCEL_REASON || text === SOURCE_WORKFLOW_PAUSE_REASON) return false
+  return true
+}
+
+function buildSourceIntakeExtractionNextStep(kind) {
+  if (kind === 'ocr') {
+    return {
+      kind: 'ocr',
+      serviceType: 'ocr',
+      actionLabel: SOURCE_OCR_NEXT_STEP_LABEL,
+      extraHint: SOURCE_OCR_LOCAL_NEXT_STEP_HINT,
+    }
+  }
+  if (kind === 'transcription') {
+    return {
+      kind: 'transcription',
+      serviceType: 'transcription',
+      actionLabel: SOURCE_TRANSCRIPTION_NEXT_STEP_LABEL,
+      extraHint: '',
+    }
+  }
+  if (kind === 'media') {
+    return {
+      kind: 'media',
+      serviceType: '',
+      actionLabel: SOURCE_MEDIA_EXTRACTION_NEXT_STEP_LABEL,
+      extraHint: SOURCE_OCR_LOCAL_NEXT_STEP_HINT,
+    }
+  }
+  return null
+}
+
+export function resolveSourceIntakeExtractionNextStep(error, context = {}) {
+  if (isRequestCanceled(error)) return null
+  const hint = context.file || context.filename || context.sourceUrl || ''
+  const displayed = String(context.message || '').trim()
+  const texts = readIntakeFailureTexts(error)
+  if (displayed && !texts.includes(displayed)) texts.push(displayed)
+  const combined = texts.join('\n')
+  if (!combined) return null
+  if (!shouldOfferExtractionNextStep(combined)) return null
+  const kind = mediaExtractionKind(hint) || extractionKindFromFailureText(combined)
+  return buildSourceIntakeExtractionNextStep(kind)
+}
+
+export function extractionConfigServiceTypeFromMessage(message, context = {}) {
+  return resolveSourceIntakeExtractionNextStep(message, context)?.serviceType || ''
+}
+
 export function localizeSourceIntakeFailure(error, context = {}) {
+  const hint = context.file || context.filename || context.sourceUrl || ''
+  const kind = mediaExtractionKind(hint)
+  if (isRequestTimeout(error)) return mediaTimeoutGuidance(kind)
   if (isRequestCanceled(error)) return ''
   const texts = readIntakeFailureTexts(error)
   if (!texts.length) return ''
@@ -367,12 +452,10 @@ export function localizeSourceIntakeFailure(error, context = {}) {
   }
 
   for (const text of texts) {
-    if (isSafeUserFacingMessage(text)) return text
+    if (isSafeUserFacingMessage(text) && !hasInternalServiceToken(text)) return text
   }
 
   const combined = texts.join('\n')
-  const hint = context.file || context.filename || context.sourceUrl || ''
-  const kind = mediaExtractionKind(hint)
 
   if (SOURCE_FORMAT_ENGLISH_FAILURE_PATTERN.test(combined)) return SOURCE_FILE_FORMAT_UNSUPPORTED_MESSAGE
   if (TRANSCRIPTION_ENGLISH_FAILURE_PATTERN.test(combined)) return SOURCE_TRANSCRIPTION_CONFIG_GUIDANCE

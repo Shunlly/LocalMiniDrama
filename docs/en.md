@@ -19,7 +19,7 @@
 LocalMiniDrama keeps projects and generated files on your machine by default while letting you connect your own AI services. Generation is not fully offline: prompts, reference images, or media are sent to the provider and proxy endpoints you explicitly configure.
 This project is built entirely in JavaScript from scratch. Review each provider's privacy policy before sending sensitive material.
 
-> ✅ No mandatory subscription · ✅ Projects stored locally by default · ✅ Multiple AI providers · ✅ Fully open source
+> ✅ No mandatory subscription · ✅ Projects stored locally by default · ✅ Configurable AI provider presets (filling presets ≠ real vendor wiring) · ✅ Fully open source
 
 ---
 
@@ -28,14 +28,14 @@ This project is built entirely in JavaScript from scratch. Review each provider'
 Package version is `1.3.3`. That is the repository `package.json` version, not a GitHub Release / tag, and the release has not been merged to `main`. Run from source or Docker; do not download a GitHub Release for current use. Git still has only the `v1.3.0`, `v1.3.1`, and `v1.3.2` tags. The [Releases page](https://github.com/Shunlly/LocalMiniDrama/releases) is history only. The current branch and a dirty worktree are not a completed release.
 
 - Backend `backend-node`: Express + SQLite (better-sqlite3), port **5679**; startup runs `runMigrationsAndEnsure`
-- Frontend `frontweb`: Vite in development, port **3013**; the dev server proxies `/api`, `/static`, `/ready`, and `/health`
+- Frontend `frontweb`: Vite in development, port **3013**; the dev server proxies `/api`, `/static`, `/ready`, and `/health`. Vite does not expose `/healthz`
 - Production can also `npm run build` in `frontweb` and let the backend host `frontweb/dist` on 5679 (`WEB_DIST_PATH` overrides the path). Docker production serves the frontend with Nginx
 - Language: plain JavaScript, no TypeScript
 - Root, backend, frontend, Docker, and common PR/branch gates use Node.js 20.x (`.nvmrc` is `20`); desktop install, native rebuilds, packaging, and Windows artifact security scans use Node.js 22.12.0 (`desktop/.npmrc` enables `engine-strict`)
 - Everyday Docker: `docker compose up -d --build --wait`. Compose does **not** bind-mount application source; rebuild after code changes. Container verification: `npm run verify:docker` from the repo root
-- Official `docker compose up -d --build --wait` maps `127.0.0.1:3013` and `127.0.0.1:5679` by default. That collides with source `npm run dev` and with the same `backend-node/data` directory. If those two ports are already in use, do not start the official Compose mapping. To run both, set `LOCALMINIDRAMA_FRONTEND_HOST_PORT` / `LOCALMINIDRAMA_BACKEND_HOST_PORT` and a separate `LOCALMINIDRAMA_DATA_DIR`; Compose writes `LOCALMINIDRAMA_CORS_ORIGINS` from the frontend host port. Compose writes `LOCALMINIDRAMA_CORS_ORIGINS` from the frontend host port; for remapped E2E also set `FRONTEND_URL` / `BACKEND_URL`. If you customize CORS, keep that variable aligned with the frontend host port. `npm run docker:e2e:up` only isolates `LOCALMINIDRAMA_DATA_DIR` outside the repo; it does **not** change `3013`/`5679`, and it also binds `127.0.0.1:5688`
+- Official `docker compose up -d --build --wait` maps `127.0.0.1:3013` and `127.0.0.1:5679` by default. That collides with source `npm run dev` and with the same `backend-node/data` directory. If those two ports are already in use, do not start the official Compose mapping. To run both, set `LOCALMINIDRAMA_FRONTEND_HOST_PORT` / `LOCALMINIDRAMA_BACKEND_HOST_PORT` and a separate `LOCALMINIDRAMA_DATA_DIR`; Compose writes `LOCALMINIDRAMA_CORS_ORIGINS` from the frontend host port as a Compose literal, so setting the same variable on the host does not override it. For remapped E2E also set `FRONTEND_URL` / `BACKEND_URL`. Official defaults remain `3013`/`5679`; `23013`/`25679` are old candidate overrides, not current defaults. `npm run docker:e2e:up` only isolates `LOCALMINIDRAMA_DATA_DIR` outside the repo; it does **not** change `3013`/`5679`, and it also binds `127.0.0.1:5688`
 - In development, loopback Origins are allowed. Production Docker CORS follows the frontend host port
-- Production Nginx (`frontweb/nginx.conf`) must include `location = /ready` proxying the backend `/ready`, before the SPA `location /` fallback. Proxying only `/healthz` is not enough: the backup page requests `/ready` and will lock restore if it receives HTML
+- Production Nginx (`frontweb/nginx.conf`) must include `location = /ready` proxying the backend `/ready`, before the SPA `location /` fallback. `/healthz` also proxies backend `/ready` and is only the Compose frontend healthcheck. Proxying only `/healthz` is not enough: the backup page requests `/ready` and will lock restore if it receives HTML. Production Nginx does not proxy `/health`; that path falls through to the SPA HTML
 - Production E2E requires a clean working tree (`working_tree_dirty=false`); do not treat a historical SHA or the current dirty worktree as passing evidence
 - The UI starts without external API keys; generate content only after filling **AI Config**. Filling vendor presets is not the same as real image/video/TTS vendor wiring
 - User-visible errors in the UI, API, and CLI are Simplified Chinese
@@ -144,7 +144,7 @@ npm install
 npm run dev
 ```
 
-Open `http://127.0.0.1:3013`. Development uses Vite, which proxies `/api`, `/static`, `/ready`, and `/health` to `http://127.0.0.1:5679`. In development, loopback Origins are allowed; `config.yaml` still defaults to `http://localhost:3013` and `http://127.0.0.1:3013`. Production Docker CORS follows the frontend host port (`LOCALMINIDRAMA_CORS_ORIGINS`) and does not allow arbitrary loopback ports. To let the backend host the production frontend, run `npm run build` in `frontweb`, start the backend, and open `http://127.0.0.1:5679`. Add provider URLs, models, and API keys on the **AI Config** page. Credentials are stored in the local SQLite database, not in `config.yaml`.
+Open `http://127.0.0.1:3013`. Development uses Vite, which proxies `/api`, `/static`, `/ready`, and `/health` to `http://127.0.0.1:5679`; Vite does not expose `/healthz`. In development, loopback Origins are allowed; `config.yaml` still defaults to `http://localhost:3013` and `http://127.0.0.1:3013`. Production Docker CORS follows the frontend host port (Compose writes `LOCALMINIDRAMA_CORS_ORIGINS` from `LOCALMINIDRAMA_FRONTEND_HOST_PORT` as a literal, so a host env with the same name does not override it) and does not allow arbitrary loopback ports. To let the backend host the production frontend, run `npm run build` in `frontweb`, start the backend, and open `http://127.0.0.1:5679`. Add provider URLs, models, and API keys on the **AI Config** page. Credentials are stored in the local SQLite database, not in `config.yaml`.
 
 Backend readiness:
 
@@ -154,7 +154,7 @@ curl.exe --fail http://127.0.0.1:5679/ready
 
 HTTP 200 with `status` `ready` means the backend can accept traffic. When not ready, `checks.database.error`, `checks.storage.error`, and `checks.maintenance.error` are Simplified Chinese (for example `数据库不可用`). `/health` is liveness only and does not mean the service can accept traffic. Compose `--wait` does not wait on `/health`.
 
-You can also double-click `run_dev.bat` or run `run_dev.ps1` at the project root to **start both servers at once**. The launcher opens `http://127.0.0.1:3013` only after the backend `/ready` probe reports `status: ready` and the frontend page is up. It reuses verified LocalMiniDrama processes on 5679/3013 and refuses to kill unrelated listeners.
+You can also double-click `run_dev.bat` or run `run_dev.ps1` at the project root to **start both servers at once**. The launcher opens `http://127.0.0.1:3013` only after the backend `/health` identity matches, `/ready` reports `status: ready`, and the frontend homepage HTML identity matches. It reuses verified LocalMiniDrama processes on 5679/3013 and refuses to kill unrelated listeners.
 
 ### Option B — Docker
 
@@ -171,7 +171,7 @@ New-Item -ItemType Directory -Force -Path $env:LOCALMINIDRAMA_DATA_DIR | Out-Nul
 docker compose up -d --build --wait
 ```
 
-Compose already writes `LOCALMINIDRAMA_CORS_ORIGINS` from the frontend host port. For E2E against remapped ports, set `FRONTEND_URL` / `BACKEND_URL`. If you customize CORS, keep `LOCALMINIDRAMA_CORS_ORIGINS` aligned with that frontend host port. Unchanged ports still use:
+Compose already writes `LOCALMINIDRAMA_CORS_ORIGINS` from the frontend host port as a Compose literal; setting the same variable on the host does not override it. For E2E against remapped ports, set `FRONTEND_URL` / `BACKEND_URL`. Unchanged ports still use:
 
 ```bash
 docker compose up -d --build --wait
@@ -180,19 +180,20 @@ docker compose ps
 
 Open `http://127.0.0.1:3013` (or the remapped frontend host port). Host ports bind to `127.0.0.1` only; data defaults to `backend-node/data/`. Production Nginx must keep `location = /ready` before the SPA fallback; a custom reverse proxy needs the same exact location, or backup restore will lock on HTML.
 
-| Probe | URL | Compose use |
+| Probe | URL | Meaning |
 |------|------|------|
 | Frontend page | `http://127.0.0.1:3013` | Page entry |
-| Frontend `/healthz` | `http://127.0.0.1:3013/healthz` | Healthcheck; Nginx proxies backend `/ready` |
-| Frontend `/ready` | `http://127.0.0.1:3013/ready` | Production Nginx must proxy `location = /ready` to the backend; do not let the SPA `index.html` handle it |
-| Backend `/ready` | `http://127.0.0.1:5679/ready` | Healthcheck; HTTP 200 only when business-ready; error payloads are Simplified Chinese; `docker compose --wait` waits on this |
-| Backend `/health` | `http://127.0.0.1:5679/health` | Not a healthcheck; process liveness only |
+| Frontend `/healthz` | `http://127.0.0.1:3013/healthz` | Production Nginx only; Compose frontend healthcheck, proxies backend `/ready`. Vite does not expose this path |
+| Frontend `/ready` | `http://127.0.0.1:3013/ready` | Used by the backup page; production Nginx must proxy `location = /ready` before the SPA `location /`. Vite proxies it in development |
+| Frontend `/health` | `http://127.0.0.1:3013/health` | Vite proxies backend liveness in development; production Nginx does not proxy it, so it falls through to SPA HTML and is not a healthcheck |
+| Backend `/ready` | `http://127.0.0.1:5679/ready` | HTTP 200 only when business-ready; error payloads are Simplified Chinese; Compose `--wait` and the backend healthcheck wait on this |
+| Backend `/health` | `http://127.0.0.1:5679/health` | Not a Compose healthcheck; process liveness only |
 
-The table is the official default mapping. After changing `LOCALMINIDRAMA_FRONTEND_HOST_PORT` / `LOCALMINIDRAMA_BACKEND_HOST_PORT`, replace `3013` / `5679` in those URLs.
+The table is the official default mapping. After changing `LOCALMINIDRAMA_FRONTEND_HOST_PORT` / `LOCALMINIDRAMA_BACKEND_HOST_PORT`, replace `3013` / `5679` in those URLs. Official defaults remain `3013`/`5679`; `23013`/`25679` are old candidate overrides, not current defaults.
 
 Stop with `docker compose down`. Full backup/restore requires Docker to be stopped first. `backup:data` / `restore:data` / `maintenance:recover` help and failure output are Simplified Chinese. For commands and custom `LOCALMINIDRAMA_DATA_DIR` `--data-root`, see the [backup FAQ](quickstart.md#q-如何备份迁移项目数据).
 
-`npm run docker:up` requires a clean worktree and writes the current Git SHA into image revisions. Dirty local source should use `docker compose up -d --build --wait`; those images cannot create official rollback checkpoints. `npm run verify:docker` checks image boundaries and runs in-container tests; it does not replace a running Compose acceptance. Production Docker CORS follows the frontend host port via `LOCALMINIDRAMA_CORS_ORIGINS`; development mode is the only case where arbitrary loopback Origins pass.
+`npm run docker:up` requires a clean worktree and writes the current Git SHA into image revisions. Dirty local source should use `docker compose up -d --build --wait`; those images cannot create official rollback checkpoints. `npm run verify:docker` checks image boundaries and runs in-container tests; it does not replace a running Compose acceptance. Production Docker CORS follows the frontend host port via the Compose literal `LOCALMINIDRAMA_CORS_ORIGINS`; a host env with the same name does not override it. Development mode is the only case where arbitrary loopback Origins pass.
 
 ### Tests
 

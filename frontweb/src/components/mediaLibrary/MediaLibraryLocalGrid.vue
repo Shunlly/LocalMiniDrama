@@ -12,6 +12,7 @@
         <p v-if="mediaIsStale" class="data-load-state__stale">下方显示上次成功加载的数据，当前内容已过期；成功重试前不能上传、选择或删除素材。</p>
         <p v-else>素材空态不会在连接恢复前显示，也不会执行任何素材写操作。</p>
         <p class="data-load-state__detail">错误详情：{{ loadError }}</p>
+        <p>下一步：请检查本机素材服务后点「重试加载」。</p>
       </div>
       <el-button type="primary" plain :loading="loading" :disabled="loading" :title="mediaRetryLoadDisableReason || undefined" :aria-label="loading ? '正在加载素材' : (mediaRetryLoadDisableReason || '重试加载素材')" @click="loadMedia">
         <el-icon><Refresh /></el-icon>重试加载
@@ -64,11 +65,20 @@
       <div>
         <h2>{{ uploadFeedback.title }}</h2>
         <p>{{ uploadFeedback.detail }}</p>
+        <p>下一步：请确认文件是图片或视频，单文件不超过 100MB，然后重新上传。</p>
       </div>
+      <el-button
+        type="primary"
+        plain
+        :disabled="mediaWriteLocked || uploading"
+        :title="mediaUploadDisableReason || undefined"
+        aria-label="重新上传素材到素材中心"
+        @click="triggerUpload"
+      >重新上传</el-button>
     </section>
 
     <!-- 媒体网格 -->
-    <div v-loading="loading" class="media-grid" :aria-busy="loading">
+    <div v-loading="loading" element-loading-text="正在加载素材" class="media-grid" :aria-busy="loading">
       <MediaLibraryCard
         v-for="item in mediaItems"
         :key="item.id"

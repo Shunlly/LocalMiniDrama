@@ -37,9 +37,9 @@ const iconStubUrl = compileIconStub(['ArrowLeft', 'Download', 'Refresh', 'Upload
 const routerStubUrl = compileVueRouterStub()
 const feedbackStubUrl = dataModule(`
   export const ElMessage = {
-    success() {},
-    error() {},
-    warning() {},
+    success(message) { (globalThis.__backupPageMessages ||= []).push(['success', String(message ?? '')]) },
+    error(message) { (globalThis.__backupPageMessages ||= []).push(['error', String(message ?? '')]) },
+    warning(message) { (globalThis.__backupPageMessages ||= []).push(['warning', String(message ?? '')]) },
   }
   export const ElMessageBox = {
     async confirm() { return true },
@@ -170,8 +170,8 @@ function createBackupSettings(overrides = {}) {
       restoreCalls.push(item)
       return true
     },
-    confirmRestore: async () => ({ ok: true }),
-    retryRestore: async () => ({ ok: true }),
+    confirmRestore: overrides.confirmRestore || (async () => ({ ok: true })),
+    retryRestore: overrides.retryRestore || (async () => ({ ok: true })),
     cancelRestore: () => {
       cancelCalls.push('cancel')
       restoreDialogVisible.value = false
@@ -476,6 +476,7 @@ test('备份文件选择失败和操作失败都能关闭或重试', async () =>
 })
 
 test('点击取消恢复备份会关掉确认框', async () => {
+  globalThis.__backupPageMessages = []
   const harness = mountBackup({
     backups: [{ id: 'keep.zip', name: 'keep.zip', createdAt: '2026-08-29T00:00:00Z', bytes: 2048 }],
     hasSuccessfulListLoad: true,
@@ -487,15 +488,54 @@ test('点击取消恢复备份会关掉确认框', async () => {
     harness.settings.restoreDialogVisible.value = true
     await nextTick()
     const cancel = buttonByAriaLabel(harness.root, '取消恢复备份')
+    assert.equal(textContent(cancel).replace(/\s+/g, ' ').trim(), '取消恢复备份')
     click(cancel)
     await nextTick()
     assert.deepEqual(harness.settings.cancelCalls, ['cancel'])
     assert.equal(harness.settings.restoreDialogVisible.value, false)
     assert.equal(buttonByAriaLabel(harness.root, '取消恢复备份'), undefined)
+    assert.equal(harness.settings.actionError.value, '')
+    assert.doesNotMatch(textContent(harness.root), /备份操作失败/)
+    assert.doesNotMatch(textContent(harness.root), /canceled|cancelled|\babort/i)
+    assert.deepEqual(globalThis.__backupPageMessages || [], [])
   } finally {
     harness.app.unmount()
     resetVueRouterHarness()
     delete globalThis.__backupPageSettings
+    delete globalThis.__backupPageMessages
+  }
+})
+
+test('确认恢复若已取消，不弹出失败横幅或错误提示', async () => {
+  globalThis.__backupPageMessages = []
+  const harness = mountBackup({
+    backups: [{ id: 'keep.zip', name: 'keep.zip', createdAt: '2026-08-29T00:00:00Z', bytes: 2048 }],
+    hasSuccessfulListLoad: true,
+    hasSuccessfulReadinessLoad: true,
+    readiness: { ready: true, maintenanceError: '' },
+    confirmRestore: async () => ({ ok: false, cancelled: true, message: '操作已取消' }),
+    retryRestore: async () => ({ ok: false, cancelled: true, message: '操作已取消' }),
+  })
+  try {
+    await nextTick()
+    harness.settings.restoreDialogVisible.value = true
+    await nextTick()
+    const cancel = buttonByAriaLabel(harness.root, '取消恢复备份')
+    assert.ok(cancel)
+    assert.equal(textContent(cancel).replace(/\s+/g, ' ').trim(), '取消恢复备份')
+    click(buttonByAriaLabel(harness.root, '确认恢复备份'))
+    await Promise.resolve()
+    await nextTick()
+    const pageText = textContent(harness.root)
+    assert.doesNotMatch(pageText, /备份操作失败/)
+    assert.doesNotMatch(pageText, /canceled|cancelled|\babort/i)
+    assert.equal(harness.settings.actionError.value, '')
+    assert.deepEqual(globalThis.__backupPageMessages || [], [])
+  } finally {
+    harness.app.unmount()
+    resetVueRouterHarness()
+    delete globalThis.__backupPageSettings
+    delete globalThis.__backupPageMessages
   }
 })
 

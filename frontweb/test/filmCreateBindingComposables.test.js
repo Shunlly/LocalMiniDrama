@@ -636,6 +636,10 @@ test('AI 配置工作区会校验服务类型，未确认关闭时保持打开',
 
     ctx.api.openAiConfig('not-a-service')
     assert.equal(ctx.aiConfigInitialServiceType.value, '')
+    ctx.api.openAiConfig('ocr')
+    assert.equal(ctx.aiConfigInitialServiceType.value, 'ocr')
+    ctx.api.openAiConfigFromPipeline('transcription', { source: 'toolbar' })
+    assert.equal(ctx.aiConfigInitialServiceType.value, 'transcription')
     ctx.api.openAiConfigFromPipeline('storyboard_image', { source: 'compact-action' })
     assert.equal(ctx.aiConfigInitialServiceType.value, 'storyboard_image')
     assert.equal(ctx.aiConfigOpenedFromPipelineAction.value, true)

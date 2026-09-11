@@ -103,7 +103,6 @@ async function fetchConnectionProbe(url, options = {}, networkOptions = {}) {
     }
     throw connectionTestUserError(CONNECTION_TEST_NETWORK_MESSAGE, {
       code: error?.code || 'CONNECTION_TEST_NETWORK',
-      cause: error instanceof Error ? error : undefined,
     });
   } finally {
     clearTimeout(timer);

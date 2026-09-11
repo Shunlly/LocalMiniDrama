@@ -1,5 +1,5 @@
 <template>
-  <div class="empty-media">
+  <div class="empty-media" role="status">
     <el-icon class="empty-icon"><Files /></el-icon>
     <h2 class="empty-title">{{ hasActiveFilters ? '没有匹配的素材' : '素材中心还是空的' }}</h2>
     <p class="empty-description">{{ hasActiveFilters ? '调整关键词或素材类型后再试。' : '上传图片或视频，后续项目可以直接复用。' }}</p>

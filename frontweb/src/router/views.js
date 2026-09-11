@@ -103,6 +103,12 @@ export const APP_NAV_ITEMS = [
   { id: 'backup', view: 'backup', label: '数据备份' },
 ]
 
+// 旧深链接别名必须指向已允许且可持久化的视图，刷新和 404 返回才能接到真实页面。
+export const APP_PATH_ALIASES = Object.freeze([
+  { path: '/media', view: 'media-library' },
+  { path: '/settings', view: 'backup' },
+])
+
 export function getViewDefinition(name) {
   const key = String(name || '')
   return Object.prototype.hasOwnProperty.call(APP_VIEW_DEFINITIONS, key)

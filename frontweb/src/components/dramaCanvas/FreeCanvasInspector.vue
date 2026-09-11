@@ -81,7 +81,12 @@
           <dd>{{ configRuntime.providerLabel }}<span v-if="configRuntime.modelLabel"> · {{ configRuntime.modelLabel }}</span></dd>
         </div>
       </dl>
-      <p class="config-message" :class="`state-${configRuntime.status}`" role="status">{{ configRuntime.reason }}</p>
+      <p
+        class="config-message"
+        :class="`state-${configRuntime.status}`"
+        :role="['failed', 'error'].includes(configRuntime.status) ? 'alert' : 'status'"
+        :aria-live="['failed', 'error'].includes(configRuntime.status) ? 'assertive' : 'polite'"
+      >{{ configRuntime.reason }}</p>
       <div class="inspector-actions">
         <el-button
           v-if="configRuntime.status !== 'running' && !configRuntime.canRetry"
@@ -89,6 +94,7 @@
           :disabled="generateDisabled"
           :title="generateDisabled ? generateButtonAriaLabel : undefined"
           :aria-label="generateButtonAriaLabel"
+          data-inspector-primary-action="generate"
           @click="emitGenerate"
         >
           <el-icon><MagicStick /></el-icon>
@@ -110,6 +116,7 @@
           :disabled="readonly || busy"
           aria-label="停止等待"
           title="停止当前页面等待；已提交任务可能继续执行或计费"
+          data-inspector-primary-action="cancel"
           @click="emit('cancel-config', node.id)"
         >
           <el-icon><CircleClose /></el-icon>
@@ -120,7 +127,9 @@
           type="primary"
           :disabled="readonly || busy"
           :title="(readonly || busy) ? configActionDisabledReason : undefined"
-          :aria-label="(readonly || busy) ? configActionDisabledReason : '重试检查'" @click="emit('retry-config', node.id)"
+          :aria-label="(readonly || busy) ? configActionDisabledReason : '重试检查'"
+          data-inspector-primary-action="retry"
+          @click="emit('retry-config', node.id)"
         >
           <el-icon><RefreshRight /></el-icon>
           重试检查

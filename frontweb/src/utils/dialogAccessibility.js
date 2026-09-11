@@ -124,7 +124,12 @@ function classListHas(element, className) {
 function isDialogCloseControl(element, boundary) {
   let current = element
   while (current && current !== boundary) {
-    if (classListHas(current, 'el-dialog__headerbtn') || classListHas(current, 'el-dialog__close')) {
+    if (
+      classListHas(current, 'el-dialog__headerbtn')
+      || classListHas(current, 'el-dialog__close')
+      || classListHas(current, 'el-message-box__headerbtn')
+      || classListHas(current, 'el-message-box__close')
+    ) {
       return true
     }
     current = current.parentElement
@@ -157,7 +162,11 @@ export function findDialogFocusTarget(dialogElement) {
   const unnamedField = candidates.find((element) => isTextEntryControl(element))
   if (unnamedField) return unnamedField
 
-  return candidates.find((element) => accessibleName(element)) || null
+  // 确认框优先主按钮；没有主按钮时再落到第一个可交互项。
+  const primaryButton = candidates.find((element) => classListHas(element, 'el-button--primary'))
+  if (primaryButton) return primaryButton
+
+  return candidates.find((element) => accessibleName(element)) || candidates[0] || null
 }
 
 function focusElement(element) {
@@ -261,7 +270,8 @@ export function createDialogAccessibilityManager(options = {}) {
   function focus(token) {
     const entry = stack.at(-1)
     if (!entry || entry.token !== token) return false
-    return focusElement(findDialogFocusTarget(entry.dialogElement))
+    if (focusElement(findDialogFocusTarget(entry.dialogElement))) return true
+    return focusElement(entry.dialogElement)
   }
 
   function unregister(token) {
@@ -285,3 +295,77 @@ export function createDialogAccessibilityManager(options = {}) {
 }
 
 export const dialogAccessibility = createDialogAccessibilityManager()
+
+const MESSAGE_BOX_SELECTOR = '.el-message-box'
+
+export function queryOpenMessageBoxes(document = globalThis.document) {
+  if (!document) return []
+  const root = typeof document.querySelectorAll === 'function'
+    ? document
+    : document.body
+  if (!root || typeof root.querySelectorAll !== 'function') return []
+  try {
+    return Array.from(root.querySelectorAll(MESSAGE_BOX_SELECTOR))
+  } catch {
+    return []
+  }
+}
+
+function isFocusInsideDialog(dialogElement, active) {
+  if (!dialogElement || !active) return false
+  if (active === dialogElement) return true
+  if (typeof dialogElement.contains === 'function' && dialogElement.contains(active)) return true
+  const layer = dialogElement.closest?.('.el-overlay')
+    || dialogElement.closest?.('[role="dialog"]')
+    || dialogElement
+  return typeof layer?.contains === 'function' && layer.contains(active)
+}
+
+function shouldMoveMessageBoxFocus(dialogElement, opener, document) {
+  const active = document?.activeElement || null
+  if (!active || active === opener) return true
+  if (isDialogCloseControl(active, dialogElement)) return true
+  return !isFocusInsideDialog(dialogElement, active)
+}
+
+export function createMessageBoxFocusSession(options = {}) {
+  // MessageBox 先同步插入节点，visible 才在下一拍更新，所以打开后要短重试焦点。
+  const manager = options.manager || dialogAccessibility
+  const currentDocument = () => options.document || globalThis.document
+  const opener = 'opener' in options ? options.opener : (currentDocument()?.activeElement || null)
+  const knownElements = options.knownElements || []
+  let token = null
+  let disposed = false
+  const timers = []
+
+  function attach() {
+    if (disposed) return
+    const document = currentDocument()
+    const dialogElement = queryOpenMessageBoxes(document)
+      .find((element) => !knownElements.includes(element))
+    if (!dialogElement) return
+    if (!token) token = manager.register(dialogElement, opener)
+    if (!shouldMoveMessageBoxFocus(dialogElement, opener, document)) return
+    if (!manager.focus(token)) focusElement(dialogElement)
+  }
+
+  attach()
+  if (typeof queueMicrotask === 'function') queueMicrotask(attach)
+  if (typeof setTimeout === 'function') {
+    timers.push(setTimeout(attach, 0))
+    timers.push(setTimeout(attach, 16))
+  }
+
+  return {
+    dispose() {
+      if (disposed) return
+      disposed = true
+      for (const id of timers) clearTimeout(id)
+      timers.length = 0
+      if (token) {
+        manager.unregister(token)
+        token = null
+      }
+    },
+  }
+}

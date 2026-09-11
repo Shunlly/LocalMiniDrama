@@ -346,7 +346,7 @@ test('离开保护会确认取消生成，并登记到应用级卸载拦截', ()
 test('能力说明只用显式中文，就绪详情不泄露密钥和英文异常', () => {
   assert.equal(
     getFreeCreateCapabilityNotice({ status: 'loading', serviceLabel: '视频' }),
-    '正在检查视频服务...',
+    '正在检查视频服务…',
   )
   assert.equal(
     getFreeCreateCapabilityNotice({ status: 'error', serviceLabel: '图片' }),

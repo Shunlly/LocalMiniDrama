@@ -137,7 +137,25 @@ describe('logger redaction', () => {
     assert.match(String(provider), /"request_id":"provider-task-9"/);
     assert.doesNotMatch(String(provider), /trace-logger-1/);
     assert.match(String(operation), /"request_id":"trace-logger-1"/);
+    assert.match(String(operation), /"operationId":"trace-logger-1"/);
     assert.equal(String(unscoped).includes('trace-logger-1'), false);
+  });
+
+  it('operationId 回落只用当前请求的 requestId，不串入 event.request_id', () => {
+    const lines = [];
+    const originalLog = console.log;
+    console.log = (msg) => { lines.push(String(msg)); };
+    try {
+      logger.runWithRequestId('trace-logger-1', () => {
+        logger.operation({ operation: 'provider_poll', request_id: 'provider-task-9', phase: 'error' });
+      });
+    } finally {
+      console.log = originalLog;
+    }
+    const operation = lines.find((line) => line.includes('"event":"operation"'));
+    assert.match(String(operation), /"operationId":"trace-logger-1"/);
+    assert.doesNotMatch(String(operation), /"operationId":"provider-task-9"/);
+    assert.match(String(operation), /"request_id":"provider-task-9"/);
   });
 
   it('unsafe request ids are not bound into the log context', () => {

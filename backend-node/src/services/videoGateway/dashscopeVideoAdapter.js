@@ -142,6 +142,7 @@ async function callDashScopeVideoApi(config, log, opts) {
       'X-DashScope-Async': 'enable',
     },
     body: JSON.stringify(body),
+    signal: opts.signal,
   });
   const raw = await res.text();
   if (!res.ok) {

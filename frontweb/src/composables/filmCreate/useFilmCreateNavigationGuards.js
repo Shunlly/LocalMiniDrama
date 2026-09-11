@@ -1,5 +1,27 @@
 import { ElMessage, ElMessageBox } from '@/utils/elementPlusFeedback.js'
+import { useGenerationTaskStore } from '@/stores/generationTaskStore'
 import { hasActiveMediaGenerationWork } from './useFilmCreateBatchGeneration.js'
+
+function asTaskList(value) {
+  if (Array.isArray(value)) return value
+  if (value && Array.isArray(value.value)) return value.value
+  if (value && typeof value.length === 'number') return Array.from(value)
+  return []
+}
+
+function readRunningGenerationTasks(deps = {}) {
+  if (typeof deps.getRunningGenerationTasks === 'function') {
+    return asTaskList(deps.getRunningGenerationTasks())
+  }
+  if (typeof deps.generationTaskStore?.getAllRunningTasks === 'function') {
+    return asTaskList(deps.generationTaskStore.getAllRunningTasks())
+  }
+  try {
+    return asTaskList(useGenerationTaskStore().getAllRunningTasks())
+  } catch (_) {
+    return []
+  }
+}
 
 export function useFilmCreateNavigationGuards(deps = {}) {
   const {
@@ -25,6 +47,10 @@ export function useFilmCreateNavigationGuards(deps = {}) {
     ttsSbIds,
     ttsSbNarrationIds,
     upscalingSbIds,
+    generatingCharIds,
+    generatingSceneIds,
+    generatingPropIds,
+    generatingPanoramaIds,
   } = deps
 
   function hasActivePipelineWork() {
@@ -49,6 +75,11 @@ export function useFilmCreateNavigationGuards(deps = {}) {
       ttsSbIds,
       ttsSbNarrationIds,
       upscalingSbIds,
+      generatingCharIds,
+      generatingSceneIds,
+      generatingPropIds,
+      generatingPanoramaIds,
+      runningGenerationTasks: readRunningGenerationTasks(deps),
     })
   }
 

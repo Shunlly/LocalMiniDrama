@@ -152,6 +152,33 @@ test('AI config location preserves a safe explicit workspace return and the firs
     buildAiConfigLocation({ dramaId: 12, returnTo: '//evil.test/steal' }).query.returnTo,
     '/drama/12#source-intake-workflow',
   )
+  assert.deepEqual(
+    buildAiConfigLocation({ dramaId: 12, serviceType: 'ocr' }),
+    { name: 'ai-config', query: { service_type: 'ocr', returnTo: '/drama/12#source-intake-workflow' } },
+  )
+  assert.deepEqual(
+    buildAiConfigLocation({ dramaId: 12, serviceType: 'transcription' }),
+    { name: 'ai-config', query: { service_type: 'transcription', returnTo: '/drama/12#source-intake-workflow' } },
+  )
+  assert.equal(
+    buildAiConfigLocation({
+      dramaId: 12,
+      readiness: { missing_capabilities: [{ service_type: 'ocr' }] },
+    }).query.service_type,
+    undefined,
+  )
+  assert.equal(
+    buildAiConfigLocation({
+      dramaId: 12,
+      readiness: {
+        missing_capabilities: [
+          { service_type: 'ocr' },
+          { service_type: 'video' },
+        ],
+      },
+    }).query.service_type,
+    'video',
+  )
 })
 
 test('source workflow panel exposes mode, readiness remediation, and a throwing source launcher', () => {
@@ -162,6 +189,7 @@ test('source workflow panel exposes mode, readiness remediation, and a throwing 
   assert.match(source, /getNovel2AnimeReadiness\(payload\)/)
   assert.match(source, /前往 AI 配置/)
   assert.match(source, /buildAiConfigLocation/)
+  assert.match(source, /openAiConfigForExtraction/)
   assert.match(source, /startingSourceId === source\.id/)
   assert.match(source, /const productionLaunchReason = computed/)
   assert.match(source, /async function handleWorkflowModeChange\(\)[\s\S]*checkProductionReadiness\(\{[\s\S]*qa_mode: 'production'/)

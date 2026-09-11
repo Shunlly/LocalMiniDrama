@@ -66,6 +66,7 @@
               @refresh-imported-sources="refreshImportedSources"
               @import-source="importSourceOnly"
               @start-workflow="startWorkflow"
+              @open-extraction-ai-config="openAiConfigForExtraction"
             />
 
             <div class="status-block source-records-block">
@@ -402,6 +403,7 @@ const {
   handleWorkflowModeChange,
   captureProductionReadinessError,
   openAiConfigForReadiness,
+  openAiConfigForExtraction,
   persistProcessStep,
 } = createSourceIntakeFlowStepController({
   route,

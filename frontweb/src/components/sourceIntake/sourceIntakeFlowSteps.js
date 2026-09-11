@@ -102,6 +102,14 @@ export function createSourceIntakeFlowStepController({
     }))
   }
 
+  function openAiConfigForExtraction(serviceType) {
+    router.push(buildAiConfigLocation({
+      dramaId: getDramaId(),
+      serviceType,
+      returnTo: route.fullPath,
+    }))
+  }
+
   function persistProcessStep() {
     selectedFlowStepId.value = 'process'
     persistInspectedFlowStep('process')
@@ -116,6 +124,7 @@ export function createSourceIntakeFlowStepController({
     handleWorkflowModeChange,
     captureProductionReadinessError,
     openAiConfigForReadiness,
+    openAiConfigForExtraction,
     persistProcessStep,
   }
 }

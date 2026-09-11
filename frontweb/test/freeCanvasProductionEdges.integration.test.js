@@ -140,6 +140,7 @@ function createRouteFocusHarness() {
     'claimCanvasEntityFocus',
     'claimRouteEntityFocus',
     'ownsCanvasEntityFocus',
+    'resolveFreeCanvasInspectorFocusTarget',
     'waitForFreeCanvasInspectorFocus',
     'activateFreeCanvasNode',
     'closeFreeCanvasInspector',

@@ -1,6 +1,7 @@
 /**
  * 画布批量生成、制作门闩和集数选择。只搬家，不改计费媒体拦截和取消语义。
  */
+import { getCurrentInstance, onBeforeUnmount } from 'vue'
 import { ElMessage } from '@/utils/elementPlusFeedback.js'
 import { resolveCanvasEpisodeId } from '@/utils/canvasUiState'
 import { scriptNodeId } from '@/composables/useCanvasScript'
@@ -14,6 +15,7 @@ import {
   normalizeCanvasProductionReadiness,
 } from '@/utils/canvasActionState'
 import { getVideoGenerationCapability } from '@/utils/filmCreateActionState'
+import { subscribeAiConfigChanged } from '@/utils/aiConfigChangeBus.js'
 
 export function createDramaCanvasProductionGates(ctx = {}) {
   function getCanvasGenerationOptions() {
@@ -107,6 +109,22 @@ export function createDramaCanvasProductionGates(ctx = {}) {
     ctx.activeGroupId.value = value || null
   }
 
+  function refreshCapabilitiesFromAiConfigChange() {
+    return Promise.allSettled([
+      refreshProductionReadiness(),
+      refreshFreeCanvasVideoCapability(),
+    ])
+  }
+
+  const vueInstance = getCurrentInstance()
+  const listenToAiConfigChanges = ctx.listenToAiConfigChanges ?? Boolean(vueInstance)
+  const stopAiConfigChangeListener = listenToAiConfigChanges
+    ? subscribeAiConfigChanged(() => {
+      void refreshCapabilitiesFromAiConfigChange()
+    })
+    : () => {}
+  if (vueInstance && listenToAiConfigChanges) onBeforeUnmount(stopAiConfigChangeListener)
+
   return {
     getCanvasGenerationOptions,
     ensureProductionStepReady,
@@ -118,6 +136,7 @@ export function createDramaCanvasProductionGates(ctx = {}) {
     confirmEpisodeSelection,
     setPipelineSteps,
     setActiveGroupId,
+    stopAiConfigChangeListener,
   }
 }
 

@@ -768,6 +768,9 @@ test('source intake allows PDF/image/audio/video upload and guides extraction fa
   assert.doesNotMatch(source, /isDeferredAutoExtractionSource\(file\)/)
   assert.doesNotMatch(source, /isDeferredAutoExtractionSource\(sourceFile\.value\)/)
   assert.doesNotMatch(source, /service_type=ocr/)
+  assert.match(source, /openAiConfigForExtraction/)
+  assert.match(source, /open-extraction-ai-config/)
+  assert.match(source, /resolveSourceIntakeExtractionNextStep/)
   assert.match(SOURCE_INTAKE_MEDIA_HELP, /图片识别/)
   assert.match(SOURCE_INTAKE_MEDIA_HELP, /语音转写/)
   assert.match(SOURCE_MEDIA_URL_UPLOAD_HINT, /本地文件上传/)
@@ -895,4 +898,16 @@ test('素材流程时间格式化对无效日期不显示 Invalid Date', () => {
   assert.match(source, /formatTime\(selectedRun\.created_at\) \|\| '未知时间'/)
   assert.match(source, /formatTime\(sourceDetail\.source\.created_at\) \|\| '未知时间'/)
   assert.match(source, /if \(Number\.isNaN\(date\.getTime\(\)\)\) return ''/)
+})
+
+
+test('素材导入失败会给出前往 AI 配置的抽取下一步', () => {
+  const form = readFileSync(new URL('../src/components/sourceIntake/SourceIntakeIntakeStageForm.vue', import.meta.url), 'utf8')
+  assert.match(form, /前往配置图片识别/)
+  assert.match(form, /前往配置语音转写/)
+  assert.match(form, /open-ai-config/)
+  const panel = readFileSync(new URL('../src/components/SourceIntakeWorkflowPanel.vue', import.meta.url), 'utf8')
+  assert.match(panel, /SourceIntakeIntakeStageForm[\s\S]*@open-ai-config="openAiConfigForReadiness"/)
+  const steps = readFileSync(new URL('../src/components/sourceIntake/sourceIntakeFlowSteps.js', import.meta.url), 'utf8')
+  assert.match(steps, /function openAiConfigForReadiness\(serviceType\)/)
 })

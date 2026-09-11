@@ -142,8 +142,16 @@ test('项目列表和素材中心的主导航走注册表，未知路径进入�
     requireValidDramaId({ params: { id: 'abc' }, fullPath: '/drama/abc' }),
     { name: 'not-found', replace: true, query: { from: '/drama/abc' } },
   )
+  assert.deepEqual(
+    requireValidDramaId({ params: { id: 'abc' }, fullPath: '/film/abc/canvas' }),
+    { name: 'not-found', replace: true, query: { from: '/film/abc/canvas' } },
+  )
   assert.equal(isRecoverableNotFoundBackPath('/backup'), true)
   assert.equal(isRecoverableNotFoundBackPath('/backup?returnTo=/ai-config'), true)
+  assert.equal(isRecoverableNotFoundBackPath('/media'), true)
+  assert.equal(isRecoverableNotFoundBackPath('/film/12/canvas'), true)
+  assert.equal(isRecoverableNotFoundBackPath('/ai-config'), true)
+  assert.equal(isRecoverableNotFoundBackPath('/drama/12/canvas'), false)
 })
 
 test('备份页、回收站和素材预览弹窗保持中文操作名', () => {

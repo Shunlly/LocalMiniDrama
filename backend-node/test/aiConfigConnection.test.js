@@ -428,6 +428,8 @@ describe('aiConfigService.testConnection', () => {
       (error) => {
         assert.match(String(error.message), /[\u4e00-\u9fff]/);
         assert.doesNotMatch(String(error.message), /fetch failed|ECONNREFUSED|aborted/i);
+        assert.equal(error.cause, undefined);
+        assert.doesNotMatch(String(error.stack || ''), /fetch failed|ECONNREFUSED/i);
         assert.equal(isTrustedChineseUserError(error.message), true);
         return true;
       }

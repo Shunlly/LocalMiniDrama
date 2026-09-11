@@ -3,6 +3,8 @@
  * 页面仍从 useBackupSettings 取公开 API。
  */
 import { createOperationId, logOperation } from '@/utils/operationLog'
+import { isRequestCanceled } from '@/utils/requestError'
+import { isUserFacingAbort } from '@/utils/userFacingError'
 
 const BACKUP_ZIP_RE = /\.zip$/i
 const UNSAFE_BACKUP_NAME_RE = /[\\/]|\.\./
@@ -160,6 +162,17 @@ export function useBackupSettingsRestore({
           : '备份已恢复',
       }
     } catch (error) {
+      const cancelled = isUserFacingAbort(error) || isRequestCanceled(error)
+      if (cancelled) {
+        logOperation({
+          operation: 'backup_restore',
+          operationId,
+          phase: 'cancel',
+          status: 'cancelled',
+          name: target.name,
+        })
+        return { ok: false, cancelled: true, message: '操作已取消' }
+      }
       const message = describeBackupError(error)
       actionError.value = message
       lastFailedAction.value = 'restore'

@@ -13,7 +13,7 @@ function cleanText(value, maxLength = 500) {
   return String(value ?? '').trim().replace(/\s+/g, ' ').slice(0, maxLength)
 }
 
-const TECHNICAL_ENGLISH_RE = /internal server error|econnrefused|enotfound|etimedout|typeerror|referenceerror|network error|failed to fetch|request failed/i
+const TECHNICAL_ENGLISH_RE = /internal server error|econnrefused|enotfound|etimedout|typeerror|referenceerror|network error|failed to fetch|fetch failed|request failed|image generation did not complete|video generation did not complete|this model does not support|invalid api key|model is overloaded/i
 
 function reasonText(value) {
   if (value && typeof value === 'object') {

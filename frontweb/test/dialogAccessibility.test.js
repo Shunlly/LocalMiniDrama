@@ -287,3 +287,25 @@ test('具名输入框优先于脚部按钮', () => {
 
   assert.equal(findDialogFocusTarget(dialog), labeled)
 })
+
+
+test('MessageBox 关闭按钮即使英文名称也会被跳过，主按钮优先于取消', () => {
+  const { findDialogFocusTarget } = requireAccessibility()
+  const document = new FakeDocument()
+  const overlay = document.createElement('div', { class: 'el-overlay' })
+  const dialog = document.createElement('div', { class: 'el-message-box' })
+  overlay.append(dialog)
+  document.body.append(overlay)
+  const closeButton = document.createElement('button', {
+    class: 'el-message-box__headerbtn',
+    'aria-label': 'Close',
+  })
+  const cancel = document.createElement('button', { textContent: '取消' })
+  const confirm = document.createElement('button', {
+    class: 'el-button el-button--primary',
+    textContent: '删除',
+  })
+  dialog.append(closeButton, cancel, confirm)
+
+  assert.equal(findDialogFocusTarget(dialog), confirm)
+})

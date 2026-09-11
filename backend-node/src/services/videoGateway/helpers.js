@@ -29,7 +29,7 @@ const DEFAULT_VIDEO_PROVIDER_LABEL = '视频服务';
 
 function videoProviderLabel(provider) {
   const label = String(provider || '').trim();
-  if (!label || /^video provider$/i.test(label)) return DEFAULT_VIDEO_PROVIDER_LABEL;
+  if (!label || /^video(?:\s+provider)?$/i.test(label)) return DEFAULT_VIDEO_PROVIDER_LABEL;
   return label;
 }
 
@@ -39,15 +39,21 @@ function normalizeIdempotencyKey(value) {
 
 function fetchVideoWithTimeout(url, options = {}, timeoutMs, networkOptions) {
   const requestContext = videoRequestContext.getStore();
+  const resolvedNetwork = networkOptions || requestContext?.networkOptions || {};
   const idempotencyKey = normalizeIdempotencyKey(requestContext?.idempotencyKey);
   const headers = idempotencyKey
     ? { ...(options.headers || {}), 'Idempotency-Key': idempotencyKey }
     : options.headers;
   return runtimeFetchVideoWithTimeout(
     url,
-    { ...options, headers, redirect: 'error' },
+    {
+      ...options,
+      headers,
+      redirect: 'error',
+      signal: options.signal || resolvedNetwork.signal,
+    },
     timeoutMs,
-    networkOptions || requestContext?.networkOptions || {}
+    resolvedNetwork
   );
 }
 

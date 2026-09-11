@@ -1,7 +1,9 @@
 export const DEFAULT_WORKFLOW_MODE = 'draft'
 
 const WORKFLOW_MODES = new Set(['draft', 'production'])
-const AI_CONFIG_SERVICE_TYPES = new Set(['text', 'image', 'storyboard_image', 'video', 'tts'])
+const PRODUCTION_AI_CONFIG_SERVICE_TYPES = new Set(['text', 'image', 'storyboard_image', 'video', 'tts'])
+// 图片识别/语音转写只用于素材抽取深链，不计入成片五类就绪条件。
+const AI_CONFIG_SERVICE_TYPES = new Set([...PRODUCTION_AI_CONFIG_SERVICE_TYPES, 'ocr', 'transcription'])
 
 export function isValidHttpSourceUrl(value) {
   const text = String(value || '').trim()
@@ -81,7 +83,7 @@ export async function launchSourceWorkflow({ mode, payload, checkReadiness, star
 export function buildAiConfigLocation({ dramaId, readiness, serviceType, returnTo } = {}) {
   const missingType = readiness?.missing_capabilities
     ?.map((item) => String(item?.service_type || '').trim())
-    .find((type) => AI_CONFIG_SERVICE_TYPES.has(type))
+    .find((type) => PRODUCTION_AI_CONFIG_SERVICE_TYPES.has(type))
   const requestedType = String(serviceType || missingType || '').trim()
   const query = {}
   if (AI_CONFIG_SERVICE_TYPES.has(requestedType)) query.service_type = requestedType

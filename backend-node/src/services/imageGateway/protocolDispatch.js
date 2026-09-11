@@ -46,6 +46,7 @@ async function dispatchImageProtocol(db, config, log, ctx) {
       storage_local_path: opts.storage_local_path,
       provider_network_policy: providerNetworkPolicy,
       signal: opts.signal,
+      poll_interval_ms: opts.poll_interval_ms,
     });
   }
 
@@ -57,6 +58,7 @@ async function dispatchImageProtocol(db, config, log, ctx) {
       storage_local_path: opts.storage_local_path,
       provider_network_policy: providerNetworkPolicy,
       signal: opts.signal,
+      poll_interval_ms: opts.poll_interval_ms,
     });
   }
 

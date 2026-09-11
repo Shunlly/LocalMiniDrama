@@ -69,7 +69,8 @@ test('取消选择或中止请求不算网络素材失败', () => {
 })
 
 test('搜索失败和导入失败都提供中文可重点击的重试', () => {
-  assert.match(source, /aria-label="重试搜索网络素材"/)
+  assert.match(source, /networkSearchDisableReason \|\| '重试搜索网络素材'/)
+  assert.match(source, /aria-label="取消网络素材搜索"/)
   assert.match(source, /aria-label="重试导入该网络素材"/)
   assert.match(source, /v-if="networkImportRetryItem"/)
   assert.match(source, /<el-icon><Refresh \/><\/el-icon>重试导入/)
@@ -82,6 +83,7 @@ test('网络空态区分未搜索和没有结果，并具备状态角色', () =>
   assert.match(source, /请更换关键词或素材类型后重试。/)
   assert.match(source, /aria-label="清除网络素材搜索"/)
   assert.match(source, /function clearNetworkSearch/)
+  assert.match(source, /function cancelNetworkSearch/)
   assert.match(source, /搜索可导入的网络素材/)
   assert.match(source, /class="network-empty"\s*role="status"/)
   assert.match(source, /!networkSearched" class="network-empty" role="status"/)
@@ -102,6 +104,7 @@ test('\u7f51\u7edc\u7d20\u6750\u9875\u53ef\u7b5b\u9009 Commons \u4e0e Openverse\
   assert.match(source, /\u8fd9\u4e9b\u662f\u516c\u5f00\u8bb8\u53ef\u7d20\u6750/)
   assert.match(source, /\u81ea\u884c\u6838\u5bf9/)
   assert.match(source, /networkItemSourceLabel\(item\)/)
+  assert.match(source, /item.author \|\| '作者未知'/)
   assert.match(source, /\u8bb8\u53ef\uff1a\{\{ item.license/)
   assert.match(source, /params = \{ keyword: query, source: networkSource.value \}/)
   assert.match(source, /function handleNetworkSourceChange\(\) \{[\s\S]*?invalidateNetworkSearch\(\)[\s\S]*?searchNetworkMedia\(\)/)

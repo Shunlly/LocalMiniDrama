@@ -120,3 +120,16 @@ test('无错误码时仍用英文正则兜底成中文', () => {
     BACKUP_ERROR_MESSAGES.PERMISSION_DENIED,
   )
 })
+
+
+test('中英混杂的备份错误不会把英文日志漏到页面', () => {
+  const mixed = describeBackupError({
+    response: { data: { error: { message: '恢复失败: Network Error' } } },
+  })
+  assert.match(mixed, /[\u4e00-\u9fff]/)
+  assert.doesNotMatch(mixed, /Network Error/i)
+  assert.doesNotMatch(
+    describeBackupError({ message: 'PROJECT_LOAD_FAILED' }),
+    /PROJECT_LOAD_FAILED/,
+  )
+})

@@ -64,6 +64,12 @@ export function createMediaLibraryNetworkActions(ctx = {}) {
     invalidateNetworkSearch()
   }
 
+  function cancelNetworkSearch() {
+    if (!networkAbortController) return
+    networkAbortController.abort()
+    networkAbortController = null
+  }
+
   function invalidateNetworkSearch() {
     networkRequestGuard.begin()
     networkAbortController?.abort()
@@ -106,7 +112,8 @@ export function createMediaLibraryNetworkActions(ctx = {}) {
         networkItems.value = []
         networkNotice.value = ''
         networkSearched.value = true
-        networkError.value = describeNetworkError(error, '暂时无法搜索网络素材，请稍后重试')
+        const message = describeNetworkError(error, '暂时无法搜索网络素材，请稍后重试')
+        networkError.value = message || '暂时无法搜索网络素材，请稍后重试'
       })
     } finally {
       networkRequestGuard.commit(requestId, () => {
@@ -169,6 +176,7 @@ export function createMediaLibraryNetworkActions(ctx = {}) {
     describeNetworkError,
     copySourceEvidence,
     clearNetworkSearch,
+    cancelNetworkSearch,
     invalidateNetworkSearch,
     searchNetworkMedia,
     handleNetworkTypeChange,

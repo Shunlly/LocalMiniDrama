@@ -42,9 +42,14 @@
         class="source-import-state"
         role="status"
       >
-        <h2>还没有可导入的项目</h2>
-        <p>请先新建项目，再回到素材中心选择目标项目。</p>
-        <el-button type="primary" :disabled="navigationLocked" aria-label="新建项目后导入网页 URL" @click="createProjectFromPicker">
+        <h2>{{ keyword.trim() ? '没有匹配的项目' : '还没有可导入的项目' }}</h2>
+        <p>{{ keyword.trim() ? '请更换关键词后再试。' : '请先新建项目，再回到素材中心选择目标项目。' }}</p>
+        <el-button
+          v-if="keyword.trim()"
+          aria-label="清除项目搜索"
+          @click="keyword = ''; scheduleSearch()"
+        >清除搜索</el-button>
+        <el-button v-else type="primary" :disabled="navigationLocked" aria-label="新建项目后导入网页 URL" @click="createProjectFromPicker">
           新建项目
         </el-button>
       </div>

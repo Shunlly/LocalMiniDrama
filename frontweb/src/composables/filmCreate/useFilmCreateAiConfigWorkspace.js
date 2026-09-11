@@ -1,4 +1,5 @@
 import { watch, nextTick } from 'vue'
+import { normalizeInitialServiceType } from '@/utils/aiConfigWorkspace'
 
 export function useFilmCreateAiConfigWorkspace(deps = {}) {
   const {
@@ -15,17 +16,13 @@ export function useFilmCreateAiConfigWorkspace(deps = {}) {
   } = deps
   function openAiConfig(serviceType = '') {
     aiConfigOpenedFromPipelineAction.value = false
-    aiConfigInitialServiceType.value = ['text', 'image', 'storyboard_image', 'video', 'tts'].includes(serviceType)
-      ? serviceType
-      : ''
+    aiConfigInitialServiceType.value = normalizeInitialServiceType(serviceType)
     showAiConfigDialog.value = true
   }
 
   function openAiConfigFromPipeline(serviceType = '', context = {}) {
     aiConfigOpenedFromPipelineAction.value = context.source === 'compact-action'
-    aiConfigInitialServiceType.value = ['text', 'image', 'storyboard_image', 'video', 'tts'].includes(serviceType)
-      ? serviceType
-      : ''
+    aiConfigInitialServiceType.value = normalizeInitialServiceType(serviceType)
     showAiConfigDialog.value = true
   }
 

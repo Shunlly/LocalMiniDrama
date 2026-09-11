@@ -34,3 +34,14 @@ test('空消息不会发出提示，中止错误不会生成导入失败文案',
   assert.equal(helpers.sourceIntakeFailureMessage({ name: 'AbortError' }, '导入失败'), '')
   assert.match(helpers.sourceIntakeFailureMessage(new Error('ECONNREFUSED'), '导入失败'), /[\u4e00-\u9fff]/)
 })
+
+test('导入失败文案会指向图片识别或语音转写，而不是内部服务类型', () => {
+  const helpers = createSourceIntakeMessageHelpers({
+    lifecycle: { run(callback) { return callback() } },
+    getFailureContext: () => ({ filename: 'scan.png' }),
+  })
+  const message = helpers.sourceIntakeFailureMessage('未配置 OCR 服务，且 Tesseract 不可用。请添加启用的 service_type=ocr AI 配置，或安装 Tesseract CLI。')
+  assert.match(message, /图片识别/)
+  assert.match(message, /Tesseract/)
+  assert.doesNotMatch(message, /service_type=ocr/)
+})

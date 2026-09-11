@@ -91,7 +91,8 @@ test('network and imported previews expose HTTPS license evidence', () => {
 test('网络搜索结果公告状态，操作名称包含素材标题', () => {
   assert.match(source, /role="status" aria-live="polite" aria-atomic="true"/)
   assert.match(source, /{{ networkSearchAnnouncement }}/)
-  assert.match(source, /aria-label="重试搜索网络素材"/)
+  assert.match(source, /networkSearchDisableReason \|\| '重试搜索网络素材'/)
+  assert.match(source, /aria-label="取消网络素材搜索"/)
   assert.match(source, /aria-label="重试导入该网络素材"/)
   assert.ok(source.includes(':aria-label="`查看来源：${networkItemTitle(item)}`"'))
   assert.ok(source.includes(':aria-label="`查看许可：${networkItemTitle(item)}`"'))
@@ -209,6 +210,8 @@ test('上传失败保留可见反馈，网络空结果不会伪装成成功列�
   assert.match(source, /v-if="uploadFeedback"/)
   assert.match(source, /uploadFeedback\.tone === 'error' \? 'alert' : 'status'/)
   assert.match(source, /buildMediaLibraryUploadFeedback/)
+  assert.match(source, /下一步：请确认文件是图片或视频/)
+  assert.match(source, /aria-label="重新上传素材到素材中心"/)
   assert.match(source, /uploadAPI\.uploadAsset\(file, \{ suppressErrorToast: true \}\)/)
   assert.match(source, /没有找到匹配的网络素材/)
   assert.match(source, /class="network-empty"[\s\S]*role="status"/)

@@ -1,3 +1,5 @@
+import { toUserFacingError } from '@/utils/userFacingError.js'
+
 /** 资源类型常量 */
 export const GEN_RESOURCE = {
   CHAR_IMAGE: 'char_image',
@@ -49,6 +51,22 @@ export function sbImageResourceType(frameType) {
   if (isLastFrameType(frameType)) return GEN_RESOURCE.SB_LAST_IMAGE
   if (isFirstFrameType(frameType)) return GEN_RESOURCE.SB_FIRST_IMAGE
   return GEN_RESOURCE.SB_IMAGE
+}
+
+export function isCanceledTaskStatus(status) {
+  const normalized = String(status || '').trim().toLowerCase()
+  return normalized === 'cancelled' || normalized === 'canceled'
+}
+
+export function isCanceledOrCancellingTaskStatus(status) {
+  return isCanceledTaskStatus(status) || String(status || '').trim().toLowerCase() === 'cancelling'
+}
+
+/** 取消或取消中的任务不得再被标成 completed。 */
+export function shouldPreserveCanceledTask(existingStatus, nextStatus) {
+  const next = String(nextStatus || '').trim().toLowerCase()
+  if (next !== 'completed') return false
+  return isCanceledOrCancellingTaskStatus(existingStatus)
 }
 
 export function isActiveTaskStatus(status) {
@@ -104,7 +122,9 @@ export function isStaleLocalRunningTask(task, now, staleMs = STALE_TASK_MS) {
 
 export function taskFailMessage(t) {
   if (!t) return '任务失败'
-  return (t.error || t.message || '任务失败').trim()
+  const raw = String(t.error || t.message || '').trim()
+  if (!raw) return '任务失败'
+  return toUserFacingError({ message: raw }, '任务失败')
 }
 
 export function finishCleanupDelayMs(status) {

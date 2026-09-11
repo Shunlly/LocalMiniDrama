@@ -125,7 +125,7 @@ function createWorkspace(overrides = {}) {
     emptyResultCopy: ref(overrides.emptyResultCopy || '填写提示词后，生成结果会显示在这里'),
     goBack: () => events.push('go-back'),
     loadServiceConfigs: () => events.push('load-service-configs'),
-    openAiConfig: noop,
+    openAiConfig: () => events.push('open-ai-config'),
     generate: () => events.push('generate'),
     triggerRefImageUpload: noop,
     onRefImageDrop: noop,
@@ -190,6 +190,31 @@ test('空结果区展示中文说明，配置失败时可重新检查', async ()
     assert.ok(retry)
     click(retry)
     assert.deepEqual(harness.workspace.events, ['load-service-configs'])
+  } finally {
+    harness.app.unmount()
+    resetVueRouterHarness()
+    delete globalThis.__freeCreateWorkspace
+  }
+})
+
+test('服务未就绪的空结果下一步可前往 AI 配置', async () => {
+  const harness = mountPage({
+    emptyResultCopy: '请先配置可用的图片服务，生成结果会显示在这里',
+    generationCapability: {
+      ready: false,
+      status: 'missing',
+      issue: 'missing_config',
+      message: '尚未配置可用的图片服务',
+    },
+  })
+  try {
+    await nextTick()
+    assert.equal(buttonByText(harness.root, '重新检查服务'), undefined)
+    const config = buttonByText(harness.root, '前往 AI 配置')
+    assert.ok(config)
+    assert.equal(config.props['aria-label'], '前往 AI 配置')
+    click(config)
+    assert.deepEqual(harness.workspace.events, ['open-ai-config'])
   } finally {
     harness.app.unmount()
     resetVueRouterHarness()

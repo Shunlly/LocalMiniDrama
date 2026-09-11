@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { reactive, ref } from 'vue'
 
+import { createDeferred } from './helpers/vueComponentHarness.js'
 import { createLatestMediaRequestGuard } from '../src/utils/mediaLibrary.js'
 import { createMediaLibraryNavigation } from '../src/components/mediaLibrary/mediaLibraryNavigation.js'
 import { createMediaLibraryLocalLoad, describeMediaLoadError } from '../src/components/mediaLibrary/mediaLibraryLocalLoad.js'
@@ -113,6 +114,8 @@ test('loadMedia 成功后只保留可见选中，失败不清空已有列表', a
   assert.equal(mediaItems.value.length, 2)
   assert.match(loadError.value, /素材服务暂时不可用/)
   assert.equal(hasSuccessfulMediaLoad.value, true)
+  assert.doesNotMatch(describeMediaLoadError({ message: 'Network Error' }), /Network Error|Failed to fetch|AbortError/i)
+  assert.match(describeMediaLoadError({ message: 'Network Error' }), /素材服务/)
 })
 
 test('空关键词网络搜索留下可见中文错误，不会假装成功', async () => {
@@ -196,4 +199,58 @@ test('加载和网络错误描述保持中文服务名，不会把不同服务�
   assert.doesNotMatch(describeMediaLoadError({ response: { status: 503 } }), /网络素材服务/)
   assert.match(describeNetworkError({ response: { status: 503 } }, '搜索失败'), /网络素材服务/)
   assert.notEqual(describeNetworkError({ response: { status: 503 } }, '搜索失败'), describeMediaLoadError({ response: { status: 503 } }))
+})
+
+test('取消网络搜索不算失败，也不漏英文', async () => {
+  const deferred = createDeferred()
+  const networkKeyword = ref('雨巷')
+  const networkMediaType = ref('all')
+  const networkSource = ref('all')
+  const networkItems = ref([])
+  const networkLoading = ref(false)
+  const networkError = ref('')
+  const networkNotice = ref('')
+  const networkSearched = ref(false)
+  const { searchNetworkMedia, cancelNetworkSearch } = createMediaLibraryNetworkActions({
+    networkKeyword,
+    networkMediaType,
+    networkSource,
+    networkItems,
+    networkLoading,
+    networkError,
+    networkNotice,
+    networkSearched,
+    networkRequestGuard: createLatestMediaRequestGuard(),
+    networkImportFeedback: ref(null),
+    networkImportRetryItem: ref(null),
+    networkImportingKeys: reactive(new Set()),
+    scopedDramaId: ref(null),
+    loadMedia: async () => {},
+    mediaLibraryAPI: {
+      searchNetwork(_params, options) {
+        return new Promise((_resolve, reject) => {
+          const fail = () => {
+            const error = new Error('The user aborted a request')
+            error.name = 'AbortError'
+            reject(error)
+          }
+          if (options?.signal?.aborted) {
+            fail()
+            return
+          }
+          options?.signal?.addEventListener('abort', fail, { once: true })
+          deferred.promise.then(() => {}, fail)
+        })
+      },
+    },
+  })
+  const pending = searchNetworkMedia()
+  await Promise.resolve()
+  assert.equal(networkLoading.value, true)
+  cancelNetworkSearch()
+  await pending
+  assert.equal(networkError.value, '')
+  assert.equal(networkLoading.value, false)
+  assert.equal(networkSearched.value, false)
+  assert.doesNotMatch(String(networkError.value), /abort|canceled|cancelled|Network Error|Failed to fetch/i)
 })

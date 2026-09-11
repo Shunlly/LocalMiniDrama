@@ -494,7 +494,7 @@ export function useDramaCanvasFreeCanvas(deps) {
         ElMessage.warning('已停止等待；已提交任务可能继续执行并产生供应商计费')
       }
     } catch (error) {
-      ElMessage.error(safeFreeCanvasError(error, '取消生成失败，请稍后重试'))
+      ElMessage.error(safeFreeCanvasError(error, '停止等待失败，请稍后重试'))
     }
   }
 
@@ -558,6 +558,7 @@ export function useDramaCanvasFreeCanvas(deps) {
       ...freeCanvas.value,
       nodes: [...freeCanvas.value.nodes, node],
     }, `create:${type}`)
+    activateFreeCanvasNode(node.id)
     return node
   }
 

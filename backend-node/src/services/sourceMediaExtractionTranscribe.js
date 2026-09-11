@@ -53,7 +53,7 @@ async function transcribeAudio(db, audio, options = {}) {
     {
       timeoutMs: clampInteger(settings.timeout_ms ?? settings.timeout, 120000, 1000, 120000),
       maxResponseBytes: clampInteger(settings.max_response_bytes, MAX_PROVIDER_RESPONSE_BYTES, 1024, MAX_PROVIDER_RESPONSE_BYTES),
-      label: '转写服务',
+      label: '语音转写',
       fetchImpl: options.fetchImpl,
       trustedOrigins: [config.base_url],
       networkLookup: options.networkLookup,

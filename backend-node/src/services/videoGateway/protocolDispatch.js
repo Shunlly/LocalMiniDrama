@@ -43,7 +43,7 @@ function createAdapterRuntime(config, opts, log) {
     || requestContext?.networkOptions
     || createProviderNetworkOptions(config, opts);
   return {
-    signal: opts.signal,
+    signal: opts.signal || networkOptions.signal,
     idempotency_key: normalizeIdempotencyKey(opts.idempotency_key),
     register_remote_cancel: opts.register_remote_cancel,
     logger: log,
@@ -163,6 +163,7 @@ async function dispatchVideoProtocol({
       files_base_url: opts.files_base_url,
       storage_local_path: opts.storage_local_path,
       video_gen_id: opts.video_gen_id,
+      signal: opts.signal,
     });
   }
 
@@ -178,6 +179,7 @@ async function dispatchVideoProtocol({
       files_base_url: opts.files_base_url,
       storage_local_path: opts.storage_local_path,
       video_gen_id: opts.video_gen_id,
+      signal: opts.signal,
     });
   }
 
@@ -190,6 +192,7 @@ async function dispatchVideoProtocol({
       video_gen_id: opts.video_gen_id,
       files_base_url: opts.files_base_url,
       storage_local_path: opts.storage_local_path,
+      signal: opts.signal,
     });
   }
 
@@ -203,6 +206,7 @@ async function dispatchVideoProtocol({
       video_gen_id: opts.video_gen_id,
       files_base_url: opts.files_base_url,
       storage_local_path: opts.storage_local_path,
+      signal: opts.signal,
     });
   }
 
@@ -215,6 +219,7 @@ async function dispatchVideoProtocol({
       files_base_url: opts.files_base_url,
       storage_local_path: opts.storage_local_path,
       video_gen_id: opts.video_gen_id,
+      signal: opts.signal,
     });
   }
 
@@ -235,6 +240,7 @@ async function dispatchVideoProtocol({
       video_gen_id: opts.video_gen_id,
       // 为将来可灵 Omni 也支持音色参考做准备（当前 Seedance 2.0 不走此分支）
       voice_reference_url: opts.voice_reference_url,
+      signal: opts.signal,
     });
   }
 
@@ -255,6 +261,7 @@ async function dispatchVideoProtocol({
       video_gen_id: opts.video_gen_id,
       // 关键：把 callVideoApi 里自动注入的 Seedance 2.0 音色参考音频透传下去
       voice_reference_url: opts.voice_reference_url,
+      signal: opts.signal,
     });
   }
 
@@ -265,6 +272,7 @@ async function dispatchVideoProtocol({
       image_url: opts.image_url,
       storage_local_path: opts.storage_local_path,
       video_gen_id: opts.video_gen_id,
+      signal: opts.signal,
     });
   }
 
@@ -328,6 +336,7 @@ async function dispatchVideoProtocol({
       files_base_url: opts.files_base_url,
       storage_local_path: opts.storage_local_path,
       video_gen_id: opts.video_gen_id,
+      signal: opts.signal,
     });
   }
 

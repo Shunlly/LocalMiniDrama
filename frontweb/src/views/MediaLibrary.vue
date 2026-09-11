@@ -98,6 +98,7 @@ import { dramaAPI } from '@/api/drama'
 import { uploadAPI } from '@/api/upload'
 import {
   describeMediaLibraryUserError,
+  isMediaLibraryUserAbort,
   describeMediaLibraryWriteLockReason,
   describeMediaLibraryUploadDisableReason,
   describeMediaLibraryNetworkSearchDisableReason,
@@ -246,6 +247,7 @@ const {
 
 const {
   clearNetworkSearch,
+  cancelNetworkSearch,
   invalidateNetworkSearch,
   searchNetworkMedia,
   handleNetworkTypeChange,
@@ -349,8 +351,10 @@ async function onUpload(e) {
       await uploadAPI.uploadAsset(file, { suppressErrorToast: true })
       succeeded++
     } catch (err) {
+      if (isMediaLibraryUserAbort(err)) continue
       failedNames.push(file.name)
-      ElMessage.warning(`${file.name} 上传失败：${describeMediaLibraryUserError(err, { serviceLabel: '素材服务', fallback: '请稍后重试' })}`)
+      const detail = describeMediaLibraryUserError(err, { serviceLabel: '素材服务', fallback: '请稍后重试' })
+      ElMessage.warning(detail ? `${file.name} 上传失败：${detail}` : `${file.name} 上传失败，请稍后重试`)
     } finally {
       uploadProgress.value.current++
     }
@@ -504,6 +508,7 @@ const networkPanelBindings = computed(() => ({
   isNetworkImporting,
   importNetworkItem,
   clearNetworkSearch,
+  cancelNetworkSearch,
 }))
 
 const sourceImportPickerBindings = computed(() => ({

@@ -192,6 +192,7 @@ async function callAgnesVideoApi(db, config, log, opts) {
       Authorization: 'Bearer ' + (config.api_key || ''),
     },
     body: JSON.stringify(body),
+    signal: opts.signal,
   });
   const raw = await res.text();
   log.info('[Agnes] response summary', {

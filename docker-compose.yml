@@ -102,6 +102,7 @@ services:
       backend:
         condition: service_healthy
     # /healthz 代理 backend /ready，因此前端 healthy 也要求后端就绪。
+    # /ready 不走本探针，必须由 nginx location = /ready 单独精确代理；静态合同会锁住。
     healthcheck:
       test:
         [

@@ -24,15 +24,18 @@ test('未知地址的 404 页焦点落在标题，项目列表按钮回到首页
   await page.getByRole('heading', { name: '还没有短剧项目' }).waitFor({ timeout: 20000 })
 })
 
-test('非法项目编号进入 404 后可回到项目列表', { timeout: 60_000 }, async (t) => {
+test('非法项目编号进入 404 后可回到项目列表', { timeout: 90_000 }, async (t) => {
   const baseUrl = await startFrontendVite(t)
   const page = await launchPage(t)
   await stubFrontendApis(page)
 
-  await page.goto(`${baseUrl}film/abc`, { waitUntil: 'domcontentloaded' })
-  await page.getByRole('heading', { name: '页面不存在', exact: true }).waitFor({ timeout: 20000 })
-  await page.locator('.not-found-page').getByRole('button', { name: '返回项目列表', exact: true }).click()
-  await page.locator('.film-list').waitFor({ state: 'visible', timeout: 20000 })
+  for (const path of ['film/abc', 'drama/0', 'film/abc/canvas']) {
+    await page.goto(`${baseUrl}${path}`, { waitUntil: 'domcontentloaded' })
+    await page.getByRole('heading', { name: '页面不存在', exact: true }).waitFor({ timeout: 20000 })
+    const home = page.locator('.not-found-page').getByRole('button', { name: '返回项目列表', exact: true })
+    await home.click()
+    await page.locator('.film-list').waitFor({ state: 'visible', timeout: 20000 })
+  }
 })
 
 test('站内跳到未知路由后，404 页返回上一页回到项目列表', { timeout: 60_000 }, async (t) => {
@@ -72,4 +75,65 @@ test('制作页遇到不存在的项目时返回项目列表', { timeout: 60_000
   assert.equal(focusedInAlert, true, '项目不存在时焦点必须落在失败提示')
   await page.locator('.project-load-state--error').getByRole('button', { name: '返回项目列表' }).click()
   await page.locator('.film-list').waitFor({ state: 'visible', timeout: 20000 })
+})
+
+test('旧 /media 深链接进入素材中心', { timeout: 60_000 }, async (t) => {
+  const baseUrl = await startFrontendVite(t)
+  const page = await launchPage(t)
+  await stubFrontendApis(page)
+
+  await page.goto(`${baseUrl}media`, { waitUntil: 'domcontentloaded' })
+  await page.waitForURL((url) => url.pathname === '/media-library', { timeout: 20000 })
+  await page.getByRole('heading', { name: '素材中心', exact: true }).waitFor({ timeout: 20000 })
+})
+
+test('刷新后仍能进入制作、画布和 AI 配置', { timeout: 90_000 }, async (t) => {
+  const projectId = 7
+  const episodeId = 4
+  const baseUrl = await startFrontendVite(t)
+  const page = await launchPage(t, { viewport: { width: 1280, height: 900 } })
+  await stubFrontendApis(page, {
+    [`GET /api/v1/dramas/${projectId}`]: async (route) => {
+      await fulfillApi(route, {
+        data: {
+          id: projectId,
+          title: '月光基地',
+          description: '刷新恢复夹具',
+          genre: 'drama',
+          style: 'realistic',
+          metadata: { aspect_ratio: '16:9' },
+          characters: [],
+          scenes: [],
+          props: [],
+          episodes: [{
+            id: episodeId,
+            episode_number: 1,
+            title: '第 1 集',
+            script_content: 'Aria finds a letter at the gate.',
+            characters: [],
+            scenes: [],
+            storyboards: [],
+          }],
+        },
+      })
+    },
+  })
+
+  await page.goto(`${baseUrl}film/${projectId}?episode=${episodeId}`, { waitUntil: 'domcontentloaded' })
+  await page.getByRole('button', { name: '返回剧集', exact: true }).waitFor({ timeout: 30000 })
+  await page.reload({ waitUntil: 'domcontentloaded' })
+  await page.waitForURL((url) => url.pathname === `/film/${projectId}`, { timeout: 20000 })
+  await page.getByRole('button', { name: '返回剧集', exact: true }).waitFor({ timeout: 30000 })
+
+  await page.goto(`${baseUrl}film/${projectId}/canvas?episode=${episodeId}`, { waitUntil: 'domcontentloaded' })
+  await page.getByRole('button', { name: '返回列表模式', exact: true }).waitFor({ timeout: 30000 })
+  await page.reload({ waitUntil: 'domcontentloaded' })
+  await page.waitForURL((url) => url.pathname === `/film/${projectId}/canvas`, { timeout: 20000 })
+  await page.getByRole('button', { name: '返回列表模式', exact: true }).waitFor({ timeout: 30000 })
+
+  await page.goto(`${baseUrl}ai-config`, { waitUntil: 'domcontentloaded' })
+  await page.getByRole('heading', { name: 'AI 配置', exact: true }).waitFor({ timeout: 30000 })
+  await page.reload({ waitUntil: 'domcontentloaded' })
+  await page.waitForURL((url) => url.pathname === '/ai-config', { timeout: 20000 })
+  await page.getByRole('heading', { name: 'AI 配置', exact: true }).waitFor({ timeout: 30000 })
 })

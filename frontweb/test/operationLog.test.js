@@ -68,3 +68,31 @@ test('操作日志继续记录 category 和 requestId', () => {
   assert.equal(rec.details.requestId, 'trace-ok-1')
   assert.equal(rec.error, '服务器内部错误')
 })
+
+test('缺少 operationId 时会自动补操作编号，取消不会记成成功', async () => {
+  resetOperationLogs()
+  logOperation({ operation: 'film_create', phase: 'start', action: 'pipeline_stop_start' })
+  const start = getOperationLogs()[0]
+  assert.match(String(start.operationId || ''), /^film_create-/)
+
+  await assert.rejects(
+    () => runLoggedOperation('demo_canceled_error', async () => {
+      throw Object.assign(new Error('canceled'), { name: 'CanceledError', code: 'ERR_CANCELED' })
+    }),
+    /canceled/,
+  )
+  const cancelRec = getOperationLogs().find((item) => item.operation === 'demo_canceled_error' && item.phase !== 'start')
+  assert.equal(cancelRec.phase, 'cancel')
+  assert.equal(cancelRec.status, 'cancelled')
+  assert.notEqual(cancelRec.phase, 'success')
+
+  await assert.rejects(
+    () => runLoggedOperation('demo_timeout_error', async () => {
+      throw Object.assign(new Error('timeout of 15000ms exceeded'), { code: 'ECONNABORTED', isTimeout: true })
+    }),
+    /timeout/,
+  )
+  const timeoutRec = getOperationLogs().find((item) => item.operation === 'demo_timeout_error' && item.phase !== 'start')
+  assert.equal(timeoutRec.phase, 'error')
+  assert.notEqual(timeoutRec.phase, 'cancel')
+})

@@ -73,6 +73,7 @@ async function callGeminiVideoApi(config, log, opts) {
       'x-goog-api-key': apiKey,
     },
     body: JSON.stringify(body),
+    signal: opts.signal,
   });
   const raw = await res.text();
   if (!res.ok) {

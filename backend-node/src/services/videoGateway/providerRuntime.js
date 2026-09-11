@@ -7,6 +7,8 @@ const {
   normalizeProviderRequestError,
 } = require('./requestError');
 
+const VIDEO_PROVIDER_LABEL = '视频服务';
+
 const DEFAULT_TIMEOUTS_MS = Object.freeze({
   request: 120000,
   media: 30000,
@@ -51,7 +53,11 @@ async function fetchVideoWithTimeout(
   networkOptions = {}
 ) {
   const boundedTimeoutMs = normalizeTimeoutMs(timeoutMs, resolveVideoTimeoutMs('request'));
-  const timeout = createTimeoutController(boundedTimeoutMs, options.signal);
+  const parentSignal = options.signal || networkOptions.signal;
+  const timeout = createTimeoutController(boundedTimeoutMs, parentSignal, {
+    provider: VIDEO_PROVIDER_LABEL,
+    operation: 'video request',
+  });
   try {
     const policy = requireCompleteProviderNetworkPolicy(networkOptions, url);
     if (typeof policy.fetchImpl === 'function') {
@@ -70,7 +76,7 @@ async function fetchVideoWithTimeout(
   } catch (error) {
     throw normalizeProviderRequestError(error, {
       signal: timeout.signal,
-      provider: 'Video',
+      provider: VIDEO_PROVIDER_LABEL,
       operation: 'video request',
     });
   } finally {

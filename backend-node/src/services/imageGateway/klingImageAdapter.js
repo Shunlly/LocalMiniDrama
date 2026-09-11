@@ -12,8 +12,10 @@ const {
   imageProviderFailure,
   imageProviderException,
   imageProviderCaughtError,
+  operationCancelledError,
   rethrowIfRequestCanceled,
 } = require('./runtime');
+const { isProviderTaskCancelledStatus } = require('./requestError');
 const { klingImageAspectRatio } = require('./sizeAdapters');
 const { resolveImageRef } = require('./referenceUtils');
 
@@ -122,7 +124,9 @@ async function callKlingImageApi(config, log, opts) {
 
   log.info('[Kling图生] 任务已提交，开始轮询', { image_gen_id, task_id: taskId });
   const maxAttempts = 60;
-  const intervalMs = 4000;
+  const intervalMs = Number.isFinite(Number(opts.poll_interval_ms))
+    ? Math.max(0, Number(opts.poll_interval_ms))
+    : 4000;
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     await abortableDelay(intervalMs, opts.signal);
     try {
@@ -145,6 +149,9 @@ async function callKlingImageApi(config, log, opts) {
       const queryData = JSON.parse(queryRes.buffer.toString('utf8'));
       const status = queryData?.data?.task_status;
       log.info('[Kling图生] 轮询状态', { image_gen_id, task_id: taskId, attempt, status });
+      if (isProviderTaskCancelledStatus(status)) {
+        throw operationCancelledError('图片任务已取消');
+      }
       if (status === 'succeed') {
         const imgUrl = queryData?.data?.task_result?.images?.[0]?.url;
         if (imgUrl) {

@@ -12,12 +12,18 @@ import {
   SOURCE_INTAKE_MEDIA_HELP,
   SOURCE_MEDIA_EXTRACTION_CONFIG_GUIDANCE,
   SOURCE_OCR_CONFIG_GUIDANCE,
+  SOURCE_OCR_LOCAL_NEXT_STEP_HINT,
+  SOURCE_OCR_NEXT_STEP_LABEL,
+  SOURCE_OCR_TIMEOUT_GUIDANCE,
   SOURCE_TRANSCRIPTION_CONFIG_GUIDANCE,
+  SOURCE_TRANSCRIPTION_NEXT_STEP_LABEL,
   SOURCE_WORKFLOW_CANCEL_REASON,
   SOURCE_WORKFLOW_PAUSE_REASON,
   SOURCE_WORKFLOW_FAILURE_FALLBACK,
   isDeferredAutoExtractionSource,
   localizeSourceIntakeFailure,
+  extractionConfigServiceTypeFromMessage,
+  resolveSourceIntakeExtractionNextStep,
 } from '../src/utils/sourceWorkflowState.js'
 
 test('workflow state marks intake as active draft and exposes source empty-state CTAs', () => {
@@ -316,7 +322,15 @@ test('PDF/图片/音视频可识别，英文抽取失败落成中文并引导 AI
   )
   assert.equal(
     localizeSourceIntakeFailure('未配置 OCR 服务，且 Tesseract 不可用。请添加启用的 service_type=ocr AI 配置，或安装 Tesseract CLI。', { filename: 'scan.png' }),
-    '未配置 OCR 服务，且 Tesseract 不可用。请添加启用的 service_type=ocr AI 配置，或安装 Tesseract CLI。',
+    SOURCE_OCR_CONFIG_GUIDANCE,
+  )
+  assert.doesNotMatch(
+    localizeSourceIntakeFailure('未配置 OCR 服务，且 Tesseract 不可用。请添加启用的 service_type=ocr AI 配置，或安装 Tesseract CLI。', { filename: 'scan.png' }),
+    /service_type=ocr/,
+  )
+  assert.equal(
+    localizeSourceIntakeFailure(Object.assign(new Error('timeout of 15000ms exceeded'), { code: 'ECONNABORTED', isTimeout: true }), { filename: 'scan.png' }),
+    SOURCE_OCR_TIMEOUT_GUIDANCE,
   )
   assert.equal(localizeSourceIntakeFailure('素材列表加载失败'), '素材列表加载失败')
 })
@@ -418,4 +432,47 @@ test('空素材状态保持中文引导', () => {
   assert.doesNotMatch(state.sourceEmptyState.description, /service_type=ocr/)
   assert.equal(state.sourceEmptyState.primaryAction.label, '仅导入素材')
   assert.match(state.sourceEmptyState.primaryAction.disabledReason, /先粘贴网页 URL/)
+})
+
+
+test('抽取失败文案能指向图片识别或语音转写配置', () => {
+  assert.equal(extractionConfigServiceTypeFromMessage(SOURCE_OCR_CONFIG_GUIDANCE), 'ocr')
+  assert.equal(extractionConfigServiceTypeFromMessage(SOURCE_TRANSCRIPTION_CONFIG_GUIDANCE), 'transcription')
+  assert.equal(extractionConfigServiceTypeFromMessage('素材列表加载失败'), '')
+  assert.equal(
+    extractionConfigServiceTypeFromMessage(SOURCE_MEDIA_EXTRACTION_CONFIG_GUIDANCE, { filename: 'scan.png' }),
+    'ocr',
+  )
+  assert.equal(extractionConfigServiceTypeFromMessage(SOURCE_MEDIA_EXTRACTION_CONFIG_GUIDANCE), '')
+})
+
+test('PDF/图片/音视频失败会给出可点击的中文下一步，且不把内部服务类型写进文案', () => {
+  assert.deepEqual(
+    resolveSourceIntakeExtractionNextStep('未配置图片识别服务，且本机 Tesseract 不可用。请在「AI 配置」中添加并启用「图片识别」，或安装 Tesseract 命令行工具。', { filename: 'scan.png' }),
+    {
+      kind: 'ocr',
+      serviceType: 'ocr',
+      actionLabel: SOURCE_OCR_NEXT_STEP_LABEL,
+      extraHint: SOURCE_OCR_LOCAL_NEXT_STEP_HINT,
+    },
+  )
+  assert.deepEqual(
+    resolveSourceIntakeExtractionNextStep('未配置语音转写服务。请在「AI 配置」中添加并启用兼容的「语音转写」服务。', { filename: 'talk.mp3' }),
+    {
+      kind: 'transcription',
+      serviceType: 'transcription',
+      actionLabel: SOURCE_TRANSCRIPTION_NEXT_STEP_LABEL,
+      extraHint: '',
+    },
+  )
+  assert.equal(resolveSourceIntakeExtractionNextStep('导入失败', { filename: 'scan.pdf' }).serviceType, 'ocr')
+  assert.equal(resolveSourceIntakeExtractionNextStep('启动失败', { filename: 'clip.mp4' }).serviceType, 'transcription')
+  assert.equal(resolveSourceIntakeExtractionNextStep(SOURCE_FILE_FORMAT_UNSUPPORTED_MESSAGE, { filename: 'scan.png' }), null)
+  assert.equal(resolveSourceIntakeExtractionNextStep('暂时无法检查正式制作能力，请稍后重试。', { filename: 'scan.png' }), null)
+  assert.equal(resolveSourceIntakeExtractionNextStep('素材已导入，但处理流程未启动。启动失败', { filename: 'scan.png' }), null)
+  assert.equal(resolveSourceIntakeExtractionNextStep('素材列表加载失败'), null)
+  assert.match(SOURCE_OCR_NEXT_STEP_LABEL, /AI 配置/)
+  assert.match(SOURCE_OCR_LOCAL_NEXT_STEP_HINT, /Tesseract/)
+  assert.doesNotMatch(SOURCE_OCR_NEXT_STEP_LABEL, /service_type=ocr/)
+  assert.doesNotMatch(SOURCE_TRANSCRIPTION_NEXT_STEP_LABEL, /service_type=transcription/)
 })

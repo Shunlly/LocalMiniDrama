@@ -1,10 +1,11 @@
-import { computed } from 'vue'
+import { computed, getCurrentInstance, onBeforeUnmount } from 'vue'
 import { ElMessageBox } from '@/utils/elementPlusFeedback.js'
 import { createLatestRequestGuard } from '@/utils/latestRequest.js'
 import { requestCoreJson } from '@/utils/coreJsonRequest'
 import { normalizeProductionReadiness } from '@/utils/sourceWorkflowLaunch'
 import { getVideoGenerationCapability } from '@/utils/filmCreateActionState'
 import { videoConfigSupportsOmni } from '@/utils/storyboardVideoRequest'
+import { subscribeAiConfigChanged } from '@/utils/aiConfigChangeBus.js'
 
 export function useFilmCreateProductionReadiness(deps = {}) {
   const {
@@ -146,6 +147,23 @@ export function useFilmCreateProductionReadiness(deps = {}) {
     )
   }
 
+  function refreshCapabilitiesFromAiConfigChange() {
+    invalidateActiveVideoAiConfigCache()
+    return Promise.allSettled([
+      refreshVideoGenerationCapability(),
+      refreshProductionReadiness(),
+    ])
+  }
+
+  const vueInstance = getCurrentInstance()
+  const listenToAiConfigChanges = deps.listenToAiConfigChanges ?? Boolean(vueInstance)
+  const stopAiConfigChangeListener = listenToAiConfigChanges
+    ? subscribeAiConfigChanged(() => {
+      void refreshCapabilitiesFromAiConfigChange()
+    })
+    : () => {}
+  if (vueInstance && listenToAiConfigChanges) onBeforeUnmount(stopAiConfigChangeListener)
+
   return {
     invalidateActiveVideoAiConfigCache,
     getNovel2AnimeReadiness,
@@ -160,5 +178,6 @@ export function useFilmCreateProductionReadiness(deps = {}) {
     productionReadinessState,
     productionReadinessReason,
     ttsCapabilityReason,
+    stopAiConfigChangeListener,
   }
 }

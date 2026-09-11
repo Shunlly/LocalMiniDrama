@@ -13,8 +13,11 @@ const viteConfig = read('frontweb', 'vite.config.js')
 const frontendIndex = read('frontweb', 'index.html')
 const batchLauncher = read('run_dev.bat')
 const powershellLauncher = read('run_dev.ps1')
+const readme = read('README.md')
 const quickstart = read('docs', 'quickstart.md')
 const backendReadme = read('backend-node', 'README.md')
+const productionNginx = read('frontweb', 'nginx.conf')
+const composeSource = read('docker-compose.yml')
 const desktopReadme = read('desktop', 'README.md')
 const openclawReadme = read('openclaw-skill', 'README.md')
 const openclawSkill = read('openclaw-skill', 'SKILL.md')
@@ -66,6 +69,43 @@ test('Vite development server binds to loopback unless explicitly overridden', (
   assert.match(frontendIndex, /name="application-version" content="%VITE_LOCALMINIDRAMA_VERSION%"/)
   assert.match(frontendIndex, /name="localminidrama-instance" content="%VITE_LOCALMINIDRAMA_INSTANCE_ID%"/)
   assert.match(backendApp, /instance_id:\s*RUNTIME_INSTANCE_ID/)
+})
+
+test('生产 Nginx、后端托管和 Vite 都不会把 /ready 回退成前端 HTML', () => {
+  const nginxConfig = read('frontweb', 'nginx.conf')
+  const rootReadme = read('README.md')
+  const frontendReadme = read('frontweb', 'README.md')
+  const healthzStart = nginxConfig.indexOf('location = /healthz {')
+  const readyStart = nginxConfig.indexOf('location = /ready {')
+  const spaStart = nginxConfig.indexOf('location / {')
+  assert.ok(healthzStart >= 0, '缺少 location = /healthz')
+  assert.ok(readyStart >= 0, '缺少 location = /ready')
+  assert.ok(spaStart > healthzStart, '/healthz 必须写在 SPA 回退之前')
+  assert.ok(spaStart > readyStart, '/ready 必须写在 SPA 回退之前')
+
+  const healthzBlock = nginxConfig.slice(healthzStart, nginxConfig.indexOf('}', healthzStart) + 1)
+  const readyBlock = nginxConfig.slice(readyStart, nginxConfig.indexOf('}', readyStart) + 1)
+  assert.match(healthzBlock, /proxy_pass http:\/\/backend:5679\/ready/)
+  assert.match(readyBlock, /proxy_pass http:\/\/backend:5679\/ready/)
+  assert.doesNotMatch(healthzBlock, /try_files|index\.html/)
+  assert.doesNotMatch(readyBlock, /try_files|index\.html/)
+
+  const healthRoute = backendApp.indexOf("app.get('/health'")
+  const readyRoute = backendApp.indexOf("app.get('/ready'")
+  const spaFallback = backendApp.indexOf("app.get('*'")
+  assert.ok(healthRoute >= 0, '后端缺少 /health')
+  assert.ok(readyRoute >= 0, '后端缺少 /ready')
+  assert.ok(spaFallback > healthRoute, '后端 /health 必须注册在 SPA 回退之前')
+  assert.ok(spaFallback > readyRoute, '后端 /ready 必须注册在 SPA 回退之前')
+  assert.match(backendApp, /status: readiness\.ready \? 'ready' : 'not_ready'/)
+  assert.match(backendApp, /status: 'ok'/)
+
+  assert.match(viteConfig, /'\/health':\s*\{[\s\S]*?target:\s*backendProxyTarget/)
+  assert.match(viteConfig, /'\/ready':\s*\{[\s\S]*?target:\s*backendProxyTarget/)
+
+  for (const source of [rootReadme, quickstart, backendReadme, frontendReadme]) {
+    assert.match(source, /location = \/ready/)
+  }
 })
 
 test('development launchers reuse verified services, wait for readiness and never kill arbitrary listeners', () => {
@@ -222,6 +262,30 @@ test('operations documentation distinguishes executable data, downtime, API pref
   assert.match(backendReadme, /POST.*`\/ai-configs\/test`/)
   assert.match(backendReadme, /POST.*`\/episodes\/:episode_id\/finalize`/)
   assert.match(backendReadme, /35_storyboard_order_integrity\.sql/)
+})
+
+test('README Docker and health documentation matches compose and nginx', () => {
+  for (const [label, source] of [['root README', readme], ['quickstart', quickstart], ['backend README', backendReadme]]) {
+    assert.match(source, /location = \/ready/, label)
+    assert.match(source, /厂商预设填表不等于真实图片\/视频\/TTS 接入已跑通/, label)
+    assert.match(source, /开发 Vite 没有/, label)
+    assert.match(source, /生产 Nginx 不代理/, label)
+    assert.match(source, /盖不掉/, label)
+    assert.match(source, /23013.*25679/, label)
+    assert.doesNotMatch(source, /若覆盖 `LOCALMINIDRAMA_CORS_ORIGINS`/, label)
+    assert.doesNotMatch(source, /自定义 CORS 时该变量必须与前端宿主机端口一致/, label)
+  }
+
+  assert.match(productionNginx, /location = \/ready/)
+  assert.match(productionNginx, /proxy_pass http:\/\/backend:5679\/ready/)
+  assert.match(productionNginx, /location = \/healthz[\s\S]*proxy_pass http:\/\/backend:5679\/ready/)
+  assert.doesNotMatch(productionNginx, /location = \/health\s*\{/)
+  assert.match(composeSource, /LOCALMINIDRAMA_CORS_ORIGINS: "http:\/\/localhost:\$\{LOCALMINIDRAMA_FRONTEND_HOST_PORT:-3013\}/)
+  assert.match(composeSource, /fetch\('http:\/\/127\.0\.0\.1:5679\/ready'\)/)
+  assert.match(composeSource, /127\.0\.0\.1:3013\/healthz/)
+  assert.match(viteConfig, /'\/health':/)
+  assert.match(viteConfig, /'\/ready':/)
+  assert.doesNotMatch(viteConfig, /'\/healthz'/)
 })
 
 test('OpenClaw documentation never recommends exposing the unauthenticated backend', () => {

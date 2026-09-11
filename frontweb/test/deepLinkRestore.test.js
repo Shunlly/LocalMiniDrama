@@ -6,6 +6,8 @@ import { normalizeProjectListReturnTo } from '../src/utils/projectListRoute.js'
 import {
   APP_VIEW_DEFINITIONS,
   APP_NAV_ITEMS,
+  APP_PATH_ALIASES,
+  getViewDefinition,
   isAllowedView,
   isPersistableView,
 } from '../src/router/views.js'
@@ -67,6 +69,15 @@ test('views registry covers every real route and nav item', () => {
     assert.equal(isAllowedView(item.view), true)
   }
   assert.deepEqual(listWorkspaceNavItems().map((item) => item.id), APP_NAV_ITEMS.map((item) => item.id))
+  for (const alias of APP_PATH_ALIASES) {
+    const target = getViewDefinition(alias.view)
+    assert.equal(isAllowedView(alias.view), true, alias.path)
+    assert.equal(isPersistableView(alias.view), true, alias.path)
+    assert.match(
+      routerSource,
+      new RegExp('path: \'' + alias.path.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\'[\\s\\S]*redirect: \'' + target.path.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\''),
+    )
+  }
 })
 
 test('unknown nav targets and missing project ids go to named 404', () => {
@@ -81,6 +92,12 @@ test('unknown nav targets and missing project ids go to named 404', () => {
   assert.equal(validCanvas.params.id, '21')
   const unknownNav = resolveWorkspaceNavItem('missing-nav')
   assert.equal(unknownNav.name, 'not-found')
+  const invalidDrama = resolveAppNavigation('drama-detail', { params: { id: '0' }, from: '/drama/0' })
+  assert.equal(invalidDrama.name, 'not-found')
+  assert.equal(invalidDrama.query.from, '/drama/0')
+  const invalidCanvas = resolveAppNavigation('film-canvas', { params: { id: 'abc' }, from: '/film/abc/canvas' })
+  assert.equal(invalidCanvas.name, 'not-found')
+  assert.equal(invalidCanvas.query.from, '/film/abc/canvas')
 })
 
 test('router shares returnTo sanitizing including array values', () => {
@@ -185,6 +202,58 @@ test('refresh restore keeps distinct project episode and focus ids', async () =>
   assert.notEqual('12', '8')
   assert.match(restored.query.returnTo, /focus=sb%3A42/)
   assert.equal(isPersistableView('ai-config'), true)
+})
+
+test('刷新恢复仍能回到制作、画布和 AI 配置，非法项目 id 进 404', async () => {
+  const sanitize = await createSanitizer()
+  const storage = new Map()
+  const fakeStorage = {
+    getItem: (key) => storage.get(key) ?? null,
+    setItem: (key, value) => { storage.set(key, value) },
+  }
+
+  const film = {
+    name: 'film',
+    params: { id: '12' },
+    query: { episode: '8' },
+    hash: '',
+  }
+  assert.equal(isPersistableView('film'), true)
+  assert.equal(sanitize(film), null)
+  assert.equal(persistWorkspaceLocation(film, fakeStorage), true)
+  const restoredFilm = restoreWorkspaceLocation(fakeStorage, sanitize)
+  assert.equal(restoredFilm.name, 'film')
+  assert.equal(restoredFilm.params.id, '12')
+  assert.equal(restoredFilm.query.episode, '8')
+  assert.notEqual(restoredFilm.params.id, restoredFilm.query.episode)
+
+  const canvas = {
+    name: 'film-canvas',
+    params: { id: '12' },
+    query: { episode: '8', focus: 'sb:42' },
+    hash: '',
+  }
+  assert.equal(isPersistableView('film-canvas'), true)
+  assert.equal(sanitize(canvas), null)
+  assert.equal(persistWorkspaceLocation(canvas, fakeStorage), true)
+  const restoredCanvas = restoreWorkspaceLocation(fakeStorage, sanitize)
+  assert.equal(restoredCanvas.name, 'film-canvas')
+  assert.equal(restoredCanvas.params.id, '12')
+  assert.equal(restoredCanvas.query.episode, '8')
+  assert.equal(restoredCanvas.query.focus, 'sb:42')
+  assert.notEqual(restoredCanvas.params.id, restoredCanvas.query.episode)
+
+  assert.equal(persistWorkspaceLocation({ name: 'film', params: { id: 'abc' }, query: {}, hash: '' }, fakeStorage), false)
+  const invalidCanvas = sanitize({
+    name: 'film-canvas',
+    params: { id: 'abc' },
+    query: {},
+    fullPath: '/film/abc/canvas',
+  })
+  assert.equal(invalidCanvas.name, 'not-found')
+  assert.equal(invalidCanvas.replace, true)
+  assert.equal(invalidCanvas.query.from, '/film/abc/canvas')
+  assert.match(appSource, /persistWorkspaceLocation\(to\)/)
 })
 
 test('bad returnTo is dropped and does not reuse another resource id', async () => {

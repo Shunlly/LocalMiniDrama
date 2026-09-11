@@ -50,7 +50,7 @@
             type="textarea"
             :rows="5"
             aria-label="提示词"
-            placeholder="描述你想要生成的画面内容..."
+            placeholder="描述你想要生成的画面内容…"
             class="prompt-input"
           />
         </div>
@@ -198,7 +198,7 @@
             class="generate-btn"
             @click="generate"
           >
-            {{ generating ? '生成中...' : (mode === 'image' ? '生成图片' : '生成视频') }}
+            {{ generating ? '生成中…' : (mode === 'image' ? '生成图片' : '生成视频') }}
           </el-button>
           <p
             v-if="generateDisabledReason"

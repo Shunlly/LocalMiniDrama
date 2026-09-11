@@ -27,6 +27,14 @@ test('invalid drama routes resolve to the not-found page without retaining a bro
     { name: 'not-found', replace: true, query: { from: '/film/bad' } },
   )
   assert.deepEqual(
+    requireValidDramaId({ params: { id: 'abc' }, fullPath: '/film/abc/canvas' }),
+    { name: 'not-found', replace: true, query: { from: '/film/abc/canvas' } },
+  )
+  assert.deepEqual(
+    requireValidDramaId({ params: { id: '0' }, fullPath: '/drama/0' }),
+    { name: 'not-found', replace: true, query: { from: '/drama/0' } },
+  )
+  assert.deepEqual(
     requireValidDramaId({ name: 'film', params: { id: ['8'] }, query: { episode: '2' }, hash: '' }),
     {
       name: 'film',

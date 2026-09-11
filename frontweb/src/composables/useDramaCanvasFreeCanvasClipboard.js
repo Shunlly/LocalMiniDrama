@@ -190,7 +190,7 @@ export function useDramaCanvasFreeCanvasClipboard(deps = {}) {
         event.preventDefault()
         event.stopPropagation()
         finishFreeCanvasNodeEditing(nodeId)
-        activateFreeCanvasNode(nodeId, { focusInspector: false })
+        activateFreeCanvasNode(nodeId)
         return
       }
     }

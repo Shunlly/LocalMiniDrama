@@ -148,3 +148,26 @@ test('可选项目按钮使用导入到该项目的无障碍名称，不会点�
     harness.app.unmount()
   }
 })
+
+
+test('搜索无结果与空项目列表分开，清除搜索是中文', async () => {
+  const harness = mountPicker({
+    keyword: '雨巷',
+    projects: [],
+    total: 0,
+    hasSuccessfulLoad: true,
+  })
+  try {
+    await nextTick()
+    const copy = textContent(harness.root)
+    assert.match(copy, /没有匹配的项目/)
+    assert.match(copy, /请更换关键词后再试/)
+    assert.doesNotMatch(copy, /还没有可导入的项目/)
+    assert.doesNotMatch(copy, /No data|No projects|Network Error/i)
+    click(buttonByAriaLabel(harness.root, '清除项目搜索'))
+    assert.equal(harness.keyword.value, '')
+    assert.ok(harness.events.some((event) => event[0] === 'search'))
+  } finally {
+    harness.app.unmount()
+  }
+})

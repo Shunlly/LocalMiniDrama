@@ -8,18 +8,27 @@ import { readBackupPageSource, readBackupSettingsSource } from './helpers/backup
 const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8').replace(/\r\n?/g, '\n')
 
 const nginxSource = read('../nginx.conf')
+const backendAppSource = read('../../backend-node/src/app.js')
 const backupPageSource = readBackupPageSource()
 const backupSettingsSource = readBackupSettingsSource()
 const routerSource = read('../src/router/index.js')
 const viewsSource = read('../src/router/views.js')
 
 test('生产 Nginx 把 /ready 精确代理到后端，不会回退成前端 HTML', () => {
+  const healthzBlockStart = nginxSource.indexOf('location = /healthz {')
   const readyBlockStart = nginxSource.indexOf('location = /ready {')
   const spaBlockStart = nginxSource.indexOf('location / {')
   const assetsBlockStart = nginxSource.indexOf('location /assets/ {')
+  assert.ok(healthzBlockStart >= 0, '缺少 location = /healthz')
   assert.ok(readyBlockStart >= 0, '缺少 location = /ready')
+  assert.ok(spaBlockStart > healthzBlockStart, '/healthz 必须写在 SPA 回退之前')
   assert.ok(spaBlockStart > readyBlockStart, '/ready 必须写在 SPA 回退之前')
   assert.ok(assetsBlockStart > readyBlockStart, '/ready 必须写在静态资源规则之前')
+
+  const healthzBlock = nginxSource.slice(healthzBlockStart, nginxSource.indexOf('}', healthzBlockStart))
+  assert.match(healthzBlock, /proxy_pass http:\/\/backend:5679\/ready/)
+  assert.doesNotMatch(healthzBlock, /try_files/)
+  assert.doesNotMatch(healthzBlock, /index\.html/)
 
   const readyBlock = nginxSource.slice(readyBlockStart, nginxSource.indexOf('}', readyBlockStart))
   assert.match(readyBlock, /proxy_pass http:\/\/backend:5679\/ready/)
@@ -32,6 +41,12 @@ test('生产 Nginx 把 /ready 精确代理到后端，不会回退成前端 HTML
 
   const spaBlock = nginxSource.slice(spaBlockStart)
   assert.match(spaBlock, /try_files \$uri \$uri\/ \/index\.html;/)
+  assert.doesNotMatch(nginxSource, /location = \/media/)
+  assert.doesNotMatch(nginxSource, /location = \/film/)
+  assert.doesNotMatch(nginxSource, /location = \/ai-config/)
+  assert.match(backendAppSource, /app\.get\('\*', \(req, res, next\) => \{/)
+  assert.match(backendAppSource, /req\.path\.startsWith\('\/api'\)/)
+  assert.match(backendAppSource, /res\.sendFile\(indexHtml\)/)
 })
 
 test('备份页继续请求 /ready，空 HTML 不会当成维护锁定', () => {

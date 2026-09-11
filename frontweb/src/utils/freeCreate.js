@@ -4,7 +4,7 @@ export const FREE_CREATE_VIDEO_ASPECT_RATIOS = Object.freeze(['16:9', '9:16', '1
 export const FREE_CREATE_IMAGE_ASPECT_RATIOS = Object.freeze([...FREE_CREATE_VIDEO_ASPECT_RATIOS, '4:3'])
 
 const SECRET_RE = /password\s*=|client_secret|cookie\s*:|authorization\s*:|api[_-]?key\s*[:=]/i
-const TECHNICAL_ENGLISH_RE = /network error|timeout of \d+ms|request failed with status code|err_network|econnaborted|etimedout|failed to fetch|load failed|internal server error|econnrefused|enotfound/i
+const TECHNICAL_ENGLISH_RE = /network error|timeout of \d+ms|request failed with status code|err_network|econnaborted|etimedout|failed to fetch|fetch failed|load failed|internal server error|econnrefused|enotfound|image generation did not complete|video generation did not complete|this model does not support|invalid api key|model is overloaded/i
 const UNSET_ERROR = '\0'
 
 function nonEmpty(value) {
@@ -45,7 +45,7 @@ export function getFreeCreateCapabilityNotice({
   serviceLabel = '图片',
 } = {}) {
   const label = nonEmpty(serviceLabel) || '图片'
-  if (status === 'loading') return `正在检查${label}服务...`
+  if (status === 'loading') return `正在检查${label}服务…`
   if (status === 'error') return `无法读取${label}服务配置`
   if (status === 'ready') return `${label}服务已就绪`
   if (issue === 'missing_config') return `尚未配置可用的${label}服务`

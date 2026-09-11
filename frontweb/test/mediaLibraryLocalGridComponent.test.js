@@ -125,3 +125,50 @@ test('入口条无 returnTo 时返回项目首页，有 returnTo 时改回制作
     studio.app.unmount()
   }
 })
+
+
+test('加载失败展示中文下一步，不漏英文', async () => {
+  const harness = mountGrid({
+    loadError: '素材服务暂时不可用（HTTP 503）',
+    mediaIsStale: false,
+    hasSuccessfulMediaLoad: false,
+    mediaItems: [],
+    mediaAccessState: { showEntryStrip: true, navigationLocked: false, writeLocked: true },
+  })
+  try {
+    await nextTick()
+    const copy = textContent(harness.root)
+    assert.match(copy, /素材数据加载失败/)
+    assert.match(copy, /下一步/)
+    assert.match(copy, /重试加载/)
+    assert.doesNotMatch(copy, /Network Error|Failed to fetch|No data|Loading\.\.\.|AbortError/i)
+    const retry = buttonByAriaLabel(harness.root, '重试加载素材')
+    assert.ok(retry)
+  } finally {
+    harness.app.unmount()
+  }
+})
+
+test('上传失败给出中文下一步并可重新上传', async () => {
+  const harness = mountGrid({
+    uploadFeedback: {
+      tone: 'error',
+      title: '素材上传失败',
+      detail: '1 个文件上传失败：night.png。这些文件没有写入素材库。',
+    },
+  })
+  try {
+    await nextTick()
+    const copy = textContent(harness.root)
+    assert.match(copy, /素材上传失败/)
+    assert.match(copy, /下一步/)
+    assert.match(copy, /100MB/)
+    assert.doesNotMatch(copy, /Network Error|Failed to fetch|Upload failed/i)
+    const retry = buttonByAriaLabel(harness.root, '重新上传素材到素材中心')
+    assert.ok(retry)
+    click(retry)
+    assert.deepEqual(harness.events, [['upload']])
+  } finally {
+    harness.app.unmount()
+  }
+})
