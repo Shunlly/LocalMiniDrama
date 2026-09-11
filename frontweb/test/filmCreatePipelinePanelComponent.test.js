@@ -150,7 +150,7 @@ test('空剧本时一键成片和文本框架都展示中文禁用原因，不�
   }
 })
 
-test('停止中禁用暂停/停止/倒计时暂停，紧凑入口不再提供启动', async () => {
+test('停止中禁用暂停/停止/跳过倒计时，紧凑入口不再提供启动', async () => {
   const harness = mountPipeline({
     running: true,
     stopping: true,
@@ -203,7 +203,7 @@ test('启动检查中紧凑入口不会误触发一键成片', async () => {
   }
 })
 
-test('停止受阻时工具条只留重试停止，倒计时暂停仍可点', async () => {
+test('停止受阻时工具条只留重试停止，倒计时跳过与暂停要禁用', async () => {
   const harness = mountPipeline({
     running: true,
     stopRequired: true,
