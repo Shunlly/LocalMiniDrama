@@ -99,6 +99,8 @@ test('canvas storyboard panel reuses list-mode reorder helpers for up, down and 
   assert.match(actions, />上移</)
   assert.match(actions, />下移</)
   assert.match(actions, />前插</)
+  assert.match(actions, />后插</)
+  assert.match(panel, /async function insertStoryboardAfter/)
   assert.match(actions, />追加</)
   assert.match(panel, /async function appendStoryboard/)
   assert.match(panel, /storyboardsAPI.create/)

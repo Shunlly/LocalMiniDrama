@@ -92,6 +92,14 @@
       size="small"
       :disabled="Boolean(reorderDisabledReason)"
       :loading="reorderBusy"
+      :title="insertAfterTitle"
+      :aria-label="insertAfterTitle"
+      @click.stop="insertStoryboardAfter"
+    >后插</el-button>
+    <el-button
+      size="small"
+      :disabled="Boolean(reorderDisabledReason)"
+      :loading="reorderBusy"
       :title="appendTitle"
       :aria-label="appendTitle"
       @click.stop="appendStoryboard"
@@ -130,6 +138,7 @@ const props = defineProps({
   moveStoryboardUp: { type: Function, default: () => {} },
   moveStoryboardDown: { type: Function, default: () => {} },
   insertStoryboardBefore: { type: Function, default: () => {} },
+  insertStoryboardAfter: { type: Function, default: () => {} },
   appendStoryboard: { type: Function, default: () => {} },
 })
 
@@ -144,6 +153,7 @@ const moveDownTitle = computed(() => {
   return '下移分镜'
 })
 const insertTitle = computed(() => props.reorderDisabledReason || '在此分镜前插入空白分镜')
+const insertAfterTitle = computed(() => props.reorderDisabledReason || '在此分镜后插入空白分镜')
 const appendTitle = computed(() => props.reorderDisabledReason || '在本集末尾追加空白分镜')
 </script>
 

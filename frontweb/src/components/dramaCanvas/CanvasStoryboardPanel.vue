@@ -94,6 +94,7 @@
       :move-storyboard-up="moveStoryboardUp"
       :move-storyboard-down="moveStoryboardDown"
       :insert-storyboard-before="insertStoryboardBefore"
+      :insert-storyboard-after="insertStoryboardAfter"
       :append-storyboard="appendStoryboard"
     />
   </div>
@@ -546,6 +547,33 @@ async function insertStoryboardBefore() {
   try {
     const created = await storyboardsAPI.insertBefore(props.storyboard.id)
     ElMessage.success('已在此位置前插入空白分镜')
+    await ctx?.refresh?.()
+    const createdId = created?.id ?? created?.data?.id
+    if (createdId) await ctx?.setFocusedNode?.(`sb:${createdId}`)
+  } catch (error) {
+    if (isCanvasUserAbort(error)) return
+    ElMessage.error(canvasUserError(error, '插入分镜失败'))
+  } finally {
+    reorderBusy.value = false
+  }
+}
+
+async function insertStoryboardAfter() {
+  const blocked = reorderDisabledReason.value
+  if (blocked) {
+    ElMessage.warning(blocked)
+    return
+  }
+  const list = episodeStoryboards()
+  const next = storyboardIndex.value >= 0 ? list[storyboardIndex.value + 1] : null
+  if (!next?.id) {
+    await appendStoryboard()
+    return
+  }
+  reorderBusy.value = true
+  try {
+    const created = await storyboardsAPI.insertBefore(next.id)
+    ElMessage.success('已在此位置后插入空白分镜')
     await ctx?.refresh?.()
     const createdId = created?.id ?? created?.data?.id
     if (createdId) await ctx?.setFocusedNode?.(`sb:${createdId}`)

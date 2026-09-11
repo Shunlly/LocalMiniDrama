@@ -270,6 +270,7 @@ test('操作栏经典模式可生图，首尾帧模式露出生成首帧/尾帧�
     assert.match(text, /上移/)
     assert.match(text, /下移/)
     assert.match(text, /前插/)
+    assert.match(text, /后插/)
     assert.match(text, /追加/)
     assert.doesNotMatch(text, /AI 分镜/)
     assert.equal(buttonByText(classic.root, '生成首帧'), undefined)
