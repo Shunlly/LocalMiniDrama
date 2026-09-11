@@ -68,6 +68,7 @@ const CRITICAL_UI = Object.freeze({
   mediaLoadFailed: '素材数据加载失败',
   mediaLoadFailedDetail: '暂时无法确认服务器中的最新素材。您的素材数据没有被删除。',
   retryLoad: '重试加载',
+  retryLoadMedia: '重试加载素材',
   openProject(title) {
     return `打开项目「${title}」`
   },
@@ -551,7 +552,7 @@ async function verifyMissingProjectChineseFailurePages(page, options = {}) {
     await loadAlert.waitFor({ state: 'visible', timeout: 30000 })
     await loadAlert.getByRole('heading', { name: /素材(数据加载|列表刷新)失败/ }).waitFor({ timeout: 10000 })
     await loadAlert.getByText(CRITICAL_UI.mediaLoadFailedDetail, { exact: true }).waitFor({ timeout: 10000 })
-    await loadAlert.getByRole('button', { name: CRITICAL_UI.retryLoad, exact: true }).waitFor({ state: 'visible' })
+    await loadAlert.getByRole('button', { name: CRITICAL_UI.retryLoadMedia, exact: true }).waitFor({ state: 'visible' })
   } finally {
     await page.unroute(assetsRoute, assetsHandler)
   }
