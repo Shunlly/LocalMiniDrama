@@ -846,9 +846,9 @@ test('AI 配置厂商和模型选择保留中文空状态、无障碍名称，�
   }
   assert.ok(defaultModelTags.some((tag) => tag.includes('allow-create') && tag.includes('暂无模型，可直接输入或先填写模型列表')))
   assert.ok(defaultModelTags.some((tag) => !tag.includes('allow-create') && tag.includes('暂无可用模型')))
-  assert.match(providerOptionsSource, /请先选择厂商，或直接输入模型名。/)
+  assert.match(providerOptionsSource, /下一步：先选择厂商自动填入，或直接输入模型名。/)
   assert.match(formDerivedSource, /describeProviderModelEmptyHint\(/)
-  assert.match(providerOptionsSource, /当前厂商没有预设模型，可直接输入模型名。/)
+  assert.match(providerOptionsSource, /下一步：直接输入模型名；填好接口地址和密钥后也可点「从服务读取模型」。/)
   assert.match(overlaySource, /:aria-label="configActionLabel\('测试', row\)"/)
   assert.match(overlaySource, /:aria-label="configActionLabel\('删除', row\)"/)
   assert.match(overlaySource, /aria-label="保存配置"/)
