@@ -80,6 +80,7 @@ test('project cards expose a visual cover, status filter, and explicit continue 
   assert.match(filmListSource, /清除筛选/)
   assert.match(filmListSource, /继续制作/)
   assert.match(filmListSource, /class="project-card-assets"[\s\S]*<el-icon><Files \/><\/el-icon>故事素材/)
+  assert.match(filmListSource, /v-if="!sourceImportIntent"[\s\S]*class="project-card-assets"/)
 })
 
 test('continue action enters the production workspace while edit remains a management action', () => {

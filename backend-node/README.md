@@ -81,7 +81,7 @@ curl.exe --fail http://127.0.0.1:5679/ready
 
 未就绪时 `checks.database.error`、`checks.storage.error`、`checks.maintenance.error` 为简体中文（如「数据库不可用」）。`/health` 只是存活探针，不代表可以接业务。Docker Compose 后端健康检查探测的是 `/ready`。
 
-开发前端默认在 `3013`，用 Vite 代理 `/api`、`/static`、`/ready` 与 `/health`。CORS 只允许 `http://localhost:3013` 与 `http://127.0.0.1:3013`。生产也可以先构建前端，由本服务在 5679 托管同级 `frontweb/dist`（`WEB_DIST_PATH` 可覆盖）；`dist` 不存在时打开 `/` 会提示先构建。未配置外部 API Key 也可以启动服务；真正生成内容通过前端「AI 配置」写入数据库。厂商预设填表不等于真实图片/视频/TTS 接入已跑通。页面、API 与 CLI 的用户可见错误为简体中文。
+开发前端默认在 `3013`，用 Vite 代理 `/api`、`/static`、`/ready` 与 `/health`。开发模式下回环 Origin 可通过；`config.yaml` 默认 CORS 白名单仍是 `http://localhost:3013` 与 `http://127.0.0.1:3013`。生产 Docker CORS 跟随前端宿主机端口（Compose 写入 `LOCALMINIDRAMA_CORS_ORIGINS`），不会自动放行任意回环端口。生产也可以先构建前端，由本服务在 5679 托管同级 `frontweb/dist`（`WEB_DIST_PATH` 可覆盖）；`dist` 不存在时打开 `/` 会提示先构建。未配置外部 API Key 也可以启动服务；真正生成内容通过前端「AI 配置」写入数据库。厂商预设填表不等于真实图片/视频/TTS 接入已跑通。页面、API 与 CLI 的用户可见错误为简体中文。
 
 ---
 
@@ -95,9 +95,13 @@ docker compose up -d --build --wait
 
 后端镜像见 `backend-node/Dockerfile`，固定 Node.js 20。Compose **不挂载应用源码**，改完代码必须 `--build`。默认数据目录是宿主机 `backend-node/data/`。
 
+官方 `docker compose up -d --build --wait` 默认映射宿主机 `127.0.0.1:3013` 和 `127.0.0.1:5679`，会和本机 `npm run dev` 抢端口，也会写入同一 `backend-node/data/`。这两个端口已被占用时不要再起官方 Compose。并存请改 `LOCALMINIDRAMA_FRONTEND_HOST_PORT` / `LOCALMINIDRAMA_BACKEND_HOST_PORT`，并设置独立的 `LOCALMINIDRAMA_DATA_DIR`。
+
+生产 Docker CORS 跟随前端宿主机端口：Compose 把 `LOCALMINIDRAMA_CORS_ORIGINS` 写成 `http://localhost:${LOCALMINIDRAMA_FRONTEND_HOST_PORT:-3013}` 与对应的 `127.0.0.1`。该赋值是 Compose 字面量，宿主机再设 `LOCALMINIDRAMA_CORS_ORIGINS` 盖不掉；改端口以 `LOCALMINIDRAMA_FRONTEND_HOST_PORT` 为准。生产 Docker 不会自动放行任意回环端口。
+
 Compose 后端健康检查探测 `http://127.0.0.1:5679/ready`（失败信息为简体中文）；前端 `http://127.0.0.1:3013/healthz` 代理 `/ready`。生产 Nginx 还必须有 `location = /ready`，精确代理到后端 `/ready`，并写在 SPA `location /` 之前。只代理 `/healthz` 时，备份页请求 `/ready` 会吃到前端 HTML，恢复会被误锁。`/health` 不是 Compose 健康检查。
 
-容器级校验从仓库根目录执行 `npm run verify:docker`。生产 E2E 必须在干净工作树、仓库外空数据目录上按 `npm run docker:e2e:up` → `npm run verify:e2e` 执行，证据要求 `working_tree_dirty=false`；当前脏工作树不能当作已通过。
+容器级校验从仓库根目录执行 `npm run verify:docker`。生产 E2E 必须在干净工作树、仓库外空数据目录上按 `npm run docker:e2e:up` → `npm run verify:e2e` 执行，证据要求 `working_tree_dirty=false`；当前脏工作树不能当作已通过。`npm run docker:e2e:up` 只隔离仓库外 `LOCALMINIDRAMA_DATA_DIR`，不换 `3013`/`5679`，另外占用 `127.0.0.1:5688`；源码 `npm run dev` 已占用这两个端口时不要再跑它。
 
 全量备份/恢复前必须先停 Docker。自定义 `LOCALMINIDRAMA_DATA_DIR` 时，要把实际 bind source 传给 `--data-root`。完整步骤见 [开发指南](../docs/quickstart.md#运行方式二docker) 和 [备份 FAQ](../docs/quickstart.md#q-如何备份迁移项目数据)。
 
@@ -172,7 +176,7 @@ backend-node/
 server:
   port: 5679                      # HTTP 服务端口
   host: 127.0.0.1                 # 本机监听
-  cors_origins:                   # 只允许前端 3013
+  cors_origins:                   # 源码默认白名单；开发模式还会放行回环 Origin
     - http://localhost:3013
     - http://127.0.0.1:3013
 

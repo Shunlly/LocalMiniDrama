@@ -5,8 +5,12 @@ import * as freeCanvasMedia from '../src/utils/freeCanvasMedia.js'
 import {
   buildFreeCanvasAssetReferencePatch,
   buildFreeCanvasStoryboardMediaItems,
+  confirmFreeCanvasCreatedAsset,
+  describeFreeCanvasAssetAddBlockReason,
+  describeFreeCanvasAssetScopeMismatch,
   freeCanvasMediaUrl,
   normalizeFreeCanvasMediaPath,
+  positiveFreeCanvasEntityId,
   resolveFreeCanvasMediaPath,
 } from '../src/utils/freeCanvasMedia.js'
 
@@ -232,4 +236,56 @@ test('asset discovery filters keyword and media type without losing source items
     [2],
   )
   assert.deepEqual(items.map((item) => item.id), [1, 2, 3])
+})
+
+test('保存素材按素材编号回读，项目编号与素材编号不相等时不能互换', async () => {
+  const lookedUp = []
+  const assetsApi = {
+    async get(id) {
+      lookedUp.push(id)
+      if (Number(id) === 99) return { id: 99, drama_id: 12, type: 'image' }
+      return { id, drama_id: 12, type: 'image' }
+    },
+  }
+
+  const confirmed = await confirmFreeCanvasCreatedAsset(
+    { id: 99, drama_id: 12 },
+    { projectId: 12, assetsApi },
+  )
+  assert.deepEqual(lookedUp, [99])
+  assert.equal(confirmed.id, 99)
+  assert.equal(positiveFreeCanvasEntityId(confirmed.id), 99)
+  assert.notEqual(positiveFreeCanvasEntityId(confirmed.id), 12)
+  assert.equal(describeFreeCanvasAssetScopeMismatch(confirmed, 12), '')
+
+  await assert.rejects(
+    () => confirmFreeCanvasCreatedAsset(
+      { id: 12, drama_id: 99 },
+      {
+        projectId: 12,
+        assetsApi: {
+          async get(id) {
+            return { id, drama_id: 99, type: 'image' }
+          },
+        },
+      },
+    ),
+    /不属于当前项目/,
+  )
+  assert.equal(
+    describeFreeCanvasAssetScopeMismatch({ id: 12, drama_id: 99 }, 12),
+    '素材保存失败：返回结果不属于当前项目',
+  )
+  assert.equal(
+    describeFreeCanvasAssetAddBlockReason({ id: 12, type: 'image' }, 7),
+    '',
+  )
+  assert.match(
+    describeFreeCanvasAssetAddBlockReason({ id: 7, type: 'image', drama_id: 12 }, 7),
+    /其他项目素材/,
+  )
+  assert.match(
+    describeFreeCanvasAssetAddBlockReason({ id: 7, title: '某剧' }, 7),
+    /只能添加图片或视频素材/,
+  )
 })

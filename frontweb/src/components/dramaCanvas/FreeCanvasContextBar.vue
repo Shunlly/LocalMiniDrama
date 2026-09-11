@@ -57,12 +57,13 @@ function emitAction(action) {
 
 <style scoped>
 .free-canvas-context-bar {
+  /* 选中节点时检查器常开，条要高于检查器，并让出右侧检查器占用的空间 */
   position: fixed;
-  left: 50%;
+  left: calc((100vw - 380px) / 2);
   bottom: 88px;
-  z-index: 1180;
+  z-index: 1300;
   display: inline-flex;
-  max-width: min(720px, calc(100vw - 48px));
+  max-width: min(720px, calc(100vw - 420px));
   min-height: 40px;
   align-items: center;
   gap: 6px;
@@ -86,6 +87,13 @@ function emitAction(action) {
 .free-canvas-context-bar :deep(.el-button:focus-visible) {
   outline: 2px solid var(--canvas-focus-ring, #818cf8);
   outline-offset: 2px;
+}
+
+@media (max-width: 1100px) {
+  .free-canvas-context-bar {
+    left: 50%;
+    max-width: min(720px, calc(100vw - 48px));
+  }
 }
 
 @media (max-width: 760px) {

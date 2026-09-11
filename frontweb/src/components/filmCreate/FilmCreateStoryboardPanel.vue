@@ -201,6 +201,7 @@ const props = defineProps({
   onGenerateSbVideo: { type: Function, required: true },
   onGenerateStoryboard: { type: Function, required: true },
   onInsertStoryboardBefore: { type: Function, required: true },
+  onInsertStoryboardAfter: { type: Function, required: true },
   onLastFrameLayoutLockChange: { type: Function, required: true },
   onLinkTailFrameToNext: { type: Function, required: true },
   onOpenSbPromptDialog: { type: Function, required: true },

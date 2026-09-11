@@ -58,6 +58,7 @@
         </div>
       </RouterLink>
       <RouterLink
+        v-if="!sourceImportIntent"
         class="project-card-assets"
         :to="{ name: 'drama-detail', params: { id: d.id }, query: { returnTo: projectListReturnTo }, hash: '#source-intake-workflow' }"
         :aria-label="`打开项目「${d.title || '未命名项目'}」的故事素材流程`"

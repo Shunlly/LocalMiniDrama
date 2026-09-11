@@ -4,6 +4,8 @@
 
   align-items: center;
 
+  flex-wrap: nowrap;
+
   gap: 6px;
 
   margin-left: 32px;
@@ -104,7 +106,9 @@ html.light .sb-ctrl-btn.sb-ctrl-reorder-btn {
 
   color: #e4e4e7;
 
-  max-width: 12em;
+  max-width: 10em;
+
+  min-width: 0;
 
   overflow: hidden;
 
@@ -143,6 +147,15 @@ html.light .sb-ctrl-title {
   padding: 0 8px;
 
   font-size: 11px;
+
+}
+.sb-ctrl-insert-btn.el-button {
+
+  padding: 0 6px;
+
+  flex-shrink: 0;
+
+  gap: 2px;
 
 }
 

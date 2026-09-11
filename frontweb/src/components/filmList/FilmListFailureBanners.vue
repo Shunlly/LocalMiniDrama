@@ -104,11 +104,11 @@ const exportFailureEl = ref(null)
 const importFailureEl = ref(null)
 
 watch(
-  () => [props.exportFailure, props.importFailure],
+  () => [props.listError, props.exportFailure, props.importFailure],
   async (current, previous = []) => {
-    const [exportFailure, importFailure] = current
-    const [prevExport, prevImport] = previous
-    if (!exportFailure && !importFailure) return
+    const [listError, exportFailure, importFailure] = current
+    const [prevListError, prevExport, prevImport] = previous
+    if (!listError && !exportFailure && !importFailure) return
     await nextTick()
     if (importFailure && importFailure !== prevImport) {
       importFailureEl.value?.focus?.()
@@ -116,6 +116,10 @@ watch(
     }
     if (exportFailure && exportFailure !== prevExport) {
       exportFailureEl.value?.focus?.()
+      return
+    }
+    if (listError && listError !== prevListError) {
+      listErrorEl.value?.focus?.()
     }
   },
 )

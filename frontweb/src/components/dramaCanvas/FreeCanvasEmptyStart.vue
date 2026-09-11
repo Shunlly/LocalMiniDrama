@@ -5,8 +5,16 @@
     aria-describedby="free-canvas-empty-desc"
   >
     <h2 id="free-canvas-empty-title">开始自由创作</h2>
-    <p id="free-canvas-empty-desc">还没有自由节点。可以新建文本、配置，或导入媒体开始编排。</p>
+    <p id="free-canvas-empty-desc">{{ emptyDescription }}</p>
     <div class="free-canvas-empty-actions">
+      <el-button
+        v-if="hideProductionNodes"
+        aria-label="显示制作节点"
+        @click="setHideProductionNodes(false)"
+      >
+        <el-icon><View /></el-icon>
+        显示制作节点
+      </el-button>
       <el-button type="primary" aria-label="新建文本节点" @click="createFreeCanvasNode('text')">
         <el-icon><Document /></el-icon>
         新建文本
@@ -24,12 +32,21 @@
 </template>
 
 <script setup>
-import { Document, FolderOpened, Setting } from '@element-plus/icons-vue'
+import { computed } from 'vue'
+import { Document, FolderOpened, Setting, View } from '@element-plus/icons-vue'
 
-defineProps({
+const props = defineProps({
   createFreeCanvasNode: { type: Function, required: true },
   openFreeCanvasMediaPicker: { type: Function, required: true },
+  hideProductionNodes: { type: Boolean, default: false },
+  setHideProductionNodes: { type: Function, default: () => {} },
 })
+
+const emptyDescription = computed(() => (
+  props.hideProductionNodes
+    ? '还没有自由节点。制作节点已隐藏，可先显示回来，或新建文本、配置、导入媒体开始编排。'
+    : '还没有自由节点。可以新建文本、配置，或导入媒体开始编排。'
+))
 </script>
 
 <style scoped>

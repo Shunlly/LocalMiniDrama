@@ -221,7 +221,7 @@ const mediaRequestGuard = createLatestMediaRequestGuard()
 const networkRequestGuard = createLatestMediaRequestGuard()
 let mediaLibraryMounted = false
 
-const { goHome, goBack } = createMediaLibraryNavigation({ router, returnTo })
+const { goBack } = createMediaLibraryNavigation({ router, returnTo })
 
 const {
   applyFilters,
@@ -459,7 +459,8 @@ const localGridBindings = computed(() => ({
   loadMedia,
   triggerUpload,
   goSourceImport,
-  goHome,
+  goBack,
+  returnTo: returnTo.value,
   itemUrl,
   thumbnailAlt,
   formatSize,

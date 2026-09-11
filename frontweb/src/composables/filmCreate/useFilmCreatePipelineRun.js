@@ -261,15 +261,16 @@ export function useFilmCreatePipelineRun(options = {}) {
     return new Promise((r) => setTimeout(r, 1000))
   }
 
-  /** 跳过倒计时，立即进入下一阶段 */
+  /** 跳过倒计时，立即进入下一阶段。停止中不跳过。 */
   function skipPipelineCountdown() {
+    if (pipelineStopping.value || pipelineAbortRequested.value) return
     pipelineCountdown.value = 0
   }
 
   /** 阶段间倒计时，支持暂停冻结 + 立即跳过 */
   async function runPipelineCountdown(totalSeconds, msg) {
     pipelineCountdown.value = totalSeconds
-    pipelineCountdownMsg.value = msg
+    pipelineCountdownMsg.value = toUserFacingError(msg, '即将进入下一阶段')
     try {
       while (pipelineCountdown.value > 0) {
         await checkPause()                              // 暂停时冻结在此

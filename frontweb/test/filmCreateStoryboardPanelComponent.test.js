@@ -66,6 +66,7 @@ const REQUIRED_FNS = [
   'onGenerateSbVideo',
   'onGenerateStoryboard',
   'onInsertStoryboardBefore',
+  'onInsertStoryboardAfter',
   'onLastFrameLayoutLockChange',
   'onLinkTailFrameToNext',
   'onOpenSbPromptDialog',
@@ -298,6 +299,7 @@ test('有分镜时列表壳渲染工具条并接到三列，不显示空态', as
     assert.equal(buttonsByText(harness.root, '生成分镜').length, 0)
     assert.doesNotMatch(textContent(harness.root), /还没有分镜/)
     requireButton(harness.root, '插入分镜')
+    requireButton(harness.root, '后插')
     requireButton(harness.root, '全能模式')
     assert.equal(findByTestId(harness.root, 'storyboard-column-stub').length, 3)
   } finally {

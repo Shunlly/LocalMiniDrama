@@ -164,6 +164,43 @@ export function useFilmCreateStoryboardCrud(deps = {}) {
     }
   }
 
+  async function onInsertStoryboardAfter(sb) {
+    if (!currentEpisodeId.value) {
+      ElMessage.warning('请先选择剧集')
+      return
+    }
+    const list = store.storyboards || []
+    const index = list.findIndex((item) => Number(item?.id) === Number(sb?.id))
+    const next = index >= 0 ? list[index + 1] : null
+    if (next?.id) {
+      try {
+        await storyboardsAPI.insertBefore(next.id)
+        ElMessage.success('已在此位置后新增空白分镜')
+        await loadDrama()
+      } catch (e) {
+        if (isUserFacingAbort(e)) return
+        ElMessage.error(toUserFacingError(e, '新增失败'))
+      }
+      return
+    }
+    try {
+      const maxNum = list
+        .filter((item) => item.episode_id === currentEpisodeId.value)
+        .reduce((max, item) => Math.max(max, item.storyboard_number || 0), 0)
+      await storyboardsAPI.create({
+        episode_id: currentEpisodeId.value,
+        storyboard_number: maxNum + 1,
+        title: `镜头 ${maxNum + 1}`,
+        description: '',
+      })
+      ElMessage.success('已在此位置后新增空白分镜')
+      await loadDrama()
+    } catch (e) {
+      if (isUserFacingAbort(e)) return
+      ElMessage.error(toUserFacingError(e, '新增失败'))
+    }
+  }
+
   const {
     storyboardReorderBusy,
     dropTargetStoryboardIndex,
@@ -186,6 +223,7 @@ export function useFilmCreateStoryboardCrud(deps = {}) {
     onAddSingleStoryboard,
     onDeleteSingleStoryboard,
     onInsertStoryboardBefore,
+    onInsertStoryboardAfter,
     storyboardReorderBusy,
     dropTargetStoryboardIndex,
     onMoveStoryboard,

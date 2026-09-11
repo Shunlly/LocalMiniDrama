@@ -40,7 +40,7 @@
       <div class="entry-item">
         <span class="entry-label">角色 / 场景 / 道具入库</span>
         <p class="entry-description">在项目里点“加入素材库”后，会同步到首页里的分类素材入口。</p>
-        <el-button text class="entry-action" aria-label="返回项目首页" @click="goHome">返回项目首页</el-button>
+        <el-button text class="entry-action" :aria-label="returnTo ? '返回制作台' : '返回项目首页'" @click="goBack">{{ returnTo ? '返回制作台' : '返回项目首页' }}</el-button>
       </div>
     </section>
 
@@ -160,7 +160,8 @@ defineProps({
   loadMedia: { type: Function, required: true },
   triggerUpload: { type: Function, required: true },
   goSourceImport: { type: Function, required: true },
-  goHome: { type: Function, required: true },
+  goBack: { type: Function, required: true },
+  returnTo: { type: String, default: '' },
   itemUrl: { type: Function, required: true },
   thumbnailAlt: { type: Function, required: true },
   formatSize: { type: Function, required: true },

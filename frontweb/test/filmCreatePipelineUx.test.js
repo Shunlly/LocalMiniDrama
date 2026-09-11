@@ -7,8 +7,10 @@ import { compileScript, parse } from '@vue/compiler-sfc'
 import {
   describePipelineErrorLog,
   describePipelinePanelUx,
+  resolvePipelineProductionReason,
   toPipelineDisabledReason,
 } from '../src/components/filmCreate/filmCreatePipelinePanelUx.js'
+import { useFilmCreatePipelineRun } from '../src/composables/filmCreate/useFilmCreatePipelineRun.js'
 
 function readPipelineFile(name) {
   return readFileSync(
@@ -178,7 +180,10 @@ test('全流程错误日志和阻断原因把英文技术失败收成中文', ()
   assert.equal(log[1].message, '请先配置图片模型')
   assert.doesNotMatch(JSON.stringify(log), /Network Error/)
   assert.match(pipelinePanelSource, /displayErrorLog/)
-  assert.match(pipelinePanelSource, /toPipelineDisabledReason\(\s*props\.productionDisabledReason \|\| props\.disabledReason/)
+  assert.match(pipelinePanelSource, /resolvePipelineProductionReason\(\{/)
+  assert.match(pipelinePanelSource, /productionReadinessReason: props\.productionReadinessReason/)
+  assert.match(pipelinePanelSource, /skipCountdownDisabledReason/)
+  assert.match(pipelinePanelSource, /role="timer"/)
   assert.match(pipelinePanelSource, /toPipelineDisabledReason\(controlReasons\.value\.retry/)
   assert.match(pipelinePanelSource, /describePipelineErrorLog\(props\.errorLog\)/)
   assert.match(pipelinePanelSource, /describePipelinePanelUx\(\{/)
@@ -186,6 +191,89 @@ test('全流程错误日志和阻断原因把英文技术失败收成中文', ()
   assert.doesNotMatch(pipelinePanelSource, /function toPipelineDisabledReason/)
   assert.doesNotMatch(pipelinePanelSource, /function describePipelineErrorLog/)
   assert.doesNotMatch(pipelinePanelSource, /function describePipelinePanelUx/)
+})
+
+
+test('\u505c\u6b62\u4e2d\u4e0e\u505c\u6b62\u53d7\u963b\u65f6\u8df3\u8fc7\u5012\u8ba1\u65f6\u8981\u7ed9\u51fa\u4e2d\u6587\u7981\u7528\u539f\u56e0', () => {
+  const stopping = describePipelinePanelUx({ running: true, stopping: true, countdown: 8, countdownMessage: '\u5373\u5c06\u8fdb\u5165\u4e0b\u4e00\u9636\u6bb5' })
+  assert.match(stopping.skipCountdownDisabledReason, /\u6b63\u5728\u505c\u6b62\u5168\u6d41\u7a0b/)
+  assert.match(stopping.countdownAriaLabel, /\u5269\u4f59 8 \u79d2/)
+  assert.match(stopping.countdownAriaLabel, /\u5373\u5c06\u8fdb\u5165\u4e0b\u4e00\u9636\u6bb5/)
+  assert.doesNotMatch(stopping.skipCountdownDisabledReason, /please|skip|network error/i)
+
+  const stopBlocked = describePipelinePanelUx({ running: true, stopRequired: true, countdown: 4 })
+  assert.match(stopBlocked.pauseDisabledReason, /\u505c\u6b62\u672a\u5b8c\u6210/)
+  assert.match(stopBlocked.skipCountdownDisabledReason, /\u505c\u6b62\u672a\u5b8c\u6210/)
+  assert.equal(describePipelinePanelUx({ running: true }).skipCountdownDisabledReason, '')
+
+  const pausedBlocked = describePipelinePanelUx({ running: true, paused: true, stopRequired: true, countdown: 3, countdownMessage: '\u7b49\u5f85\u8fdc\u7aef\u4efb\u52a1\u7ed3\u675f' })
+  assert.match(pausedBlocked.countdownPausedHint, /\u91cd\u8bd5\u505c\u6b62/)
+  assert.doesNotMatch(pausedBlocked.countdownPausedHint, /\u70b9\u51fb\u201c\u7ee7\u7eed\u201d/)
+  assert.match(pausedBlocked.countdownAriaLabel, /\u91cd\u8bd5\u505c\u6b62/)
+})
+
+test('\u7f3a\u914d\u7f6e\u65f6\u5b8c\u6574\u6210\u7247\u4ecd\u8981\u88ab readiness \u7981\u7528', () => {
+  assert.equal(resolvePipelineProductionReason({ productionReadinessState: 'ready' }), '')
+  assert.equal(
+    resolvePipelineProductionReason({ productionReadinessState: 'missing' }),
+    '\u5b8c\u6574\u6210\u7247\u80fd\u529b\u5c1a\u672a\u914d\u9f50\uff0c\u53ef\u5148\u8dd1\u8349\u7a3f\u9884\u6f14',
+  )
+  assert.equal(
+    resolvePipelineProductionReason({
+      productionReadinessState: 'missing',
+      productionReadinessReason: '\u89c6\u9891\u6a21\u578b\uff1a\u672a\u914d\u7f6e',
+    }),
+    '\u89c6\u9891\u6a21\u578b\uff1a\u672a\u914d\u7f6e',
+  )
+  assert.equal(
+    resolvePipelineProductionReason({
+      productionDisabledReason: '\u5f53\u524d\u96c6\u8fd8\u6ca1\u6709\u5267\u672c\uff0c\u8bf7\u5148\u7f16\u5199\u6216\u5bfc\u5165\u5267\u672c',
+      productionReadinessState: 'missing',
+    }),
+    '\u5f53\u524d\u96c6\u8fd8\u6ca1\u6709\u5267\u672c\uff0c\u8bf7\u5148\u7f16\u5199\u6216\u5bfc\u5165\u5267\u672c',
+  )
+  assert.match(resolvePipelineProductionReason({ productionReadinessState: 'checking' }), /\u6b63\u5728\u68c0\u67e5/)
+  assert.match(resolvePipelineProductionReason({ productionReadinessState: 'error' }), /\u91cd\u8bd5\u68c0\u67e5/)
+})
+
+test('\u5012\u8ba1\u65f6\u6587\u6848\u548c\u6df7\u5408\u82f1\u6587\u6280\u672f\u5931\u8d25\u90fd\u6536\u6210\u4e2d\u6587', () => {
+  assert.equal(
+    toPipelineDisabledReason('\u89d2\u8272\u63d0\u53d6\u5931\u8d25: timeout of 15000ms', '\u64cd\u4f5c\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5'),
+    '\u64cd\u4f5c\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5',
+  )
+  const countdown = describePipelinePanelUx({
+    running: true,
+    countdown: 5,
+    countdownMessage: 'Network Error',
+    currentStep: '[\u6b65\u9aa4 2/5] Failed to fetch',
+  })
+  assert.equal(countdown.countdownMessage, '\u5373\u5c06\u8fdb\u5165\u4e0b\u4e00\u9636\u6bb5')
+  assert.doesNotMatch(countdown.countdownAriaLabel, /Network Error|Failed to fetch/i)
+  assert.equal(countdown.progressStatusText, '\u6b63\u5728\u6267\u884c\u5168\u6d41\u7a0b\u751f\u6210')
+  assert.doesNotMatch(JSON.stringify(countdown), /Network Error|Failed to fetch/i)
+})
+
+test('\u505c\u6b62\u4e2d\u8df3\u8fc7\u5012\u8ba1\u65f6\u4e0d\u4f1a\u6e05\u96f6', () => {
+  const run = useFilmCreatePipelineRun({
+    store: { storyboards: [] },
+    videoClipDuration: { value: 5 },
+    taskAPI: { async get() { return { status: 'completed' } }, async cancel() {} },
+    genStore: { markRunning() {}, markDone() {}, markFailed() {}, stopPollingTask() {} },
+    trackFilmCreateAction() {},
+    getStoryboardCountForApi: () => 0,
+  })
+  run.pipelineRunning.value = true
+  run.pipelineStopping.value = true
+  run.pipelineCountdown.value = 8
+  run.skipPipelineCountdown()
+  assert.equal(run.pipelineCountdown.value, 8)
+  run.pipelineStopping.value = false
+  run.pipelineAbortRequested.value = true
+  run.skipPipelineCountdown()
+  assert.equal(run.pipelineCountdown.value, 8)
+  run.pipelineAbortRequested.value = false
+  run.skipPipelineCountdown()
+  assert.equal(run.pipelineCountdown.value, 0)
 })
 
 test('制作页离开保护覆盖批量生图生视频和单条生成', () => {

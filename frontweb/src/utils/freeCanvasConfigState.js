@@ -13,6 +13,27 @@ function cleanText(value, maxLength = 500) {
   return String(value ?? '').trim().replace(/\s+/g, ' ').slice(0, maxLength)
 }
 
+const TECHNICAL_ENGLISH_RE = /internal server error|econnrefused|enotfound|etimedout|typeerror|referenceerror|network error|failed to fetch|request failed/i
+
+function reasonText(value) {
+  if (value && typeof value === 'object') {
+    return cleanText(value.message || value.error || value.reason, 300)
+  }
+  return cleanText(value, 300)
+}
+
+/** 配置节点失败原因只展示简体中文，英文技术异常回落到明确下一步。 */
+export function toFreeCanvasConfigUserReason(value, fallback) {
+  const text = reasonText(value)
+  if (
+    text
+    && /[\u4e00-\u9fff]/.test(text)
+    && !/https?:\/\//i.test(text)
+    && !TECHNICAL_ENGLISH_RE.test(text)
+  ) return text
+  return cleanText(fallback, 300)
+}
+
 function nodeTitle(node, fallback) {
   return cleanText(node?.title || node?.label || node?.name || fallback, 120)
 }
@@ -67,7 +88,10 @@ function providerLabel(capability) {
 function operationReason(status, node) {
   if (status === 'running') return '生成任务正在运行，可随时取消。'
   if (status === 'failed') {
-    return cleanText(node?.metadata?.lastError, 300) || '上次生成失败，请检查输入与 AI 配置后重试。'
+    return toFreeCanvasConfigUserReason(
+      node?.metadata?.lastError,
+      '上次生成失败，请检查输入与 AI 配置后重试。',
+    )
   }
   if (status === 'cancelled') return '上次生成已取消，可在确认输入后重试。'
   return ''
@@ -194,7 +218,10 @@ export function buildFreeCanvasConfigRuntime(nodeId, canvas, options = {}) {
 
   let reason = operationReason(status, node)
   if (['blocked', 'checking', 'error'].includes(status)) {
-    reason = cleanText(gateReason, 300) || `${labelName}生成未就绪，请前往 AI 配置完成配置。`
+    reason = toFreeCanvasConfigUserReason(
+      gateReason,
+      `${labelName}生成未就绪，请前往 AI 配置完成配置。`,
+    )
   } else if (status === 'mock') {
     reason = `${label || '当前预演配置'}仅用于流程预演，不会产生正式${labelName}。`
   } else if (status === 'ready') {
@@ -246,7 +273,7 @@ export function resolveFreeCanvasConfigGenerationOutcome({
     return {
       status: 'failed',
       createResult: false,
-      lastError: cleanText(error, 300) || '生成失败，请稍后重试',
+      lastError: toFreeCanvasConfigUserReason(error, '生成失败，请稍后重试'),
       localPath: '',
     }
   }
@@ -321,7 +348,7 @@ export function applyFreeCanvasConfigGenerationResult(canvas, {
       ...(node.metadata && typeof node.metadata === 'object' ? node.metadata : {}),
       updatedAt: new Date().toISOString(),
     }
-    if (outcome?.lastError) metadata.lastError = cleanText(outcome.lastError, 300)
+    if (outcome?.lastError) metadata.lastError = toFreeCanvasConfigUserReason(outcome.lastError, '生成失败，请稍后重试')
     if (nextStatus === 'idle' || nextStatus === 'cancelled') delete metadata.lastError
     if (nextStatus === 'idle') delete metadata.operationId
     return { ...node, status: nextStatus, metadata }

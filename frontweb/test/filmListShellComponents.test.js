@@ -158,6 +158,39 @@ test('\u52a0\u8f7d\u5931\u8d25\u6a2a\u5e45\u4fdd\u7559 assertive live region\uff
   }
 })
 
+test('\u52a0\u8f7d\u5931\u8d25\u6a2a\u5e45\u51fa\u73b0\u65f6\u4f1a\u62ff\u5230\u7126\u70b9\uff0c\u4e14 aria-live \u4ecd\u662f assertive', async () => {
+  const listError = ref('')
+  const harness = mountHarness(renderer, () => h(FilmListFailureBanners, {
+    listError: listError.value,
+    listIsStale: false,
+    loading: false,
+    exportFailure: null,
+    exportingId: null,
+    importFailure: null,
+    importing: false,
+    listWriteLocked: true,
+    listWriteLockReason: '',
+    loadList: noop,
+    onExport: noop,
+    triggerImport: noop,
+    dismissImportFailure: noop,
+  }))
+  try {
+    assert.equal(findByClass(harness.root, 'data-load-state').length, 0)
+    listError.value = '\u65e0\u6cd5\u8fde\u63a5\u9879\u76ee\u670d\u52a1'
+    await nextTick()
+    await nextTick()
+    const banner = findByClass(harness.root, 'data-load-state')[0]
+    assert.ok(banner)
+    assert.equal(banner.props.role, 'alert')
+    assert.equal(banner.props['aria-live'], 'assertive')
+    assert.equal(banner.props.tabindex, '-1')
+    assert.match(textContent(banner), new RegExp(LOAD_FAIL))
+  } finally {
+    harness.app.unmount()
+  }
+})
+
 test('\u5bfc\u5165\u5931\u8d25\u6a2a\u5e45\u51fa\u73b0\u65f6\u4f1a\u62ff\u5230\u7126\u70b9\uff0c\u4e14 aria-live \u4ecd\u662f assertive', async () => {
   const importFailure = ref(null)
   const harness = mountHarness(renderer, () => h(FilmListFailureBanners, {

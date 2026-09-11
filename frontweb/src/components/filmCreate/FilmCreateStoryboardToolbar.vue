@@ -67,13 +67,24 @@
   <el-button
     size="small"
     plain
-    class="sb-ctrl-btn"
+    class="sb-ctrl-btn sb-ctrl-insert-btn"
     :aria-label="`在分镜${i + 1}前插入新分镜`"
     title="在本镜头前插入新分镜"
     @click="onInsertStoryboardBefore(sb)"
   >
     <el-icon aria-hidden="true"><Plus /></el-icon>
     <span>插入分镜</span>
+  </el-button>
+  <el-button
+    size="small"
+    plain
+    class="sb-ctrl-btn sb-ctrl-insert-btn"
+    :aria-label="`在分镜${i + 1}后插入新分镜`"
+    title="在本镜头后插入新分镜"
+    @click="onInsertStoryboardAfter(sb)"
+  >
+    <el-icon aria-hidden="true"><Plus /></el-icon>
+    <span>后插</span>
   </el-button>
   <el-button
     class="sb-ctrl-delete"
@@ -115,6 +126,7 @@ defineProps({
   onOpenVideoParamsDialog: { type: Function, required: true },
   onToggleSbUniversalMode: { type: Function, required: true },
   onInsertStoryboardBefore: { type: Function, required: true },
+  onInsertStoryboardAfter: { type: Function, required: true },
   onDeleteSingleStoryboard: { type: Function, required: true },
 })
 </script>

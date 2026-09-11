@@ -326,7 +326,7 @@ function emitSaveAsset() {
 .free-canvas-inspector {
   box-sizing: border-box;
   width: 340px;
-  max-height: min(680px, calc(100vh - 160px));
+  max-height: min(680px, calc(100vh - 286px));
   overflow-y: auto;
   padding: 14px;
   border: 1px solid var(--border-color, #3f3f46);

@@ -64,7 +64,9 @@ test('素材中心页把头、筛选、网格、卡片、空态和预览抽成�
 test('返回按钮、删除确认和空态文案保持产品合同', () => {
   assert.match(header, /:aria-label="returnTo \? '返回制作台' : '返回项目首页'"/)
   assert.match(header, /\{\{ returnTo \? '返回制作台' : '项目首页' \}\}/)
-  assert.match(localGrid, />返回项目首页<\/el-button>/)
+  assert.match(localGrid, /:aria-label="returnTo \? '返回制作台' : '返回项目首页'"/)
+  assert.match(localGrid, /\{\{ returnTo \? '返回制作台' : '返回项目首页' \}\}/)
+  assert.match(localGrid, /@click="goBack"/)
   assert.match(combined, /ElMessageBox\.confirm\(`\$\{describeMediaDeleteImpact\(item\)\}确定删除？`, '删除确认'/)
   assert.match(combined, /confirmButtonText: '删除'/)
   assert.match(combined, /当前项目（编号 \$\{scopedDramaId\.value\}）/)

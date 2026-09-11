@@ -12,6 +12,8 @@
     v-if="canvasMode === 'free' && !loading && !freeNodeCount"
     :create-free-canvas-node="createFreeCanvasNode"
     :open-free-canvas-media-picker="openFreeCanvasMediaPicker"
+    :hide-production-nodes="hideProductionNodes"
+    :set-hide-production-nodes="setHideProductionNodes"
   />
 </template>
 
@@ -29,6 +31,8 @@ defineProps({
   freeNodeCount: { type: Number, default: 0 },
   createFreeCanvasNode: { type: Function, required: true },
   openFreeCanvasMediaPicker: { type: Function, required: true },
+  hideProductionNodes: { type: Boolean, default: false },
+  setHideProductionNodes: { type: Function, default: () => {} },
 })
 
 const emit = defineEmits([

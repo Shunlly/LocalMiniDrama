@@ -80,6 +80,8 @@
         :free-node-count="freeNodeCount"
         :create-free-canvas-node="createFreeCanvasNode"
         :open-free-canvas-media-picker="openFreeCanvasMediaPicker"
+        :hide-production-nodes="hideProductionNodes"
+        :set-hide-production-nodes="setHideProductionNodes"
         @create-episode="openCreateDialog('episode')"
         @confirm-episode="confirmEpisodeSelection"
         @go-list="goListMode"

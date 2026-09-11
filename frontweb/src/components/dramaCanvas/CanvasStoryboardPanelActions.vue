@@ -64,52 +64,56 @@
         :aria-label="busyStep === 'narration-audio' ? '正在生成旁白配音，请稍候' : (narrationActionDisabledReason || '生成旁白配音')" @click.stop="runStep('narration-audio')"
       >旁白</el-button>
     </CanvasActionGate>
-    <el-button
-      size="small"
-      :disabled="!canMoveUp || Boolean(reorderDisabledReason)"
-      :loading="reorderBusy"
-      :title="moveUpTitle"
-      :aria-label="moveUpTitle"
-      @click.stop="moveStoryboardUp"
-    >上移</el-button>
-    <el-button
-      size="small"
-      :disabled="!canMoveDown || Boolean(reorderDisabledReason)"
-      :loading="reorderBusy"
-      :title="moveDownTitle"
-      :aria-label="moveDownTitle"
-      @click.stop="moveStoryboardDown"
-    >下移</el-button>
-    <el-button
-      size="small"
-      :disabled="Boolean(reorderDisabledReason)"
-      :loading="reorderBusy"
-      :title="insertTitle"
-      :aria-label="insertTitle"
-      @click.stop="insertStoryboardBefore"
-    >前插</el-button>
-    <el-button
-      size="small"
-      :disabled="Boolean(reorderDisabledReason)"
-      :loading="reorderBusy"
-      :title="insertAfterTitle"
-      :aria-label="insertAfterTitle"
-      @click.stop="insertStoryboardAfter"
-    >后插</el-button>
-    <el-button
-      size="small"
-      :disabled="Boolean(reorderDisabledReason)"
-      :loading="reorderBusy"
-      :title="appendTitle"
-      :aria-label="appendTitle"
-      @click.stop="appendStoryboard"
-    >追加</el-button>
+    <el-dropdown trigger="click" placement="bottom-start" @visible-change="onStructureMenuVisible">
+      <el-button
+        size="small"
+        :loading="reorderBusy"
+        aria-label="分镜结构：上移、下移、前插、后插、追加"
+        :aria-expanded="structureMenuOpen ? 'true' : 'false'"
+        aria-haspopup="true"
+        @click.stop="openStructureMenu"
+      >分镜结构</el-button>
+      <template #dropdown>
+        <el-dropdown-menu v-if="structureMenuOpen">
+          <el-dropdown-item
+            :disabled="!canMoveUp || Boolean(reorderDisabledReason)"
+            :title="moveUpTitle"
+            :aria-label="moveUpTitle"
+            @click.stop="moveStoryboardUp"
+          >上移</el-dropdown-item>
+          <el-dropdown-item
+            :disabled="!canMoveDown || Boolean(reorderDisabledReason)"
+            :title="moveDownTitle"
+            :aria-label="moveDownTitle"
+            @click.stop="moveStoryboardDown"
+          >下移</el-dropdown-item>
+          <el-dropdown-item
+            :disabled="Boolean(reorderDisabledReason)"
+            :title="insertTitle"
+            :aria-label="insertTitle"
+            @click.stop="insertStoryboardBefore"
+          >前插</el-dropdown-item>
+          <el-dropdown-item
+            :disabled="Boolean(reorderDisabledReason)"
+            :title="insertAfterTitle"
+            :aria-label="insertAfterTitle"
+            @click.stop="insertStoryboardAfter"
+          >后插</el-dropdown-item>
+          <el-dropdown-item
+            :disabled="Boolean(reorderDisabledReason)"
+            :title="appendTitle"
+            :aria-label="appendTitle"
+            @click.stop="appendStoryboard"
+          >追加</el-dropdown-item>
+        </el-dropdown-menu>
+      </template>
+    </el-dropdown>
     <el-button size="small" type="danger" plain aria-label="删除分镜" @click.stop="deleteStoryboard">删除</el-button>
   </div>
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { MagicStick, Refresh } from '@element-plus/icons-vue'
 import CanvasActionGate from './CanvasActionGate.vue'
 
@@ -155,6 +159,14 @@ const moveDownTitle = computed(() => {
 const insertTitle = computed(() => props.reorderDisabledReason || '在此分镜前插入空白分镜')
 const insertAfterTitle = computed(() => props.reorderDisabledReason || '在此分镜后插入空白分镜')
 const appendTitle = computed(() => props.reorderDisabledReason || '在本集末尾追加空白分镜')
+
+const structureMenuOpen = ref(false)
+function openStructureMenu() {
+  structureMenuOpen.value = true
+}
+function onStructureMenuVisible(visible) {
+  structureMenuOpen.value = Boolean(visible)
+}
 </script>
 
 <style scoped>

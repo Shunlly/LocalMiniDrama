@@ -83,6 +83,66 @@ function mediaProjectId(value) {
   return value?.projectId ?? value?.project_id ?? value?.drama_id ?? value?.dramaId
 }
 
+export function positiveFreeCanvasEntityId(value) {
+  const id = Number(value)
+  return Number.isInteger(id) && id > 0 ? id : 0
+}
+
+function assetProjectId(asset) {
+  return positiveFreeCanvasEntityId(
+    asset?.drama_id ?? asset?.dramaId ?? asset?.project_id ?? asset?.projectId,
+  )
+}
+
+/** 保存到素材中心后，用素材编号回读，项目编号不得当作素材编号。 */
+export function describeFreeCanvasAssetScopeMismatch(asset, projectId) {
+  const assetId = positiveFreeCanvasEntityId(asset?.id)
+  const assetDramaId = assetProjectId(asset)
+  const expectedProjectId = positiveFreeCanvasEntityId(projectId)
+  if (!assetId) return '素材保存失败：未返回有效素材编号'
+  if (!expectedProjectId) return '当前项目尚未就绪，无法验证素材归属'
+  if (assetId === expectedProjectId && assetDramaId !== expectedProjectId) {
+    return '素材保存失败：返回结果不属于当前项目'
+  }
+  if (assetDramaId !== expectedProjectId) return '素材保存失败：返回结果不属于当前项目'
+  return ''
+}
+
+export function describeFreeCanvasAssetAddBlockReason(asset, projectId) {
+  const expectedProjectId = positiveFreeCanvasEntityId(projectId)
+  if (!expectedProjectId) return '当前项目尚未就绪，无法添加素材'
+  const assetId = positiveFreeCanvasEntityId(asset?.id)
+  if (!assetId) return '该素材缺少有效编号，无法添加到画布'
+  if (!['image', 'video'].includes(asset?.type)) return '只能添加图片或视频素材'
+  const assetDramaId = assetProjectId(asset)
+  if (assetDramaId && assetDramaId !== expectedProjectId) {
+    return '请选择当前项目或全局素材，其他项目素材需要先复制到当前项目'
+  }
+  return ''
+}
+
+export async function confirmFreeCanvasCreatedAsset(created, { projectId, assetsApi } = {}) {
+  const createdId = positiveFreeCanvasEntityId(created?.id)
+  const expectedProjectId = positiveFreeCanvasEntityId(projectId)
+  if (!createdId) throw new Error('素材保存失败：未返回有效素材编号')
+  if (!expectedProjectId) throw new Error('当前项目尚未就绪，无法验证素材归属')
+  if (typeof assetsApi?.get !== 'function') throw new Error('素材服务不可用')
+
+  let confirmed = created
+  try {
+    confirmed = await assetsApi.get(createdId)
+  } catch {
+    confirmed = created
+  }
+  const confirmedId = positiveFreeCanvasEntityId(confirmed?.id)
+  if (!confirmedId || confirmedId !== createdId) {
+    throw new Error('素材保存失败：未返回有效素材编号')
+  }
+  const scopeError = describeFreeCanvasAssetScopeMismatch(confirmed, expectedProjectId)
+  if (scopeError) throw new Error(scopeError)
+  return confirmed
+}
+
 export function normalizeFreeCanvasMediaPath(value) {
   const source = String(value || '').trim()
   if (!source || source.length > 2048 || /[\u0000-\u001f\u007f]/.test(source)) return ''

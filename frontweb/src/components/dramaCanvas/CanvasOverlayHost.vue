@@ -122,7 +122,8 @@ defineProps({
   right: 20px;
   z-index: 1200;
   width: min(340px, calc(100vw - 32px));
-  max-height: min(680px, calc(100vh - 174px));
+  /* 底部留给上下文条和工具条，避免生成/复制按钮被盖住 */
+  max-height: min(680px, calc(100vh - 286px));
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
@@ -133,7 +134,7 @@ defineProps({
     top: 104px;
     right: 16px;
     width: calc(100vw - 32px);
-    max-height: min(620px, calc(100vh - 120px));
+    max-height: min(520px, calc(100vh - 240px));
   }
 }
 </style>

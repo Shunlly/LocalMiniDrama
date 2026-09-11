@@ -228,3 +228,28 @@ test('reload does not treat an interrupted running config as a successful genera
   assert.equal(resumable.status, 'running')
   assert.equal(resumable.operationId, 'task-123')
 })
+
+test('英文失败原因回落到中文下一步，不把技术原文展示给用户', () => {
+  const gate = { ready: true, status: 'ready', reason: '', serviceType: 'video' }
+  const failed = buildFreeCanvasConfigRuntime('config-1', canvasWithConfig({
+    status: 'failed',
+    metadata: { lastError: 'Internal Server Error' },
+  }), { gate })
+  assert.equal(failed.status, 'failed')
+  assert.match(failed.reason, /上次生成失败/)
+  assert.doesNotMatch(failed.reason, /Internal Server Error/)
+
+  const blocked = buildFreeCanvasConfigRuntime('config-1', canvasWithConfig(), {
+    gate: { ready: false, status: 'error', reason: 'Failed to fetch', serviceType: 'video' },
+  })
+  assert.match(blocked.reason, /请前往 AI 配置/)
+  assert.doesNotMatch(blocked.reason, /Failed to fetch/)
+
+  const outcome = resolveFreeCanvasConfigGenerationOutcome({
+    itemStatus: 'failed',
+    error: 'network error',
+  })
+  assert.equal(outcome.status, 'failed')
+  assert.match(outcome.lastError, /生成失败/)
+  assert.doesNotMatch(outcome.lastError, /network error/i)
+})

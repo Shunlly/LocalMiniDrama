@@ -1,15 +1,21 @@
 import { computed } from 'vue'
 import { getPipelineCompactAction, getPipelineCompactSecondaryAction, getPipelineControlReasons, isPipelineLocallyStopped } from '@/utils/filmPipelineAction'
-import { toPipelineDisabledReason, describePipelineErrorLog, describePipelinePanelUx } from '@/components/filmCreate/filmCreatePipelinePanelUx'
+import { toPipelineDisabledReason, describePipelineErrorLog, describePipelinePanelUx, resolvePipelineProductionReason } from '@/components/filmCreate/filmCreatePipelinePanelUx'
 
 /** 把全流程面板的展示状态收成可绑定属性，不改空剧本禁用语义。 */
 export function createFilmCreatePipelinePanelBindings(props) {
   const activeTaskLabels = computed(() => Array.from(props.activeTasks || []))
-  const cleanCurrentStep = computed(() => props.currentStep.replace(/^\[步骤 \d+\/\d+\] /, ''))
-  const productionReason = computed(() => toPipelineDisabledReason(
-    props.productionDisabledReason || props.disabledReason,
-    '完整成片暂不可生成',
-  ))
+  const cleanCurrentStep = computed(() => {
+    const stripped = String(props.currentStep || '').replace(/^\[步骤 \d+\/\d+\] /, '')
+    if (!stripped) return ''
+    return toPipelineDisabledReason(stripped, '正在执行全流程生成')
+  })
+  const productionReason = computed(() => resolvePipelineProductionReason({
+    productionDisabledReason: props.productionDisabledReason,
+    disabledReason: props.disabledReason,
+    productionReadinessReason: props.productionReadinessReason,
+    productionReadinessState: props.productionReadinessState,
+  }))
   const draftReason = computed(() => toPipelineDisabledReason(
     props.draftDisabledReason || props.disabledReason,
     '草稿预演暂不可生成',
@@ -41,6 +47,8 @@ export function createFilmCreatePipelinePanelBindings(props) {
     productionReason: productionReason.value,
     draftReason: draftReason.value,
     controlReasons: controlReasons.value,
+    countdown: props.countdown,
+    countdownMessage: props.countdownMessage,
   }))
   const pauseDisabledReason = computed(() => panelUx.value.pauseDisabledReason)
   const resumeDisabledReason = computed(() => panelUx.value.resumeDisabledReason)
@@ -172,7 +180,10 @@ export function createFilmCreatePipelinePanelBindings(props) {
   }))
   const statusPanelProps = computed(() => ({
     countdown: props.countdown,
-    countdownMessage: props.countdownMessage,
+    countdownMessage: panelUx.value.countdownMessage,
+    countdownAriaLabel: panelUx.value.countdownAriaLabel,
+    countdownPausedHint: panelUx.value.countdownPausedHint,
+    skipCountdownDisabledReason: panelUx.value.skipCountdownDisabledReason,
     paused: props.paused,
     pauseDisabledReason: pauseDisabledReason.value,
     displayErrorLog: displayErrorLog.value,

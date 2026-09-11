@@ -217,7 +217,7 @@ test('上传失败保留可见反馈，网络空结果不会伪装成成功列�
 test('顶栏上传按钮与筛选空态都提供明确的上传名称', () => {
   assert.equal((source.match(/aria-label="上传图片或视频到素材中心"/g) || []).length >= 4, true)
   assert.match(source, /立即上传[\s\S]*aria-label="上传图片或视频到素材中心"|aria-label="上传图片或视频到素材中心"[\s\S]*立即上传/)
-  assert.match(source, /aria-label="返回项目首页"[\s\S]*返回项目首页/)
+  assert.match(source, /:aria-label="returnTo \? '返回制作台' : '返回项目首页'"[\s\S]*返回项目首页/)
 })
 
 

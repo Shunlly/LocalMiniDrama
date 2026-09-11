@@ -17,6 +17,8 @@ const dramaApiSource = read('../src/api/drama.js')
 
 test('project list uses a persistent failure state without replacing it with an empty state', () => {
   assert.match(filmListSource, /v-if="listError"[\s\S]*role="alert"[\s\S]*您的项目数据没有被删除/)
+  assert.match(filmListSource, /\(\) => \[props\.listError, props\.exportFailure, props\.importFailure\]/)
+  assert.match(filmListSource, /listErrorEl\.value\?\.focus/)
   assert.match(filmListSource, /下方显示上次成功加载的数据，当前内容已过期/)
   assert.match(filmListSource, /@click="loadList"[\s\S]*重试加载/)
   assert.match(

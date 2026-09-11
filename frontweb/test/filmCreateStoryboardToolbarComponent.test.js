@@ -91,6 +91,7 @@ function mountToolbar(initial = {}) {
     onOpenVideoParamsDialog: (target) => events.push(['open-config', target.id]),
     onToggleSbUniversalMode: (target) => events.push(['toggle-mode', target.id]),
     onInsertStoryboardBefore: (target) => events.push(['insert-before', target.id]),
+    onInsertStoryboardAfter: (target) => events.push(['insert-after', target.id]),
     onDeleteSingleStoryboard: (id) => events.push(['delete', id]),
   }))
   return { ...mounted, events, sb }
@@ -112,7 +113,13 @@ test('分镜行头展示序号标题，插入删除配置按分镜编号和 id �
     const insert = buttonByAriaLabel(harness.root, `在分镜${INDEX + 1}前插入新分镜`)
     assert.ok(insert, '缺少按行号插入的分镜按钮')
     assert.equal(buttonByAriaLabel(harness.root, `在分镜${SB_NUMBER}前插入新分镜`), undefined)
+    const insertAfter = buttonByAriaLabel(harness.root, `在分镜${INDEX + 1}后插入新分镜`)
+    assert.ok(insertAfter, '缺少按行号后插的分镜按钮')
+    assert.equal(insertAfter.props.title, '在本镜头后插入新分镜')
+    assert.equal(buttonByAriaLabel(harness.root, `在分镜${SB_NUMBER}后插入新分镜`), undefined)
+    assert.ok(buttonByText(harness.root, '后插'), '后插按钮可见文案应为「后插」')
     click(insert)
+    click(insertAfter)
     click(buttonByText(harness.root, '⚙ 分镜配置'))
     click(buttonByText(harness.root, '全能模式'))
     const remove = buttonByAriaLabel(harness.root, `删除分镜${SB_NUMBER}`)
@@ -121,6 +128,7 @@ test('分镜行头展示序号标题，插入删除配置按分镜编号和 id �
     click(remove)
     assert.deepEqual(harness.events, [
       ['insert-before', SB_ID],
+      ['insert-after', SB_ID],
       ['open-config', SB_ID],
       ['toggle-mode', SB_ID],
       ['delete', SB_ID],

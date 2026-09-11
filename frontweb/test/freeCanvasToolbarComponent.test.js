@@ -33,6 +33,7 @@ const iconStubUrl = compileIconStub([
   'FolderOpened',
   'Hide',
   'FullScreen',
+  'View',
   'Link',
   'Picture',
   'Plus',
@@ -68,6 +69,7 @@ const toolbarEventListeners = {
   onSetMode: (value, events) => events.push(['set-mode', value]),
   onCopySelection: (_value, events) => events.push(['copy-selection']),
   onDeleteSelection: (_value, events) => events.push(['delete-selection']),
+  onToggleHideProduction: (value, events) => events.push(['toggle-hide-production', value]),
 }
 
 function mountToolbar(initialProps = {}) {
@@ -177,5 +179,19 @@ test('只读或未多选时对齐入口展示中文原因', () => {
     assert.equal(align.props.title, '请先框选至少 2 个节点再对齐')
   } finally {
     few.app.unmount()
+  }
+})
+test('隐藏制作节点后工具条露出可点的显示制作节点', () => {
+  setFreeCanvasUxState({ nodeCount: 0, readonly: false, selectionCount: 0 })
+  const hidden = mountToolbar({ hideProductionNodes: true, selectionCount: 0 })
+  try {
+    assert.match(textContent(hidden.root), /制作节点已隐藏，下一步可显示回来或新建自由节点/)
+    const reveal = buttonByAriaLabel(hidden.root, '显示制作节点')
+    assert.ok(reveal)
+    reveal.props.onClick()
+    assert.equal(hidden.events[0][0], 'toggle-hide-production')
+    assert.equal(hidden.events[0][1], false)
+  } finally {
+    hidden.app.unmount()
   }
 })

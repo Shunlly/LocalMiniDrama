@@ -71,13 +71,14 @@
       <el-tooltip :content="hideProductionActionLabel" placement="bottom">
         <el-button
           size="small"
-          circle
+          :circle="!hideProductionNodes"
           :aria-label="hideProductionActionLabel"
           :title="hideProductionActionLabel"
           :aria-pressed="hideProductionNodes"
           @click="emit('toggle-hide-production', !hideProductionNodes)"
         >
-          <el-icon><Hide /></el-icon>
+          <el-icon><View v-if="hideProductionNodes" /><Hide v-else /></el-icon>
+          <span v-if="hideProductionNodes">显示制作节点</span>
         </el-button>
       </el-tooltip>
 
@@ -106,7 +107,13 @@
       </CanvasActionGate>
 
       <div v-if="isEmptyCanvas" class="empty-next-steps" aria-label="空画布下一步">
-        <span class="empty-next-copy" role="status">画布是空的，下一步可直接开始</span>
+        <span class="empty-next-copy" role="status">{{ emptyNextCopy }}</span>
+        <el-button
+          v-if="hideProductionNodes"
+          size="small"
+          aria-label="显示制作节点"
+          @click="emit('toggle-hide-production', false)"
+        >显示制作节点</el-button>
         <el-button size="small" type="primary" aria-label="新建文本" @click="emit('create-node', 'text')">新建文本</el-button>
         <el-button size="small" aria-label="新建配置" @click="emit('create-node', 'config')">新建配置</el-button>
         <el-button size="small" aria-label="打开素材栏" @click="emit('toggle-library')">打开素材栏</el-button>
@@ -141,6 +148,7 @@ import {
   FolderOpened,
   Hide,
   FullScreen,
+  View,
   Link,
   Picture,
   Plus,
@@ -188,6 +196,11 @@ const libraryActionLabel = computed(() => props.libraryVisible ? '收起素材�
 const hideProductionActionLabel = computed(() => props.hideProductionNodes ? '显示制作节点' : '隐藏制作节点')
 const effectiveNodeCount = computed(() => freeCanvasUxState.nodeCount)
 const isEmptyCanvas = computed(() => isFreeMode.value && effectiveNodeCount.value === 0)
+const emptyNextCopy = computed(() => (
+  props.hideProductionNodes
+    ? '制作节点已隐藏，下一步可显示回来或新建自由节点'
+    : '画布是空的，下一步可直接开始'
+))
 const densityHint = computed(() => getFreeCanvasNodeCapacityHint(effectiveNodeCount.value))
 const alignDisabledReason = computed(() => getFreeCanvasAlignDisabledReason({
   selectionCount: props.selectionCount,

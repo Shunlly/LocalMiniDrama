@@ -1,5 +1,11 @@
 <template>
-  <div v-if="countdown > 0" class="pipeline-countdown">
+  <div
+    v-if="countdown > 0"
+    class="pipeline-countdown"
+    data-testid="film-pipeline-countdown"
+    role="timer"
+    :aria-label="countdownAriaLabel"
+  >
     <div class="pipeline-countdown-ring" aria-hidden="true">
       <span class="pipeline-countdown-num">{{ countdown }}</span>
       <span class="pipeline-countdown-unit">秒</span>
@@ -7,11 +13,21 @@
     <div class="pipeline-countdown-body">
       <p class="pipeline-countdown-msg">{{ countdownMessage }}</p>
       <div class="pipeline-countdown-actions">
-        <el-button size="small" type="success" aria-label="立即开始下一阶段" @click="$emit('skip-countdown')">立即开始下一阶段</el-button>
+        <ActionGate label="立即开始下一阶段" :reason="skipCountdownDisabledReason">
+          <el-button
+            size="small"
+            type="success"
+            data-testid="film-pipeline-skip-countdown"
+            :disabled="Boolean(skipCountdownDisabledReason)"
+            :title="skipCountdownDisabledReason || undefined"
+            :aria-label="skipCountdownAriaLabel"
+            @click="onSkipCountdown"
+          >立即开始下一阶段</el-button>
+        </ActionGate>
         <ActionGate v-if="!paused" label="暂停倒计时" :reason="pauseDisabledReason">
           <el-button size="small" type="warning" :disabled="Boolean(pauseDisabledReason)" :title="pauseDisabledReason || undefined" :aria-label="pauseDisabledReason || '暂停倒计时'" @click="$emit('pause')">暂停倒计时</el-button>
         </ActionGate>
-        <span v-else class="pipeline-countdown-paused">已暂停，点击“继续”恢复</span>
+        <span v-else class="pipeline-countdown-paused">{{ countdownPausedHint }}</span>
       </div>
     </div>
   </div>
@@ -34,11 +50,15 @@
 </template>
 
 <script setup>
+import { computed } from 'vue'
 import ActionGate from '@/components/filmCreate/ActionGate.vue'
 
-defineProps({
+const props = defineProps({
   countdown: { type: Number, default: 0 },
   countdownMessage: { type: String, default: '' },
+  countdownAriaLabel: { type: String, default: '' },
+  countdownPausedHint: { type: String, default: '已暂停，点击“继续”恢复' },
+  skipCountdownDisabledReason: { type: String, default: '' },
   paused: { type: Boolean, default: false },
   pauseDisabledReason: { type: String, default: '' },
   displayErrorLog: { type: Array, default: () => [] },
@@ -48,11 +68,22 @@ defineProps({
   retryDisabledReason: { type: String, default: '' },
 })
 
-defineEmits([
+const emit = defineEmits([
   'skip-countdown',
   'pause',
   'start-one-click',
 ])
+
+const skipCountdownAriaLabel = computed(() => (
+  props.skipCountdownDisabledReason
+    ? `立即开始下一阶段不可用：${props.skipCountdownDisabledReason}`
+    : '立即开始下一阶段'
+))
+
+function onSkipCountdown() {
+  if (props.skipCountdownDisabledReason) return
+  emit('skip-countdown')
+}
 </script>
 
 <style scoped>

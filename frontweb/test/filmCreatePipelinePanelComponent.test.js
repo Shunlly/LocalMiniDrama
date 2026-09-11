@@ -170,8 +170,15 @@ test('停止中禁用暂停/停止/倒计时暂停，紧凑入口不再提供启
     assert.equal(requireButton(harness.root, '停止').props.disabled, true)
     assert.equal(requireButton(harness.root, '暂停倒计时').props.disabled, true)
     assert.equal(findByTestId(harness.root, 'film-pipeline-action').length, 0)
-    click(requireButton(harness.root, '立即开始下一阶段'))
-    assert.deepEqual(harness.events, [['skip-countdown']])
+    const skip = requireButton(harness.root, '立即开始下一阶段')
+    assert.equal(skip.props.disabled, true)
+    assert.match(skip.props['aria-label'], /正在停止全流程/)
+    const countdown = findByTestId(harness.root, 'film-pipeline-countdown')[0]
+    assert.ok(countdown)
+    assert.equal(countdown.props.role, 'timer')
+    assert.match(countdown.props['aria-label'], /剩余 8 秒/)
+    click(skip)
+    assert.deepEqual(harness.events, [])
   } finally {
     harness.app.unmount()
   }
@@ -209,10 +216,15 @@ test('停止受阻时工具条只留重试停止，倒计时暂停仍可点', as
     assert.equal(buttonByText(harness.root, '继续'), undefined)
     const retryStop = requireButton(harness.root, '重试停止')
     assert.notEqual(retryStop.props.disabled, true)
+    const skip = requireButton(harness.root, '立即开始下一阶段')
+    assert.equal(skip.props.disabled, true)
+    assert.match(skip.props['aria-label'], /停止未完成/)
+    const pauseCountdown = requireButton(harness.root, '暂停倒计时')
+    assert.equal(pauseCountdown.props.disabled, true)
+    assert.match(String(pauseCountdown.props['aria-label'] || pauseCountdown.props.title || ''), /停止未完成/)
     click(retryStop)
-    click(requireButton(harness.root, '立即开始下一阶段'))
-    assert.deepEqual(harness.events, [['cancel'], ['skip-countdown']])
-    assert.ok(buttonByText(harness.root, '暂停倒计时'), '倒计时暂停入口仍在，因为停止受阻时 pauseDisabledReason 为空')
+    click(skip)
+    assert.deepEqual(harness.events, [['cancel']])
     assert.match(textContent(harness.root), /等待远端任务结束/)
     assert.match(textContent(harness.root), /全流程停止未完成/)
   } finally {
@@ -326,6 +338,9 @@ test('就绪后紧凑入口会启动一键成片，能力检查失败则重试',
     assert.match(textContent(primary), /先跑草稿预演/)
     assert.match(textContent(secondary), /配置缺失服务/)
     assert.match(secondary.props.class, /is-secondary/)
+    assert.notEqual(primary.props.disabled, true)
+    assert.equal(requireButton(missing.root, '一键生成成片').props.disabled, true)
+    assert.notEqual(requireButton(missing.root, '仅生成文本框架').props.disabled, true)
     const config = requireButton(missing.root, '前往 AI 配置')
     assert.equal(config.props['aria-label'], '前往 AI 配置')
     click(primary)
@@ -357,5 +372,46 @@ test('运行中可暂停和停止；生成设置改比例会保存', async () =>
     ])
   } finally {
     harness.app.unmount()
+  }
+})
+
+test('缺配置时主次按钮与 readiness 一致，倒计时英文收成中文', async () => {
+  const missing = mountPipeline({
+    productionReadinessState: 'missing',
+    productionReadinessServiceType: 'tts',
+  })
+  try {
+    await nextTick()
+    const compact = findByTestId(missing.root, 'film-pipeline-action')[0]
+    const secondary = findByTestId(missing.root, 'film-pipeline-secondary-action')[0]
+    assert.match(textContent(compact), /先跑草稿预演/)
+    assert.match(textContent(secondary), /配置缺失服务/)
+    assert.match(secondary.props.class, /is-secondary/)
+    assert.equal(requireButton(missing.root, '一键生成成片').props.disabled, true)
+    assert.notEqual(requireButton(missing.root, '仅生成文本框架').props.disabled, true)
+  } finally {
+    missing.app.unmount()
+  }
+
+  const countdown = mountPipeline({
+    running: true,
+    countdown: 6,
+    countdownMessage: 'timeout of 15000ms',
+    currentStep: 'Failed to fetch storyboard',
+  })
+  try {
+    await nextTick()
+    assert.doesNotMatch(textContent(countdown.root), /timeout of 15000ms|Failed to fetch/i)
+    assert.match(textContent(countdown.root), /即将进入下一阶段|正在执行全流程生成/)
+    const region = findByTestId(countdown.root, 'film-pipeline-countdown')[0]
+    assert.equal(region.props.role, 'timer')
+    assert.match(region.props['aria-label'], /剩余 6 秒/)
+    assert.doesNotMatch(region.props['aria-label'], /timeout of 15000ms|Failed to fetch/i)
+    const skip = findByTestId(countdown.root, 'film-pipeline-skip-countdown')[0]
+    assert.ok(skip)
+    assert.notEqual(skip.props.disabled, true)
+    assert.equal(skip.props['aria-label'], '立即开始下一阶段')
+  } finally {
+    countdown.app.unmount()
   }
 })

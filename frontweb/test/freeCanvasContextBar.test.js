@@ -62,3 +62,18 @@ test('context bar is wired through overlay bindings and keeps generate-config pl
   assert.match(graph, /hideProductionNodes: canvasMode\.value === 'free' && Boolean\(freeCanvas\.value\.hideProductionNodes\)/)
   assert.match(graph, /function setHideProductionNodes/)
 })
+
+test('上下文条叠在检查器之上，并为右侧检查器让出水平空间', () => {
+  const bar = read('../src/components/dramaCanvas/FreeCanvasContextBar.vue')
+  const overlay = read('../src/components/dramaCanvas/CanvasOverlayHost.vue')
+  const pageCss = read('../src/views/DramaCanvas.css')
+  const inspector = read('../src/components/dramaCanvas/FreeCanvasInspector.vue')
+  assert.match(bar, /z-index: 1300/)
+  assert.match(bar, /left: calc\(\(100vw - 380px\) \/ 2\)/)
+  assert.match(bar, /max-width: min\(720px, calc\(100vw - 420px\)\)/)
+  assert.match(overlay, /z-index: 1200/)
+  assert.match(overlay, /max-height: min\(680px, calc\(100vh - 286px\)\)/)
+  assert.match(pageCss, /max-height: min\(680px, calc\(100vh - 286px\)\)/)
+  assert.match(inspector, /max-height: min\(680px, calc\(100vh - 286px\)\)/)
+  assert.match(overlay, /max-height: min\(520px, calc\(100vh - 240px\)\)/)
+})

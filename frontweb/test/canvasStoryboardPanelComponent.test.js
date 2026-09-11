@@ -7,6 +7,7 @@ import { defineComponent, h, nextTick } from 'vue'
 import {
   buttonByAriaLabel,
   buttonByText,
+  click,
   compileIconStub,
   compileSfc,
   createHostRenderer,
@@ -88,11 +89,54 @@ const ElFormStub = defineComponent({
   },
 })
 
+const ElDropdownItemStub = defineComponent({
+  name: 'ElDropdownItemStub',
+  inheritAttrs: false,
+  props: {
+    command: { default: undefined },
+    disabled: { type: Boolean, default: false },
+    title: { type: String, default: '' },
+  },
+  setup(props, { attrs, slots }) {
+    return () => h('button', {
+      type: 'button',
+      disabled: Boolean(props.disabled),
+      title: props.title || undefined,
+      'aria-label': attrs['aria-label'],
+      'data-command': props.command,
+      onClick: (event) => {
+        if (props.disabled) return
+        const handler = attrs.onClick
+        if (Array.isArray(handler)) {
+          for (const fn of handler) fn?.(event)
+          return
+        }
+        handler?.(event)
+      },
+    }, slots.default?.())
+  },
+})
+
 const extraStubs = {
   'el-form': ElFormStub,
   ElForm: ElFormStub,
   'el-form-item': ElFormItemStub,
   ElFormItem: ElFormItemStub,
+  'el-dropdown-item': ElDropdownItemStub,
+  ElDropdownItem: ElDropdownItemStub,
+}
+
+function structureTrigger(root) {
+  return buttonByAriaLabel(root, '分镜结构：上移、下移、前插、后插、追加')
+}
+
+async function openStructureMenu(root) {
+  const trigger = buttonByText(root, '分镜结构')
+  assert.ok(trigger)
+  assert.equal(trigger.props['aria-label'], '分镜结构：上移、下移、前插、后插、追加')
+  click(trigger)
+  await nextTick()
+  return trigger
 }
 
 function controlLabel(name) {
@@ -239,6 +283,12 @@ test('首尾帧空态显示暂无首帧和暂无尾帧', () => {
 
 test('操作栏经典模式可生图，首尾帧模式露出生成首帧/尾帧，禁用视频带中文原因', async () => {
   const events = []
+  const projectId = 11
+  const episodeId = 22
+  const storyboardId = 33
+  assert.notEqual(projectId, episodeId)
+  assert.notEqual(episodeId, storyboardId)
+  assert.notEqual(projectId, storyboardId)
   const classic = mountChild(Actions, {
     saving: false,
     busyStep: '',
@@ -256,7 +306,12 @@ test('操作栏经典模式可生图，首尾帧模式露出生成首帧/尾帧�
     runStep: (step) => events.push(['step', step]),
     deleteStoryboard: () => events.push('delete'),
     canMoveUp: true,
-    moveStoryboardUp: () => events.push('up'),
+    canMoveDown: true,
+    moveStoryboardUp: () => events.push({ action: 'up', storyboardId, episodeId, projectId }),
+    moveStoryboardDown: () => events.push({ action: 'down', storyboardId, episodeId, projectId }),
+    insertStoryboardBefore: () => events.push({ action: 'before', storyboardId, episodeId, projectId }),
+    insertStoryboardAfter: () => events.push({ action: 'after', storyboardId, episodeId, projectId }),
+    appendStoryboard: () => events.push({ action: 'append', episodeId, projectId, storyboardId }),
   })
   try {
     const text = textContent(classic.root)
@@ -267,13 +322,58 @@ test('操作栏经典模式可生图，首尾帧模式露出生成首帧/尾帧�
     assert.match(text, /配音/)
     assert.match(text, /旁白/)
     assert.match(text, /删除/)
-    assert.match(text, /上移/)
-    assert.match(text, /下移/)
-    assert.match(text, /前插/)
-    assert.match(text, /后插/)
-    assert.match(text, /追加/)
+    assert.match(text, /分镜结构/)
     assert.doesNotMatch(text, /AI 分镜/)
+    assert.ok(buttonByText(classic.root, '保存'))
+    assert.ok(buttonByText(classic.root, '润色'))
+    assert.ok(buttonByText(classic.root, '生图'))
+    assert.ok(buttonByText(classic.root, '生视频'))
+    assert.ok(buttonByText(classic.root, '配音'))
+    assert.ok(buttonByText(classic.root, '旁白'))
+    assert.ok(buttonByText(classic.root, '删除'))
+    assert.ok(buttonByText(classic.root, '分镜结构'))
+    assert.ok(structureTrigger(classic.root))
+    assert.equal(buttonByText(classic.root, '上移'), undefined)
+    assert.equal(buttonByText(classic.root, '下移'), undefined)
+    assert.equal(buttonByText(classic.root, '前插'), undefined)
+    assert.equal(buttonByText(classic.root, '后插'), undefined)
+    assert.equal(buttonByText(classic.root, '追加'), undefined)
     assert.equal(buttonByText(classic.root, '生成首帧'), undefined)
+
+    await openStructureMenu(classic.root)
+    const opened = textContent(classic.root)
+    assert.match(opened, /上移/)
+    assert.match(opened, /下移/)
+    assert.match(opened, /前插/)
+    assert.match(opened, /后插/)
+    assert.match(opened, /追加/)
+    assert.ok(buttonByText(classic.root, '保存'))
+    assert.ok(buttonByText(classic.root, '润色'))
+    assert.ok(buttonByText(classic.root, '生图'))
+    assert.ok(buttonByText(classic.root, '生视频'))
+    assert.ok(buttonByText(classic.root, '配音'))
+    assert.ok(buttonByText(classic.root, '旁白'))
+    assert.ok(buttonByText(classic.root, '删除'))
+
+    for (const label of ['上移', '下移', '前插', '后插', '追加']) {
+      const item = buttonByText(classic.root, label)
+      assert.ok(item, `打开菜单后应能找到${label}`)
+      click(item)
+      await nextTick()
+    }
+    assert.deepEqual(events, [
+      { action: 'up', storyboardId, episodeId, projectId },
+      { action: 'down', storyboardId, episodeId, projectId },
+      { action: 'before', storyboardId, episodeId, projectId },
+      { action: 'after', storyboardId, episodeId, projectId },
+      { action: 'append', episodeId, projectId, storyboardId },
+    ])
+    assert.notEqual(events[0].storyboardId, events[0].episodeId)
+    assert.notEqual(events[0].storyboardId, events[0].projectId)
+    assert.notEqual(events[4].episodeId, events[4].storyboardId)
+    assert.notEqual(events[4].episodeId, events[4].projectId)
+    events.length = 0
+
     buttonByText(classic.root, '生图').props.onClick({ stopPropagation() {} })
     await nextTick()
     assert.deepEqual(events, [['step', 'image']])

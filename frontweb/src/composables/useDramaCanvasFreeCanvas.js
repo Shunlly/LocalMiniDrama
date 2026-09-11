@@ -28,6 +28,7 @@ import {
 import {
   buildFreeCanvasAssetReferencePatch,
   buildFreeCanvasStoryboardMediaItems,
+  confirmFreeCanvasCreatedAsset,
   getFreeCanvasAssetSaveEligibility,
   normalizeFreeCanvasMediaPath,
   resolveFreeCanvasMediaPath,
@@ -906,16 +907,18 @@ export function useDramaCanvasFreeCanvas(deps) {
         ElMessage.error(safeFreeCanvasError(saved.error, '画布保存失败，暂时无法创建素材'))
         return
       }
-      const asset = await assetsAPI.create({
-        drama_id: Number(dramaId.value),
+      const created = await assetsAPI.create({
+        drama_id: requestedProjectId,
         name: node.title || (node.type === 'video' ? '自由画布视频' : '自由画布图片'),
         type: node.type,
         url: `/static/${mediaReference}`,
         local_path: mediaReference,
       })
-      if (!asset?.id || Number(asset.drama_id) !== Number(dramaId.value)) {
-        throw new Error('素材创建结果不属于当前项目')
-      }
+      const asset = await confirmFreeCanvasCreatedAsset(created, {
+        projectId: requestedProjectId,
+        assetsApi: assetsAPI,
+      })
+      if (!canvasInstanceActive.value || requestedProjectId !== Number(dramaId.value)) return
       projectAssets.value = [
         asset,
         ...projectAssets.value.filter((item) => Number(item.id) !== Number(asset.id)),

@@ -7,9 +7,11 @@ import { uploadAPI } from '@/api/upload'
 import { isCanvasUserAbort } from '@/composables/useCanvasUserError'
 import {
   FREE_CANVAS_MEDIA_DRAG_TYPE,
+  describeFreeCanvasAssetAddBlockReason,
   freeCanvasMediaUrl,
   normalizeFreeCanvasMediaPath,
   parseFreeCanvasMediaDragPayload,
+  positiveFreeCanvasEntityId,
 } from '@/utils/freeCanvasMedia'
 import {
   MEDIA_LIBRARY_MAX_FILE_SIZE_LABEL,
@@ -96,19 +98,20 @@ export function useDramaCanvasFreeCanvasMedia(deps = {}) {
   }
 
   async function createFreeNodeFromAsset(asset, position = null) {
-    const sourceDramaId = asset?.drama_id
-    if (sourceDramaId != null && Number(sourceDramaId) !== Number(dramaId.value)) {
-      ElMessage.warning('请选择当前项目或全局素材，其他项目素材需要先复制到当前项目')
+    const blockReason = describeFreeCanvasAssetAddBlockReason(asset, dramaId.value)
+    if (blockReason) {
+      ElMessage.warning(blockReason)
       return false
     }
-    const assetType = asset?.type === 'video' ? 'video' : 'image'
+    const assetId = positiveFreeCanvasEntityId(asset.id)
+    const assetType = asset.type === 'video' ? 'video' : 'image'
     const storageKey = localMediaReference(asset)
-    const current = projectAssets.value.filter((item) => Number(item.id) !== Number(asset.id))
-    projectAssets.value = [asset, ...current]
+    const current = projectAssets.value.filter((item) => Number(item.id) !== assetId)
+    projectAssets.value = [{ ...asset, id: assetId }, ...current]
     await createFreeCanvasNode(assetType, position, {
       title: asset?.name || (assetType === 'video' ? '视频素材' : '图片素材'),
-      asset_ref: asset?.id,
-      assetId: asset?.id,
+      asset_ref: assetId,
+      assetId,
       ...(storageKey ? { storageKey, content: storageKey } : {}),
     })
     return true
