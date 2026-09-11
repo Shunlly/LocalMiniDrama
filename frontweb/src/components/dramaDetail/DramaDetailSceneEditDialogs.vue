@@ -17,8 +17,8 @@
       <el-form-item label="图片提示词"><el-input v-model="editDramaSceneForm.prompt" type="textarea" :rows="2" placeholder="图片生成用的详细提示词" aria-label="制作场景图片提示词" /></el-form-item>
     </el-form>
     <template #footer>
-      <el-button @click="requestResourceEditorClose('dramaScene')">取消</el-button>
-      <el-button type="primary" :loading="editDramaSceneSaving" :disabled="editDramaSceneSaving" :title="editDramaSceneSaving ? '正在保存，请稍候' : undefined" @click="saveDramaScene">保存</el-button>
+      <el-button aria-label="取消编辑制作场景" @click="requestResourceEditorClose('dramaScene')">取消</el-button>
+      <el-button type="primary" :loading="editDramaSceneSaving" :disabled="editDramaSceneSaving" :title="editDramaSceneSaving ? '正在保存，请稍候' : undefined" :aria-label="editDramaSceneSaving ? '正在保存，请稍候' : '保存制作场景'" @click="saveDramaScene">保存</el-button>
     </template>
   </AccessibleDialog>
 
@@ -41,8 +41,8 @@
       <el-form-item label="标签"><el-input v-model="editSceneForm.tags" placeholder="逗号分隔" aria-label="场景标签" /></el-form-item>
     </el-form>
     <template #footer>
-      <el-button @click="requestResourceEditorClose('scene')">取消</el-button>
-      <el-button type="primary" :loading="editSceneSaving" :disabled="editSceneSaving" :title="editSceneSaving ? '正在保存，请稍候' : undefined" @click="saveScene">保存</el-button>
+      <el-button aria-label="取消编辑场景" @click="requestResourceEditorClose('scene')">取消</el-button>
+      <el-button type="primary" :loading="editSceneSaving" :disabled="editSceneSaving" :title="editSceneSaving ? '正在保存，请稍候' : undefined" :aria-label="editSceneSaving ? '正在保存，请稍候' : '保存场景'" @click="saveScene">保存</el-button>
     </template>
   </AccessibleDialog>
 </template>

@@ -24,8 +24,8 @@
       <el-form-item label="外貌"><el-input v-model="editDramaCharForm.appearance" type="textarea" :rows="2" placeholder="外貌特征（影响图片生成）" aria-label="制作角色外貌" /></el-form-item>
     </el-form>
     <template #footer>
-      <el-button @click="requestResourceEditorClose('dramaChar')">取消</el-button>
-      <el-button type="primary" :loading="editDramaCharSaving" :disabled="editDramaCharSaving" :title="editDramaCharSaving ? '正在保存，请稍候' : undefined" @click="saveDramaChar">保存</el-button>
+      <el-button aria-label="取消编辑制作角色" @click="requestResourceEditorClose('dramaChar')">取消</el-button>
+      <el-button type="primary" :loading="editDramaCharSaving" :disabled="editDramaCharSaving" :title="editDramaCharSaving ? '正在保存，请稍候' : undefined" :aria-label="editDramaCharSaving ? '正在保存，请稍候' : '保存制作角色'" @click="saveDramaChar">保存</el-button>
     </template>
   </AccessibleDialog>
 
@@ -47,8 +47,8 @@
       <el-form-item label="标签"><el-input v-model="editCharForm.tags" placeholder="逗号分隔" aria-label="角色标签" /></el-form-item>
     </el-form>
     <template #footer>
-      <el-button @click="requestResourceEditorClose('char')">取消</el-button>
-      <el-button type="primary" :loading="editCharSaving" :disabled="editCharSaving" :title="editCharSaving ? '正在保存，请稍候' : undefined" @click="saveChar">保存</el-button>
+      <el-button aria-label="取消编辑角色" @click="requestResourceEditorClose('char')">取消</el-button>
+      <el-button type="primary" :loading="editCharSaving" :disabled="editCharSaving" :title="editCharSaving ? '正在保存，请稍候' : undefined" :aria-label="editCharSaving ? '正在保存，请稍候' : '保存角色'" @click="saveChar">保存</el-button>
     </template>
   </AccessibleDialog>
 </template>

@@ -12,6 +12,7 @@
             class="res-tab res-tab--lib"
             :class="{ active: activeResTab === t.v }"
             :aria-selected="activeResTab === t.v"
+            :aria-label="`资源库${t.label}`"
             :aria-controls="`drama-res-panel-${t.v}`"
             @click="activeResTab = t.v"
             @keydown="onResourceTabKeydown"
@@ -27,6 +28,7 @@
             class="res-tab res-tab--drama"
             :class="{ active: activeResTab === t.v }"
             :aria-selected="activeResTab === t.v"
+            :aria-label="`制作资源${t.label}`"
             :aria-controls="`drama-res-panel-${t.v}`"
             @click="activeResTab = t.v"
             @keydown="onResourceTabKeydown"
@@ -38,7 +40,7 @@
           <div id="drama-res-panel-lib-char" class="res-tabpanel" role="tabpanel" aria-labelledby="drama-res-tab-lib-char" tabindex="0">
           <div class="library-toolbar">
             <el-input v-model="charKw" placeholder="搜索角色" aria-label="搜索角色" clearable style="width: 200px" @input="onCharKwInput" />
-            <el-button size="small" @click="openImport('char')">从素材库导入</el-button>
+            <el-button size="small" aria-label="从素材库导入角色" @click="openImport('char')">从素材库导入</el-button>
           </div>
           <DramaDetailResourceLibraryList :loading="charLoading" :items="charList">
             <template #error>
@@ -47,7 +49,7 @@
                   {{ charError }}
                   <template v-if="charList.length">当前仍显示上次成功加载的角色。</template>
                 </span>
-                <el-button size="small" type="primary" plain :loading="charLoading" @click="loadCharList">重试</el-button>
+                <el-button size="small" type="primary" plain :loading="charLoading" :aria-label="charLoading ? '正在加载角色库，请稍候' : '重试加载角色库'" @click="loadCharList">重试</el-button>
               </div>
             </template>
             <template #item="{ item }">
@@ -76,8 +78,8 @@
                 <div class="library-item-name">{{ item.name || '未命名' }}</div>
                 <div class="library-item-desc">{{ (item.description || '').slice(0, 60) }}</div>
                 <div class="library-item-actions">
-                  <el-button size="small" @click="openEditChar(item)">编辑</el-button>
-                  <el-button size="small" type="danger" plain @click="deleteChar(item)">删除</el-button>
+                  <el-button size="small" :aria-label="`编辑角色${item.name || '未命名角色'}`" @click="openEditChar(item)">编辑</el-button>
+                  <el-button size="small" type="danger" plain :aria-label="`删除角色${item.name || '未命名角色'}`" @click="deleteChar(item)">删除</el-button>
                 </div>
               </div>
             </template>
@@ -87,8 +89,8 @@
                 :title="charKw.trim() ? '没有匹配的角色' : '暂无本剧角色库记录'"
                 :copy="charKw.trim() ? '试试其他关键词，或清除搜索后重新查看。' : '可以从公共素材库导入角色，或先在制作页提取后再入库。'"
               >
-                <el-button v-if="charKw.trim()" size="small" @click="charKw = ''; loadCharList()">清除搜索</el-button>
-                <el-button v-else size="small" type="primary" plain @click="openImport('char')">从素材库导入角色</el-button>
+                <el-button v-if="charKw.trim()" size="small" aria-label="清除角色搜索" @click="charKw = ''; loadCharList()">清除搜索</el-button>
+                <el-button v-else size="small" type="primary" plain aria-label="从素材库导入角色" @click="openImport('char')">从素材库导入角色</el-button>
               </DramaDetailResourceEmptyState>
             </template>
           </DramaDetailResourceLibraryList>
@@ -103,7 +105,7 @@
           <div id="drama-res-panel-lib-scene" class="res-tabpanel" role="tabpanel" aria-labelledby="drama-res-tab-lib-scene" tabindex="0">
           <div class="library-toolbar">
             <el-input v-model="sceneKw" placeholder="搜索场景" aria-label="搜索场景" clearable style="width: 200px" @input="onSceneKwInput" />
-            <el-button size="small" @click="openImport('scene')">从素材库导入</el-button>
+            <el-button size="small" aria-label="从素材库导入场景" @click="openImport('scene')">从素材库导入</el-button>
           </div>
           <DramaDetailResourceLibraryList :loading="sceneLoading" :items="sceneList">
             <template #error>
@@ -112,7 +114,7 @@
                   {{ sceneError }}
                   <template v-if="sceneList.length">当前仍显示上次成功加载的场景。</template>
                 </span>
-                <el-button size="small" type="primary" plain :loading="sceneLoading" @click="loadSceneList">重试</el-button>
+                <el-button size="small" type="primary" plain :loading="sceneLoading" :aria-label="sceneLoading ? '正在加载场景库，请稍候' : '重试加载场景库'" @click="loadSceneList">重试</el-button>
               </div>
             </template>
             <template #item="{ item }">
@@ -141,8 +143,8 @@
                 <div class="library-item-name">{{ item.location || item.time || '未命名' }}</div>
                 <div class="library-item-desc">{{ (item.description || item.prompt || '').slice(0, 60) }}</div>
                 <div class="library-item-actions">
-                  <el-button size="small" @click="openEditScene(item)">编辑</el-button>
-                  <el-button size="small" type="danger" plain @click="deleteScene(item)">删除</el-button>
+                  <el-button size="small" :aria-label="`编辑场景${item.location || '未命名场景'}`" @click="openEditScene(item)">编辑</el-button>
+                  <el-button size="small" type="danger" plain :aria-label="`删除场景${item.location || '未命名场景'}`" @click="deleteScene(item)">删除</el-button>
                 </div>
               </div>
             </template>
@@ -152,8 +154,8 @@
                 :title="sceneKw.trim() ? '没有匹配的场景' : '暂无本剧场景库记录'"
                 :copy="sceneKw.trim() ? '试试其他关键词，或清除搜索后重新查看。' : '可以从公共素材库导入场景，或先在制作页提取后再入库。'"
               >
-                <el-button v-if="sceneKw.trim()" size="small" @click="sceneKw = ''; loadSceneList()">清除搜索</el-button>
-                <el-button v-else size="small" type="primary" plain @click="openImport('scene')">从素材库导入场景</el-button>
+                <el-button v-if="sceneKw.trim()" size="small" aria-label="清除场景搜索" @click="sceneKw = ''; loadSceneList()">清除搜索</el-button>
+                <el-button v-else size="small" type="primary" plain aria-label="从素材库导入场景" @click="openImport('scene')">从素材库导入场景</el-button>
               </DramaDetailResourceEmptyState>
             </template>
           </DramaDetailResourceLibraryList>
@@ -168,7 +170,7 @@
           <div id="drama-res-panel-lib-prop" class="res-tabpanel" role="tabpanel" aria-labelledby="drama-res-tab-lib-prop" tabindex="0">
           <div class="library-toolbar">
             <el-input v-model="propKw" placeholder="搜索道具" aria-label="搜索道具" clearable style="width: 200px" @input="onPropKwInput" />
-            <el-button size="small" @click="openImport('prop')">从素材库导入</el-button>
+            <el-button size="small" aria-label="从素材库导入道具" @click="openImport('prop')">从素材库导入</el-button>
           </div>
           <DramaDetailResourceLibraryList :loading="propLoading" :items="propList">
             <template #error>
@@ -177,7 +179,7 @@
                   {{ propError }}
                   <template v-if="propList.length">当前仍显示上次成功加载的道具。</template>
                 </span>
-                <el-button size="small" type="primary" plain :loading="propLoading" @click="loadPropList">重试</el-button>
+                <el-button size="small" type="primary" plain :loading="propLoading" :aria-label="propLoading ? '正在加载道具库，请稍候' : '重试加载道具库'" @click="loadPropList">重试</el-button>
               </div>
             </template>
             <template #item="{ item }">
@@ -206,8 +208,8 @@
                 <div class="library-item-name">{{ item.name || '未命名' }}</div>
                 <div class="library-item-desc">{{ (item.description || item.prompt || '').slice(0, 60) }}</div>
                 <div class="library-item-actions">
-                  <el-button size="small" @click="openEditProp(item)">编辑</el-button>
-                  <el-button size="small" type="danger" plain @click="deleteProp(item)">删除</el-button>
+                  <el-button size="small" :aria-label="`编辑道具${item.name || '未命名道具'}`" @click="openEditProp(item)">编辑</el-button>
+                  <el-button size="small" type="danger" plain :aria-label="`删除道具${item.name || '未命名道具'}`" @click="deleteProp(item)">删除</el-button>
                 </div>
               </div>
             </template>
@@ -217,8 +219,8 @@
                 :title="propKw.trim() ? '没有匹配的道具' : '暂无本剧道具库记录'"
                 :copy="propKw.trim() ? '试试其他关键词，或清除搜索后重新查看。' : '可以从公共素材库导入道具，或先在制作页提取后再入库。'"
               >
-                <el-button v-if="propKw.trim()" size="small" @click="propKw = ''; loadPropList()">清除搜索</el-button>
-                <el-button v-else size="small" type="primary" plain @click="openImport('prop')">从素材库导入道具</el-button>
+                <el-button v-if="propKw.trim()" size="small" aria-label="清除道具搜索" @click="propKw = ''; loadPropList()">清除搜索</el-button>
+                <el-button v-else size="small" type="primary" plain aria-label="从素材库导入道具" @click="openImport('prop')">从素材库导入道具</el-button>
               </DramaDetailResourceEmptyState>
             </template>
           </DramaDetailResourceLibraryList>
@@ -263,7 +265,7 @@
                 </div>
                 <div class="drama-res-desc">{{ (item.description || item.prompt || '').slice(0, 80) }}</div>
                 <div class="drama-res-actions">
-                  <el-button size="small" @click="openEditDramaChar(item)">编辑</el-button>
+                  <el-button size="small" :aria-label="`编辑制作角色${item.name || '未命名角色'}`" @click="openEditDramaChar(item)">编辑</el-button>
                 </div>
               </div>
             </template>
@@ -314,7 +316,7 @@
                 </div>
                 <div class="drama-res-desc">{{ (item.description || item.prompt || '').slice(0, 80) }}</div>
                 <div class="drama-res-actions">
-                  <el-button size="small" @click="openEditDramaScene(item)">编辑</el-button>
+                  <el-button size="small" :aria-label="`编辑制作场景${item.location || '未命名场景'}`" @click="openEditDramaScene(item)">编辑</el-button>
                 </div>
               </div>
             </template>
@@ -365,7 +367,7 @@
                 </div>
                 <div class="drama-res-desc">{{ (item.description || item.prompt || '').slice(0, 80) }}</div>
                 <div class="drama-res-actions">
-                  <el-button size="small" @click="openEditDramaProp(item)">编辑</el-button>
+                  <el-button size="small" :aria-label="`编辑制作道具${item.name || '未命名道具'}`" @click="openEditDramaProp(item)">编辑</el-button>
                 </div>
               </div>
             </template>

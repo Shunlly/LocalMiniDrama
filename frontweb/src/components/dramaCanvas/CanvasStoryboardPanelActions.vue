@@ -1,24 +1,24 @@
 <template>
   <div class="panel-actions">
-    <el-button size="small" :loading="saving" @click.stop="saveFields">保存</el-button>
-    <el-button v-if="!isUniversal" size="small" :loading="busyStep === 'polish'" @click.stop="polishPrompt">润色</el-button>
+    <el-button size="small" :loading="saving" :aria-label="saving ? '正在保存分镜，请稍候' : '保存分镜'" @click.stop="saveFields">保存</el-button>
+    <el-button v-if="!isUniversal" size="small" :loading="busyStep === 'polish'" :aria-label="busyStep === 'polish' ? '正在润色提示词，请稍候' : '润色分镜提示词'" @click.stop="polishPrompt">润色</el-button>
     <el-button
       v-if="isUniversal"
       size="small"
       :icon="MagicStick"
       :loading="busyStep === 'universal-generate'"
-      @click.stop="runUniversalPrompt('generate')"
+      :aria-label="busyStep === 'universal-generate' ? '正在生成全能词，请稍候' : '生成全能词'" @click.stop="runUniversalPrompt('generate')"
     >生成全能词</el-button>
     <el-button
       v-if="isUniversal && universalSegmentText.trim()"
       size="small"
       :icon="Refresh"
       :loading="busyStep === 'universal-polish'"
-      @click.stop="runUniversalPrompt('polish')"
+      :aria-label="busyStep === 'universal-polish' ? '正在流式润色，请稍候' : '流式润色'" @click.stop="runUniversalPrompt('polish')"
     >流式润色</el-button>
-    <el-button v-if="!isUniversal && !useFirstLast" size="small" type="primary" :loading="busyStep === 'image'" @click.stop="runStep('image')">生图</el-button>
-    <el-button v-if="!isUniversal && useFirstLast" size="small" type="primary" :loading="busyStep === 'first-frame'" @click.stop="runStep('first-frame')">生成首帧</el-button>
-    <el-button v-if="!isUniversal && useFirstLast" size="small" type="primary" :loading="busyStep === 'last-frame'" @click.stop="runStep('last-frame')">生成尾帧</el-button>
+    <el-button v-if="!isUniversal && !useFirstLast" size="small" type="primary" :loading="busyStep === 'image'" :aria-label="busyStep === 'image' ? '正在生图，请稍候' : '生成分镜图'" @click.stop="runStep('image')">生图</el-button>
+    <el-button v-if="!isUniversal && useFirstLast" size="small" type="primary" :loading="busyStep === 'first-frame'" :aria-label="busyStep === 'first-frame' ? '正在生成首帧，请稍候' : '生成首帧'" @click.stop="runStep('first-frame')">生成首帧</el-button>
+    <el-button v-if="!isUniversal && useFirstLast" size="small" type="primary" :loading="busyStep === 'last-frame'" :aria-label="busyStep === 'last-frame' ? '正在生成尾帧，请稍候' : '生成尾帧'" @click.stop="runStep('last-frame')">生成尾帧</el-button>
     <CanvasActionGate
       :reason="videoAction.reason"
       label="生成单镜视频"
@@ -31,7 +31,7 @@
         :loading="busyStep === 'video'"
         :disabled="Boolean(videoAction.reason)"
         :title="videoAction.reason || undefined"
-        @click.stop="runStep('video')"
+        :aria-label="busyStep === 'video' ? '正在生成视频，请稍候' : (videoAction.reason || '生成分镜视频')" @click.stop="runStep('video')"
       >生视频</el-button>
     </CanvasActionGate>
     <CanvasActionGate
@@ -46,10 +46,10 @@
         :loading="busyStep === 'audio'"
         :disabled="Boolean(audioActionDisabledReason)"
         :title="audioActionDisabledReason || undefined"
-        @click.stop="runStep('audio')"
+        :aria-label="busyStep === 'audio' ? '正在生成配音，请稍候' : (audioActionDisabledReason || '生成配音')" @click.stop="runStep('audio')"
       >配音</el-button>
     </CanvasActionGate>
-    <el-button size="small" type="danger" plain @click.stop="deleteStoryboard">删除</el-button>
+    <el-button size="small" type="danger" plain aria-label="删除分镜" @click.stop="deleteStoryboard">删除</el-button>
   </div>
 </template>
 

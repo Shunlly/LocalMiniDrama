@@ -17,8 +17,8 @@
       <el-form-item label="图片提示词"><el-input v-model="editDramaPropForm.prompt" type="textarea" :rows="2" placeholder="图片生成用的详细提示词" aria-label="制作道具图片提示词" /></el-form-item>
     </el-form>
     <template #footer>
-      <el-button @click="requestResourceEditorClose('dramaProp')">取消</el-button>
-      <el-button type="primary" :loading="editDramaPropSaving" :disabled="editDramaPropSaving" :title="editDramaPropSaving ? '正在保存，请稍候' : undefined" @click="saveDramaProp">保存</el-button>
+      <el-button aria-label="取消编辑制作道具" @click="requestResourceEditorClose('dramaProp')">取消</el-button>
+      <el-button type="primary" :loading="editDramaPropSaving" :disabled="editDramaPropSaving" :title="editDramaPropSaving ? '正在保存，请稍候' : undefined" :aria-label="editDramaPropSaving ? '正在保存，请稍候' : '保存制作道具'" @click="saveDramaProp">保存</el-button>
     </template>
   </AccessibleDialog>
 
@@ -40,8 +40,8 @@
       <el-form-item label="标签"><el-input v-model="editPropForm.tags" placeholder="逗号分隔" aria-label="道具标签" /></el-form-item>
     </el-form>
     <template #footer>
-      <el-button @click="requestResourceEditorClose('prop')">取消</el-button>
-      <el-button type="primary" :loading="editPropSaving" :disabled="editPropSaving" :title="editPropSaving ? '正在保存，请稍候' : undefined" @click="saveProp">保存</el-button>
+      <el-button aria-label="取消编辑道具" @click="requestResourceEditorClose('prop')">取消</el-button>
+      <el-button type="primary" :loading="editPropSaving" :disabled="editPropSaving" :title="editPropSaving ? '正在保存，请稍候' : undefined" :aria-label="editPropSaving ? '正在保存，请稍候' : '保存道具'" @click="saveProp">保存</el-button>
     </template>
   </AccessibleDialog>
 </template>

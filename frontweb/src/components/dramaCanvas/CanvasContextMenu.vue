@@ -14,20 +14,20 @@
     >
       <template v-if="!freeMode">
         <div class="ctx-title">在此添加</div>
-        <button type="button" class="ctx-item" role="menuitem" @click="pick('storyboard')">分镜</button>
-        <button type="button" class="ctx-item" role="menuitem" @click="pick('character')">角色</button>
-        <button type="button" class="ctx-item" role="menuitem" @click="pick('scene')">场景</button>
-        <button type="button" class="ctx-item" role="menuitem" @click="pick('prop')">道具</button>
+        <button type="button" class="ctx-item" role="menuitem" aria-label="添加分镜节点" @click="pick('storyboard')">分镜</button>
+        <button type="button" class="ctx-item" role="menuitem" aria-label="添加角色节点" @click="pick('character')">角色</button>
+        <button type="button" class="ctx-item" role="menuitem" aria-label="添加场景节点" @click="pick('scene')">场景</button>
+        <button type="button" class="ctx-item" role="menuitem" aria-label="添加道具节点" @click="pick('prop')">道具</button>
         <div class="ctx-divider" />
-        <button type="button" class="ctx-item" role="menuitem" @click="pick('episode')">新集</button>
+        <button type="button" class="ctx-item" role="menuitem" aria-label="添加新集节点" @click="pick('episode')">新集</button>
       </template>
       <template v-if="freeMode">
         <div class="ctx-title">自由节点</div>
-        <button type="button" class="ctx-item" role="menuitem" @click="pickFree('text')">文本</button>
-        <button type="button" class="ctx-item" role="menuitem" @click="pickFree('image')">图片</button>
-        <button type="button" class="ctx-item" role="menuitem" @click="pickFree('video')">视频</button>
-        <button type="button" class="ctx-item" role="menuitem" @click="pickFree('config')">配置</button>
-        <button type="button" class="ctx-item" role="menuitem" @click="pickFree('reference')">引用</button>
+        <button type="button" class="ctx-item" role="menuitem" aria-label="添加自由文本节点" @click="pickFree('text')">文本</button>
+        <button type="button" class="ctx-item" role="menuitem" aria-label="添加自由图片节点" @click="pickFree('image')">图片</button>
+        <button type="button" class="ctx-item" role="menuitem" aria-label="添加自由视频节点" @click="pickFree('video')">视频</button>
+        <button type="button" class="ctx-item" role="menuitem" aria-label="添加自由配置节点" @click="pickFree('config')">配置</button>
+        <button type="button" class="ctx-item" role="menuitem" aria-label="添加自由引用节点" @click="pickFree('reference')">引用</button>
       </template>
     </div>
     <div v-if="visible" class="canvas-context-backdrop" aria-hidden="true" @mousedown="close" @contextmenu.prevent="close" />
