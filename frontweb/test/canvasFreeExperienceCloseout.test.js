@@ -3,7 +3,8 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
 import { resolveFreeCanvasInspectorFocusTarget } from '../src/components/dramaCanvas/dramaCanvasRouteFocus.js'
-import { getFreeCreateCapabilityNotice } from '../src/utils/freeCreate.js'
+import { getFreeCreateCapabilityNotice, toFreeCreateUserError } from '../src/utils/freeCreate.js'
+import { toFreeCanvasConfigUserReason } from '../src/utils/freeCanvasConfigState.js'
 import { remainingExtractNamedFunction } from './helpers/remainingSourceBetween.js'
 
 function read(path) {
@@ -76,6 +77,25 @@ test('配置节点失败原因是中文警告，停止等待失败也不再说�
   assert.doesNotMatch(inspector, /取消生成/)
   assert.match(composable, /停止等待失败，请稍后重试/)
   assert.doesNotMatch(remainingExtractNamedFunction(composable, 'cancelFreeCanvasConfig'), /取消生成失败/)
+})
+
+test('生成失败英文技术原文回落到中文下一步', () => {
+  assert.equal(
+    toFreeCreateUserError('Image generation did not complete', '生成失败，请稍后重试'),
+    '生成失败，请稍后重试',
+  )
+  assert.equal(
+    toFreeCreateUserError('fetch failed', '生成失败，请稍后重试'),
+    '生成失败，请稍后重试',
+  )
+  assert.equal(
+    toFreeCanvasConfigUserReason('生成失败: image generation did not complete', '生成失败，请稍后重试'),
+    '生成失败，请稍后重试',
+  )
+  assert.doesNotMatch(
+    toFreeCanvasConfigUserReason('This model does not support image generation', '上次生成失败，请检查输入与 AI 配置后重试。'),
+    /This model does not support/i,
+  )
 })
 
 test('自由创作空态下一步、失败态和进行中文案保持中文省略号', () => {

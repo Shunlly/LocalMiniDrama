@@ -63,7 +63,7 @@ const PROVIDER_LABELS = Object.freeze({
   OpenAI: 'OpenAI',
 });
 
-const ALLOWED_LATIN_TOKEN_RE = /^(?:ffmpeg|libx264|tesseract|comfyui|openai|minimax|seedance|kling|gemini|sora|dashscope|volcengine|vidu|agnes|jimeng|http|https|json|pdf|txt|zip|api|tts|ocr|url|jwt|bearer|sqlite|modelark)$/i;
+const ALLOWED_LATIN_TOKEN_RE = /^(?:ffmpeg|libx264|tesseract|comfyui|openai|ollama|minimax|seedance|kling|gemini|sora|dashscope|volcengine|vidu|agnes|jimeng|http|https|json|pdf|txt|zip|api|tts|ocr|url|jwt|bearer|sqlite|modelark)$/i;
 const MIXED_TECHNICAL_ENGLISH_RE = /invalid api key|incorrect api key|this model does not support|image generation did not complete|video generation did not complete|model is overloaded|retry later/i;
 
 function safeLabel(value, fallback) {
@@ -390,6 +390,7 @@ function isTrustedChineseUserError(value) {
   if (!text || text.length > 240) return false;
   if (!/[\u4e00-\u9fff]/.test(text)) return false;
   if (/https?:\/\//i.test(text) || /response_bytes=|\bHTTP\s*[:=]?\s*\d{3}\b/i.test(text)) return false;
+  if (/\/(?:v\d+|api|models)\b/i.test(text)) return false;
   if (/\bcode\s+[A-Za-z0-9_.:/-]+/i.test(text)) return false;
   if (/\bsk-[A-Za-z0-9._-]{6,}\b/i.test(text)) return false;
   if (/\b(Bearer|Basic)\s+/i.test(text)) return false;

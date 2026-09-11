@@ -31,7 +31,7 @@ const TECHNICAL_ENGLISH_RE = /network error|timeout of \d+ms|request failed with
 const NETWORK_ERROR_MESSAGE_RE = /network error|failed to fetch|fetch failed|load failed|socket hang up|econnrefused|enotfound|econnreset|eai_again|getaddrinfo/i
 const STACK_RE = /\bat\s+[A-Za-z_$][\w.$]*\s*\([^)]*:\d+:\d+\)/
 const INTERNAL_FIELD_RE = /\bdrama_id\b/i
-const ALLOWED_LATIN_TOKEN_RE = /^(?:ffmpeg|libx264|tesseract|comfyui|openai|minimax|seedance|kling|gemini|sora|http|https|json|pdf|txt|zip|api|tts|ocr|url|jwt|bearer)$/i
+const ALLOWED_LATIN_TOKEN_RE = /^(?:ffmpeg|libx264|tesseract|comfyui|openai|ollama|minimax|seedance|kling|gemini|sora|http|https|json|pdf|txt|zip|api|tts|ocr|url|jwt|bearer)$/i
 
 function hasUntrustedEnglishRun(text) {
   const words = String(text).match(/[A-Za-z][A-Za-z0-9+.-]{3,}/g) || []
@@ -52,6 +52,7 @@ export function isSafeUserFacingMessage(text) {
   const value = String(text || '').trim()
   if (!value || !/[\u4e00-\u9fff]/.test(value)) return false
   if (SECRET_RE.test(value) || /https?:\/\//i.test(value)) return false
+  if (/\/(?:v\d+|api|models)\b/i.test(value)) return false
   if (INTERNAL_FIELD_RE.test(value)) return false
   if (TECHNICAL_ENGLISH_RE.test(value) || STACK_RE.test(value)) return false
   if (/^http\s*\d{3}$/i.test(value)) return false

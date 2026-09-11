@@ -20,7 +20,22 @@ import {
   networkItemImportability,
 } from '@/components/mediaLibrary/mediaLibraryFormatters.js'
 
+const NETWORK_SOURCE_NAME_RE = /Wikimedia Commons|Openverse|Creative Commons/g
+
+function isAllowedNetworkSourceMessage(text) {
+  const value = String(text || '').trim()
+  if (!value || !/[一-鿿]/.test(value)) return false
+  if (/https?:\/\//i.test(value)) return false
+  NETWORK_SOURCE_NAME_RE.lastIndex = 0
+  if (!NETWORK_SOURCE_NAME_RE.test(value)) return false
+  NETWORK_SOURCE_NAME_RE.lastIndex = 0
+  const stripped = value.replace(NETWORK_SOURCE_NAME_RE, ' ')
+  return !/[A-Za-z]{4,}/.test(stripped)
+}
+
 export function describeNetworkError(error, fallback) {
+  const raw = typeof error === 'string' ? error.trim() : String(error?.message || '').trim()
+  if (isAllowedNetworkSourceMessage(raw)) return raw
   return describeMediaLibraryUserError(error, { serviceLabel: '网络素材服务', fallback })
 }
 

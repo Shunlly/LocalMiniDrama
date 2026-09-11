@@ -42,12 +42,13 @@ export function describeConnectionTestError(error, signal, serviceType = '') {
       detail: '本次测试已停止，可重新测试。',
     }
   }
+  const original = typeof error === 'string' ? error : String(error?.message || '')
   const raw = toUserFacingError(error, '暂时无法完成连接测试，请稍后重试。', {
     serviceLabel: 'AI 配置服务',
     signal,
   })
   const cleaned = stripConnectionTestDecorations(raw)
-  const probeLike = /模型列表探测|ollama 模型列表|\/v1\/models|\b\/models\b/i.test(`${cleaned}\n${raw}`)
+  const probeLike = /模型列表探测|ollama 模型列表|\/v1\/models|\b\/models\b/i.test(`${original}\n${cleaned}\n${raw}`)
   if (probeLike) {
     return {
       title: '无法读取模型列表',
