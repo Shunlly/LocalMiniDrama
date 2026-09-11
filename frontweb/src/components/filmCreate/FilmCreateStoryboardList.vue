@@ -1,5 +1,26 @@
 <template>
-  <template v-for="(sb, i) in storyboards" :key="sb.id">
+  <div
+    ref="listRootRef"
+    class="storyboard-list-window"
+    :data-sb-window-start="windowState.start"
+    :data-sb-window-end="windowState.end"
+    :data-sb-window-count="windowState.size"
+    @focusin="onListFocusIn"
+    @dragover="onWindowDragOver"
+    @drop="onWindowDrop"
+  >
+    <div
+      class="storyboard-list-spacer storyboard-list-spacer--top"
+      :style="{ height: windowState.topSpacer + 'px' }"
+      aria-hidden="true"
+    />
+    <div
+      v-for="{ sb, i } in visibleItems"
+      :key="sb.id"
+      class="storyboard-list-item"
+      :data-storyboard-index="i"
+      :data-storyboard-id="sb.id"
+    >
     <div
       v-if="sb.segment_title && (i === 0 || sb.segment_index !== storyboards[i - 1].segment_index)"
       class="segment-header"
@@ -150,14 +171,22 @@
         :grid-mode="gridMode"
       />
     </div>
-  </template>
+    </div>
+    <div
+      class="storyboard-list-spacer storyboard-list-spacer--bottom"
+      :style="{ height: windowState.bottomSpacer + 'px' }"
+      aria-hidden="true"
+    />
+  </div>
 </template>
 
 <script setup>
+import { ref } from 'vue'
 import FilmCreateStoryboardImageColumn from '@/components/filmCreate/FilmCreateStoryboardImageColumn.vue'
 import FilmCreateStoryboardScriptColumn from '@/components/filmCreate/FilmCreateStoryboardScriptColumn.vue'
 import FilmCreateStoryboardToolbar from '@/components/filmCreate/FilmCreateStoryboardToolbar.vue'
 import FilmCreateStoryboardVideoColumn from '@/components/filmCreate/FilmCreateStoryboardVideoColumn.vue'
+import { useFilmCreateStoryboardListWindow } from '@/composables/filmCreate/useFilmCreateStoryboardListWindow'
 
 defineOptions({ inheritAttrs: false })
 
@@ -309,6 +338,87 @@ const props = defineProps({
 
 const lastFrameUseFirstLayoutLock = defineModel('lastFrameUseFirstLayoutLock', { type: Boolean, default: false })
 const dragOverSbId = defineModel('dragOverSbId', { default: null })
+
+const listRootRef = ref(null)
+const {
+  windowState,
+  visibleItems,
+  pinAround,
+  onFocusIn: onListFocusIn,
+  onDragEnd: markWindowDragEnd,
+  indexFromClientY,
+} = useFilmCreateStoryboardListWindow({
+  getList: () => props.storyboards || [],
+  listRef: listRootRef,
+})
+
+function resolveStoryboardIndex(sb, index) {
+  if (Number.isInteger(index) && index >= 0) return index
+  return (props.storyboards || []).findIndex((item) => Number(item?.id) === Number(sb?.id))
+}
+
+function onInsertStoryboardBefore(sb) {
+  pinAround(resolveStoryboardIndex(sb))
+  return props.onInsertStoryboardBefore(sb)
+}
+
+function onInsertStoryboardAfter(sb) {
+  pinAround(resolveStoryboardIndex(sb))
+  return props.onInsertStoryboardAfter(sb)
+}
+
+function onMoveStoryboardUp(sb, index) {
+  const fromIndex = resolveStoryboardIndex(sb, index)
+  pinAround(fromIndex - 1)
+  return props.onMoveStoryboardUp(sb, fromIndex)
+}
+
+function onMoveStoryboardDown(sb, index) {
+  const fromIndex = resolveStoryboardIndex(sb, index)
+  pinAround(fromIndex + 1)
+  return props.onMoveStoryboardDown(sb, fromIndex)
+}
+
+function onReorderDragStart(event, index) {
+  pinAround(index)
+  return props.onReorderDragStart(event, index)
+}
+
+function onReorderDragOver(event, index) {
+  pinAround(index)
+  return props.onReorderDragOver(event, index)
+}
+
+function onReorderDrop(event, index) {
+  pinAround(index)
+  return props.onReorderDrop(event, index)
+}
+
+function onReorderDragEnd(event) {
+  markWindowDragEnd()
+  return props.onReorderDragEnd(event)
+}
+
+function onWindowDragOver(event) {
+  if (event?.dataTransfer?.files?.length) return
+  const index = indexFromClientY(event?.clientY)
+  if (!Number.isInteger(index)) return
+  pinAround(index)
+  props.onReorderDragOver(event, index)
+}
+
+function onWindowDrop(event) {
+  if (event?.dataTransfer?.files?.length) return
+  const fromItem = typeof event?.target?.closest === 'function'
+    ? event.target.closest('.storyboard-list-item')
+    : null
+  if (fromItem) return
+  const index = indexFromClientY(event?.clientY)
+  if (!Number.isInteger(index)) return
+  event?.preventDefault?.()
+  pinAround(index)
+  return props.onReorderDrop(event, index)
+}
 
 function segmentShotEnd(startIndex) {
   const list = props.storyboards || []

@@ -177,3 +177,21 @@ html.light .sb-panel {
 }
 
 .sb-panel:last-child { border-right: none; }
+
+
+.storyboard-list-window {
+  position: relative;
+}
+
+.storyboard-list-spacer {
+  width: 100%;
+  flex-shrink: 0;
+}
+
+.storyboard-list-item {
+  min-width: 0;
+}
+
+.storyboard-list-window .storyboard-row {
+  animation: none;
+}

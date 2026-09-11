@@ -1,3 +1,5 @@
+import { revealStoryboardListTarget } from '@/utils/storyboardListWindow.js'
+
 export function useFilmCreateStoryboardBindings(deps = {}) {
   const {
     storyboards,
@@ -174,10 +176,15 @@ export function useFilmCreateStoryboardBindings(deps = {}) {
     return dedupeStoryboardsForAssetLink(matched)
   }
 
-  /** 点击分镜 chip → 滚动到对应分镜行 */
+  /** 点击分镜 chip → 先露出窗口中的目标行，再滚动到对应分镜 */
   function scrollToStoryboard(sbId) {
-    const el = document.getElementById('sb-' + sbId)
-    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    const run = async () => {
+      await revealStoryboardListTarget(sbId)
+      if (typeof document === 'undefined' || !document?.getElementById) return
+      const el = document.getElementById('sb-' + sbId)
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }
+    return run()
   }
 
   return {

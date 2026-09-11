@@ -1,4 +1,5 @@
 import { ref, onMounted, onBeforeUnmount } from 'vue'
+import { isStoryboardDomId, revealStoryboardListTarget } from '@/utils/storyboardListWindow.js'
 
 const NAV_AUTO_COLLAPSE_WIDTH = 960
 const NAV_STICKY_OFFSET = 96
@@ -74,8 +75,13 @@ export function useNavigation({ getAnchorIds = () => [] } = {}) {
 
   function scrollToAnchor(id, activeId = id) {
     activeNavAnchor.value = activeId
-    const el = document.getElementById(id)
-    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    const run = async () => {
+      if (isStoryboardDomId(id)) await revealStoryboardListTarget(id)
+      if (typeof document === 'undefined' || !document?.getElementById) return
+      const el = document.getElementById(id)
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }
+    return run()
   }
 
   onMounted(() => {
