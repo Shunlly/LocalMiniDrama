@@ -18,6 +18,7 @@ import {
   compileSfc,
   createHostRenderer,
   dataModule,
+  findAll,
   loadCompiledSfc,
   mountHarness,
   textContent,
@@ -581,4 +582,27 @@ test('备份锁定原因区分创建中、列表失败和维护锁定', () => {
   )
   assert.equal(confirmBackupLeave(false, () => { throw new Error('should not confirm') }), true)
   assert.equal(confirmBackupLeave(true, (message) => message === BACKUP_LEAVE_CONFIRM_MESSAGE), true)
+})
+
+test('备份页创建锁定时用 aria-describedby 关联中文原因', async () => {
+  const harness = mountBackup({
+    creating: true,
+    hasSuccessfulListLoad: true,
+    hasSuccessfulReadinessLoad: true,
+    readiness: { ready: true, maintenanceError: '' },
+  })
+  try {
+    await nextTick()
+    const create = buttonByAriaLabel(harness.root, '创建全量备份')
+    assert.ok(create)
+    assert.equal(create.props.disabled, true)
+    assert.equal(create.props['aria-describedby'], 'backup-header-lock-reason')
+    const [reason] = findAll(harness.root, (node) => node.props.id === 'backup-header-lock-reason')
+    assert.ok(reason)
+    assert.match(textContent(reason), /正在创建备份/)
+  } finally {
+    harness.app.unmount()
+    resetVueRouterHarness()
+    delete globalThis.__backupPageSettings
+  }
 })

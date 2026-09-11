@@ -11,7 +11,7 @@
       <h2>{{ networkImportFeedback.title }}</h2>
       <p>{{ networkImportFeedback.detail }}</p>
       <p
-        v-if="isNetworkImporting(networkImportRetryItem) || (networkImportRetryItem && !networkItemImportability(networkImportRetryItem).allowed)"
+        v-if="networkImportRetryItem && (isNetworkImporting(networkImportRetryItem) || !networkItemImportability(networkImportRetryItem).allowed)"
         id="media-network-import-retry-reason"
         class="visually-hidden"
       >{{ isNetworkImporting(networkImportRetryItem) ? MEDIA_LIBRARY_DISABLE_REASON.importing : networkItemImportability(networkImportRetryItem).reason }}</p>
