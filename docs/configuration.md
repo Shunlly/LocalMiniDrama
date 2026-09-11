@@ -9,6 +9,7 @@
 - [配置入口](#配置入口)
 - [五类核心服务](#五类核心服务)
 - [素材抽取扩展](#素材抽取扩展)
+- [网络素材（素材中心）](#网络素材素材中心)
 - [阿里云 DashScope（通义）](#阿里云-dashscope通义)
   - [申请 API Key](#申请-api-key)
   - [可用模型](#可用模型)
@@ -29,7 +30,7 @@
 
 点击软件 **「AI 配置」** 入口，进入 AI 服务管理页面。未配置 API Key 也可以启动软件、浏览界面和跑本地测试；只有真正调用外部模型生成时才需要在本页填写。API 地址与密钥写入本机数据库，不靠环境变量凑合，也不要把真实密钥写进 README、示例文档或 Git 提交。
 
-当前产品覆盖文本、素材图片、分镜图片、视频和 TTS 五类成片服务。PDF/图片 OCR 与音视频转写已作为素材抽取扩展出现在同一页面，可按服务类型筛选、新增、设为默认并做连接测试；它们不计入五类成片就绪条件。厂商预设只用于填表，不等于真实图片/视频/TTS 已接入跑通，也不等于每个云 OCR/Whisper 账号已联调。
+当前产品覆盖文本、素材图片、分镜图片、视频和 TTS 五类成片服务。PDF/图片 OCR 与音视频转写已作为素材抽取扩展出现在同一页面，可按服务类型筛选、新增、设为默认并做连接测试；它们不计入五类成片就绪条件。厂商预设只用于填表，不等于真实图片/视频/TTS 已接入跑通，也不等于每个云 OCR/Whisper 账号已联调。Wikimedia Commons / Openverse 网络素材在**素材中心**，不是本页配置项。
 
 「AI 服务」页顶部先展示五类核心服务的覆盖摘要，包括默认配置、配置数量和最近/本次连接测试状态；下方配置列表可按服务类型筛选。缺少默认配置时可直接新增或修复默认项，已有配置可直接查看、编辑和测试。
 
@@ -62,6 +63,12 @@
 
 ---
 
+## 网络素材（素材中心）
+
+从 Wikimedia Commons 搜索公开图片/视频、从 Openverse 搜索公开图片，都在 **素材中心**，不是「AI 配置」里的厂商预设或一键配置项。不要把网络素材写成 API Key / Base URL / 模型名。使用者仍须自行确认许可是否满足具体用途；Openverse 目前只搜图片，视频仍以 Wikimedia Commons 为主。
+
+---
+
 ## 阿里云 DashScope（通义）
 
 ### 申请 API Key
@@ -76,36 +83,56 @@
 
 ### 可用模型
 
-**文本生成：**
-| 模型名 | 说明 |
-|--------|------|
-| `qwen-turbo` | 速度快、成本低，适合批量生成 |
-| `qwen-plus` | 性能均衡，推荐日常使用 |
-| `qwen-max` | 最强文本能力，适合剧本生成 |
-| `qwen-long` | 超长上下文，适合长剧本 |
+以下为页面当前下拉示例，以「AI 配置」和控制台实际开通的模型为准。一键配置的默认模型见 [一键配置功能](#一键配置功能)。
 
-**图片生成：**
+**文本生成（provider `qwen`，一键默认 `qwen-plus`）：**
 | 模型名 | 说明 |
 |--------|------|
-| `wanx2.1-t2i-turbo` | 速度快，通用图片生成 |
-| `wanx2.1-t2i-plus` | 更高质量 |
-| `wanx-v1` | 经典版本 |
+| `qwen-plus` | 一键默认；日常文本 |
+| `qwen3.8-max` / `qwen3.8-plus` / `qwen3.8-flash` | 页面下拉中的较新通义文本 |
+| `qwen3-max` / `qwen-flash` / `qwen-turbo` | 其他常用文本 |
+| `qwen-vl-max` | 视觉理解，不是一键默认 |
 
-**视频生成：**
+**图片 / 分镜图：**
 | 模型名 | 说明 |
 |--------|------|
-| `wan2.1-t2v-turbo` | 文字转视频，速度较快 |
-| `wan2.1-t2v-plus` | 更高质量 |
+| `wan2.6-image` | 通义万象（provider `dashscope`）一键默认，素材图与分镜图各一条 |
+| `wanx2.1-t2i-plus` / `wanx2.1-t2i-turbo` | 万象下拉中的其他生图 |
+| `qwen-image-max` | 通义千问图像（provider `qwen_image`）一键默认 |
+| `qwen-image-plus` / `qwen-image` | 千问图像备选 |
+| `qwen-image-edit-plus` 等 | 万象下拉中的编辑类模型，一键不创建 |
+
+**视频生成（provider `dashscope`，一键默认 `wan2.2-kf2v-flash`）：**
+| 模型名 | 说明 |
+|--------|------|
+| `wan2.2-kf2v-flash` | 一键默认 |
+| `wan2.6-r2v-flash` / `wan2.6-t2v` / `wan2.6-i2v-flash` / `wanx2.1-vace-plus` | 页面下拉中的其他万相视频 |
+
+DashScope **文本** 与 **图片/视频** 的 Base URL 不同，不要把 compatible-mode 套到万象/万相上：
+
+| 用途 | provider | Base URL |
+|------|----------|----------|
+| 文本 | `qwen` | `https://dashscope.aliyuncs.com/compatible-mode/v1` |
+| 素材图 / 分镜图 / 视频 | `dashscope` 或 `qwen_image` | `https://dashscope.aliyuncs.com` |
+
+页面下拉里还有通义 TTS（如 `qwen3-tts-flash`、`cosyvoice-v2`），**一键配置不创建 TTS**，需在本页单独新增。
 
 ### 配置示例
 
 在「AI 配置」页面新增配置：
 
 ```
-服务商：DashScope
-Base URL：https://dashscope.aliyuncs.com/compatible-mode/v1
+文本：
+  服务商：qwen
+  Base URL：https://dashscope.aliyuncs.com/compatible-mode/v1
+  模型：qwen-plus
+
+图片 / 分镜图 / 视频：
+  服务商：dashscope（万象/万相）或 qwen_image（千问图像）
+  Base URL：https://dashscope.aliyuncs.com
+  模型：wan2.6-image（万象）/ qwen-image-max（千问图像）/ wan2.2-kf2v-flash（视频）
+
 API Key：sk-xxxxxxxxxxxxxxxx
-模型：qwen-plus（文本）/ wanx2.1-t2i-turbo（图片）/ wan2.1-t2v-turbo（视频）
 ```
 
 ---
@@ -124,27 +151,30 @@ API Key：sk-xxxxxxxxxxxxxxxx
 
 ### 可用模型
 
-**文本生成：**
-| 模型名 | API 端点 ID | 说明 |
-|--------|------------|------|
-| `Doubao-pro-32k` | `doubao-pro-32k-241215` | 通用高性能模型 |
-| `Doubao-lite-32k` | `doubao-lite-32k-241215` | 低成本模型 |
-| `Doubao-pro-128k` | `doubao-pro-128k-241215` | 超长上下文 |
+以下为页面当前下拉示例。一键默认文本是 `deepseek-v3-2-251201`，图片/分镜图是 `doubao-seedream-4-5-251128`，视频是 `doubao-seedance-1-5-pro-251215`。Seedance 2.0 需手动选模型并配 `volcengine_omni`，一键不会改成 2.0。
 
-**图片生成：**
-| 模型名 | API 端点 ID | 说明 |
-|--------|------------|------|
-| `Doubao-seedream-4.5` | `doubao-seedream-4-5-251128` | 高质量图片生成 |
+**文本生成（provider `volcengine`）：**
+| 模型名 | 说明 |
+|--------|------|
+| `deepseek-v3-2-251201` | 一键默认 |
+| `doubao-1-5-pro-32k-250115` | 豆包文本 |
+| `doubao-seed-1-6-250615` / `kimi-k2-thinking-251104` | 页面下拉中的其他文本 |
 
-**视频生成：**
-| 模型名 | API 端点 ID | 说明 |
-|--------|------------|------|
-| `Doubao-Seedance-1.0-pro-fast` | `doubao-seedance-1-0-pro-250528` | 较快速度 |
-| `Doubao-Seedance-1.5-pro` | `doubao-seedance-1-5-pro-251215` | 高质量版 |
-| `Doubao-Seedance-2.0-pro` | `doubao-seedance-2-0-260128` | **Seedance 2.0**，方舟多参考图；配合接口规范 **`volcengine_omni`** 与分镜**全能模式** |
-| `Doubao-Seedance-2.0-fast` | `doubao-seedance-2-0-fast-260128` | Seedance 2.0 快速版 |
+**图片 / 分镜图（provider `volcengine`）：**
+| 模型名 | 说明 |
+|--------|------|
+| `doubao-seedream-4-5-251128` | 一键默认，素材图与分镜图各一条 |
+| `doubao-seedream-4-0-250828` / `doubao-seedream-3-0-t2i-250415` | 下拉备选 |
 
-> ⚠️ 配置中填写模型名时，系统会自动映射到正确的 API 端点 ID，两种写法均可。
+**视频生成（provider `volces`）：**
+| 模型名 | 说明 |
+|--------|------|
+| `doubao-seedance-1-5-pro-251215` | 一键默认 |
+| `doubao-seedance-2-0-260128` | Seedance 2.0，方舟多参考图；配合接口规范 **`volcengine_omni`** 与分镜**全能模式** |
+| `doubao-seedance-2-0-fast-260128` | Seedance 2.0 快速版 |
+| `doubao-seedance-1-0-pro-250528` / `doubao-seedance-1-0-pro-fast-251015` 等 | 下拉中的 1.0 系列 |
+
+> ⚠️ 配置中填写模型名时，系统会自动映射到正确的 API 端点 ID，两种写法均可。页面下拉里还有火山 TTS（`seed-tts-1.0`），**一键配置不创建 TTS**。
 
 **分镜「全能模式」与接口规范（v1.2.5+，v1.2.7 增强校验）：**
 
@@ -156,10 +186,10 @@ API Key：sk-xxxxxxxxxxxxxxxx
 ### 配置示例
 
 ```
-服务商：Volcengine
+服务商：volcengine（文本/图片/分镜图）或 volces（视频）
 Base URL：https://ark.cn-beijing.volces.com/api/v3
 API Key：xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
-模型：Doubao-pro-32k（文本）/ Doubao-seedream-4.5（图片）/ Doubao-Seedance-1.0-pro-fast（视频）
+模型：deepseek-v3-2-251201（文本默认）/ doubao-seedream-4-5-251128（图片与分镜图）/ doubao-seedance-1-5-pro-251215（视频默认）
 ```
 
 **视频生成参数（可选）：**
@@ -204,12 +234,15 @@ API Key：your-api-key
 
 ## 一键配置功能
 
-在「AI 配置」页面，点击顶部的：
-- **「一键配置通义」** — 自动创建阿里云 DashScope 的文本/图片/视频三套配置模板
-- **「一键配置火山」** — 自动创建火山引擎的文本/图片/视频三套配置模板
-- **「一键配置 Agnes」**（v1.2.8+）— 自动创建 Agnes AI 的文本/图片/视频三套配置模板（`agnes-2.0-flash` / `agnes-image-2.1-flash` / `agnes-video-v2.0`）
+在「AI 配置」页面顶部填写对应 API Key 后，一键会按当前源码模板批量创建记录。三条一键都 **不创建 TTS**，也不创建 OCR / 语音转写。厂商预设填表不等于真实图片/视频/TTS 接入已跑通；保存后仍须连接测试，并按控制台开通情况改模型名。
 
-一键配置后，只需填入你的 API Key，其他参数已预填好，点击「保存」即可使用。
+| 按钮 | 条数 | 覆盖类型 | 默认模型（各条列表第一条） | Base URL |
+|------|------|----------|---------------------------|----------|
+| **一键配置通义** | 5 | 文本、素材图（万象）、素材图（千问图像）、分镜图、视频 | `qwen-plus` / `wan2.6-image` / `qwen-image-max` / `wan2.6-image` / `wan2.2-kf2v-flash` | 文本：`https://dashscope.aliyuncs.com/compatible-mode/v1`；图片与视频：`https://dashscope.aliyuncs.com` |
+| **一键配置火山** | 4 | 文本、素材图、分镜图、视频 | `deepseek-v3-2-251201` / `doubao-seedream-4-5-251128` / `doubao-seedream-4-5-251128` / `doubao-seedance-1-5-pro-251215` | `https://ark.cn-beijing.volces.com/api/v3` |
+| **一键配置 Agnes** | 4 | 文本、素材图、分镜图、视频 | `agnes-2.0-flash` / `agnes-image-2.1-flash` / `agnes-image-2.1-flash` / `agnes-video-v2.0` | `https://apihub.agnes-ai.com/v1` |
+
+通义弹窗标题会标明「不推荐」，按钮文案仍是「一键配置通义」。Agnes 视频接口规范为 `agnes`，endpoint `/videos`，查询 `/videos/{taskId}`。成片仍缺语音合成时，要在本页单独新增 TTS。
 
 ---
 
@@ -239,6 +272,18 @@ image_proxy:
 ---
 
 ## 常见问题
+
+### Q: 一键配置之后 TTS 为什么还是空的？
+
+一键通义 5 条、一键火山 4 条、一键 Agnes 4 条，都不创建 TTS。语音合成要在「AI 配置」里按 TTS 服务类型单独新增。一键成功只表示模板已写入本机数据库，不等于真实接入已跑通。
+
+---
+
+### Q: Wikimedia / Openverse 要在 AI 配置里填吗？
+
+不要。网络素材在**素材中心**，不是 AI 配置项。
+
+---
 
 ### Q: API Key 填错了或过期了怎么办？
 

@@ -27,8 +27,8 @@
 
 - 后端端口 **5679**，前端开发用 Vite 端口 **3013**；开发时前端代理 `/api`、`/static`、`/ready` 与 `/health`
 - 生产也可先 `npm --prefix frontweb run build`，由后端在 5679 托管 `frontweb/dist`（`WEB_DIST_PATH` 可覆盖）。Docker 生产前端由 Nginx 提供静态页
-- 后端 CORS 默认白名单是 `http://localhost:3013` 与 `http://127.0.0.1:3013`。`NODE_ENV=development` 时任意回环 Origin 可通过；Docker 生产由 `LOCALMINIDRAMA_CORS_ORIGINS` 跟随前端宿主机端口
-- 官方 Compose 默认仍占 3013/5679，会和源码 dev 抢端口。已被占用时不要并行硬起；改宿主机端口用 `LOCALMINIDRAMA_FRONTEND_HOST_PORT` / `LOCALMINIDRAMA_BACKEND_HOST_PORT`，E2E 还要设 `FRONTEND_URL` / `BACKEND_URL`。`docker:e2e:up` 只隔离数据目录，额外占用 `127.0.0.1:5688`
+- 开发模式下回环 Origin 可通过；`config.yaml` 默认 CORS 白名单仍是 `http://localhost:3013` 与 `http://127.0.0.1:3013`。生产 Docker CORS 跟随前端宿主机端口（Compose 写入 `LOCALMINIDRAMA_CORS_ORIGINS`）
+- 官方 `docker compose up -d --build --wait` 默认映射 `127.0.0.1:3013` 和 `127.0.0.1:5679`，会和源码 `npm run dev` 抢端口，也会撞同一 `backend-node/data`。这两个端口已被占用时不要再起官方 Compose。并存请改 `LOCALMINIDRAMA_FRONTEND_HOST_PORT` / `LOCALMINIDRAMA_BACKEND_HOST_PORT`，并给 Docker 单独的 `LOCALMINIDRAMA_DATA_DIR`。Compose 会按前端宿主机端口写入 `LOCALMINIDRAMA_CORS_ORIGINS`；对改端口的实例跑 E2E 时还须设置 `FRONTEND_URL` / `BACKEND_URL`。`npm run docker:e2e:up` 只隔离仓库外 `LOCALMINIDRAMA_DATA_DIR`，不换 `3013`/`5679`，另外占用 `127.0.0.1:5688`
 - 根目录、后端、前端、Docker 与通用 PR/分支门禁用 Node.js 20.x；桌面依赖安装、原生重建、打包和 Windows 制品安全扫描用 Node.js 22.12.0（`desktop/.npmrc` 启用 `engine-strict`）
 - `configs/config.yaml` 已随仓库提供；启动时执行 `runMigrationsAndEnsure`，一般不必手动 `npm run migrate`
 - 未配置外部 API Key 也可以启动和开发界面；真正生成内容到「AI 配置」页填写。厂商预设填表不等于真实图片/视频/TTS 接入已跑通
@@ -106,7 +106,7 @@ npm install
 npm run dev
 ```
 
-浏览器访问 `http://127.0.0.1:3013` 即可看到界面。开发用 Vite，把 `/api`、`/static`、`/ready` 和 `/health` 代理到 `http://127.0.0.1:5679`。后端 CORS 只允许前端 `3013`（`http://localhost:3013` 与 `http://127.0.0.1:3013`）。Vite 与 Compose 默认只监听 `127.0.0.1`。未配置外部 API Key 也可以浏览界面和跑本地测试。
+浏览器访问 `http://127.0.0.1:3013` 即可看到界面。开发用 Vite，把 `/api`、`/static`、`/ready` 和 `/health` 代理到 `http://127.0.0.1:5679`。开发模式下回环 Origin 可通过；`config.yaml` 默认白名单仍是 `http://localhost:3013` 与 `http://127.0.0.1:3013`。生产 Docker CORS 跟随前端宿主机端口，不会自动放行任意回环端口。Vite 与 Compose 默认只监听 `127.0.0.1`。未配置外部 API Key 也可以浏览界面和跑本地测试。
 
 若要让后端直接托管生产前端：
 
@@ -180,7 +180,7 @@ npm run dist:cn
 server:
   port: 5679          # 后端端口
   host: 127.0.0.1
-  cors_origins:
+  cors_origins:                   # 源码默认白名单；开发模式还会放行回环 Origin
     - http://localhost:3013
     - http://127.0.0.1:3013
 
@@ -249,7 +249,27 @@ npm run verify:docker
 
 ## 运行方式二：Docker
 
-项目根目录 `docker-compose.yml` 会同时启动后端和前端。Compose **不挂载应用源码**，只把数据目录挂到 `/app/data`，并把配置源目录只读挂到 `/app/config-source`。改完 JS/Vue 后必须重建镜像，不能把 Docker 当成 bind-mount 热更新开发环境。默认映射 `127.0.0.1:3013` 和 `127.0.0.1:5679`；这两个端口已被本机 Vite/后端占用时，不要再执行官方 `docker compose up`，应先停源码服务或改 `LOCALMINIDRAMA_FRONTEND_HOST_PORT` / `LOCALMINIDRAMA_BACKEND_HOST_PORT`：
+项目根目录 `docker-compose.yml` 会同时启动后端和前端。Compose **不挂载应用源码**，只把数据目录挂到 `/app/data`，并把配置源目录只读挂到 `/app/config-source`。改完 JS/Vue 后必须重建镜像，不能把 Docker 当成 bind-mount 热更新开发环境。
+
+官方 `docker compose up -d --build --wait` 默认映射宿主机 `127.0.0.1:3013` 和 `127.0.0.1:5679`，会和源码 `npm run dev` 抢端口，也会撞同一 `backend-node/data/`（后启动的一方常因维护锁失败）。这两个端口已被占用时不要再起官方 Compose。需要和源码开发并存时，换空闲宿主机端口，并给 Docker 单独的数据目录：
+
+```powershell
+$env:LOCALMINIDRAMA_FRONTEND_HOST_PORT = '13013'
+$env:LOCALMINIDRAMA_BACKEND_HOST_PORT = '15679'
+$env:LOCALMINIDRAMA_DATA_DIR = 'D:\tmp\localminidrama-docker-data'
+New-Item -ItemType Directory -Force -Path $env:LOCALMINIDRAMA_DATA_DIR | Out-Null
+# Compose 会把 LOCALMINIDRAMA_CORS_ORIGINS 写成该前端宿主机端口
+docker compose up -d --build --wait
+```
+
+对改端口的实例跑 E2E 时，还须同步测试地址：
+
+```powershell
+$env:FRONTEND_URL = 'http://127.0.0.1:13013'
+$env:BACKEND_URL = 'http://127.0.0.1:15679'
+```
+
+未改端口时仍用官方命令：
 
 ```bash
 docker compose up -d --build --wait
@@ -267,9 +287,11 @@ docker compose ps
 | 后端 `/health` | `http://127.0.0.1:5679/health` | 不是健康检查；只表示进程存活 |
 | API 路径前缀 | `http://127.0.0.1:5679/api/v1` | 该前缀本身不是可访问资源 |
 
+上表是官方默认端口。改了 `LOCALMINIDRAMA_FRONTEND_HOST_PORT` / `LOCALMINIDRAMA_BACKEND_HOST_PORT` 之后，把表里的 `3013` / `5679` 换成对应宿主机端口。
+
 Docker 镜像固定使用 Node.js 20，并在后端容器内安装 `ffmpeg`；编译工具只存在于依赖构建阶段。容器默认把 `backend-node/data` 挂载到 `/app/data`，数据库和生成素材会保留在本机项目目录下。前端容器使用 Nginx 提供 Vite 的生产构建产物。生产 Nginx 必须包含 `location = /ready`，精确代理到 `http://backend:5679/ready`，并写在 SPA `location /` 之前；只转发 `/healthz` 时，备份页请求 `/ready` 会吃到前端 HTML，恢复按钮会一直禁用。生产容器启用只读根文件系统、`no-new-privileges`、能力裁剪和受限临时目录。
 
-后端 Compose 不会让宿主机配置直接覆盖运行配置。`LOCALMINIDRAMA_CONFIG_DIR`（默认 `./backend-node/configs`）只读挂载到容器的 `/app/config-source`；入口脚本会在降权前通过 `runtime-config-policy.cjs` 将其净化到 `/tmp/localminidrama-config/config.yaml`，应用通过 `LOCALMINIDRAMA_CONFIG_PATH` 读取净化结果。自定义配置必须提供 `config.yaml`，每次启动都会重新净化。CORS 在 Compose 里指向前端 `3013`。
+后端 Compose 不会让宿主机配置直接覆盖运行配置。`LOCALMINIDRAMA_CONFIG_DIR`（默认 `./backend-node/configs`）只读挂载到容器的 `/app/config-source`；入口脚本会在降权前通过 `runtime-config-policy.cjs` 将其净化到 `/tmp/localminidrama-config/config.yaml`，应用通过 `LOCALMINIDRAMA_CONFIG_PATH` 读取净化结果。自定义配置必须提供 `config.yaml`，每次启动都会重新净化。生产 Docker CORS 跟随前端宿主机端口：Compose 把 `LOCALMINIDRAMA_CORS_ORIGINS` 写成 `http://localhost:${LOCALMINIDRAMA_FRONTEND_HOST_PORT:-3013}` 与对应的 `127.0.0.1`。开发模式下回环 Origin 可通过；生产 Docker 不会自动放行任意回环端口。若覆盖 `LOCALMINIDRAMA_CORS_ORIGINS`，必须与实际前端宿主机端口一致。
 
 `npm run docker:up` 要求 Git 工作树干净，并把当前完整提交 SHA 写入后端和前端镜像的 OCI revision 标签。日常改源码后请直接执行 `docker compose up -d --build --wait`。根目录容器校验：
 
@@ -279,7 +301,7 @@ npm run verify:docker
 
 该命令在临时验证容器中运行前后端检查，不验证当前正在运行的 Compose 服务。Compose 健康检查：后端探测 `/ready`，前端探测 `/healthz`（代理 `/ready`）。生产 Nginx 还必须单独代理 `location = /ready`。`/health` 只是存活探针，`docker compose --wait` 不会等它。验收时仍可同时看 `/health` 与 `/ready`。前后端均使用 `unless-stopped` 自动恢复策略；人工停止后不会自行重启。
 
-单独运行 `npm run verify:e2e` 不会自动启动测试服务；下面的 `npm run docker:e2e:up` 会显式启动本地协议兼容测试服务。它还要求 `LOCALMINIDRAMA_DATA_DIR` 指向仓库外新建的绝对空目录，以免 E2E 污染开发数据。必须在干净工作树按顺序执行（证据要求 `working_tree_dirty=false`；当前脏工作树不能当作已通过）：
+单独运行 `npm run verify:e2e` 不会自动启动测试服务；下面的 `npm run docker:e2e:up` 会显式启动本地协议兼容测试服务。它只隔离仓库外的 `LOCALMINIDRAMA_DATA_DIR`，**不换** `3013`/`5679`，另外占用 `127.0.0.1:5688`。源码 `npm run dev` 已占用 `3013`/`5679` 时不要再跑这条命令。`LOCALMINIDRAMA_DATA_DIR` 必须指向仓库外新建的绝对空目录，以免 E2E 污染开发数据。必须在干净工作树按顺序执行（证据要求 `working_tree_dirty=false`；当前脏工作树不能当作已通过）：
 
 ```powershell
 $e2eDataDir = Join-Path ([IO.Path]::GetTempPath()) ("localminidrama-e2e-" + [guid]::NewGuid().ToString("N"))
@@ -297,7 +319,7 @@ try {
 }
 ```
 
-`docker:e2e:up` 等价于带可信 Git revision 的 `docker compose --profile e2e up -d --build --wait`，并会拒绝默认 `backend-node/data`、非空目录、符号链接目录和与仓库危险重叠的路径。E2E 会调用本地协议兼容的文本、图片、视频和 TTS 测试端点，生成成片、验证桌面视口播放、下载与项目导出，然后清理测试项目；测试不得调用外部真实 Provider，也不等同于外部云 Provider 深度联调。
+`docker:e2e:up` 等价于带可信 Git revision 的 `docker compose --profile e2e up -d --build --wait`，并会拒绝默认 `backend-node/data`、非空目录、符号链接目录和与仓库危险重叠的路径。它不改写 `LOCALMINIDRAMA_FRONTEND_HOST_PORT` / `LOCALMINIDRAMA_BACKEND_HOST_PORT`，因此默认仍映射 `3013`/`5679`，并额外映射 `127.0.0.1:5688`。若你已经改了宿主机端口，跑 `npm run verify:e2e` 前必须设置 `FRONTEND_URL` / `BACKEND_URL`。E2E 会调用本地协议兼容的文本、图片、视频和 TTS 测试端点，生成成片、验证桌面视口播放、下载与项目导出，然后清理测试项目；测试不得调用外部真实 Provider，也不等同于外部云 Provider 深度联调。
 
 宿主机若使用 Node.js 24 等缺少 `better-sqlite3` 预编译产物的版本，可直接以 Docker/Node 20 作为权威容器验证路径。
 
@@ -317,6 +339,12 @@ npm run docker:down
 ---
 
 ## 常见问题 FAQ
+
+### Q: 源码 `npm run dev` 已经占用 3013/5679，还能起官方 Docker 吗？
+
+不要再执行官方 `docker compose up -d --build --wait`。默认映射就是 `127.0.0.1:3013` 和 `127.0.0.1:5679`，也会撞同一 `backend-node/data/`。先停源码服务，或按上文改 `LOCALMINIDRAMA_FRONTEND_HOST_PORT` / `LOCALMINIDRAMA_BACKEND_HOST_PORT` 并设置独立 `LOCALMINIDRAMA_DATA_DIR`。`npm run docker:e2e:up` 同样不换这两个端口，另外占用 `127.0.0.1:5688`。
+
+---
 
 ### Q: 后端启动报错 `Cannot find module 'better-sqlite3'`
 

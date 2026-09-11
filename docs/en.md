@@ -33,6 +33,8 @@ Package version is `1.3.3`. That is the repository `package.json` version, not a
 - Language: plain JavaScript, no TypeScript
 - Root, backend, frontend, Docker, and common PR/branch gates use Node.js 20.x (`.nvmrc` is `20`); desktop install, native rebuilds, packaging, and Windows artifact security scans use Node.js 22.12.0 (`desktop/.npmrc` enables `engine-strict`)
 - Everyday Docker: `docker compose up -d --build --wait`. Compose does **not** bind-mount application source; rebuild after code changes. Container verification: `npm run verify:docker` from the repo root
+- Official `docker compose up -d --build --wait` maps `127.0.0.1:3013` and `127.0.0.1:5679` by default. That collides with source `npm run dev` and with the same `backend-node/data` directory. If those two ports are already in use, do not start the official Compose mapping. To run both, set `LOCALMINIDRAMA_FRONTEND_HOST_PORT` / `LOCALMINIDRAMA_BACKEND_HOST_PORT` and a separate `LOCALMINIDRAMA_DATA_DIR`; Compose writes `LOCALMINIDRAMA_CORS_ORIGINS` from the frontend host port. Compose writes `LOCALMINIDRAMA_CORS_ORIGINS` from the frontend host port; for remapped E2E also set `FRONTEND_URL` / `BACKEND_URL`. If you customize CORS, keep that variable aligned with the frontend host port. `npm run docker:e2e:up` only isolates `LOCALMINIDRAMA_DATA_DIR` outside the repo; it does **not** change `3013`/`5679`, and it also binds `127.0.0.1:5688`
+- In development, loopback Origins are allowed. Production Docker CORS follows the frontend host port
 - Production Nginx (`frontweb/nginx.conf`) must include `location = /ready` proxying the backend `/ready`, before the SPA `location /` fallback. Proxying only `/healthz` is not enough: the backup page requests `/ready` and will lock restore if it receives HTML
 - Production E2E requires a clean working tree (`working_tree_dirty=false`); do not treat a historical SHA or the current dirty worktree as passing evidence
 - The UI starts without external API keys; generate content only after filling **AI Config**. Filling vendor presets is not the same as real image/video/TTS vendor wiring
@@ -142,7 +144,7 @@ npm install
 npm run dev
 ```
 
-Open `http://127.0.0.1:3013`. Development uses Vite, which proxies `/api`, `/static`, `/ready`, and `/health` to `http://127.0.0.1:5679`. Backend CORS allows only `http://localhost:3013` and `http://127.0.0.1:3013`. To let the backend host the production frontend, run `npm run build` in `frontweb`, start the backend, and open `http://127.0.0.1:5679`. Add provider URLs, models, and API keys on the **AI Config** page. Credentials are stored in the local SQLite database, not in `config.yaml`.
+Open `http://127.0.0.1:3013`. Development uses Vite, which proxies `/api`, `/static`, `/ready`, and `/health` to `http://127.0.0.1:5679`. In development, loopback Origins are allowed; `config.yaml` still defaults to `http://localhost:3013` and `http://127.0.0.1:3013`. Production Docker CORS follows the frontend host port (`LOCALMINIDRAMA_CORS_ORIGINS`) and does not allow arbitrary loopback ports. To let the backend host the production frontend, run `npm run build` in `frontweb`, start the backend, and open `http://127.0.0.1:5679`. Add provider URLs, models, and API keys on the **AI Config** page. Credentials are stored in the local SQLite database, not in `config.yaml`.
 
 Backend readiness:
 
@@ -156,14 +158,27 @@ You can also double-click `run_dev.bat` or run `run_dev.ps1` at the project root
 
 ### Option B — Docker
 
-Compose does **not** bind-mount application source. Backend `backend-node/Dockerfile` and frontend `frontweb/Dockerfile.prod` are both Node.js 20. After changing JS/Vue, rebuild:
+Compose does **not** bind-mount application source. Backend `backend-node/Dockerfile` and frontend `frontweb/Dockerfile.prod` are both Node.js 20. After changing JS/Vue, rebuild the images.
+
+Official `docker compose up -d --build --wait` maps host `127.0.0.1:3013` and `127.0.0.1:5679`. That collides with source `npm run dev` and with the same `backend-node/data/` directory (the later process often fails on the maintenance lock). If those two ports are already in use, do not start the official Compose mapping. To coexist, pick free host ports and a separate data directory:
+
+```powershell
+$env:LOCALMINIDRAMA_FRONTEND_HOST_PORT = '13013'
+$env:LOCALMINIDRAMA_BACKEND_HOST_PORT = '15679'
+$env:LOCALMINIDRAMA_DATA_DIR = 'D:\tmp\localminidrama-docker-data'
+New-Item -ItemType Directory -Force -Path $env:LOCALMINIDRAMA_DATA_DIR | Out-Null
+# Compose writes LOCALMINIDRAMA_CORS_ORIGINS for that frontend host port
+docker compose up -d --build --wait
+```
+
+Compose already writes `LOCALMINIDRAMA_CORS_ORIGINS` from the frontend host port. For E2E against remapped ports, set `FRONTEND_URL` / `BACKEND_URL`. If you customize CORS, keep `LOCALMINIDRAMA_CORS_ORIGINS` aligned with that frontend host port. Unchanged ports still use:
 
 ```bash
 docker compose up -d --build --wait
 docker compose ps
 ```
 
-Open `http://127.0.0.1:3013`. Host ports bind to `127.0.0.1` only; data defaults to `backend-node/data/`. Production Nginx must keep `location = /ready` before the SPA fallback; a custom reverse proxy needs the same exact location, or backup restore will lock on HTML.
+Open `http://127.0.0.1:3013` (or the remapped frontend host port). Host ports bind to `127.0.0.1` only; data defaults to `backend-node/data/`. Production Nginx must keep `location = /ready` before the SPA fallback; a custom reverse proxy needs the same exact location, or backup restore will lock on HTML.
 
 | Probe | URL | Compose use |
 |------|------|------|
@@ -175,7 +190,7 @@ Open `http://127.0.0.1:3013`. Host ports bind to `127.0.0.1` only; data defaults
 
 Stop with `docker compose down`. Full backup/restore requires Docker to be stopped first. `backup:data` / `restore:data` / `maintenance:recover` help and failure output are Simplified Chinese. For commands and custom `LOCALMINIDRAMA_DATA_DIR` `--data-root`, see the [backup FAQ](quickstart.md#q-如何备份迁移项目数据).
 
-`npm run docker:up` requires a clean worktree and writes the current Git SHA into image revisions. Dirty local source should use `docker compose up -d --build --wait`; those images cannot create official rollback checkpoints. `npm run verify:docker` checks image boundaries and runs in-container tests; it does not replace a running Compose acceptance.
+`npm run docker:up` requires a clean worktree and writes the current Git SHA into image revisions. Dirty local source should use `docker compose up -d --build --wait`; those images cannot create official rollback checkpoints. `npm run verify:docker` checks image boundaries and runs in-container tests; it does not replace a running Compose acceptance. Production Docker CORS follows the frontend host port via `LOCALMINIDRAMA_CORS_ORIGINS`; development mode is the only case where arbitrary loopback Origins pass.
 
 ### Tests
 
@@ -189,7 +204,7 @@ npm --prefix frontweb run verify
 npm run verify
 ```
 
-`npm run verify:docker` checks image boundaries and runs in-container tests; it does not replace a running Compose service. Production E2E requires a clean working tree, an empty data directory outside the repo, then `npm run docker:e2e:up` followed by `npm run verify:e2e`; evidence must record `working_tree_dirty=false`. Repository tests use a local protocol-compatible provider and must not use real credentials. User-visible errors in the UI, API, and CLI are Simplified Chinese.
+`npm run verify:docker` checks image boundaries and runs in-container tests; it does not replace a running Compose service. Production E2E requires a clean working tree, an empty data directory outside the repo, then `npm run docker:e2e:up` followed by `npm run verify:e2e`; evidence must record `working_tree_dirty=false`. `docker:e2e:up` only isolates `LOCALMINIDRAMA_DATA_DIR`; it does not remap `3013`/`5679`, and it also binds `127.0.0.1:5688`. Do not run it while source `npm run dev` still holds those ports. If host ports were remapped, set `FRONTEND_URL` / `BACKEND_URL` before `verify:e2e`. Repository tests use a local protocol-compatible provider and must not use real credentials. User-visible errors in the UI, API, and CLI are Simplified Chinese.
 
 There is no official `v1.3.3` GitHub Release. Local Windows Setup/Portable builds are not a published download. Unsigned-binary verification (`Unknown Publisher` / SmartScreen, `SHA256SUMS`, `release-manifest.json`, `gh attestation verify`) is documented in the root README and `desktop/README.md`.
 
