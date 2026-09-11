@@ -490,3 +490,19 @@ test('returns null when the bounded safe area is genuinely full', () => {
 
   assert.equal(findFreeNodeSpawnPosition({ x: 160, y: 134 }, occupied, { bounds }), null)
 })
+
+
+test('hideProductionNodes is persisted only as an explicit boolean and defaults to visible production context', () => {
+  const empty = normalizeFreeCanvas(null)
+  assert.equal(empty.hideProductionNodes, false)
+
+  const hidden = normalizeFreeCanvas({ mode: 'free', hideProductionNodes: true })
+  assert.equal(hidden.hideProductionNodes, true)
+  assert.equal(hidden.mode, 'free')
+
+  const ignored = normalizeFreeCanvas({ hideProductionNodes: 'yes' })
+  assert.equal(ignored.hideProductionNodes, false)
+
+  const roundTrip = serializeFreeCanvas(hidden)
+  assert.equal(roundTrip.hideProductionNodes, true)
+})

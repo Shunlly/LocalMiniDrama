@@ -162,10 +162,11 @@ function appendEdges(source, endpointIds, edgeIds, edges) {
 /**
  * Returns an isolated graph for the active canvas mode without changing either source graph.
  */
-export function mergeCanvasGraphs(productionGraph, freeGraph, mode = 'production') {
-  const production = graphParts(productionGraph)
-  const free = graphParts(freeGraph)
+export function mergeCanvasGraphs(productionGraph, freeGraph, mode = 'production', options = {}) {
   const includesFree = mode === 'free' || mode === 'hybrid'
+  const hideProductionNodes = Boolean(options.hideProductionNodes) && includesFree
+  const production = hideProductionNodes ? { nodes: [], edges: [] } : graphParts(productionGraph)
+  const free = graphParts(freeGraph)
   const nodes = []
   const edges = []
   const productionNodeIds = appendNodes(

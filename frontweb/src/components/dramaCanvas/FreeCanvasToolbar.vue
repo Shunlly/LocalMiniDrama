@@ -68,6 +68,18 @@
           <el-icon><FolderOpened /></el-icon>
         </el-button>
       </el-tooltip>
+      <el-tooltip :content="hideProductionActionLabel" placement="bottom">
+        <el-button
+          size="small"
+          circle
+          :aria-label="hideProductionActionLabel"
+          :title="hideProductionActionLabel"
+          :aria-pressed="hideProductionNodes"
+          @click="emit('toggle-hide-production', !hideProductionNodes)"
+        >
+          <el-icon><Hide /></el-icon>
+        </el-button>
+      </el-tooltip>
 
       <CanvasActionGate
         :reason="alignDisabledReason"
@@ -127,6 +139,7 @@ import {
   Delete,
   Document,
   FolderOpened,
+  Hide,
   FullScreen,
   Link,
   Picture,
@@ -153,6 +166,7 @@ const props = defineProps({
   showModeSwitch: { type: Boolean, default: true },
   libraryVisible: { type: Boolean, default: false },
   selectionCount: { type: Number, default: 0 },
+  hideProductionNodes: { type: Boolean, default: false },
 })
 
 const emit = defineEmits([
@@ -165,11 +179,13 @@ const emit = defineEmits([
   'set-mode',
   'copy-selection',
   'delete-selection',
+  'toggle-hide-production',
 ])
 
 const backgroundModes = ['dots', 'lines', 'none']
 const isFreeMode = computed(() => props.mode === 'free')
 const libraryActionLabel = computed(() => props.libraryVisible ? '收起素材栏' : '展开素材栏')
+const hideProductionActionLabel = computed(() => props.hideProductionNodes ? '显示制作节点' : '隐藏制作节点')
 const effectiveNodeCount = computed(() => freeCanvasUxState.nodeCount)
 const isEmptyCanvas = computed(() => isFreeMode.value && effectiveNodeCount.value === 0)
 const densityHint = computed(() => getFreeCanvasNodeCapacityHint(effectiveNodeCount.value))

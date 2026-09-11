@@ -94,11 +94,13 @@
         :background-mode="freeCanvasBackground"
         :library-visible="freeLibraryVisible"
         :selection-count="selectedFreeNodeIds.length"
+        :hide-production-nodes="hideProductionNodes"
         @create-node="createFreeCanvasNode"
         @undo="undoFreeCanvas"
         @redo="redoFreeCanvas"
         @fit-view="fitCanvasView"
         @set-background="setFreeCanvasBackground"
+        @toggle-hide-production="setHideProductionNodes"
         @toggle-library="toggleFreeCanvasLibrary"
         @copy-selection="copyFreeCanvasSelection"
         @delete-selection="deleteFreeCanvasSelection"
@@ -195,10 +197,12 @@ defineProps({
   canUndoFreeCanvas: { type: Boolean, default: false },
   canRedoFreeCanvas: { type: Boolean, default: false },
   freeCanvasBackground: { type: String, default: 'dots' },
+  hideProductionNodes: { type: Boolean, default: false },
   selectedFreeNodeIds: { type: Array, default: () => [] },
   undoFreeCanvas: { type: Function, required: true },
   redoFreeCanvas: { type: Function, required: true },
   setFreeCanvasBackground: { type: Function, required: true },
+  setHideProductionNodes: { type: Function, required: true },
   toggleFreeCanvasLibrary: { type: Function, required: true },
   copyFreeCanvasSelection: { type: Function, required: true },
   deleteFreeCanvasSelection: { type: Function, required: true },

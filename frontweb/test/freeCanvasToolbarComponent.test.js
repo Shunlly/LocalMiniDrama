@@ -31,6 +31,7 @@ const iconStubUrl = compileIconStub([
   'Delete',
   'Document',
   'FolderOpened',
+  'Hide',
   'FullScreen',
   'Link',
   'Picture',

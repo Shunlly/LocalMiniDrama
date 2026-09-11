@@ -26,6 +26,20 @@
     :key="`${dramaId}:${focusedInspectorNode.id}`"
     :node="focusedInspectorNode"
   />
+  <FreeCanvasContextBar
+    v-if="canvasMode === 'free' && selectedFreeNode"
+    :node="selectedFreeNode"
+    :readonly="canvasMode !== 'free' || freeCanvasReadOnly"
+    :busy="freeInspectorBusy"
+    :config-runtime="selectedFreeConfigRuntime"
+    :save-asset-eligibility="selectedFreeAssetEligibility"
+    @copy="copyFreeCanvasSelection"
+    @delete="deleteFreeCanvasSelection"
+    @generate="generateFreeCanvasConfig"
+    @configure="configureFreeCanvasNode"
+    @cancel="cancelFreeCanvasConfig"
+    @save-asset="saveFreeCanvasNodeAsAsset"
+  />
   <FreeCanvasInspector
     v-if="selectedFreeNode"
     :key="`${dramaId}:${selectedFreeNode.id}`"
@@ -57,6 +71,7 @@ import CanvasCreateDialog from './CanvasCreateDialog.vue'
 import CanvasContextMenu from './CanvasContextMenu.vue'
 import CanvasInspectorDock from './CanvasInspectorDock.vue'
 import FreeCanvasInspector from './FreeCanvasInspector.vue'
+import FreeCanvasContextBar from './FreeCanvasContextBar.vue'
 import GlobalMediaPickerDialog from '@/components/GlobalMediaPickerDialog.vue'
 
 /** 画布创建弹窗、右键菜单、素材选择器和两侧检查器的控件接线 */
@@ -94,6 +109,8 @@ defineProps({
   cancelFreeCanvasConfig: { type: Function, required: true },
   retryFreeCanvasConfig: { type: Function, required: true },
   generateFreeCanvasConfig: { type: Function, required: true },
+  copyFreeCanvasSelection: { type: Function, required: true },
+  deleteFreeCanvasSelection: { type: Function, required: true },
   closeFreeCanvasInspector: { type: Function, required: true },
 })
 </script>

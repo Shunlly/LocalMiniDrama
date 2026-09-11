@@ -98,6 +98,8 @@ export function createDramaCanvasWorkspaceBindings(ctx = {}) {
     undoFreeCanvas: ctx.undoFreeCanvas,
     redoFreeCanvas: ctx.redoFreeCanvas,
     setFreeCanvasBackground: ctx.setFreeCanvasBackground,
+    hideProductionNodes: ctx.hideProductionNodes,
+    setHideProductionNodes: ctx.setHideProductionNodes,
     toggleFreeCanvasLibrary: ctx.toggleFreeCanvasLibrary,
     copyFreeCanvasSelection: ctx.copyFreeCanvasSelection,
     deleteFreeCanvasSelection: ctx.deleteFreeCanvasSelection,
@@ -141,6 +143,8 @@ export function createDramaCanvasOverlayBindings(ctx = {}) {
     cancelFreeCanvasConfig: ctx.cancelFreeCanvasConfig,
     retryFreeCanvasConfig: ctx.retryFreeCanvasConfig,
     generateFreeCanvasConfig: ctx.generateFreeCanvasConfig,
+    copyFreeCanvasSelection: ctx.copyFreeCanvasSelection,
+    deleteFreeCanvasSelection: ctx.deleteFreeCanvasSelection,
     closeFreeCanvasInspector: ctx.closeFreeCanvasInspector,
   }, ['createDialogVisible', 'freeMediaPickerVisible'])
 }

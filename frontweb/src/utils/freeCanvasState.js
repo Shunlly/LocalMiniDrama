@@ -443,10 +443,12 @@ export function normalizeFreeCanvas(input) {
 
   const mode = FREE_CANVAS_MODES.has(source.mode) ? source.mode : 'production'
   const background = FREE_CANVAS_BACKGROUNDS.has(source.background) ? source.background : 'dots'
+  const hideProductionNodes = source.hideProductionNodes === true
   return sanitizeJsonValue({
     version: 1,
     mode,
     background,
+    hideProductionNodes,
     viewport: normalizeViewport(source.viewport),
     ...copyAllowedFields(source, CANVAS_FIELDS),
     nodes,

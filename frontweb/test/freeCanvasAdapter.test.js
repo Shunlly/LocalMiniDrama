@@ -161,3 +161,24 @@ test('free mode hides production creation placeholders while retaining read-only
   assert.deepEqual(graph.nodes.map((node) => node.id), ['production:context', 'free:text:1'])
   assert.deepEqual(graph.edges, [])
 })
+
+
+test('free mode can omit production nodes without mutating the source graphs', () => {
+  const productionGraph = {
+    nodes: [{ id: 'production:1', type: 'canvasStoryboard', data: { title: 'Production' } }],
+    edges: [{ id: 'production-edge', source: 'production:1', target: 'production:1' }],
+  }
+  const freeGraph = {
+    nodes: [{ id: 'free:text:1', type: 'freeCanvas', data: { label: 'Idea' } }],
+    edges: [{ id: 'free-edge', source: 'free:text:1', target: 'free:text:1' }],
+  }
+
+  const hidden = mergeCanvasGraphs(productionGraph, freeGraph, 'free', { hideProductionNodes: true })
+  assert.deepEqual(hidden.nodes.map((node) => node.id), ['free:text:1'])
+  assert.deepEqual(hidden.edges.map((edge) => edge.id), ['free-edge'])
+  assert.equal(productionGraph.nodes.length, 1)
+  assert.equal(productionGraph.nodes[0].data.title, 'Production')
+
+  const visible = mergeCanvasGraphs(productionGraph, freeGraph, 'free')
+  assert.deepEqual(visible.nodes.map((node) => node.id), ['production:1', 'free:text:1'])
+})

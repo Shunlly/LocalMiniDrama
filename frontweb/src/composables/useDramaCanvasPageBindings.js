@@ -128,6 +128,7 @@ export function createDramaCanvasPageBindings(ctx = {}) {
   const { goListMode, closeFreeLibrary } = createDramaCanvasListModeNavigation(ctx)
   const freeNodeCount = computed(() => ctx.freeCanvas.value.nodes.length)
   const freeCanvasBackground = computed(() => ctx.freeCanvas.value.background)
+  const hideProductionNodes = computed(() => Boolean(ctx.freeCanvas.value.hideProductionNodes))
 
   const workspaceBindings = createDramaCanvasWorkspaceBindings({
     nodes: ctx.nodes,
@@ -204,6 +205,8 @@ export function createDramaCanvasPageBindings(ctx = {}) {
     undoFreeCanvas: ctx.undoFreeCanvas,
     redoFreeCanvas: ctx.redoFreeCanvas,
     setFreeCanvasBackground: ctx.setFreeCanvasBackground,
+    hideProductionNodes,
+    setHideProductionNodes: ctx.setHideProductionNodes,
     toggleFreeCanvasLibrary: ctx.toggleFreeCanvasLibrary,
     copyFreeCanvasSelection: ctx.copyFreeCanvasSelection,
     deleteFreeCanvasSelection: ctx.deleteFreeCanvasSelection,
@@ -244,6 +247,8 @@ export function createDramaCanvasPageBindings(ctx = {}) {
     cancelFreeCanvasConfig: ctx.cancelFreeCanvasConfig,
     retryFreeCanvasConfig: ctx.retryFreeCanvasConfig,
     generateFreeCanvasConfig: ctx.generateFreeCanvasConfig,
+    copyFreeCanvasSelection: ctx.copyFreeCanvasSelection,
+    deleteFreeCanvasSelection: ctx.deleteFreeCanvasSelection,
     closeFreeCanvasInspector: ctx.closeFreeCanvasInspector,
   })
 

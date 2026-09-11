@@ -130,7 +130,9 @@ export function useDramaCanvasGraph(deps) {
   }
 
   function mergeActiveCanvasGraphs() {
-    const merged = mergeCanvasGraphs(modeScopedProductionGraph(), freeGraph.value, canvasMode.value)
+    const merged = mergeCanvasGraphs(modeScopedProductionGraph(), freeGraph.value, canvasMode.value, {
+      hideProductionNodes: canvasMode.value === 'free' && Boolean(freeCanvas.value.hideProductionNodes),
+    })
     nodes.value = merged.nodes
     edges.value = merged.edges
   }
@@ -241,6 +243,13 @@ export function useDramaCanvasGraph(deps) {
     commitFreeCanvasState({ ...freeCanvas.value, background }, 'background')
   }
 
+  function setHideProductionNodes(hidden) {
+    if (canvasMode.value !== 'free') return
+    const hideProductionNodes = Boolean(hidden)
+    if (Boolean(freeCanvas.value.hideProductionNodes) === hideProductionNodes) return
+    commitFreeCanvasState({ ...freeCanvas.value, hideProductionNodes }, 'hide-production')
+  }
+
   function syncWorkflowFromDrama() {
     workflowGroups.value = parseWorkflowGroups(drama.value?.metadata)
     if (activeGroupId.value && !workflowGroups.value.some((g) => g.id === activeGroupId.value)) {
@@ -336,6 +345,7 @@ export function useDramaCanvasGraph(deps) {
     undoFreeCanvas,
     redoFreeCanvas,
     setFreeCanvasBackground,
+    setHideProductionNodes,
     syncWorkflowFromDrama,
     rebuildGraph,
     applyHighlight,
