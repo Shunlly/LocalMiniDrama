@@ -40,7 +40,7 @@
             :loading="networkLoading"
             :disabled="!networkKeyword.trim() || networkLoading"
             :title="networkSearchDisableReason || undefined"
-            @click="searchNetworkMedia"
+            :aria-label="networkLoading ? '正在搜索网络素材' : (networkSearchDisableReason || '搜索网络素材')" @click="searchNetworkMedia"
           >
             <el-icon><Search /></el-icon>搜索
           </el-button>
@@ -62,7 +62,7 @@
           :disabled="!networkKeyword.trim() || networkLoading"
           :title="networkSearchDisableReason || undefined"
           aria-label="重试搜索网络素材"
-          @click="searchNetworkMedia"
+          :aria-label="networkLoading ? '正在搜索网络素材' : (networkSearchDisableReason || '搜索网络素材')" @click="searchNetworkMedia"
         >
           <el-icon><Refresh /></el-icon>重试
         </el-button>

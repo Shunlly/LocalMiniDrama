@@ -27,7 +27,7 @@
             size="small"
             type="primary"
             plain
-            @click="loadServiceConfigs"
+            aria-label="重新检查服务" @click="loadServiceConfigs"
           >
             重新检查服务
           </el-button>
@@ -84,7 +84,7 @@
                   plain
                   :disabled="generating || cancelling"
                   :title="resultBusyDisabledReason || undefined"
-                  @click="retryGeneration(item)"
+                  :aria-label="(generating || cancelling) ? (resultBusyDisabledReason || '正在处理') : '重试生成'" @click="retryGeneration(item)"
                 >
                   重试
                 </el-button>
@@ -98,7 +98,7 @@
                   plain
                   :disabled="generating || cancelling"
                   :title="resultBusyDisabledReason || undefined"
-                  @click="retryGeneration(item)"
+                  :aria-label="(generating || cancelling) ? (resultBusyDisabledReason || '正在处理') : '重试生成'" @click="retryGeneration(item)"
                 >
                   重试
                 </el-button>
@@ -113,7 +113,7 @@
                   plain
                   :disabled="generating || cancelling"
                   :title="resultBusyDisabledReason || undefined"
-                  @click="retryGeneration(item)"
+                  :aria-label="(generating || cancelling) ? (resultBusyDisabledReason || '正在处理') : '重试生成'" @click="retryGeneration(item)"
                 >
                   重试
                 </el-button>
@@ -128,7 +128,7 @@
                   plain
                   :disabled="generating || cancelling"
                   :title="resultBusyDisabledReason || undefined"
-                  @click="downloadItem(item)"
+                  :aria-label="(generating || cancelling) ? (resultBusyDisabledReason || '正在处理') : '下载结果'" @click="downloadItem(item)"
                 >下载</el-button>
               </div>
             </div>

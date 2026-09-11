@@ -11,8 +11,8 @@
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button :disabled="dlgLoading" :title="dlgLoading ? '正在提交资产请求，请稍候' : undefined" @click="dlgGroupCreate = false">取消</el-button>
-        <el-button type="primary" :loading="dlgLoading" :disabled="Boolean(submitLockReason)" :title="submitLockReason" @click="submitCreateGroup">提交</el-button>
+        <el-button :disabled="dlgLoading" :title="dlgLoading ? '正在提交资产请求，请稍候' : undefined" :aria-label="dlgLoading ? '正在提交资产请求，请稍候' : '取消新建资产组'" @click="dlgGroupCreate = false">取消</el-button>
+        <el-button type="primary" :loading="dlgLoading" :disabled="Boolean(submitLockReason)" :title="submitLockReason" :aria-label="dlgLoading ? '正在提交资产请求，请稍候' : (submitLockReason || '提交新建资产组')" @click="submitCreateGroup">提交</el-button>
       </template>
     </AccessibleDialog>
 
@@ -31,8 +31,8 @@
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button :disabled="dlgLoading" :title="dlgLoading ? '正在提交资产请求，请稍候' : undefined" @click="dlgGroupEdit = false">取消</el-button>
-        <el-button type="primary" :loading="dlgLoading" :disabled="Boolean(submitLockReason)" :title="submitLockReason" @click="submitUpdateGroup">提交</el-button>
+        <el-button :disabled="dlgLoading" :title="dlgLoading ? '正在提交资产请求，请稍候' : undefined" :aria-label="dlgLoading ? '正在提交资产请求，请稍候' : '取消编辑资产组'" @click="dlgGroupEdit = false">取消</el-button>
+        <el-button type="primary" :loading="dlgLoading" :disabled="Boolean(submitLockReason)" :title="submitLockReason" :aria-label="dlgLoading ? '正在提交资产请求，请稍候' : (submitLockReason || '提交编辑资产组')" @click="submitUpdateGroup">提交</el-button>
       </template>
     </AccessibleDialog>
 
@@ -60,8 +60,8 @@
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button :disabled="dlgLoading" :title="dlgLoading ? '正在提交资产请求，请稍候' : undefined" @click="dlgAssetCreate = false">取消</el-button>
-        <el-button type="primary" :loading="dlgLoading" :disabled="Boolean(submitLockReason)" :title="submitLockReason" @click="submitCreateAsset">提交</el-button>
+        <el-button :disabled="dlgLoading" :title="dlgLoading ? '正在提交资产请求，请稍候' : undefined" :aria-label="dlgLoading ? '正在提交资产请求，请稍候' : '取消新建资产'" @click="dlgAssetCreate = false">取消</el-button>
+        <el-button type="primary" :loading="dlgLoading" :disabled="Boolean(submitLockReason)" :title="submitLockReason" :aria-label="dlgLoading ? '正在提交资产请求，请稍候' : (submitLockReason || '提交新建资产')" @click="submitCreateAsset">提交</el-button>
       </template>
     </AccessibleDialog>
 
@@ -79,8 +79,8 @@
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button :disabled="dlgLoading" :title="dlgLoading ? '正在提交资产请求，请稍候' : undefined" @click="dlgAssetEdit = false">取消</el-button>
-        <el-button type="primary" :loading="dlgLoading" :disabled="Boolean(submitLockReason)" :title="submitLockReason" @click="submitUpdateAsset">提交</el-button>
+        <el-button :disabled="dlgLoading" :title="dlgLoading ? '正在提交资产请求，请稍候' : undefined" :aria-label="dlgLoading ? '正在提交资产请求，请稍候' : '取消编辑资产'" @click="dlgAssetEdit = false">取消</el-button>
+        <el-button type="primary" :loading="dlgLoading" :disabled="Boolean(submitLockReason)" :title="submitLockReason" :aria-label="dlgLoading ? '正在提交资产请求，请稍候' : (submitLockReason || '提交编辑资产')" @click="submitUpdateAsset">提交</el-button>
       </template>
     </AccessibleDialog>
 
@@ -88,7 +88,7 @@
     <AccessibleDialog v-model="dlgDetail" title="详情" width="640px" destroy-on-close>
       <el-input :model-value="detailJson" type="textarea" :rows="16" readonly class="mono" />
       <template #footer>
-        <el-button type="primary" @click="dlgDetail = false">关闭</el-button>
+        <el-button type="primary" aria-label="关闭资产详情" @click="dlgDetail = false">关闭</el-button>
       </template>
     </AccessibleDialog>
   </div>

@@ -3,8 +3,8 @@
     <div class="panel-title">资产（需组编号）</div>
     <div class="panel-actions row-gap">
       <Sd2AssetFilter v-model="assetGroupIdInput" />
-      <el-button type="primary" size="small" :loading="loadingAssets" :disabled="Boolean(refreshAssetsLockReason)" :title="refreshAssetsLockReason" @click="refreshAssets">刷新</el-button>
-      <el-button type="success" size="small" :disabled="mutationLocked" :title="mutationLocked ? mutationLockReason : undefined" @click="openCreateAsset">新建资产</el-button>
+      <el-button type="primary" size="small" :loading="loadingAssets" :disabled="Boolean(refreshAssetsLockReason)" :title="refreshAssetsLockReason" :aria-label="loadingAssets ? '正在刷新资产列表' : (refreshAssetsLockReason || '刷新资产列表')" @click="refreshAssets">刷新</el-button>
+      <el-button type="success" size="small" :disabled="mutationLocked" :title="mutationLocked ? mutationLockReason : undefined" :aria-label="mutationLocked ? mutationLockReason : '新建资产'" @click="openCreateAsset">新建资产</el-button>
     </div>
     <el-table :data="assetRows" size="small" stripe max-height="320">
       <el-table-column prop="Id" label="标识" min-width="120" show-overflow-tooltip />
@@ -14,9 +14,9 @@
       </el-table-column>
       <el-table-column label="操作" width="168" fixed="right">
         <template #default="{ row }">
-          <el-button link type="primary" size="small" @click="getAssetDetail(row)">详情</el-button>
-          <el-button link type="primary" size="small" :disabled="mutationLocked" :title="mutationLocked ? mutationLockReason : undefined" @click="openEditAsset(row)">编辑</el-button>
-          <el-button link type="danger" size="small" :disabled="mutationLocked" :title="mutationLocked ? mutationLockReason : undefined" @click="deleteAsset(row)">删除</el-button>
+          <el-button link type="primary" size="small" :aria-label="`查看资产${row.name || row.id || '详情'}`" @click="getAssetDetail(row)">详情</el-button>
+          <el-button link type="primary" size="small" :disabled="mutationLocked" :title="mutationLocked ? mutationLockReason : undefined" :aria-label="mutationLocked ? mutationLockReason : `编辑资产${row.name || row.id || ''}`" @click="openEditAsset(row)">编辑</el-button>
+          <el-button link type="danger" size="small" :disabled="mutationLocked" :title="mutationLocked ? mutationLockReason : undefined" :aria-label="mutationLocked ? mutationLockReason : `删除资产${row.name || row.id || ''}`" @click="deleteAsset(row)">删除</el-button>
         </template>
       </el-table-column>
     </el-table>

@@ -88,7 +88,7 @@
       </div>
     </div>
     <template #footer>
-      <el-button type="primary" @click="showPreview = false">关闭预览</el-button>
+      <el-button type="primary" aria-label="关闭预览" @click="showPreview = false">关闭预览</el-button>
     </template>
   </AccessibleDialog>
 
@@ -126,7 +126,7 @@
       </div>
     </div>
     <template #footer>
-      <el-button type="primary" @click="showNetworkPreview = false">关闭预览</el-button>
+      <el-button type="primary" aria-label="关闭网络预览" @click="showNetworkPreview = false">关闭预览</el-button>
     </template>
   </AccessibleDialog>
 </template>

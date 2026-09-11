@@ -45,8 +45,8 @@
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="requestOneKeyTongyiClose">取消</el-button>
-        <el-button type="success" :loading="oneKeyTongyiSaving" :disabled="configWriteLocked || !oneKeyTongyiKey.trim()" :title="configWriteLocked ? configWriteLockReason : (!oneKeyTongyiKey.trim() ? '请先填写密钥' : undefined)" @click="submitOneKeyTongyi">
+        <el-button aria-label="取消一键配置通义" @click="requestOneKeyTongyiClose">取消</el-button>
+        <el-button type="success" :loading="oneKeyTongyiSaving" :disabled="configWriteLocked || !oneKeyTongyiKey.trim()" :title="configWriteLocked ? configWriteLockReason : (!oneKeyTongyiKey.trim() ? '请先填写密钥' : undefined)" :aria-label="oneKeyTongyiSaving ? '正在创建通义配置' : (configWriteLocked ? configWriteLockReason : (!oneKeyTongyiKey.trim() ? '请先填写密钥' : '确定，一键创建通义配置'))" @click="submitOneKeyTongyi">
           确定，一键创建配置
         </el-button>
       </template>
@@ -97,8 +97,8 @@
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="requestOneKeyVolcClose">取消</el-button>
-        <el-button type="success" :loading="oneKeyVolcSaving" :disabled="configWriteLocked || !oneKeyVolcKey.trim()" :title="configWriteLocked ? configWriteLockReason : (!oneKeyVolcKey.trim() ? '请先填写密钥' : undefined)" @click="submitOneKeyVolc">
+        <el-button aria-label="取消一键配置火山" @click="requestOneKeyVolcClose">取消</el-button>
+        <el-button type="success" :loading="oneKeyVolcSaving" :disabled="configWriteLocked || !oneKeyVolcKey.trim()" :title="configWriteLocked ? configWriteLockReason : (!oneKeyVolcKey.trim() ? '请先填写密钥' : undefined)" :aria-label="oneKeyVolcSaving ? '正在创建火山配置' : (configWriteLocked ? configWriteLockReason : (!oneKeyVolcKey.trim() ? '请先填写密钥' : '确定，一键创建火山配置'))" @click="submitOneKeyVolc">
           确定，一键创建配置
         </el-button>
       </template>
@@ -148,8 +148,8 @@
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="requestOneKeyAgnesClose">取消</el-button>
-        <el-button type="success" :loading="oneKeyAgnesSaving" :disabled="configWriteLocked || !oneKeyAgnesKey.trim()" :title="configWriteLocked ? configWriteLockReason : (!oneKeyAgnesKey.trim() ? '请先填写密钥' : undefined)" @click="submitOneKeyAgnes">
+        <el-button aria-label="取消一键配置 Agnes" @click="requestOneKeyAgnesClose">取消</el-button>
+        <el-button type="success" :loading="oneKeyAgnesSaving" :disabled="configWriteLocked || !oneKeyAgnesKey.trim()" :title="configWriteLocked ? configWriteLockReason : (!oneKeyAgnesKey.trim() ? '请先填写密钥' : undefined)" :aria-label="oneKeyAgnesSaving ? '正在创建 Agnes 配置' : (configWriteLocked ? configWriteLockReason : (!oneKeyAgnesKey.trim() ? '请先填写密钥' : '确定，一键创建 Agnes 配置'))" @click="submitOneKeyAgnes">
           确定，一键创建配置
         </el-button>
       </template>

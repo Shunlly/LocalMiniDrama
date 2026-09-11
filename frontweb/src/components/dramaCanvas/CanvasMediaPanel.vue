@@ -21,7 +21,7 @@
     <div v-if="audioOutcomeUnknown" class="media-query-blocker" role="alert">
       <p class="media-query-title">配音结果待确认</p>
       <p class="media-query-note">服务端可能仍在合成并产生费用，请刷新分镜状态后再决定是否重试。</p>
-      <el-button size="small" type="warning" plain @click.stop="refreshAfterUnknownAudio">刷新分镜状态</el-button>
+      <el-button size="small" type="warning" plain aria-label="刷新分镜状态" @click.stop="refreshAfterUnknownAudio">刷新分镜状态</el-button>
     </div>
 
     <div
@@ -50,13 +50,13 @@
     <div class="panel-body">
       <template v-if="kind === 'text'">
         <p class="summary">{{ summary || '暂无脚本内容' }}</p>
-        <el-button size="small" type="primary" plain @click.stop="focusStoryboard">编辑脚本</el-button>
+        <el-button size="small" type="primary" plain aria-label="编辑分镜脚本" @click.stop="focusStoryboard">编辑脚本</el-button>
       </template>
 
       <template v-else-if="kind === 'universal'">
         <p class="summary">{{ summary || '暂无全能分镜词' }}</p>
         <div class="panel-actions">
-          <el-button size="small" plain @click.stop="focusStoryboard">编辑</el-button>
+          <el-button size="small" plain aria-label="编辑分镜" @click.stop="focusStoryboard">编辑</el-button>
           <CanvasActionGate
             :reason="videoAction.reason"
             label="重新生成单镜视频"
@@ -69,7 +69,7 @@
               :loading="busy"
               :disabled="Boolean(videoAction.reason)"
               :title="videoAction.reason || undefined"
-              @click.stop="runStep('video')"
+              :aria-label="busy ? '正在生成视频' : (videoAction.reason || '重新生成视频')" @click.stop="runStep('video')"
             >重新生成视频</el-button>
           </CanvasActionGate>
         </div>
@@ -102,7 +102,7 @@
             :loading="busy"
             :disabled="Boolean(videoAction.reason)"
             :title="videoAction.reason || undefined"
-            @click.stop="runStep('video')"
+            :aria-label="busy ? '正在生成视频' : (videoAction.reason || '重新生成视频')" @click.stop="runStep('video')"
           >重新生成视频</el-button>
         </CanvasActionGate>
       </template>
@@ -123,7 +123,7 @@
             :loading="busy"
             :disabled="Boolean(audioActionDisabledReason)"
             :title="audioActionDisabledReason || undefined"
-            @click.stop="runStep('audio')"
+            :aria-label="busy ? '正在配音' : (audioActionDisabledReason || '重新配音')" @click.stop="runStep('audio')"
           >重新配音</el-button>
         </CanvasActionGate>
       </template>

@@ -59,7 +59,7 @@
         <el-radio-button label="image">图片</el-radio-button>
         <el-radio-button label="video">视频</el-radio-button>
       </el-radio-group>
-      <el-button class="project-assets-shortcut" link size="small" @click="revealProjectAssets">
+      <el-button class="project-assets-shortcut" link size="small" aria-label="查看项目素材" @click="revealProjectAssets">
         <el-icon><FolderOpened /></el-icon>
         项目素材 {{ filteredAssets.length }}
       </el-button>
@@ -72,7 +72,7 @@
         :key="`character:${item.id}`"
         type="button"
         class="asset-item"
-        @click="emit('add-entity', { kind: 'character', item })"
+        :aria-label="`添加角色${item.name || '未命名角色'}`" @click="emit('add-entity', { kind: 'character', item })"
       >{{ item.name || '未命名角色' }}</button>
       <div v-if="!filteredCharacters.length" class="asset-empty" role="status">
         <p>{{ assetEmptyText('角色') }}</p>
@@ -88,7 +88,7 @@
         :key="`scene:${item.id}`"
         type="button"
         class="asset-item"
-        @click="emit('add-entity', { kind: 'scene', item })"
+        :aria-label="`添加场景${item.location || item.name || '未命名场景'}`" @click="emit('add-entity', { kind: 'scene', item })"
       >{{ item.location || item.name || '未命名场景' }}</button>
       <div v-if="!filteredScenes.length" class="asset-empty" role="status">
         <p>{{ assetEmptyText('场景') }}</p>
@@ -104,7 +104,7 @@
         :key="`prop:${item.id}`"
         type="button"
         class="asset-item"
-        @click="emit('add-entity', { kind: 'prop', item })"
+        :aria-label="`添加道具${item.name || '未命名道具'}`" @click="emit('add-entity', { kind: 'prop', item })"
       >{{ item.name || '未命名道具' }}</button>
       <div v-if="!filteredProps.length" class="asset-empty" role="status">
         <p>{{ assetEmptyText('道具') }}</p>
@@ -122,6 +122,7 @@
         class="asset-item asset-item-media"
         :draggable="true"
         @dragstart.stop="startMediaDrag($event, item, 'storyboard-media')"
+        :aria-label="`添加分镜素材${item.name || item.id || ''}`"
         @click="emit('add-media', item)"
       >
         <span class="asset-kind">{{ item.type === 'video' ? '视频' : '图片' }}</span>
@@ -146,6 +147,7 @@
         class="asset-item asset-item-media"
         :draggable="true"
         @dragstart.stop="startMediaDrag($event, item, 'project-asset')"
+        :aria-label="`添加项目素材${item.name || ('素材 ' + item.id)}`"
         @click="emit('add-media', item)"
       >
         <span class="asset-kind">{{ item.type === 'video' ? '视频' : '图片' }}</span>

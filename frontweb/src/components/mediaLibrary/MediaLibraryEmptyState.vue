@@ -5,7 +5,7 @@
     <p class="empty-description">{{ hasActiveFilters ? '调整关键词或素材类型后再试。' : '上传图片或视频，后续项目可以直接复用。' }}</p>
     <div class="empty-actions">
       <template v-if="hasActiveFilters">
-        <el-button @click="clearFilters">清除筛选</el-button>
+        <el-button aria-label="清除素材筛选" @click="clearFilters">清除筛选</el-button>
         <el-button type="primary" :disabled="mediaWriteLocked || uploading" :title="mediaUploadDisableReason || undefined" aria-label="上传图片或视频到素材中心" @click="triggerUpload">
           <el-icon><Upload /></el-icon>上传素材
         </el-button>

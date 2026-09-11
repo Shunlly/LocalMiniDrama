@@ -13,7 +13,7 @@
         <p v-else>素材空态不会在连接恢复前显示，也不会执行任何素材写操作。</p>
         <p class="data-load-state__detail">错误详情：{{ loadError }}</p>
       </div>
-      <el-button type="primary" plain :loading="loading" :disabled="loading" :title="mediaRetryLoadDisableReason || undefined" @click="loadMedia">
+      <el-button type="primary" plain :loading="loading" :disabled="loading" :title="mediaRetryLoadDisableReason || undefined" :aria-label="loading ? '正在加载素材' : (mediaRetryLoadDisableReason || '重试加载素材')" @click="loadMedia">
         <el-icon><Refresh /></el-icon>重试加载
       </el-button>
     </section>
@@ -121,8 +121,8 @@
     <!-- 批量操作 -->
     <div v-if="selectedIds.size > 0" class="batch-bar">
       <span>已选 {{ selectedIds.size }} 项</span>
-      <el-button size="small" @click="selectedIds.clear()">取消选择</el-button>
-      <el-button size="small" type="danger" plain :disabled="mediaWriteLocked || visibleSelectedMediaCount <= 0" :title="mediaBatchDeleteDisableReason || undefined" @click="batchDelete">批量删除</el-button>
+      <el-button size="small" aria-label="取消选择" @click="selectedIds.clear()">取消选择</el-button>
+      <el-button size="small" type="danger" plain :disabled="mediaWriteLocked || visibleSelectedMediaCount <= 0" :title="mediaBatchDeleteDisableReason || undefined" :aria-label="mediaBatchDeleteDisableReason || '批量删除素材'" @click="batchDelete">批量删除</el-button>
     </div>
 </template>
 
