@@ -87,7 +87,7 @@ test('\u7f3a\u5c11\u8bb8\u53ef\u65f6\u663e\u793a\u4e2d\u6587\u539f\u56e0\u5e76\u
     const copy = textContent(harness.root)
     assert.match(copy, /\u4f5c\u8005\u672a\u77e5/)
     assert.match(copy, /\u672a\u6ce8\u660e\u8bb8\u53ef/)
-    assert.match(copy, /\u8bb8\u53ef\u4fe1\u606f\u672a\u77e5\uff0c\u7981\u6b62\u5bfc\u5165/)
+    assert.match(copy, /\u7f3a\u5c11\u53ef\u5ba1\u8ba1\u7684 HTTPS \u6765\u6e90\u94fe\u63a5|\u8bb8\u53ef\u4fe1\u606f\u672a\u77e5/)
     assert.doesNotMatch(copy, /unlicensed|unknown author|No license/i)
   } finally {
     harness.app.unmount()

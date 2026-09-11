@@ -6,6 +6,7 @@ import {
   describeMediaLibraryUserError,
   isMediaLibraryUserAbort,
 } from '../src/utils/mediaLibraryUserError.js'
+import { describeNetworkError } from '../src/components/mediaLibrary/mediaLibraryNetworkActions.js'
 import { readMediaLibrarySources } from './helpers/mediaLibrarySources.js'
 
 const source = readMediaLibrarySources()
@@ -38,7 +39,7 @@ test('网络素材英文技术错误转成中文，中文原文保留', () => {
     '配额已用完',
   )
   assert.equal(
-    describeMediaLibraryUserError({ message: 'Wikimedia Commons 搜索请求失败' }, { fallback: '搜索失败' }),
+    describeNetworkError({ message: 'Wikimedia Commons 搜索请求失败' }, '搜索失败'),
     'Wikimedia Commons 搜索请求失败',
   )
   assert.equal(
