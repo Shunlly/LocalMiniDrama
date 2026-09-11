@@ -916,14 +916,14 @@ test('production upgrade waits briefly for and reopens compact workflow history 
   assert.ok(start >= 0 && end > start, 'production workflow mode function is missing')
   assertSourceOrder(productionSource.slice(start, end), [
     'await revealWorkflowHistoryIfCompleted(workflow)',
-    'await flowStepButton(workflow, UI.processStep).click()',
+    'await flowStepButton(workflow, UI.intakeStep).click()',
   ])
 })
 
-test('生产 E2E 草稿启动必须点得了「以草稿预演启动」，空 run 不能当成 running', () => {
+test('生产 E2E 草稿启动必须点得了「以当前模式启动」，空 run 不能当成 running', () => {
   const startDraftMatch = productionSource.match(/startDraft:\s*'((?:\\u[0-9a-fA-F]{4}| )+)'/)
   assert.ok(startDraftMatch, 'UI.startDraft 文案缺失')
-  assert.equal(JSON.parse(`"${startDraftMatch[1]}"`), '以草稿预演启动')
+  assert.equal(JSON.parse(`"${startDraftMatch[1]}"`), '以当前模式启动')
 
   const startDraftStart = productionSource.indexOf('async function startDraftFromUi')
   const startDraftEnd = productionSource.indexOf('\nasync function startProductionFromUi', startDraftStart)
