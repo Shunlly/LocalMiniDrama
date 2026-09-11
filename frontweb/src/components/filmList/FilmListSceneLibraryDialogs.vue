@@ -2,6 +2,7 @@
   <div class="film-list-scene-library-dialogs">
     <!-- 公共场景库 -->
     <AccessibleDialog v-model="showSceneLibrary" title="素材库 · 场景" width="720px" destroy-on-close class="library-dialog" @open="loadSceneLibraryList">
+      <p v-if="listWriteLocked && listWriteLockReason" id="scene-library-write-lock-reason" class="visually-hidden">{{ listWriteLockReason }}</p>
       <div class="library-toolbar">
         <el-input v-model="sceneLibraryKeyword" placeholder="搜索地点或描述" aria-label="搜索场景素材" clearable style="width: 200px" @input="debouncedLoadSceneLibrary()" />
       </div>
@@ -23,8 +24,16 @@
             <div class="library-item-name">{{ item.location || item.time || '未命名' }}</div>
             <div class="library-item-desc">{{ (item.description || item.prompt || '').slice(0, 60) }}{{ (item.description || item.prompt || '').length > 60 ? '…' : '' }}</div>
             <div class="library-item-actions">
-              <el-button size="small" :disabled="listWriteLocked" :title="listWriteLocked ? listWriteLockReason : undefined" :aria-label="listWriteLocked ? listWriteLockReason : `编辑公共场景${item.location || '未命名场景'}`" @click="openEditSceneLibrary(item)">编辑</el-button>
-              <el-button size="small" type="danger" plain :disabled="listWriteLocked" :title="listWriteLocked ? listWriteLockReason : undefined" :aria-label="listWriteLocked ? listWriteLockReason : `删除公共场景${item.location || '未命名场景'}`" @click="onDeleteSceneLibrary(item)">删除</el-button>
+              <el-tooltip :content="listWriteLockReason" :disabled="!listWriteLocked" placement="top">
+                <span class="tooltip-trigger" :tabindex="listWriteLocked ? 0 : undefined" :aria-describedby="listWriteLocked && listWriteLockReason ? 'scene-library-write-lock-reason' : undefined">
+                  <el-button size="small" :disabled="listWriteLocked" :title="listWriteLocked ? listWriteLockReason : undefined" :aria-describedby="listWriteLocked && listWriteLockReason ? 'scene-library-write-lock-reason' : undefined" :aria-label="listWriteLocked ? `编辑公共场景${item.location || '未命名场景'}不可用：${listWriteLockReason}` : `编辑公共场景${item.location || '未命名场景'}`" @click="openEditSceneLibrary(item)">编辑</el-button>
+                </span>
+              </el-tooltip>
+              <el-tooltip :content="listWriteLockReason" :disabled="!listWriteLocked" placement="top">
+                <span class="tooltip-trigger" :tabindex="listWriteLocked ? 0 : undefined" :aria-describedby="listWriteLocked && listWriteLockReason ? 'scene-library-write-lock-reason' : undefined">
+                  <el-button size="small" type="danger" plain :disabled="listWriteLocked" :title="listWriteLocked ? listWriteLockReason : undefined" :aria-describedby="listWriteLocked && listWriteLockReason ? 'scene-library-write-lock-reason' : undefined" :aria-label="listWriteLocked ? `删除公共场景${item.location || '未命名场景'}不可用：${listWriteLockReason}` : `删除公共场景${item.location || '未命名场景'}`" @click="onDeleteSceneLibrary(item)">删除</el-button>
+                </span>
+              </el-tooltip>
             </div>
           </div>
         </div>
@@ -32,7 +41,7 @@
           <p>{{ sceneLibraryError }}</p>
           <el-button size="small" type="primary" plain :loading="sceneLibraryLoading" :aria-label="sceneLibraryLoading ? '正在加载场景库，请稍候' : '重试加载场景库'" @click="loadSceneLibraryList">重试</el-button>
         </div>
-        <div v-if="!sceneLibraryLoading && !sceneLibraryError && sceneLibraryList.length === 0" class="library-empty" role="status">
+        <div v-if="!sceneLibraryLoading && !sceneLibraryError && sceneLibraryList.length === 0" class="library-empty" role="status" aria-live="polite">
           <p>{{ sceneLibraryKeyword.trim() ? '没有匹配的场景，试试其他关键词。' : '素材库暂无场景，可在项目中将场景「加入素材库」后在此查看' }}</p>
           <el-button v-if="sceneLibraryKeyword.trim()" size="small" aria-label="清除场景素材搜索" @click="clearSceneLibraryKeyword">清除搜索</el-button>
         </div>
@@ -74,7 +83,11 @@
       </el-form>
       <template #footer>
         <el-button aria-label="取消编辑公共场景" @click="showEditSceneLibrary = false">取消</el-button>
-        <el-button type="primary" :loading="editSceneLibrarySaving" :disabled="listWriteLocked" :title="listWriteLocked ? listWriteLockReason : undefined" :aria-label="editSceneLibrarySaving ? '正在保存公共场景，请稍候' : (listWriteLocked ? listWriteLockReason : '保存公共场景')" @click="submitEditSceneLibrary">保存</el-button>
+        <el-tooltip :content="listWriteLockReason" :disabled="!listWriteLocked" placement="top">
+          <span class="tooltip-trigger" :tabindex="listWriteLocked ? 0 : undefined" :aria-describedby="listWriteLocked && listWriteLockReason ? 'scene-library-write-lock-reason' : undefined">
+            <el-button type="primary" :loading="editSceneLibrarySaving" :disabled="listWriteLocked" :title="listWriteLocked ? listWriteLockReason : undefined" :aria-describedby="listWriteLocked && listWriteLockReason ? 'scene-library-write-lock-reason' : undefined" :aria-label="editSceneLibrarySaving ? '正在保存公共场景，请稍候' : (listWriteLocked ? `保存公共场景不可用：${listWriteLockReason}` : '保存公共场景')" @click="submitEditSceneLibrary">保存</el-button>
+          </span>
+        </el-tooltip>
       </template>
     </AccessibleDialog>
   </div>

@@ -24,6 +24,12 @@ function httpLogs() {
   return getOperationLogs().filter((item) => item.operation === 'http_request')
 }
 
+function assertSeparatedHttpIds(log, requestId) {
+  assert.match(String(log.operationId || ''), /^http_request-/)
+  assert.equal(log.details.requestId, requestId)
+  assert.notEqual(log.operationId, requestId)
+}
+
 
 
 function headerRequestId(headers) {
@@ -118,7 +124,7 @@ test('5xx failures keep requestId, classify as http_5xx, and toast in Chinese', 
       assert.match(toasts[0], new RegExp(`请求编号：${error.requestId}`))
       const logs = httpLogs()
       assert.equal(logs.length, 1)
-      assert.equal(logs[0].operationId, error.requestId)
+      assertSeparatedHttpIds(logs[0], error.requestId)
       assert.equal(logs[0].phase, 'error')
       assert.equal(logs[0].details.category, REQUEST_ERROR_CATEGORY.HTTP_5XX)
       assert.equal(logs[0].details.requestId, error.requestId)
@@ -167,7 +173,7 @@ test('network failures toast Chinese copy and keep requestId in logs', async () 
       assert.doesNotMatch(toasts[0], /Network Error/)
       const logs = httpLogs()
       assert.equal(logs[0].details.category, REQUEST_ERROR_CATEGORY.NETWORK)
-      assert.equal(logs[0].operationId, error.requestId)
+      assertSeparatedHttpIds(logs[0], error.requestId)
       return true
     },
   )
@@ -246,6 +252,7 @@ test('timeout abort stays retryable timeout, not cancel', async () => {
         assert.equal(shouldShowRequestErrorToast(error), true)
         assert.match(toasts[0], /连接服务超时，请稍后重试/)
         assert.match(toasts[0], /请求编号：/)
+        assert.doesNotMatch(toasts[0], /canceled|timeout of|The operation was aborted|AbortError/i)
         return true
       },
     )
@@ -263,13 +270,17 @@ test('user cancel does not toast and is logged as cancel', async () => {
       adapter: jsonAdapter(200, { success: true, data: {} }),
     }),
     (error) => {
+      assert.equal(error.name, 'CanceledError')
+      assert.doesNotMatch(String(error.message || ''), /Cannot read properties|TypeError/i)
       assert.equal(classifyRequestError(error, controller.signal), REQUEST_ERROR_CATEGORY.CANCEL)
+      assert.equal(isRequestTimeout(error, controller.signal), false)
       assert.equal(shouldShowRequestErrorToast(error), false)
       assert.equal(toasts.length, 0)
       const logs = httpLogs()
       assert.equal(logs[0].phase, 'cancel')
       assert.equal(logs[0].details.category, REQUEST_ERROR_CATEGORY.CANCEL)
-      assert.match(String(error.requestId || logs[0].operationId || ''), /^[A-Za-z0-9._:-]{1,128}$/)
+      assertSeparatedHttpIds(logs[0], error.requestId)
+      assert.equal(new Set(logs.map((item) => item.operationId)).size, 1)
       return true
     },
   )
@@ -290,7 +301,7 @@ test('business envelope failures keep requestId without double toast', async () 
       assert.equal(error.category, REQUEST_ERROR_CATEGORY.HTTP_4XX)
       assert.equal(toasts.length, 0)
       const logs = httpLogs()
-      assert.equal(logs[0].operationId, 'body-req')
+      assertSeparatedHttpIds(logs[0], 'body-req')
       return true
     },
   )
@@ -444,8 +455,9 @@ test('coreJsonRequest timeout abort stays timeout, not cancel, and keeps request
       assert.equal(toasts.length, 0)
       const logs = httpLogs()
       assert.equal(logs[0].details.category, REQUEST_ERROR_CATEGORY.TIMEOUT)
-      assert.match(String(error.requestId || logs[0].operationId || ''), /^[A-Za-z0-9._:-]{1,128}$/)
+      assertSeparatedHttpIds(logs[0], error.requestId)
       assert.match(logs[0].error, /连接服务超时/)
+      assert.doesNotMatch(String(logs[0].error || ''), /The operation was aborted|AbortError|PROJECT_LOAD_FAILED/i)
       return true
     },
   )
@@ -469,7 +481,7 @@ test('coreJsonRequest user cancel does not toast and is logged as cancel', async
       const logs = httpLogs()
       assert.equal(logs[0].phase, 'cancel')
       assert.equal(logs[0].details.category, REQUEST_ERROR_CATEGORY.CANCEL)
-      assert.match(String(error.requestId || logs[0].operationId || ''), /^[A-Za-z0-9._:-]{1,128}$/)
+      assertSeparatedHttpIds(logs[0], error.requestId)
       return true
     },
   )
@@ -489,7 +501,7 @@ test('coreJsonRequest network failures classify as network and keep requestId in
       assert.equal(toasts.length, 0)
       const logs = httpLogs()
       assert.equal(logs[0].details.category, REQUEST_ERROR_CATEGORY.NETWORK)
-      assert.match(String(error.requestId || logs[0].operationId || ''), /^[A-Za-z0-9._:-]{1,128}$/)
+      assertSeparatedHttpIds(logs[0], error.requestId)
       assert.match(logs[0].error, /无法连接服务/)
       return true
     },
@@ -515,7 +527,7 @@ test('coreJsonRequest 5xx keeps requestId, classifies as http_5xx, and logs Chin
       assert.match(String(error.requestId || ''), /^[A-Za-z0-9._:-]{1,128}$/)
       assert.equal(toasts.length, 0)
       const logs = httpLogs()
-      assert.equal(logs[0].operationId, error.requestId)
+      assertSeparatedHttpIds(logs[0], error.requestId)
       assert.equal(logs[0].details.category, REQUEST_ERROR_CATEGORY.HTTP_5XX)
       assert.match(logs[0].error, /^服务器内部错误/)
       assert.match(logs[0].error, /请求编号：/)
@@ -552,7 +564,7 @@ test('verified video fetch writes X-Request-Id and logs timeout as timeout not c
       assert.equal(toasts.length, 0)
       const logs = httpLogs()
       assert.equal(logs[0].details.category, REQUEST_ERROR_CATEGORY.TIMEOUT)
-      assert.match(String(error.requestId || logs[0].operationId || ''), /^[A-Za-z0-9._:-]{1,128}$/)
+      assertSeparatedHttpIds(logs[0], error.requestId)
       return true
     },
   )

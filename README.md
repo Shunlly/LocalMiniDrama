@@ -51,7 +51,7 @@
 - 日常 Docker：`docker compose up -d --build --wait`。Compose **不 bind-mount 应用源码**，改完代码必须重建镜像；容器级校验：根目录 `npm run verify:docker`
 - 官方 `docker compose up -d --build --wait` 默认映射 `127.0.0.1:3013` 和 `127.0.0.1:5679`，会和源码 `npm run dev` 抢端口，也会撞同一 `backend-node/data`。这两个端口已被占用时不要再起官方 Compose。并存请改 `LOCALMINIDRAMA_FRONTEND_HOST_PORT` / `LOCALMINIDRAMA_BACKEND_HOST_PORT`，并给 Docker 单独的 `LOCALMINIDRAMA_DATA_DIR`；Compose 会按前端宿主机端口写入 `LOCALMINIDRAMA_CORS_ORIGINS`（这是 Compose 字面量，宿主机再设同名变量盖不掉）。对改端口的实例跑 E2E 时，还须设置 `FRONTEND_URL` / `BACKEND_URL`。官方默认仍是 `3013`/`5679`；`23013`/`25679` 只属于旧 candidate 覆盖，不是当前默认值。`npm run docker:e2e:up` 只隔离仓库外 `LOCALMINIDRAMA_DATA_DIR`，不换 `3013`/`5679`，另外占用 `127.0.0.1:5688`
 - 开发模式下回环 Origin 可通过；生产 Docker CORS 跟随前端宿主机端口
-- 生产 Nginx（`frontweb/nginx.conf`）必须有 `location = /ready`，精确代理到后端 `/ready`，并写在 SPA `location /` 之前。`/healthz` 也代理后端 `/ready`，只用于 Compose 前端健康检查。只代理 `/healthz` 不够：备份页会请求 `/ready`，吃到 HTML 会被当成未就绪。生产 Nginx 不代理 `/health`，该路径会落到 SPA HTML
+- 生产 Nginx（`frontweb/nginx.conf`）必须有 `location = /ready`，精确代理到后端 `/ready`，并写在 SPA `location /` 之前。`/healthz` 也代理后端 `/ready`，只用于 Compose 前端健康检查。只代理 `/healthz` 不够：备份页会请求 `/ready`；落到 SPA HTML 时无法解析就绪 JSON，不能当作已就绪。空 HTML 不会被当成维护锁定。生产 Nginx 不代理 `/health`，该路径会落到 SPA HTML
 - 生产 E2E 必须在干净工作树执行（证据要求 `working_tree_dirty=false`），不要凭历史 SHA 宣称当前工作树已通过
 - 未配置外部 API Key 也可以启动和开发界面；真正生成内容到「AI 配置」页填写。厂商预设填表不等于真实图片/视频/TTS 接入已跑通
 - 页面、API 与 CLI 的用户可见错误为简体中文
@@ -245,7 +245,7 @@ docker compose ps
 
 官方命令默认映射宿主机 `127.0.0.1:3013` 和 `127.0.0.1:5679`，会和源码 `npm run dev` 抢端口，也会写入同一 `backend-node/data/`。这两个端口已被占用时不要再起官方 Compose。并存请改 `LOCALMINIDRAMA_FRONTEND_HOST_PORT` / `LOCALMINIDRAMA_BACKEND_HOST_PORT`，并设置独立的 `LOCALMINIDRAMA_DATA_DIR`；Compose 会按前端宿主机端口写入 `LOCALMINIDRAMA_CORS_ORIGINS`（这是 Compose 字面量，宿主机再设同名变量盖不掉）。对改端口的实例跑 E2E 时，还须设置 `FRONTEND_URL` / `BACKEND_URL`。官方默认仍是 `3013`/`5679`；`23013`/`25679` 只属于旧 candidate 覆盖，不是当前默认值。命令示例见 [开发指南](docs/quickstart.md#运行方式二docker)。
 
-浏览器打开 `http://127.0.0.1:3013`（改端口后改用对应地址）。默认只绑定宿主机 `127.0.0.1`，数据默认写在 `backend-node/data/`。生产 Nginx 必须保留 `location = /ready` 精确代理，写在 SPA 回退之前；自定义反代也一样，否则备份恢复会被前端 HTML 误锁。
+浏览器打开 `http://127.0.0.1:3013`（改端口后改用对应地址）。默认只绑定宿主机 `127.0.0.1`，数据默认写在 `backend-node/data/`。生产 Nginx 必须保留 `location = /ready` 精确代理，写在 SPA 回退之前；自定义反代也一样，否则备份页拿不到后端就绪 JSON。空 HTML 不会被当成维护锁定，所以只代理 `/healthz` 仍不够。
 
 | 探针 | 地址 | 实际含义 |
 |------|------|------|
@@ -262,7 +262,7 @@ docker compose ps
 docker compose down
 ```
 
-全量备份/恢复前必须先停 Docker。`backup:data` / `restore:data` / `maintenance:recover` 的帮助与失败输出为简体中文。命令和自定义 `LOCALMINIDRAMA_DATA_DIR` 的 `--data-root` 写法见 [开发指南](docs/quickstart.md#q-如何备份迁移项目数据)。
+全量备份/恢复时不要让后端继续写库。默认 `backend-node/data/` 可以先 `docker compose stop` 再备份；若使用了 `LOCALMINIDRAMA_DATA_DIR`，必须先从仍在运行的 backend 容器 inspect `/app/data` 的 bind source，再 `docker compose stop`，并把该绝对路径传给 `--data-root`，不要按仓库默认目录去备份。`backup:data` / `restore:data` / `maintenance:recover` 的帮助与失败输出为简体中文。命令见 [开发指南](docs/quickstart.md#q-如何备份迁移项目数据)。
 
 默认启用只读根文件系统、`no-new-privileges` 与能力裁剪。容器级校验：
 

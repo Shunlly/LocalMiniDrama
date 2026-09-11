@@ -65,6 +65,7 @@ const PROVIDER_LABELS = Object.freeze({
 
 const ALLOWED_LATIN_TOKEN_RE = /^(?:ffmpeg|libx264|tesseract|comfyui|openai|ollama|minimax|seedance|kling|gemini|sora|dashscope|volcengine|vidu|agnes|jimeng|http|https|json|pdf|txt|zip|api|tts|ocr|url|jwt|bearer|sqlite|modelark)$/i;
 const MIXED_TECHNICAL_ENGLISH_RE = /invalid api key|incorrect api key|this model does not support|image generation did not complete|video generation did not complete|model is overloaded|retry later/i;
+const GENERIC_PROVIDER_ALIAS_RE = /\b(?:image|video)(?:\s+provider)?\b/i;
 
 function safeLabel(value, fallback) {
   const label = String(value || '').trim();
@@ -405,6 +406,7 @@ function isTrustedChineseUserError(value) {
   if (/[A-Za-z][A-Za-z0-9]*_[A-Za-z0-9_]+/.test(text)) return false;
   if (/^[A-Za-z][A-Za-z0-9_]*\s*不能为空/.test(text)) return false;
   if (/不支持的\s+[A-Za-z_]+/.test(text)) return false;
+  if (GENERIC_PROVIDER_ALIAS_RE.test(text)) return false;
   if (hasUntrustedEnglishRun(text)) return false;
   return true;
 }
@@ -619,6 +621,7 @@ module.exports = {
   isCancelLikeError,
   isNetworkLikeError,
   isTrustedChineseUserError,
+  labeledProvider,
   ttsBusinessFailureMessage,
   ttsHttpFailureMessage,
   toSafeProviderErrorMessage,

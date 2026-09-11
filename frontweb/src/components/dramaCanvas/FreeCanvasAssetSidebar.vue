@@ -364,13 +364,15 @@ async function revealProjectAssets() {
 }
 
 .asset-item {
+  box-sizing: border-box;
   display: flex;
   width: 100%;
   min-width: 0;
+  height: 32px;
   align-items: center;
   gap: 7px;
-  margin-top: 3px;
-  padding: 6px 7px;
+  margin-top: 0;
+  padding: 0 7px;
   overflow: hidden;
   border: 0;
   border-radius: 4px;
@@ -378,7 +380,9 @@ async function revealProjectAssets() {
   color: var(--canvas-text-primary, #e4e4e7);
   font: inherit;
   font-size: 12px;
+  line-height: 32px;
   text-align: left;
+  white-space: nowrap;
   cursor: pointer;
 }
 

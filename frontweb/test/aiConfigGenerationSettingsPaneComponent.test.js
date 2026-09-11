@@ -19,3 +19,10 @@ test('生成设置面板是纯展示组件，loadList/openTest 仍留在页面',
   assert.match(paneSource, /:title="generationSettingsWriteLocked \? generationSettingsWriteLockReason : undefined"/)
   assert.match(paneSource, /aria-label="保存生成设置"/)
 })
+
+test('生成设置保存成功展示中文反馈', () => {
+  assert.match(paneSource, /title="保存成功"/)
+  assert.match(paneSource, /生成并发设置已写入本地服务/)
+  assert.doesNotMatch(paneSource, /title="已保存"/)
+})
+

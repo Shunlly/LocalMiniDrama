@@ -70,6 +70,7 @@ export function useAiConfigFormDerived(deps = {}) {
     form.value.service_type,
     form.value.provider,
     availableModels.value,
+    formModelList.value,
   ))
 
   const endpointPreviewInfo = computed(() => buildEndpointPreviewInfo(form.value))

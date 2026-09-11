@@ -63,6 +63,8 @@ describe('路由日志把技术错误和用户文案拆开', () => {
     assert.equal(operation.event.phase, 'error');
     assert.equal(operation.event.userError, '工作流操作失败');
     assert.equal(operation.event.request_id, 'trace-route-obs-1');
+    assert.match(String(operation.event.operationId || ''), /^workflows list-/);
+    assert.notEqual(operation.event.operationId, 'trace-route-obs-1');
     assert.doesNotMatch(JSON.stringify(log.events), /requestId/);
   });
 

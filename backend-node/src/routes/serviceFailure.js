@@ -111,7 +111,7 @@ function logCaughtRouteError(log, operation, err, extra = {}) {
   if (err && err.code) payload.code = err.code;
   if (logger.isSafeRequestId(requestId)) payload.request_id = requestId;
   for (const [key, value] of Object.entries(extra)) {
-    if (key === 'fallback' || key === 'userFallback' || key === 'request_id' || key === 'userError') continue;
+    if (key === 'fallback' || key === 'userFallback' || key === 'request_id' || key === 'userError' || key === 'operationId') continue;
     payload[key] = value;
   }
   const logFn = typeof log.error === 'function'
@@ -121,13 +121,14 @@ function logCaughtRouteError(log, operation, err, extra = {}) {
   if (typeof log.operation === 'function') {
     log.operation({
       operation,
+      operationId: extra.operationId || logger.createOperationId(operation),
       phase: 'error',
       error: technical,
       ...(payload.userError ? { userError: payload.userError } : {}),
       ...(payload.code ? { code: payload.code } : {}),
       ...(payload.request_id ? { request_id: payload.request_id } : {}),
       ...Object.fromEntries(
-        Object.entries(payload).filter(([key]) => !['error', 'userError', 'code', 'request_id'].includes(key))
+        Object.entries(payload).filter(([key]) => !['error', 'userError', 'code', 'request_id', 'operationId'].includes(key))
       ),
     });
   }

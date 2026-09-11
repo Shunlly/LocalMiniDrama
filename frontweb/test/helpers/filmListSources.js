@@ -19,6 +19,7 @@ export function readFilmListSources() {
   const forms = read('../../src/components/filmList/useFilmListProjectForms.js')
   const importExport = read('../../src/components/filmList/useFilmListImportExport.js')
   const navigation = read('../../src/components/filmList/useFilmListNavigation.js')
+  const sourceNav = read('../../src/utils/sourceImportNavigation.js')
   const library = readFilmListLibrarySource()
   return {
     view,
@@ -34,7 +35,8 @@ export function readFilmListSources() {
     forms,
     importExport,
     navigation,
+    sourceNav,
     library,
-    ui: [view, header, banners, toolbar, grid, pagination, formatters, trash, load, trashActions, forms, importExport, navigation].join('\n'),
+    ui: [view, header, banners, toolbar, grid, pagination, formatters, trash, load, trashActions, forms, importExport, navigation, sourceNav].join('\n'),
   }
 }

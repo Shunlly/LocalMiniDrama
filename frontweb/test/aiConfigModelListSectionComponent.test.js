@@ -110,3 +110,19 @@ test('读取中展示中文进度，不和禁用原因同时出现', async () =>
     harness.app.unmount()
   }
 })
+
+test('模型列表空态给出下一步，不发起读取请求', async () => {
+  const harness = mountSection({
+    availableModels: [],
+    emptyHint: '下一步：直接输入模型名；填好接口地址和密钥后也可点「从服务读取模型」。',
+  })
+  try {
+    await nextTick()
+    assert.match(textContent(harness.root), /下一步：直接输入模型名/)
+    assert.match(textContent(harness.root), /从服务读取模型/)
+    assert.deepEqual(harness.events, [])
+  } finally {
+    harness.app.unmount()
+  }
+})
+

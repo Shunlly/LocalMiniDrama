@@ -70,6 +70,7 @@ test('generation settings save remains fail closed until a successful reload', (
   assert.match(composableSource, /generationSettingsWriteLocked\.value/)
   assert.ok(composableSource.indexOf('generationSettingsWriteLocked.value') < composableSource.indexOf('generationSettingsAPI.update'))
   assert.match(composableSource, /if \(isUserFacingAbort\(e\)\) return\s*ElMessage\.error\(toUserFacingError\(e, '保存失败'\)\)/)
+  assert.match(composableSource, /保存成功，生成并发设置已写入本地服务/)
   assert.doesNotMatch(source, /保存失败：/)
   assert.equal(validateGenerationConcurrency(0, 3), '图片并发数请填写 1-20 之间的整数')
   assert.equal(validateGenerationConcurrency(3, 99), '视频并发数请填写 1-20 之间的整数')

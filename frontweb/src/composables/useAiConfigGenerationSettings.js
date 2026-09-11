@@ -120,6 +120,7 @@ export function useAiConfigGenerationSettings(deps = {}) {
       genConcurrencyInput.value = concurrency
       genVideoConcurrencyInput.value = videoConcurrency
       rememberGenerationSettingsBaseline()
+      ElMessage.success('保存成功，生成并发设置已写入本地服务。')
       genSettingSaved.value = true
       setTimeout(() => { genSettingSaved.value = false }, 2000)
     } catch (e) {

@@ -189,13 +189,16 @@ const propForceIndex = computed(() => forceIndexByPrefix(props.drama?.props, 'pr
 }
 
 .sidebar-item {
+  box-sizing: border-box;
   width: 100%;
+  height: 32px;
   border: 0;
   background: transparent;
   font: inherit;
   text-align: left;
   font-size: 12px;
-  padding: 6px 8px;
+  line-height: 32px;
+  padding: 0 8px;
   border-radius: 6px;
   color: var(--text-primary, #e4e4e7);
   overflow: hidden;

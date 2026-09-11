@@ -25,9 +25,12 @@
         v-if="!trashLoading && !trashError && trashItems.length === 0"
         class="trash-empty"
         role="status"
+        aria-live="polite"
       >
         <el-icon aria-hidden="true"><Delete /></el-icon>
         <p>回收站中没有项目</p>
+        <p class="trash-empty-next">关闭后可回到项目列表新建或导入项目。</p>
+        <el-button aria-label="关闭回收站" @click="showTrashDialog = false">关闭回收站</el-button>
       </div>
       <ul v-if="trashItems.length > 0" class="trash-list" aria-label="已移除项目">
         <li v-for="item in trashItems" :key="item.id" class="trash-list-item">
@@ -38,6 +41,17 @@
             </p>
             <p class="trash-item-retention">内容与关联素材已保留</p>
           </div>
+          <el-tooltip :content="describeTrashRestoreBusyReason(restoringId, item.id)" :disabled="!describeTrashRestoreBusyReason(restoringId, item.id)" placement="top">
+            <span
+              class="tooltip-trigger"
+              :tabindex="describeTrashRestoreBusyReason(restoringId, item.id) ? 0 : undefined"
+              :aria-describedby="describeTrashRestoreBusyReason(restoringId, item.id) ? `trash-restore-reason-${item.id}` : undefined"
+            >
+              <span
+                v-if="describeTrashRestoreBusyReason(restoringId, item.id)"
+                :id="`trash-restore-reason-${item.id}`"
+                class="visually-hidden"
+              >{{ describeTrashRestoreBusyReason(restoringId, item.id) }}</span>
           <el-button
             class="trash-restore-button"
             type="primary"
@@ -45,11 +59,14 @@
             :loading="restoringId === item.id"
             :disabled="restoringId !== null && restoringId !== item.id"
             :title="describeTrashRestoreBusyReason(restoringId, item.id) || undefined"
+            :aria-describedby="describeTrashRestoreBusyReason(restoringId, item.id) ? `trash-restore-reason-${item.id}` : undefined"
             :aria-label="`恢复项目「${item.title || '未命名项目'}」`"
             @click="restoreFromTrash(item)"
           >
             <el-icon><RefreshLeft /></el-icon>恢复
           </el-button>
+            </span>
+          </el-tooltip>
         </li>
       </ul>
       <p class="trash-live-status" role="status" aria-live="polite">
@@ -182,6 +199,23 @@ defineProps({
 .trash-error,
 .trash-live-status {
   margin: 0;
+}
+.trash-empty-next {
+  max-width: 280px;
+  line-height: 1.5;
+}
+.tooltip-trigger { display: inline-flex; }
+.tooltip-trigger:focus-visible { outline: 2px solid #818cf8; outline-offset: 2px; }
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 .trash-error {
   display: flex;

@@ -8,6 +8,7 @@ import {
   confirmAiConfigBulkKeyResult,
   isAiConfigBulkKeyResult,
 } from '@/utils/aiConfigMutations.js'
+import { describeAiConfigBulkKeySuccess } from '@/utils/aiConfigLabels.js'
 
 export function useAiConfigRowMutations(deps = {}) {
   const ElMessage = deps.ElMessage || defaultElMessage
@@ -62,7 +63,7 @@ export function useAiConfigRowMutations(deps = {}) {
         notifyConfigurationChanged()
       }
       bulkKeyVisible.value = false
-      if (listMatches) ElMessage.success(res?.message || '所有配置的 API 密钥已更新')
+      if (listMatches) ElMessage.success(describeAiConfigBulkKeySuccess(res))
       else ElMessage.warning('服务端已确认批量换密钥，但配置列表刷新或并发校验未完全一致，请刷新后复核。')
     } catch (error) {
       if (isUserFacingAbort(error)) return

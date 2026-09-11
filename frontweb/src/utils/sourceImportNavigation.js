@@ -4,6 +4,16 @@ export function hasProjectEpisodes(project) {
   return resolveProjectEpisodeId(project?.episodes) != null
 }
 
+export function projectCardContinueLabel(project, sourceImportIntent) {
+  if (sourceImportIntent) return '导入网页 URL'
+  return hasProjectEpisodes(project) ? '继续制作' : '去创建剧集'
+}
+
+export function projectCardOpenLabel(project, sourceImportIntent) {
+  const title = project?.title || '未命名项目'
+  return `打开项目「${title}」`
+}
+
 export function projectCardDestination(project, sourceImportIntent, returnTo) {
   const id = Number(project?.id)
   if (!Number.isInteger(id) || id <= 0) return null

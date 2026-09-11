@@ -154,6 +154,9 @@ test('制作侧栏高亮最后一项时只把窗口挪过去，不整表挂载',
   }))
   try {
     await nextTick()
+    const windowRoot = namedWindow(harness.root, 'characters')
+    assert.ok(windowRoot)
+    assert.ok(Number(windowRoot.scrollTop) > 0)
     const rendered = buttonsWithPrefix(harness.root, '定位角色')
     assert.ok(rendered.length < 80)
     assert.ok(buttonByAriaLabel(harness.root, '定位角色角色80'))

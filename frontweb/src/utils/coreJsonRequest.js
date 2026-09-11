@@ -1,5 +1,5 @@
 import { ElMessage } from './elementPlusFeedback.js'
-import { logOperation } from './operationLog.js'
+import { createOperationId, logOperation } from './operationLog.js'
 import { ensureRequestId, shouldShowRequestErrorToast } from './request.js'
 import {
   annotateRequestFailure,
@@ -58,9 +58,11 @@ function userFacingFallback(error) {
 function logFetchRequestFailure(error, userMessage) {
   const category = error?.category
   const requestId = error?.requestId || getRequestId(error) || ''
+  const operationId = error?.operationId || createOperationId('http_request')
+  if (error && typeof error === 'object') error.operationId = operationId
   logOperation({
     operation: 'http_request',
-    operationId: requestId || null,
+    operationId,
     phase: category === REQUEST_ERROR_CATEGORY.CANCEL ? 'cancel' : 'error',
     status: category,
     category,

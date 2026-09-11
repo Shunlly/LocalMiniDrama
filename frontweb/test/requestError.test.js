@@ -12,6 +12,7 @@ import {
   REQUEST_ERROR_CATEGORY,
   shouldRetryRequest,
   withRequestRetry,
+  isSafeUserFacingMessage,
 } from '../src/utils/requestError.js'
 
 test('request errors distinguish cancel, timeout, network and HTTP status', () => {
@@ -26,8 +27,13 @@ test('request errors distinguish cancel, timeout, network and HTTP status', () =
   assert.equal(shouldRetryRequest({ response: { status: 500 } }), true)
   assert.equal(shouldRetryRequest({ response: { status: 404 } }), false)
   assert.equal(shouldRetryRequest({ code: 'ERR_CANCELED' }), false)
+  assert.equal(isRequestCanceled({ code: 'ECONNABORTED' }), false)
+  assert.equal(isRequestCanceled({ code: 'ECONNABORTED', isTimeout: true, name: 'AbortError' }), false)
+  assert.equal(isRequestTimeout({ code: 'ERR_CANCELED' }), false)
   assert.equal(classifyRequestError({ code: 'ERR_CANCELED' }), REQUEST_ERROR_CATEGORY.CANCEL)
   assert.equal(classifyRequestError({ code: 'ECONNABORTED' }), REQUEST_ERROR_CATEGORY.TIMEOUT)
+  assert.notEqual(classifyRequestError({ code: 'ERR_CANCELED' }), REQUEST_ERROR_CATEGORY.TIMEOUT)
+  assert.notEqual(classifyRequestError({ code: 'ECONNABORTED' }), REQUEST_ERROR_CATEGORY.CANCEL)
   assert.equal(classifyRequestError({ code: 'ERR_NETWORK' }), REQUEST_ERROR_CATEGORY.NETWORK)
   assert.equal(classifyRequestError({ code: 'ECONNREFUSED' }), REQUEST_ERROR_CATEGORY.NETWORK)
   assert.equal(classifyRequestError({ response: { status: 404 } }), REQUEST_ERROR_CATEGORY.HTTP_4XX)
@@ -271,4 +277,48 @@ test('ECONNABORTED 的 AbortError 仍是超时，不会被 signal.aborted 改判
   assert.equal(classifyRequestError(abortError, signal), REQUEST_ERROR_CATEGORY.TIMEOUT)
   assert.match(describeServiceLoadError(abortError, { serviceLabel: '服务', signal }), /超时/)
   assert.doesNotMatch(describeServiceLoadError(abortError, { serviceLabel: '服务', signal }), /已取消/)
+})
+
+test('Image/Video 别名不会泄漏到超时文案，空名称按图片/视频分开', () => {
+  assert.equal(
+    describeServiceLoadError({ code: 'ECONNABORTED' }, { serviceLabel: 'Image' }),
+    '连接图片服务超时，请稍后重试',
+  )
+  assert.equal(
+    describeServiceLoadError({ code: 'ECONNABORTED' }, { serviceLabel: 'Video' }),
+    '连接视频服务超时，请稍后重试',
+  )
+  assert.equal(
+    describeServiceLoadError({ code: 'ECONNABORTED' }, { serviceLabel: 'Image provider' }),
+    '连接图片服务超时，请稍后重试',
+  )
+  assert.equal(
+    describeServiceLoadError({ code: 'ECONNABORTED' }, { serviceLabel: 'Video provider' }),
+    '连接视频服务超时，请稍后重试',
+  )
+  assert.equal(
+    describeServiceLoadError({ code: 'ECONNABORTED' }, { serviceLabel: '', operation: 'image request' }),
+    '连接图片服务超时，请稍后重试',
+  )
+  assert.equal(
+    describeServiceLoadError({ code: 'ECONNABORTED' }, { serviceLabel: '', operation: 'video request' }),
+    '连接视频服务超时，请稍后重试',
+  )
+  assert.doesNotMatch(
+    describeServiceLoadError({ code: 'ECONNABORTED' }, { serviceLabel: '', operation: 'image request' }),
+    /视频服务|\bImage\b/,
+  )
+  assert.doesNotMatch(
+    describeServiceLoadError({ code: 'ECONNABORTED' }, { serviceLabel: '', operation: 'video request' }),
+    /图片服务|\bVideo\b/,
+  )
+  assert.equal(isSafeUserFacingMessage('Image 图片请求超时，请稍后重试'), false)
+  assert.equal(isSafeUserFacingMessage('Video 视频请求超时，请稍后重试'), false)
+  assert.equal(isSafeUserFacingMessage('图片服务 图片请求超时，请稍后重试'), true)
+  const canceled = describeServiceLoadError(
+    { code: 'ERR_CANCELED', name: 'CanceledError' },
+    { serviceLabel: 'Video' },
+  )
+  assert.match(canceled, /已取消/)
+  assert.doesNotMatch(canceled, /超时|\bVideo\b/)
 })

@@ -116,9 +116,9 @@ test('读取到的模型 id 去重追加，不覆盖用户已有项', () => {
 
 test('读取模型失败或目录为空时不改已填模型列表', () => {
   const discoverFn = extractNamedFunction(discoverSource, 'discoverModelsFromService')
-  assert.match(discoverFn, /ElMessage\.warning\('服务没有返回模型目录，请手工填写模型名'\)/)
+  assert.match(discoverFn, /ElMessage\.warning\('下一步：服务没有返回模型目录，请手工填写模型名'\)/)
   assert.match(discoverFn, /const result = mergeModelTextWithDiscovered\(form\.value\.modelText, ids\)/)
-  const emptyIdx = discoverFn.indexOf("服务没有返回模型目录，请手工填写模型名")
+  const emptyIdx = discoverFn.indexOf("下一步：服务没有返回模型目录，请手工填写模型名")
   const assignIdx = discoverFn.indexOf('form.value.modelText = result.text')
   assert.ok(emptyIdx >= 0 && assignIdx > emptyIdx)
   const emptyReturnIdx = discoverFn.indexOf('return', emptyIdx)

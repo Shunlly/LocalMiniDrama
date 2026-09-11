@@ -17,6 +17,7 @@ import {
   confirmAiConfigMutationResult,
 } from '@/utils/aiConfigMutations.js'
 import { applyAiConfigRepairTarget } from '@/utils/aiConfigRepairTarget.js'
+import { describeAiConfigSaveSuccess } from '@/utils/aiConfigLabels.js'
 import { publishAiConfigChanged as defaultPublishAiConfigChanged } from '@/utils/aiConfigChangeBus.js'
 import { configFormFingerprint as fingerprintConfigForm } from '@/composables/useAiConfigUnsaved.js'
 
@@ -181,7 +182,7 @@ export function useAiConfigFormActions(deps = {}) {
       configFormBaseline.value = configFormFingerprint()
       dialogVisible.value = false
       revealSavedConfigs?.()
-      if (listMatches) ElMessage.success(wasEditing ? '保存成功' : '添加成功')
+      if (listMatches) ElMessage.success(describeAiConfigSaveSuccess(wasEditing, form.value.service_type))
       else ElMessage.warning('服务端已确认保存，但配置列表刷新或并发校验未完全一致，请刷新后复核。')
     } catch (e) {
       if (isUserFacingAbort(e)) return

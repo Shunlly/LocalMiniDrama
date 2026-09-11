@@ -58,7 +58,7 @@ export function useAiConfigDiscoverModels(deps = {}) {
       if (editingId.value !== targetEditingId) return
       const ids = extractDiscoveredModelIds(data)
       if (!ids.length) {
-        ElMessage.warning('服务没有返回模型目录，请手工填写模型名')
+        ElMessage.warning('下一步：服务没有返回模型目录，请手工填写模型名')
         return
       }
       const result = mergeModelTextWithDiscovered(form.value.modelText, ids)

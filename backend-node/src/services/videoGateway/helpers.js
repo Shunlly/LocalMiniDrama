@@ -7,6 +7,7 @@ const {
 } = require('./providerRuntime');
 const {
   createSafeProviderLogger,
+  labeledProvider,
   sanitizeLogValue,
   toUserFacingGatewayError,
 } = require('../providerErrorSanitizer');
@@ -28,9 +29,8 @@ const videoRequestContext = new AsyncLocalStorage();
 const DEFAULT_VIDEO_PROVIDER_LABEL = '视频服务';
 
 function videoProviderLabel(provider) {
-  const label = String(provider || '').trim();
-  if (!label || /^video(?:\s+provider)?$/i.test(label)) return DEFAULT_VIDEO_PROVIDER_LABEL;
-  return label;
+  // 视频空厂商名固定为视频服务，Video 别名不得原文泄漏。
+  return labeledProvider(provider, 'video request');
 }
 
 function normalizeIdempotencyKey(value) {

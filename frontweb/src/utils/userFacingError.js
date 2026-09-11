@@ -10,7 +10,10 @@ function errorText(error) {
 function resolveUserFacingError(error, fallback = '操作失败，请稍后重试', options = {}) {
   if (error === 'cancel' || isRequestCanceled(error, options.signal)) return '操作已取消'
   const described = describeServiceLoadError(error, {
-    serviceLabel: options.serviceLabel || '服务',
+    serviceLabel: options.serviceLabel,
+    operation: options.operation,
+    kind: options.kind,
+    serviceType: options.serviceType,
     fallback: UNSET,
     signal: options.signal,
   })

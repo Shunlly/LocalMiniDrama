@@ -28,7 +28,7 @@
 </template>
 
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import {
   LIST_WINDOW_DEFAULT_ROW_HEIGHT,
   LIST_WINDOW_DEFAULT_VIEWPORT_HEIGHT,
@@ -89,25 +89,35 @@ function parsedForceIndex() {
   return Number.isInteger(next) ? next : null
 }
 
+function applyScrollTop(nextTop) {
+  const top = Math.max(0, Number(nextTop) || 0)
+  scrollTop.value = top
+  if (rootRef.value) rootRef.value.scrollTop = top
+}
+
 function revealIndex(index) {
   if (!Number.isInteger(index) || index < 0 || index >= props.items.length) return
-  const nextTop = scrollTopForIndex(index, {
+  applyScrollTop(scrollTopForIndex(index, {
     rowHeight: props.rowHeight,
     viewportHeight: viewport.value,
-  })
-  scrollTop.value = nextTop
-  if (rootRef.value) rootRef.value.scrollTop = nextTop
+  }))
 }
 
 watch(() => props.items, () => {
   const index = parsedForceIndex()
-  if (index == null) scrollTop.value = 0
+  if (index == null) applyScrollTop(0)
   else revealIndex(index)
-})
+}, { flush: 'post' })
 
 watch(() => parsedForceIndex(), (index) => {
   if (index != null) revealIndex(index)
-}, { immediate: true })
+}, { immediate: true, flush: 'post' })
+
+onMounted(() => {
+  const index = parsedForceIndex()
+  if (index != null) revealIndex(index)
+  else applyScrollTop(scrollTop.value)
+})
 </script>
 
 <style scoped>

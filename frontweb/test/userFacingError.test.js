@@ -274,3 +274,46 @@ test('中英混杂的密钥、Bearer、堆栈和 Network Error 不会进 toast',
     assert.doesNotMatch(text, leak)
   }
 })
+
+test('Image/Video 别名不会泄漏，取消不会收成超时或成功', () => {
+  assert.equal(
+    toUserFacingError({ code: 'ECONNABORTED' }, '操作失败', { serviceLabel: 'Image' }),
+    '连接图片服务超时，请稍后重试',
+  )
+  assert.equal(
+    toUserFacingError({ code: 'ECONNABORTED' }, '操作失败', { serviceLabel: 'Video' }),
+    '连接视频服务超时，请稍后重试',
+  )
+  assert.equal(
+    toUserFacingError({ code: 'ECONNABORTED' }, '操作失败', { serviceLabel: '', operation: 'image request' }),
+    '连接图片服务超时，请稍后重试',
+  )
+  assert.equal(
+    toUserFacingError({ code: 'ECONNABORTED' }, '操作失败', { serviceLabel: '', operation: 'video request' }),
+    '连接视频服务超时，请稍后重试',
+  )
+  assert.equal(
+    toUserFacingError({ code: 'ERR_CANCELED', name: 'CanceledError' }, '操作失败', { serviceLabel: 'Image' }),
+    '操作已取消',
+  )
+  assert.equal(
+    toUserFacingError({ name: 'AbortError', message: 'The user aborted a request.' }, '生成失败', { serviceLabel: 'Video' }),
+    '操作已取消',
+  )
+  const timeoutAbort = Object.assign(new Error('The operation was aborted.'), {
+    name: 'AbortError',
+    isTimeout: true,
+    code: 'ECONNABORTED',
+  })
+  assert.equal(isUserFacingAbort(timeoutAbort), false)
+  assert.match(toUserFacingError(timeoutAbort, '生成失败', { serviceLabel: 'Image' }), /超时/)
+  assert.doesNotMatch(toUserFacingError(timeoutAbort, '生成失败', { serviceLabel: 'Image' }), /操作已取消|\bImage\b/)
+  assert.doesNotMatch(
+    toUserFacingError({ message: 'Image 图片请求超时，请稍后重试' }, '生成失败'),
+    /\bImage\b/,
+  )
+  assert.doesNotMatch(
+    toUserFacingError({ message: 'Video 视频请求超时，请稍后重试' }, '生成失败'),
+    /\bVideo\b/,
+  )
+})

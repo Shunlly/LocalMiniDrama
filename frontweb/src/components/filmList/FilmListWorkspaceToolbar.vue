@@ -51,17 +51,35 @@
   </section>
 
     <!-- 空项目时提供完整起步路径；已有项目时使用顶部主操作，避免重复入口。 -->
-    <section v-if="!loading && hasSuccessfulListLoad && !listError && dramas.length === 0 && !hasProjectFilters" class="action-card action-card--empty" role="status">
+    <section v-if="!loading && hasSuccessfulListLoad && !listError && dramas.length === 0 && !hasProjectFilters" class="action-card action-card--empty" role="status" aria-live="polite">
       <div class="action-card-inner">
         <h2 class="action-card-title">还没有短剧项目</h2>
         <p class="action-card-desc">新建空白项目，或继续已有项目包。</p>
         <div class="action-card-buttons">
-          <el-button type="primary" size="large" class="action-btn action-btn-new" :disabled="listWriteLocked" aria-label="新建项目" :title="listWriteLocked ? listWriteLockReason : undefined" @click="goNewProject">
-            <el-icon><Plus /></el-icon>新建项目
-          </el-button>
-          <el-button size="large" class="action-btn action-btn-import" :loading="importing" :disabled="listWriteLocked" aria-label="导入项目包" :title="listWriteLocked ? listWriteLockReason : undefined" @click="triggerImport">
-            <el-icon><Upload /></el-icon>导入项目包
-          </el-button>
+          <el-tooltip :content="listWriteLockReason" :disabled="!listWriteLocked" placement="top">
+            <span
+              class="tooltip-trigger"
+              :tabindex="listWriteLocked ? 0 : undefined"
+              :aria-label="listWriteLocked ? `新建项目不可用：${listWriteLockReason}` : undefined"
+              :aria-describedby="listWriteLocked && listWriteLockReason ? 'project-list-write-lock-reason' : undefined"
+            >
+              <el-button type="primary" size="large" class="action-btn action-btn-new" :disabled="listWriteLocked" aria-label="新建项目" :title="listWriteLocked ? listWriteLockReason : undefined" :aria-describedby="listWriteLocked && listWriteLockReason ? 'project-list-write-lock-reason' : undefined" @click="goNewProject">
+                <el-icon><Plus /></el-icon>新建项目
+              </el-button>
+            </span>
+          </el-tooltip>
+          <el-tooltip :content="listWriteLockReason" :disabled="!listWriteLocked" placement="top">
+            <span
+              class="tooltip-trigger"
+              :tabindex="listWriteLocked ? 0 : undefined"
+              :aria-label="listWriteLocked ? `导入项目包不可用：${listWriteLockReason}` : undefined"
+              :aria-describedby="listWriteLocked && listWriteLockReason ? 'project-list-write-lock-reason' : undefined"
+            >
+              <el-button size="large" class="action-btn action-btn-import" :loading="importing" :disabled="listWriteLocked" aria-label="导入项目包" :title="listWriteLocked ? listWriteLockReason : undefined" :aria-describedby="listWriteLocked && listWriteLockReason ? 'project-list-write-lock-reason' : undefined" @click="triggerImport">
+                <el-icon><Upload /></el-icon>导入项目包
+              </el-button>
+            </span>
+          </el-tooltip>
         </div>
         <div class="action-card-secondary">
           <el-button class="action-btn-material" aria-label="打开素材中心" @click="goMaterialCenter">
@@ -77,18 +95,31 @@
             <span class="example-hint-text">新手？试试导入示例项目快速体验</span>
           </div>
           <div class="example-list">
-            <el-button
+            <el-tooltip
               v-for="ex in exampleList"
               :key="ex.filename"
+              :content="listWriteLockReason"
+              :disabled="!listWriteLocked"
+              placement="top"
+            >
+              <span
+                class="tooltip-trigger"
+                :tabindex="listWriteLocked ? 0 : undefined"
+                :aria-describedby="listWriteLocked && listWriteLockReason ? 'project-list-write-lock-reason' : undefined"
+              >
+            <el-button
               size="small"
               class="example-btn"
               :loading="importingExample === ex.filename"
               :disabled="listWriteLocked"
               :title="listWriteLocked ? listWriteLockReason : undefined"
-              :aria-label="importingExample === ex.filename ? `正在导入${ex.name}` : (listWriteLocked ? listWriteLockReason : `导入示例项目${ex.name}`)" @click="onImportExample(ex)"
+              :aria-describedby="listWriteLocked && listWriteLockReason ? 'project-list-write-lock-reason' : undefined"
+              :aria-label="importingExample === ex.filename ? `正在导入${ex.name}` : (listWriteLocked ? `导入示例项目${ex.name}不可用：${listWriteLockReason}` : `导入示例项目${ex.name}`)" @click="onImportExample(ex)"
             >
               <el-icon><FolderOpened /></el-icon>{{ ex.name }}
             </el-button>
+              </span>
+            </el-tooltip>
           </div>
         </div>
       </div>
@@ -97,6 +128,7 @@
       v-if="!loading && hasSuccessfulListLoad && !listError && hasProjectFilters && filteredDramas.length === 0"
       class="action-card action-card--empty action-card--search-empty"
       role="status"
+      aria-live="polite"
     >
       <div class="action-card-inner">
         <h2 class="action-card-title">没有匹配的项目</h2>
@@ -324,6 +356,13 @@ html.dark .workspace-search :deep(.el-input__inner::placeholder) {
 }
 .workspace-clear-filters {
   flex: 0 0 auto;
+}
+.tooltip-trigger { display: inline-flex; }
+.tooltip-trigger:focus-visible { outline: 2px solid #818cf8; outline-offset: 2px; }
+.action-card-buttons :deep(.el-button:focus-visible),
+.example-list :deep(.el-button:focus-visible) {
+  outline: 2px solid #818cf8;
+  outline-offset: 2px;
 }
 html.light .action-card {
   background: transparent;

@@ -9,6 +9,8 @@ import {
   jimeng2AssetTypeLabel,
   jimeng2AssetStatusLabel,
   configActionLabel,
+  describeAiConfigSaveSuccess,
+  describeAiConfigBulkKeySuccess,
 } from '../src/utils/aiConfigLabels.js'
 import { readAiConfigFormDialogTreeSource } from './helpers/aiConfigFormDialogSources.js'
 
@@ -41,4 +43,21 @@ test('页面仍消费标签函数，不把 loadList/openTest 抽走', () => {
   assert.match(overlaySource, /:aria-label="configActionLabel\('测试', row\)"/)
   assert.doesNotMatch(vueSource, /function serviceTypeLabel\(/)
   assert.doesNotMatch(vueSource, /function jimeng2AssetTypeLabel\(/)
+})
+
+test('保存成功给出中文下一步，批量换密钥不回传英文或密钥', () => {
+  assert.equal(describeAiConfigSaveSuccess(true, 'text'), '已保存「文本」配置，可在列表中测试连接。')
+  assert.equal(describeAiConfigSaveSuccess(false, 'ocr'), '已添加「图片识别 OCR」配置，可在列表中测试连接。')
+  assert.match(describeAiConfigSaveSuccess(true, 'jimeng2_character_auth'), /角色面板验证认证资产/)
+  assert.match(describeAiConfigSaveSuccess(false, 'model_ark_asset'), /认证资产管理标签页/)
+  assert.equal(describeAiConfigSaveSuccess(true, 'unknown-vendor'), '已保存配置，可在列表中测试连接。')
+  assert.equal(describeAiConfigBulkKeySuccess({ message: '已更新 3 条配置的密钥', updated: 3 }), '已更新 3 条配置的密钥')
+  assert.equal(
+    describeAiConfigBulkKeySuccess({ message: 'Updated API key sk-test-not-a-real-aaaaaa', updated: 2 }),
+    '已更新 2 条配置的密钥',
+  )
+  assert.doesNotMatch(
+    describeAiConfigBulkKeySuccess({ message: 'Bearer sess-fake-local-session-key', updated: 1 }),
+    /sess-fake|Bearer/,
+  )
 })

@@ -35,8 +35,10 @@ test('各服务类型厂商下拉都有预设项和自定义入口', () => {
 })
 
 test('没有厂商或没有预设模型时给出可输入的中文提示', () => {
-  assert.equal(providerModelEmptyHint('text', ''), '请先选择厂商，或直接输入模型名。')
-  assert.equal(providerModelEmptyHint('text', 'unknown-vendor', []), '当前厂商没有预设模型，可直接输入模型名。')
+  assert.equal(providerModelEmptyHint('text', ''), '下一步：先选择厂商自动填入，或直接输入模型名。')
+  assert.equal(providerModelEmptyHint('text', 'unknown-vendor', []), '下一步：直接输入模型名；填好接口地址和密钥后也可点「从服务读取模型」。')
+  assert.equal(providerModelEmptyHint('text', 'openai', ['gpt-4o'], []), '下一步：从上方追加预设模型，或直接输入模型名。')
+  assert.equal(providerModelEmptyHint('text', 'openai', ['gpt-4o'], ['gpt-4o']), '')
   assert.equal(providerModelEmptyHint('jimeng2_character_auth', ''), '')
   assert.ok(buildAvailableModels('video', 'agnes').includes('agnes-video-v2.0'))
 })

@@ -4,7 +4,7 @@
 // 取消不得记成失败；超时可重试；用户可见文案使用简体中文。
 // 本模块只做客户端分类，不接真实厂商。
 
-const { createProviderHttpError, isTrustedChineseUserError } = require('../providerErrorSanitizer');
+const { createProviderHttpError, isTrustedChineseUserError, labeledProvider } = require('../providerErrorSanitizer');
 
 const SAFE_PROVIDER_ERROR = Symbol.for('localMiniDrama.safeProviderError');
 const DEFAULT_JSON_TIMEOUT_MS = 15_000;
@@ -100,11 +100,9 @@ function operationLabel(operation) {
   return OPERATION_LABELS[key] || OPERATION_LABELS[key.toLowerCase()] || '请求';
 }
 
-function providerLabel(provider) {
-  const label = String(provider || '').trim();
-  if (!label) return '图片服务';
-  if (/^video(?:\s+provider)?$/i.test(label)) return '视频服务';
-  return label;
+function providerLabel(provider, operation) {
+  // 空厂商名按操作区分图片/视频服务，不把 Image/Video 原文交给用户。
+  return labeledProvider(provider, operation);
 }
 
 function looksEnglishOnly(message) {
@@ -138,7 +136,7 @@ function operationCancelledError(reason) {
 }
 
 function requestTimeoutError(source, options = {}) {
-  const provider = providerLabel(options.provider);
+  const provider = providerLabel(options.provider, options.operation);
   const operation = operationLabel(options.operation);
   const error = new Error(`${provider} ${operation}超时，请稍后重试`);
   error.name = 'TimeoutError';
@@ -152,7 +150,7 @@ function requestTimeoutError(source, options = {}) {
 }
 
 function requestNetworkError(source, options = {}) {
-  const provider = providerLabel(options.provider);
+  const provider = providerLabel(options.provider, options.operation);
   const operation = operationLabel(options.operation);
   const code = source?.code ? String(source.code) : '';
   const error = new Error(`${provider} ${operation}网络连接失败，请检查网络后重试`);
@@ -169,8 +167,8 @@ function classifyHttpFailure(options = {}) {
   const status = extractHttpStatus({ status: options.status, message: options.responseBody })
     || extractHttpStatus(options.status);
   const error = createProviderHttpError({
-    provider: providerLabel(options.provider),
-    operation: operationLabel(options.operation),
+    provider: options.provider,
+    operation: options.operation,
     status,
     code: options.code,
     responseBody: options.responseBody,
@@ -183,7 +181,7 @@ function classifyHttpFailure(options = {}) {
 
 function describeProviderRequestError(error, options = {}) {
   const classified = normalizeProviderRequestError(error, options);
-  return classified?.message || `${providerLabel(options.provider)} ${operationLabel(options.operation)}失败`;
+  return classified?.message || `${providerLabel(options.provider, options.operation)} ${operationLabel(options.operation)}失败`;
 }
 
 function normalizeProviderRequestError(error, options = {}) {
@@ -217,7 +215,7 @@ function normalizeProviderRequestError(error, options = {}) {
   const fallback = new Error(
     isTrustedChineseUserError(message)
       ? message
-      : `${providerLabel(options.provider)} ${operationLabel(options.operation)}失败，请稍后重试`
+      : `${providerLabel(options.provider, options.operation)} ${operationLabel(options.operation)}失败，请稍后重试`
   );
   fallback.name = error?.name || 'ProviderError';
   fallback.code = error?.code;

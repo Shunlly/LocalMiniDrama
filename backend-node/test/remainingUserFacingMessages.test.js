@@ -1408,6 +1408,7 @@ test('生成提示词失败不会把英文 err.message 回给前端', async () =
 
 test('中英混杂 fallback 不会被当成可信中文，图片空厂商名也不会变成视频服务', () => {
   const { isTrustedChineseUserError, toUserFacingProcessError, toUserFacingGatewayError, buildProviderErrorMessage } = require('../src/services/providerErrorSanitizer');
+  const { requestTimeoutError } = require('../src/services/imageGateway/requestError');
   assert.equal(isTrustedChineseUserError('图片生成失败: Image generation did not complete'), false);
   assert.equal(isTrustedChineseUserError('保存失败: Network Error'), false);
   assert.equal(isTrustedChineseUserError('生成失败: model is overloaded, retry later'), false);
@@ -1436,6 +1437,21 @@ test('中英混杂 fallback 不会被当成可信中文，图片空厂商名也�
   assert.match(built, /图片服务/);
   assert.match(built, /认证失败/);
   assert.doesNotMatch(built, /\bImage\b|视频服务/);
+  assert.equal(isTrustedChineseUserError('Image 图片请求超时，请稍后重试'), false);
+  assert.equal(isTrustedChineseUserError('Video 视频请求超时，请稍后重试'), false);
+  const emptyVideo = toUserFacingGatewayError(new Error('timed out'), { provider: '', operation: 'video request' });
+  assert.match(emptyVideo, /视频服务/);
+  assert.match(emptyVideo, /超时/);
+  assert.doesNotMatch(emptyVideo, /图片服务|\bVideo\b|\bImage\b/i);
+  const imageAliasTimeout = requestTimeoutError(null, { provider: 'Image', operation: 'image request' });
+  assert.match(imageAliasTimeout.message, /图片服务/);
+  assert.doesNotMatch(imageAliasTimeout.message, /\bImage\b|视频服务/);
+  const videoAliasTimeout = requestTimeoutError(null, { provider: 'Video', operation: 'video request' });
+  assert.match(videoAliasTimeout.message, /视频服务/);
+  assert.doesNotMatch(videoAliasTimeout.message, /\bVideo\b|图片服务/);
+  const emptyVideoTimeout = requestTimeoutError(null, { provider: '', operation: 'video request' });
+  assert.match(emptyVideoTimeout.message, /视频服务/);
+  assert.doesNotMatch(emptyVideoTimeout.message, /图片服务|\bVideo\b|\bImage\b/);
 });
 
 test('连接测试失败对用户是中文，日志是脱敏后的技术错误且不含密钥', async () => {

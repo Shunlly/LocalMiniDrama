@@ -73,6 +73,11 @@ describe('图片/视频 gateway 用户错误为简体中文', () => {
     assert.match(videoAliasTimeout.message, /视频服务/);
     assert.match(videoAliasTimeout.message, /超时/);
     assert.doesNotMatch(videoAliasTimeout.message, /\bVideo\b|video request|timed out/i);
+
+    const emptyVideo = requestTimeoutError(null, { provider: '', operation: 'video request' });
+    assert.match(emptyVideo.message, /视频服务/);
+    assert.match(emptyVideo.message, /超时/);
+    assert.doesNotMatch(emptyVideo.message, /图片服务|\bVideo\b|\bImage\b|timed out/i);
   });
 
   it('缺省图片厂商名使用图片服务，不会变成视频服务', () => {
@@ -97,6 +102,11 @@ describe('图片/视频 gateway 用户错误为简体中文', () => {
     assert.match(sanitizerEmpty, /图片服务/);
     assert.match(sanitizerEmpty, /超时/);
     assert.doesNotMatch(sanitizerEmpty, /视频服务|\bImage\b/i);
+
+    const imageAliasTimeout = requestTimeoutError(null, { provider: 'Image', operation: 'image request' });
+    assert.match(imageAliasTimeout.message, /图片服务/);
+    assert.match(imageAliasTimeout.message, /超时/);
+    assert.doesNotMatch(imageAliasTimeout.message, /\bImage\b|视频服务|timed out/i);
   });
 
   it('英文超时、取消和网络错误映射为中文', () => {

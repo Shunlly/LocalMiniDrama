@@ -56,6 +56,7 @@
       <p v-if="isDefaultModelUnavailable" class="field-tip field-tip-warning" role="alert">
         当前默认模型已不在模型列表中，请显式选择有效模型后保存。
       </p>
+      <p v-else-if="!formModelList.length" class="field-tip">下一步：先在上方填写模型列表，或直接输入默认模型名。</p>
       <p v-else class="field-tip">可搜索已有模型，也可直接输入自定义模型名；输入后会加入上方模型列表。</p>
       <span :id="configFieldDescriptionId('default_model')" class="config-field-a11y-description">
         {{ configFieldDescription('default_model') }}

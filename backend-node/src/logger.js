@@ -173,17 +173,24 @@ function log(level, msg, ...args) {
   }
 }
 
+let operationSequence = 0;
+
+function createOperationId(prefix = 'op') {
+  operationSequence += 1;
+  const safePrefix = String(prefix || 'op').trim() || 'op';
+  return `${safePrefix}-${Date.now().toString(36)}-${operationSequence}`;
+}
+
 function operation(event = {}) {
   const phase = String(event.phase || 'info');
   const requestId = event.request_id || getRequestId();
-  const scopedRequestId = getRequestId();
   const record = sanitizeLogValue({
     ...(isSafeRequestId(requestId) ? { request_id: requestId } : {}),
     ...event,
     event: 'operation',
     operation: event.operation || 'unknown',
-    // 缺省 operationId 只回落到当前 ALS requestId，避免串入 event.request_id 里的其他请求编号。
-    operationId: event.operationId || (isSafeRequestId(scopedRequestId) ? scopedRequestId : null),
+    // 缺省自造 operationId，不回落 requestId，避免两种编号混用。
+    operationId: event.operationId || createOperationId(event.operation || 'op'),
     phase,
     status: event.status || phase,
     durationMs: Number.isFinite(event.durationMs) ? event.durationMs : null,
@@ -194,6 +201,7 @@ function operation(event = {}) {
 }
 
 module.exports = {
+  createOperationId,
   isSafeRequestId,
   getRequestId,
   runWithRequestId,

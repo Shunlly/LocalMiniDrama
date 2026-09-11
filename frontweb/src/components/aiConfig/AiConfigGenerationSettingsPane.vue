@@ -84,7 +84,8 @@
     <el-alert
       v-if="genSettingSaved"
       type="success"
-      title="已保存"
+      title="保存成功"
+      description="生成并发设置已写入本地服务。"
       :closable="false"
       show-icon
       style="margin-top: 12px; width: fit-content"

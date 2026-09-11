@@ -2,6 +2,7 @@
   <div class="film-list-char-library-dialogs">
     <!-- 公共角色库 -->
     <AccessibleDialog v-model="showCharLibrary" title="素材库 · 角色" width="720px" destroy-on-close class="library-dialog" @open="loadCharLibraryList">
+      <p v-if="listWriteLocked && listWriteLockReason" id="char-library-write-lock-reason" class="visually-hidden">{{ listWriteLockReason }}</p>
       <div class="library-toolbar">
         <el-input v-model="charLibraryKeyword" placeholder="搜索名称或描述" aria-label="搜索角色素材" clearable style="width: 200px" @input="debouncedLoadCharLibrary()" />
       </div>
@@ -23,8 +24,16 @@
             <div class="library-item-name">{{ item.name || '未命名' }}</div>
             <div class="library-item-desc">{{ (item.description || '').slice(0, 60) }}{{ (item.description || '').length > 60 ? '…' : '' }}</div>
             <div class="library-item-actions">
-              <el-button size="small" :disabled="listWriteLocked" :title="listWriteLocked ? listWriteLockReason : undefined" :aria-label="listWriteLocked ? listWriteLockReason : `编辑公共角色${item.name || '未命名角色'}`" @click="openEditCharLibrary(item)">编辑</el-button>
-              <el-button size="small" type="danger" plain :disabled="listWriteLocked" :title="listWriteLocked ? listWriteLockReason : undefined" :aria-label="listWriteLocked ? listWriteLockReason : `删除公共角色${item.name || '未命名角色'}`" @click="onDeleteCharLibrary(item)">删除</el-button>
+              <el-tooltip :content="listWriteLockReason" :disabled="!listWriteLocked" placement="top">
+                <span class="tooltip-trigger" :tabindex="listWriteLocked ? 0 : undefined" :aria-describedby="listWriteLocked && listWriteLockReason ? 'char-library-write-lock-reason' : undefined">
+                  <el-button size="small" :disabled="listWriteLocked" :title="listWriteLocked ? listWriteLockReason : undefined" :aria-describedby="listWriteLocked && listWriteLockReason ? 'char-library-write-lock-reason' : undefined" :aria-label="listWriteLocked ? `编辑公共角色${item.name || '未命名角色'}不可用：${listWriteLockReason}` : `编辑公共角色${item.name || '未命名角色'}`" @click="openEditCharLibrary(item)">编辑</el-button>
+                </span>
+              </el-tooltip>
+              <el-tooltip :content="listWriteLockReason" :disabled="!listWriteLocked" placement="top">
+                <span class="tooltip-trigger" :tabindex="listWriteLocked ? 0 : undefined" :aria-describedby="listWriteLocked && listWriteLockReason ? 'char-library-write-lock-reason' : undefined">
+                  <el-button size="small" type="danger" plain :disabled="listWriteLocked" :title="listWriteLocked ? listWriteLockReason : undefined" :aria-describedby="listWriteLocked && listWriteLockReason ? 'char-library-write-lock-reason' : undefined" :aria-label="listWriteLocked ? `删除公共角色${item.name || '未命名角色'}不可用：${listWriteLockReason}` : `删除公共角色${item.name || '未命名角色'}`" @click="onDeleteCharLibrary(item)">删除</el-button>
+                </span>
+              </el-tooltip>
             </div>
           </div>
         </div>
@@ -32,7 +41,7 @@
           <p>{{ charLibraryError }}</p>
           <el-button size="small" type="primary" plain :loading="charLibraryLoading" :aria-label="charLibraryLoading ? '正在加载角色库，请稍候' : '重试加载角色库'" @click="loadCharLibraryList">重试</el-button>
         </div>
-        <div v-if="!charLibraryLoading && !charLibraryError && charLibraryList.length === 0" class="library-empty" role="status">
+        <div v-if="!charLibraryLoading && !charLibraryError && charLibraryList.length === 0" class="library-empty" role="status" aria-live="polite">
           <p>{{ charLibraryKeyword.trim() ? '没有匹配的角色，试试其他关键词。' : '素材库暂无角色，可在项目中将角色「加入素材库」后在此查看' }}</p>
           <el-button v-if="charLibraryKeyword.trim()" size="small" aria-label="清除角色素材搜索" @click="clearCharLibraryKeyword">清除搜索</el-button>
         </div>
@@ -73,7 +82,11 @@
       </el-form>
       <template #footer>
         <el-button aria-label="取消编辑公共角色" @click="showEditCharLibrary = false">取消</el-button>
-        <el-button type="primary" :loading="editCharLibrarySaving" :disabled="listWriteLocked" :title="listWriteLocked ? listWriteLockReason : undefined" :aria-label="editCharLibrarySaving ? '正在保存公共角色，请稍候' : (listWriteLocked ? listWriteLockReason : '保存公共角色')" @click="submitEditCharLibrary">保存</el-button>
+        <el-tooltip :content="listWriteLockReason" :disabled="!listWriteLocked" placement="top">
+          <span class="tooltip-trigger" :tabindex="listWriteLocked ? 0 : undefined" :aria-describedby="listWriteLocked && listWriteLockReason ? 'char-library-write-lock-reason' : undefined">
+            <el-button type="primary" :loading="editCharLibrarySaving" :disabled="listWriteLocked" :title="listWriteLocked ? listWriteLockReason : undefined" :aria-describedby="listWriteLocked && listWriteLockReason ? 'char-library-write-lock-reason' : undefined" :aria-label="editCharLibrarySaving ? '正在保存公共角色，请稍候' : (listWriteLocked ? `保存公共角色不可用：${listWriteLockReason}` : '保存公共角色')" @click="submitEditCharLibrary">保存</el-button>
+          </span>
+        </el-tooltip>
       </template>
     </AccessibleDialog>
   </div>

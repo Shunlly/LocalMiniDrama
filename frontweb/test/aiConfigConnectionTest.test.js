@@ -7,6 +7,7 @@ import {
   stripConnectionTestDecorations,
   pickConnectionTestTitle,
   describeConnectionTestError,
+  connectionTestTextLeaksSecret,
 } from '../src/utils/aiConfigConnectionTest.js'
 
 const vueSource = readFileSync(new URL('../src/components/AIConfigContent.vue', import.meta.url), 'utf8')
@@ -73,4 +74,24 @@ test('openTest 仍留在页面并消费描述函数', () => {
   assert.match(vueSource, /describeConnectionTestError\(e, controller\.signal, row\.service_type\)/)
   assert.doesNotMatch(vueSource, /function describeConnectionTestError\(/)
   assert.doesNotMatch(vueSource, /function stripConnectionTestDecorations\(/)
+})
+
+test('假密钥和英文原文不会进入连接测试标题或详情', () => {
+  const fakeKey = 'sk-test-not-a-real-aaaaaa'
+  const session = 'sess-fake-local-session-key'
+  const cases = [
+    new Error('认证失败 ' + fakeKey),
+    new Error('认证失败 Authorization: Bearer ' + session),
+    new Error('Incorrect API key provided: ' + fakeKey),
+    { response: { data: { error: { message: '认证失败，API Key: ' + fakeKey } } } },
+  ]
+  for (const error of cases) {
+    const described = describeConnectionTestError(error, undefined, 'text')
+    assert.match(described.title, /[\u4e00-\u9fff]/)
+    assert.match(described.detail, /[\u4e00-\u9fff]/)
+    assert.equal(connectionTestTextLeaksSecret(described.title), false)
+    assert.equal(connectionTestTextLeaksSecret(described.detail), false)
+    assert.doesNotMatch(described.title, /sk-test-not-a-real|sess-fake|Bearer /)
+    assert.doesNotMatch(described.detail, /sk-test-not-a-real|sess-fake|Bearer /)
+  }
 })

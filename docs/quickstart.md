@@ -27,15 +27,15 @@
 
 - 后端端口 **5679**，前端开发用 Vite 端口 **3013**；开发时前端代理 `/api`、`/static`、`/ready` 与 `/health`。开发 Vite 没有 `/healthz`
 - 生产也可先 `npm --prefix frontweb run build`，由后端在 5679 托管 `frontweb/dist`（`WEB_DIST_PATH` 可覆盖）。Docker 生产前端由 Nginx 提供静态页
-- 开发模式下回环 Origin 可通过；`config.yaml` 默认 CORS 白名单仍是 `http://localhost:3013` 与 `http://127.0.0.1:3013`。生产 Docker CORS 跟随前端宿主机端口（Compose 写入 `LOCALMINIDRAMA_CORS_ORIGINS`）
-- 官方 `docker compose up -d --build --wait` 默认映射 `127.0.0.1:3013` 和 `127.0.0.1:5679`，会和源码 `npm run dev` 抢端口，也会撞同一 `backend-node/data`。这两个端口已被占用时不要再起官方 Compose。并存请改 `LOCALMINIDRAMA_FRONTEND_HOST_PORT` / `LOCALMINIDRAMA_BACKEND_HOST_PORT`，并给 Docker 单独的 `LOCALMINIDRAMA_DATA_DIR`。Compose 会按前端宿主机端口写入 `LOCALMINIDRAMA_CORS_ORIGINS`；对改端口的实例跑 E2E 时还须设置 `FRONTEND_URL` / `BACKEND_URL`。`npm run docker:e2e:up` 只隔离仓库外 `LOCALMINIDRAMA_DATA_DIR`，不换 `3013`/`5679`，另外占用 `127.0.0.1:5688`
+- 开发模式下回环 Origin 可通过；`config.yaml` 默认 CORS 白名单仍是 `http://localhost:3013` 与 `http://127.0.0.1:3013`。生产 Docker CORS 跟随前端宿主机端口（Compose 按 `LOCALMINIDRAMA_FRONTEND_HOST_PORT` 写入 `LOCALMINIDRAMA_CORS_ORIGINS`，宿主机再设同名变量盖不掉），不会自动放行任意回环端口
+- 官方 `docker compose up -d --build --wait` 默认映射 `127.0.0.1:3013` 和 `127.0.0.1:5679`，会和源码 `npm run dev` 抢端口，也会撞同一 `backend-node/data`。这两个端口已被占用时不要再起官方 Compose。并存请改 `LOCALMINIDRAMA_FRONTEND_HOST_PORT` / `LOCALMINIDRAMA_BACKEND_HOST_PORT`，并给 Docker 单独的 `LOCALMINIDRAMA_DATA_DIR`。Compose 会按前端宿主机端口写入 `LOCALMINIDRAMA_CORS_ORIGINS`（这是 Compose 字面量，宿主机再设同名变量盖不掉）。对改端口的实例跑 E2E 时还须设置 `FRONTEND_URL` / `BACKEND_URL`。官方默认仍是 `3013`/`5679`；`23013`/`25679` 只属于旧 candidate 覆盖，不是当前默认值。`npm run docker:e2e:up` 只隔离仓库外 `LOCALMINIDRAMA_DATA_DIR`，不换 `3013`/`5679`，另外占用 `127.0.0.1:5688`
 - 根目录、后端、前端、Docker 与通用 PR/分支门禁用 Node.js 20.x；桌面依赖安装、原生重建、打包和 Windows 制品安全扫描用 Node.js 22.12.0（`desktop/.npmrc` 启用 `engine-strict`）
 - `configs/config.yaml` 已随仓库提供；启动时执行 `runMigrationsAndEnsure`，一般不必手动 `npm run migrate`
 - 未配置外部 API Key 也可以启动和开发界面；真正生成内容到「AI 配置」页填写。厂商预设填表不等于真实图片/视频/TTS 接入已跑通
 - 故事素材可上传 PDF/图片/音视频：文本可直接导入；PDF/图片需要图片识别（可本机 Tesseract 或 AI 配置 OCR）；音视频需要语音转写配置。OCR/转写是素材抽取扩展，不是成片就绪条件
 - 正式制作仍以文本、素材图、分镜图、视频、TTS 五类服务为成片就绪条件。真实云 OCR/Whisper 账号联调、真实图片/视频/TTS 厂商接入、移动端仍不在当前完成范围
 - Docker Compose **不 bind-mount 应用源码**。改完代码后执行 `docker compose up -d --build --wait`，容器级校验用根目录 `npm run verify:docker`
-- 生产 Nginx 必须有 `location = /ready`，精确代理到后端 `/ready`，并写在 SPA `location /` 之前。`/healthz` 也代理后端 `/ready`，只用于 Compose 前端健康检查。只代理 `/healthz` 不够：备份页会请求 `/ready`。生产 Nginx 不代理 `/health`，该路径会落到 SPA HTML
+- 生产 Nginx 必须有 `location = /ready`，精确代理到后端 `/ready`，并写在 SPA `location /` 之前。`/healthz` 也代理后端 `/ready`，只用于 Compose 前端健康检查。只代理 `/healthz` 不够：备份页会请求 `/ready`；落到 SPA HTML 时无法解析就绪 JSON，不能当作已就绪。空 HTML 不会被当成维护锁定。生产 Nginx 不代理 `/health`，该路径会落到 SPA HTML
 - 生产 E2E 必须在干净工作树执行（证据要求 `working_tree_dirty=false`），不要凭历史 SHA 宣称当前工作树已通过
 - 页面、API 与 CLI 的用户可见错误为简体中文；`/ready` 可接业务，失败时 `checks.*.error` 为简体中文；`/health` 只表示进程存活
 - 备份/恢复/维护恢复 CLI 的 `--help` 和失败输出为简体中文
@@ -290,7 +290,7 @@ docker compose ps
 
 上表是官方默认端口。改了 `LOCALMINIDRAMA_FRONTEND_HOST_PORT` / `LOCALMINIDRAMA_BACKEND_HOST_PORT` 之后，把表里的 `3013` / `5679` 换成对应宿主机端口。官方默认仍是 `3013`/`5679`；`23013`/`25679` 只属于旧 candidate 覆盖，不是当前默认值。
 
-Docker 镜像固定使用 Node.js 20，并在后端容器内安装 `ffmpeg`；编译工具只存在于依赖构建阶段。容器默认把 `backend-node/data` 挂载到 `/app/data`，数据库和生成素材会保留在本机项目目录下。前端容器使用 Nginx 提供 Vite 的生产构建产物。生产 Nginx 必须包含 `location = /ready`，精确代理到 `http://backend:5679/ready`，并写在 SPA `location /` 之前；只转发 `/healthz` 时，备份页请求 `/ready` 会吃到前端 HTML，恢复按钮会一直禁用。生产容器启用只读根文件系统、`no-new-privileges`、能力裁剪和受限临时目录。
+Docker 镜像固定使用 Node.js 20，并在后端容器内安装 `ffmpeg`；编译工具只存在于依赖构建阶段。容器默认把 `backend-node/data` 挂载到 `/app/data`，数据库和生成素材会保留在本机项目目录下。前端容器使用 Nginx 提供 Vite 的生产构建产物。生产 Nginx 必须包含 `location = /ready`，精确代理到 `http://backend:5679/ready`，并写在 SPA `location /` 之前；只转发 `/healthz` 时，备份页请求 `/ready` 会吃到前端 HTML，无法解析就绪 JSON。空 HTML 不会被当成维护锁定，所以只代理 `/healthz` 仍不够。生产容器启用只读根文件系统、`no-new-privileges`、能力裁剪和受限临时目录。
 
 后端 Compose 不会让宿主机配置直接覆盖运行配置。`LOCALMINIDRAMA_CONFIG_DIR`（默认 `./backend-node/configs`）只读挂载到容器的 `/app/config-source`；入口脚本会在降权前通过 `runtime-config-policy.cjs` 将其净化到 `/tmp/localminidrama-config/config.yaml`，应用通过 `LOCALMINIDRAMA_CONFIG_PATH` 读取净化结果。自定义配置必须提供 `config.yaml`，每次启动都会重新净化。生产 Docker CORS 跟随前端宿主机端口：Compose 把 `LOCALMINIDRAMA_CORS_ORIGINS` 写成 `http://localhost:${LOCALMINIDRAMA_FRONTEND_HOST_PORT:-3013}` 与对应的 `127.0.0.1`。该赋值是 Compose 字面量，宿主机再设 `LOCALMINIDRAMA_CORS_ORIGINS` 盖不掉；改端口以 `LOCALMINIDRAMA_FRONTEND_HOST_PORT` 为准。开发模式下回环 Origin 可通过；生产 Docker 不会自动放行任意回环端口。
 
@@ -406,7 +406,7 @@ storage/
 
 复制前检查 `configs/config.yaml`：如果 `database.path` 或 `storage.local_path` 配置为指向 `backend\` 之外的绝对路径，完整备份还必须单独复制这些绝对路径指向的数据库、素材和导入原文，并在恢复后重新核对路径与访问权限。只复制默认目录不能覆盖自定义外部存储。
 
-**源码 / Docker 完整数据（推荐在升级/迁移前使用）**：先停止后端或 Docker，确认 5679 未被占用，再执行：
+**源码 / Docker 完整数据（推荐在升级/迁移前使用）**：默认备份仓库 `backend-node/data/`。源码模式或未改 `LOCALMINIDRAMA_DATA_DIR` 时，先停止后端或 Docker，确认后端宿主机端口（默认 5679，或你设置的 `LOCALMINIDRAMA_BACKEND_HOST_PORT`）未被占用，再执行：
 
 ```bash
 npm --prefix backend-node run backup:data -- --output D:\backup\localminidrama.zip

@@ -631,7 +631,7 @@ function createErrorHandler(log, options = {}) {
     if (!expected || status >= 500) {
       log.operation?.({
         operation: 'http_request',
-        operationId: requestId,
+        operationId: logger.createOperationId('http_request'),
         request_id: requestId,
         phase: category === 'cancel' ? 'cancel' : 'error',
         method: req.method,

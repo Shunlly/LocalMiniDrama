@@ -96,3 +96,17 @@ test('缺少 operationId 时会自动补操作编号，取消不会记成成功'
   assert.equal(timeoutRec.phase, 'error')
   assert.notEqual(timeoutRec.phase, 'cancel')
 })
+
+test('缺省 operationId 不回落 requestId，请求编号单独保留', () => {
+  resetOperationLogs()
+  logOperation({
+    operation: 'http_request',
+    phase: 'error',
+    requestId: 'trace-req-1',
+    error: '服务器内部错误',
+  })
+  const rec = getOperationLogs()[0]
+  assert.match(String(rec.operationId || ''), /^http_request-/)
+  assert.notEqual(rec.operationId, 'trace-req-1')
+  assert.equal(rec.details.requestId, 'trace-req-1')
+})

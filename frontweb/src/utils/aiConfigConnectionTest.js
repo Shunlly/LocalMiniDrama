@@ -18,11 +18,25 @@ export function stripConnectionTestDecorations(message) {
     .trim()
 }
 
+export const CONNECTION_TEST_SECRET_RE = /password\s*=|client_secret|cookie\s*:|authorization\s*:|api[_-]?key\s*[:=]|secret[_-]?key\s*[:=]|\b(?:sk|rk|pk|ak|sess)-[A-Za-z0-9._-]{6,}\b|\b(Bearer|Basic|Token)\s+\S+|\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/i
+
+export function connectionTestTextLeaksSecret(text) {
+  return CONNECTION_TEST_SECRET_RE.test(String(text || ''))
+}
+
+function isSafeConnectionTestCopy(text) {
+  const value = String(text || '').trim()
+  if (!value) return false
+  if (connectionTestTextLeaksSecret(value)) return false
+  if (CONNECTION_TEST_ENGLISH_RE.test(value)) return false
+  return isSafeUserFacingMessage(value)
+}
+
 export function pickConnectionTestTitle(message) {
   const parts = String(message || '').split(/[:：]/).map((item) => item.trim()).filter(Boolean)
   if (parts.length >= 2) {
     const last = parts[parts.length - 1]
-    if (/[\u4e00-\u9fff]/.test(last) && last.length <= 80 && !CONNECTION_TEST_ENGLISH_RE.test(last) && isSafeUserFacingMessage(last)) {
+    if (/[\u4e00-\u9fff]/.test(last) && last.length <= 80 && isSafeConnectionTestCopy(last)) {
       return last
     }
   }
@@ -56,13 +70,13 @@ export function describeConnectionTestError(error, signal, serviceType = '') {
     }
   }
   let title = pickConnectionTestTitle(cleaned)
-  if (!title || CONNECTION_TEST_ENGLISH_RE.test(title) || !isSafeUserFacingMessage(title)) {
+  if (!isSafeConnectionTestCopy(title)) {
     title = '暂时无法完成连接测试，请稍后重试。'
   }
   const authLike = /认证失败|凭据|API Key|密钥/i.test(`${title}\n${cleaned}`)
   const st = String(serviceType || '').toLowerCase()
   let detail = authLike
-    ? '请检查 API 密钥、Session 或 AccessKey 是否填写正确。如果该服务不提供模型目录，也可直接在配置里手工填写模型名。'
+    ? '请检查 API 密钥、会话或访问密钥是否填写正确。如果该服务不提供模型目录，也可直接在配置里手工填写模型名。'
     : '请检查厂商地址、密钥和网络后重试。连接测试有时会读取模型目录；若该服务不提供模型列表，可直接在配置里手工填写模型名。'
   if (!authLike && st === 'ocr') {
     detail = '请检查厂商地址、密钥和网络后重试。图片识别用于 PDF/图片抽文字，通常走视觉对话接口；若该服务不提供模型列表，可直接在配置里手工填写模型名。'

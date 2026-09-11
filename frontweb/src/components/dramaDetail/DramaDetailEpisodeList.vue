@@ -15,7 +15,7 @@
             <el-icon><Plus /></el-icon>新增一集
           </el-button>
         </div>
-        <div v-if="episodes.length === 0" class="empty-state" role="status">
+        <div v-if="episodes.length === 0" class="empty-state" role="status" aria-live="polite">
           <div class="empty-state-title">{{ episodeEmptyState.title }}</div>
           <div class="empty-state-copy">{{ episodeEmptyState.description }}</div>
           <div class="empty-state-actions">
@@ -40,7 +40,12 @@
               {{ episodeEmptyState.unblockAction.label }}
             </el-button>
             <el-button aria-label="批量导入剧本" @click="openEpisodeBatchImport">批量导入剧本</el-button>
-            <el-button :loading="addingEpisode" aria-label="新增空白集" @click="onAddEpisode">
+            <el-button
+              v-if="episodeEmptyState.primaryAction?.id !== 'create_blank_episode' && episodeEmptyState.primaryAction?.target !== 'add-episode'"
+              :loading="addingEpisode"
+              aria-label="新增空白集"
+              @click="onAddEpisode"
+            >
               <el-icon><Plus /></el-icon>新增空白集
             </el-button>
           </div>

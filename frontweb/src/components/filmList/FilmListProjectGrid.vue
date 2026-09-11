@@ -8,7 +8,7 @@
       <RouterLink
         class="project-card-link"
         :to="projectCardDestination(d, sourceImportIntent, projectListReturnTo)"
-        :aria-label="`打开项目「${d.title || '未命名项目'}」`"
+        :aria-label="projectCardOpenLabel(d, sourceImportIntent)"
       >
         <div class="project-card-body">
           <div class="project-card-layout">
@@ -51,7 +51,7 @@
               </div>
               <div class="project-card-footer">
                 <p class="project-meta">创建于 {{ formatDate(d.created_at) || '未知时间' }}</p>
-                <span class="project-card-continue">{{ sourceImportIntent ? '导入网页 URL' : ((d.episodes && d.episodes.length) ? '继续制作' : '去创建剧集') }} <el-icon aria-hidden="true"><ArrowRight /></el-icon></span>
+                <span class="project-card-continue">{{ projectCardContinueLabel(d, sourceImportIntent) }} <el-icon aria-hidden="true"><ArrowRight /></el-icon></span>
               </div>
             </div>
           </div>
@@ -88,10 +88,12 @@
           <el-dropdown-menu>
             <el-dropdown-item command="export" :disabled="exportingId === d.id" :title="exportingId === d.id ? '正在导出该项目，请稍候' : undefined">
               <el-icon><Download /></el-icon>导出项目
+              <span v-if="exportingId === d.id" class="visually-hidden">正在导出该项目，请稍候</span>
             </el-dropdown-item>
-            <el-dropdown-item command="edit" :disabled="listWriteLocked" :title="listWriteLocked ? listWriteLockReason : undefined"><el-icon><Edit /></el-icon>编辑项目</el-dropdown-item>
+            <el-dropdown-item command="edit" :disabled="listWriteLocked" :title="listWriteLocked ? listWriteLockReason : undefined"><el-icon><Edit /></el-icon>编辑项目<span v-if="listWriteLocked" class="visually-hidden">{{ listWriteLockReason }}</span></el-dropdown-item>
             <el-dropdown-item command="trash" :disabled="listWriteLocked" :title="listWriteLocked ? listWriteLockReason : undefined" divided>
               <el-icon><Delete /></el-icon>移入回收站
+              <span v-if="listWriteLocked" class="visually-hidden">{{ listWriteLockReason }}</span>
             </el-dropdown-item>
           </el-dropdown-menu>
         </template>
@@ -103,6 +105,7 @@
 <script setup>
 // 项目卡片网格：封面、继续制作入口和卡片操作菜单
 import { Edit, Delete, PictureFilled, Download, Files, MoreFilled, ArrowRight } from '@element-plus/icons-vue'
+import { projectCardContinueLabel, projectCardOpenLabel } from '@/utils/sourceImportNavigation.js'
 
 defineProps({
   filteredDramas: { type: Array, default: () => [] },
@@ -380,6 +383,17 @@ defineProps({
   gap: 8px;
   margin-top: auto;
   padding-top: 12px;
+}
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 .project-card-continue {
   display: inline-flex;

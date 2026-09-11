@@ -1,5 +1,5 @@
 <template>
-  <div class="library-empty resource-empty-state" role="status">
+  <div class="library-empty resource-empty-state" role="status" aria-live="polite">
     <div class="empty-state-title">{{ title }}</div>
     <div class="empty-state-copy">{{ copy }}</div>
     <slot />

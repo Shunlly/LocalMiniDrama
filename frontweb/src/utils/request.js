@@ -1,6 +1,6 @@
 import { ElMessage } from './elementPlusFeedback.js'
 import axios from 'axios'
-import { logOperation } from './operationLog.js'
+import { createOperationId, logOperation } from './operationLog.js'
 import {
   classifyRequestError,
   createRequestId,
@@ -106,9 +106,11 @@ function userFacingFallback(error) {
 function logRequestFailure(error, userMessage) {
   const category = error?.category || classifyRequestError(error, error?.config?.signal)
   const requestId = error?.requestId || getRequestId(error) || ''
+  const operationId = error?.operationId || createOperationId('http_request')
+  if (error && typeof error === 'object') error.operationId = operationId
   logOperation({
     operation: 'http_request',
-    operationId: requestId || null,
+    operationId,
     phase: category === REQUEST_ERROR_CATEGORY.CANCEL ? 'cancel' : 'error',
     status: category,
     category,
@@ -120,27 +122,17 @@ function logRequestFailure(error, userMessage) {
   })
 }
 
-request.interceptors.request.use(
-  (config) => {
-    if (requestErrorToastOwnerDepth > 0) config.suppressErrorToast = true
-    ensureRequestId(config)
-    if (config.signal?.aborted) {
-      const error = Object.assign(
-        config.signal.reason instanceof Error ? config.signal.reason : new Error('请求已取消'),
-        { config },
-      )
-      if (!error.code) error.code = error.isTimeout ? 'ECONNABORTED' : 'ERR_CANCELED'
-      applyRequestFailure(error)
-      logRequestFailure(error, describeServiceLoadError(error, {
-        serviceLabel: '服务',
-        signal: config.signal,
-      }))
-    }
-    return config
-  },
-  undefined,
-  { synchronous: true },
-)
+request.interceptors.request.use((config) => {
+  if (requestErrorToastOwnerDepth > 0) config.suppressErrorToast = true
+  ensureRequestId(config)
+  if (!config.signal?.aborted) return config
+  const timedOut = Boolean(config.signal.reason?.isTimeout)
+  const error = timedOut
+    ? Object.assign(new Error('请求超时'), { config, code: 'ECONNABORTED', isTimeout: true, cause: config.signal.reason })
+    : new axios.CanceledError('请求已取消', config)
+  applyRequestFailure(error)
+  return Promise.reject(error)
+})
 
 function finalizeTransportError(error) {
   applyRequestFailure(error)

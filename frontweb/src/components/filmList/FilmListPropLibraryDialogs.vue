@@ -2,6 +2,7 @@
   <div class="film-list-prop-library-dialogs">
     <!-- 公共道具库 -->
     <AccessibleDialog v-model="showPropLibrary" title="素材库 · 道具" width="720px" destroy-on-close class="library-dialog" @open="loadPropLibraryList">
+      <p v-if="listWriteLocked && listWriteLockReason" id="prop-library-write-lock-reason" class="visually-hidden">{{ listWriteLockReason }}</p>
       <div class="library-toolbar">
         <el-input v-model="propLibraryKeyword" placeholder="搜索名称或描述" aria-label="搜索道具素材" clearable style="width: 200px" @input="debouncedLoadPropLibrary()" />
       </div>
@@ -23,8 +24,16 @@
             <div class="library-item-name">{{ item.name || '未命名' }}</div>
             <div class="library-item-desc">{{ (item.description || item.prompt || '').slice(0, 60) }}{{ (item.description || item.prompt || '').length > 60 ? '…' : '' }}</div>
             <div class="library-item-actions">
-              <el-button size="small" :disabled="listWriteLocked" :title="listWriteLocked ? listWriteLockReason : undefined" :aria-label="listWriteLocked ? listWriteLockReason : `编辑公共道具${item.name || '未命名道具'}`" @click="openEditPropLibrary(item)">编辑</el-button>
-              <el-button size="small" type="danger" plain :disabled="listWriteLocked" :title="listWriteLocked ? listWriteLockReason : undefined" :aria-label="listWriteLocked ? listWriteLockReason : `删除公共道具${item.name || '未命名道具'}`" @click="onDeletePropLibrary(item)">删除</el-button>
+              <el-tooltip :content="listWriteLockReason" :disabled="!listWriteLocked" placement="top">
+                <span class="tooltip-trigger" :tabindex="listWriteLocked ? 0 : undefined" :aria-describedby="listWriteLocked && listWriteLockReason ? 'prop-library-write-lock-reason' : undefined">
+                  <el-button size="small" :disabled="listWriteLocked" :title="listWriteLocked ? listWriteLockReason : undefined" :aria-describedby="listWriteLocked && listWriteLockReason ? 'prop-library-write-lock-reason' : undefined" :aria-label="listWriteLocked ? `编辑公共道具${item.name || '未命名道具'}不可用：${listWriteLockReason}` : `编辑公共道具${item.name || '未命名道具'}`" @click="openEditPropLibrary(item)">编辑</el-button>
+                </span>
+              </el-tooltip>
+              <el-tooltip :content="listWriteLockReason" :disabled="!listWriteLocked" placement="top">
+                <span class="tooltip-trigger" :tabindex="listWriteLocked ? 0 : undefined" :aria-describedby="listWriteLocked && listWriteLockReason ? 'prop-library-write-lock-reason' : undefined">
+                  <el-button size="small" type="danger" plain :disabled="listWriteLocked" :title="listWriteLocked ? listWriteLockReason : undefined" :aria-describedby="listWriteLocked && listWriteLockReason ? 'prop-library-write-lock-reason' : undefined" :aria-label="listWriteLocked ? `删除公共道具${item.name || '未命名道具'}不可用：${listWriteLockReason}` : `删除公共道具${item.name || '未命名道具'}`" @click="onDeletePropLibrary(item)">删除</el-button>
+                </span>
+              </el-tooltip>
             </div>
           </div>
         </div>
@@ -32,7 +41,7 @@
           <p>{{ propLibraryError }}</p>
           <el-button size="small" type="primary" plain :loading="propLibraryLoading" :aria-label="propLibraryLoading ? '正在加载道具库，请稍候' : '重试加载道具库'" @click="loadPropLibraryList">重试</el-button>
         </div>
-        <div v-if="!propLibraryLoading && !propLibraryError && propLibraryList.length === 0" class="library-empty" role="status">
+        <div v-if="!propLibraryLoading && !propLibraryError && propLibraryList.length === 0" class="library-empty" role="status" aria-live="polite">
           <p>{{ propLibraryKeyword.trim() ? '没有匹配的道具，试试其他关键词。' : '素材库暂无道具，可在项目中将道具「加入素材库」后在此查看' }}</p>
           <el-button v-if="propLibraryKeyword.trim()" size="small" aria-label="清除道具素材搜索" @click="clearPropLibraryKeyword">清除搜索</el-button>
         </div>
@@ -73,7 +82,11 @@
       </el-form>
       <template #footer>
         <el-button aria-label="取消编辑公共道具" @click="showEditPropLibrary = false">取消</el-button>
-        <el-button type="primary" :loading="editPropLibrarySaving" :disabled="listWriteLocked" :title="listWriteLocked ? listWriteLockReason : undefined" :aria-label="editPropLibrarySaving ? '正在保存公共道具，请稍候' : (listWriteLocked ? listWriteLockReason : '保存公共道具')" @click="submitEditPropLibrary">保存</el-button>
+        <el-tooltip :content="listWriteLockReason" :disabled="!listWriteLocked" placement="top">
+          <span class="tooltip-trigger" :tabindex="listWriteLocked ? 0 : undefined" :aria-describedby="listWriteLocked && listWriteLockReason ? 'prop-library-write-lock-reason' : undefined">
+            <el-button type="primary" :loading="editPropLibrarySaving" :disabled="listWriteLocked" :title="listWriteLocked ? listWriteLockReason : undefined" :aria-describedby="listWriteLocked && listWriteLockReason ? 'prop-library-write-lock-reason' : undefined" :aria-label="editPropLibrarySaving ? '正在保存公共道具，请稍候' : (listWriteLocked ? `保存公共道具不可用：${listWriteLockReason}` : '保存公共道具')" @click="submitEditPropLibrary">保存</el-button>
+          </span>
+        </el-tooltip>
       </template>
     </AccessibleDialog>
   </div>

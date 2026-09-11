@@ -5,13 +5,25 @@
         <span class="logo-main">本地短剧助手</span>
         <span class="logo-sub">LocalMiniDrama</span>
       </h1>
+      <p
+        v-if="listWriteLocked && listWriteLockReason"
+        id="project-list-write-lock-reason"
+        class="visually-hidden"
+      >{{ listWriteLockReason }}</p>
       <!-- 素材入口：通用媒体为一级入口，语义素材保留在分类菜单中 -->
       <div class="header-library">
         <el-button class="btn-library btn-material-center" title="打开素材中心" aria-label="打开素材中心" @click="goMaterialCenter">
           <el-icon><Files /></el-icon>素材中心
         </el-button>
+        <el-tooltip :content="listWriteLockReason" :disabled="!listWriteLocked" placement="bottom">
+          <span
+            class="tooltip-trigger"
+            :tabindex="listWriteLocked ? 0 : undefined"
+            :aria-label="listWriteLocked ? `打开分类素材不可用：${listWriteLockReason}` : undefined"
+            :aria-describedby="listWriteLocked && listWriteLockReason ? 'project-list-write-lock-reason' : undefined"
+          >
         <el-dropdown :disabled="listWriteLocked" trigger="click" placement="bottom-start" @command="openSemanticLibrary">
-          <el-button class="btn-library btn-semantic-library" :disabled="listWriteLocked" aria-label="打开分类素材" :title="listWriteLocked ? listWriteLockReason : '打开分类素材'" :aria-describedby="listError ? 'project-list-load-error' : undefined">
+          <el-button class="btn-library btn-semantic-library" :disabled="listWriteLocked" aria-label="打开分类素材" :title="listWriteLocked ? listWriteLockReason : '打开分类素材'" :aria-describedby="listWriteLocked && listWriteLockReason ? 'project-list-write-lock-reason' : undefined">
             <el-icon><Collection /></el-icon>分类素材
             <el-icon class="dropdown-caret"><ArrowDown /></el-icon>
           </el-button>
@@ -23,6 +35,8 @@
             </el-dropdown-menu>
           </template>
         </el-dropdown>
+          </span>
+        </el-tooltip>
       </div>
       <!-- 右侧操作区 -->
       <div class="header-actions">
@@ -53,12 +67,30 @@
         >
           <el-icon><Download /></el-icon>数据备份
         </el-button>
-        <el-button ref="importTriggerButton" class="btn-import" :loading="importing" :disabled="listWriteLocked" aria-label="导入项目包" :title="listWriteLocked ? listWriteLockReason : undefined" :aria-describedby="listError ? 'project-list-load-error' : undefined" @click="triggerImport">
-          <el-icon><Upload /></el-icon>导入项目包
-        </el-button>
-        <el-button type="primary" class="btn-new" :disabled="listWriteLocked" aria-label="新建项目" :title="listWriteLocked ? listWriteLockReason : undefined" :aria-describedby="listError ? 'project-list-load-error' : undefined" @click="goNewProject">
-          <el-icon><Plus /></el-icon>新建项目
-        </el-button>
+        <el-tooltip :content="listWriteLockReason" :disabled="!listWriteLocked" placement="bottom">
+          <span
+            class="tooltip-trigger"
+            :tabindex="listWriteLocked ? 0 : undefined"
+            :aria-label="listWriteLocked ? `导入项目包不可用：${listWriteLockReason}` : undefined"
+            :aria-describedby="listWriteLocked && listWriteLockReason ? 'project-list-write-lock-reason' : undefined"
+          >
+            <el-button ref="importTriggerButton" class="btn-import" :loading="importing" :disabled="listWriteLocked" aria-label="导入项目包" :title="listWriteLocked ? listWriteLockReason : undefined" :aria-describedby="listWriteLocked && listWriteLockReason ? 'project-list-write-lock-reason' : undefined" @click="triggerImport">
+              <el-icon><Upload /></el-icon>导入项目包
+            </el-button>
+          </span>
+        </el-tooltip>
+        <el-tooltip :content="listWriteLockReason" :disabled="!listWriteLocked" placement="bottom">
+          <span
+            class="tooltip-trigger"
+            :tabindex="listWriteLocked ? 0 : undefined"
+            :aria-label="listWriteLocked ? `新建项目不可用：${listWriteLockReason}` : undefined"
+            :aria-describedby="listWriteLocked && listWriteLockReason ? 'project-list-write-lock-reason' : undefined"
+          >
+            <el-button type="primary" class="btn-new" :disabled="listWriteLocked" aria-label="新建项目" :title="listWriteLocked ? listWriteLockReason : undefined" :aria-describedby="listWriteLocked && listWriteLockReason ? 'project-list-write-lock-reason' : undefined" @click="goNewProject">
+              <el-icon><Plus /></el-icon>新建项目
+            </el-button>
+          </span>
+        </el-tooltip>
       </div>
     </div>
   </header>
@@ -161,6 +193,13 @@ defineExpose({ importTriggerButton })
   width: 34px;
   min-width: 34px;
   padding: 0;
+}
+.tooltip-trigger { display: inline-flex; }
+.tooltip-trigger:focus-visible { outline: 2px solid #818cf8; outline-offset: 2px; }
+.header-library :deep(.el-button:focus-visible),
+.header-actions :deep(.el-button:focus-visible) {
+  outline: 2px solid #818cf8;
+  outline-offset: 2px;
 }
 .visually-hidden {
   position: absolute;

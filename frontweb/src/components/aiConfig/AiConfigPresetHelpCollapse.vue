@@ -95,6 +95,16 @@ function tagLabel(tag) {
   color: #e6a23c;
   border: 1px solid #f5dab1;
 }
+.ph-tag-ocr {
+  background: #fff1f2;
+  color: #be123c;
+  border: 1px solid #fecdd3;
+}
+.ph-tag-asr {
+  background: #ecfeff;
+  color: #0f766e;
+  border: 1px solid #a5f3fc;
+}
 .protocol-help .ph-disclaimer {
   font-size: 13px;
   line-height: 1.7;

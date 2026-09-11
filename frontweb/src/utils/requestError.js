@@ -32,6 +32,13 @@ const NETWORK_ERROR_MESSAGE_RE = /network error|failed to fetch|fetch failed|loa
 const STACK_RE = /\bat\s+[A-Za-z_$][\w.$]*\s*\([^)]*:\d+:\d+\)/
 const INTERNAL_FIELD_RE = /\bdrama_id\b/i
 const ALLOWED_LATIN_TOKEN_RE = /^(?:ffmpeg|libx264|tesseract|comfyui|openai|ollama|minimax|seedance|kling|gemini|sora|http|https|json|pdf|txt|zip|api|tts|ocr|url|jwt|bearer)$/i
+const GENERIC_PROVIDER_ALIAS_RE = /\b(?:image|video)(?:\s+provider)?\b/i
+const GENERIC_SERVICE_LABELS = Object.freeze({
+  image: '图片服务',
+  'image provider': '图片服务',
+  video: '视频服务',
+  'video provider': '视频服务',
+})
 
 function hasUntrustedEnglishRun(text) {
   const words = String(text).match(/[A-Za-z][A-Za-z0-9+.-]{3,}/g) || []
@@ -56,6 +63,7 @@ export function isSafeUserFacingMessage(text) {
   if (INTERNAL_FIELD_RE.test(value)) return false
   if (TECHNICAL_ENGLISH_RE.test(value) || STACK_RE.test(value)) return false
   if (/^http\s*\d{3}$/i.test(value)) return false
+  if (GENERIC_PROVIDER_ALIAS_RE.test(value)) return false
   if (hasUntrustedEnglishRun(value)) return false
   return true
 }
@@ -187,8 +195,21 @@ export function shouldRetryRequest(error, attempt, signal) {
   return isRequestNetworkError(error, signal)
 }
 
+function userFacingServiceLabel(label, options = {}) {
+  const raw = String(label ?? '').trim()
+  const kind = String(options.kind || options.operation || options.serviceType || '')
+  if (!raw) {
+    if (/video|视频/i.test(kind)) return '视频服务'
+    if (/image|图片|视觉/i.test(kind)) return '图片服务'
+    return '服务'
+  }
+  const mapped = GENERIC_SERVICE_LABELS[raw.toLowerCase()]
+  if (mapped) return mapped
+  return raw
+}
+
 export function describeServiceLoadError(error, options = {}) {
-  const serviceLabel = options.serviceLabel || '服务'
+  const serviceLabel = userFacingServiceLabel(options.serviceLabel, options)
   const signal = options.signal
   const backendMessage = readSafeBackendMessage(error)
   if (backendMessage) return backendMessage

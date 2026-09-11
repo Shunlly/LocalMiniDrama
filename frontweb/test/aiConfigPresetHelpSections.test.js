@@ -21,6 +21,14 @@ const REQUIRED_ITEM_NAMES = [
   'runway-vid',
   'luma-vid',
   'siliconflow-tts',
+  'qwen-text',
+  'volcengine-text',
+  'agnes-suite',
+  'kling-vid',
+  'openai-ocr',
+  'qwen-ocr',
+  'openai-transcription',
+  'qwen-transcription',
 ]
 
 function flattenBody(body = []) {
@@ -33,8 +41,8 @@ function flattenBody(body = []) {
 test('预设帮助数据覆盖新增厂商，且条目 name 互不混用', () => {
   const items = listPresetHelpItems()
   const names = items.map((item) => item.name)
-  assert.equal(PRESET_HELP_SECTIONS.length, 4)
-  assert.equal(items.length, 28)
+  assert.equal(PRESET_HELP_SECTIONS.length, 6)
+  assert.equal(items.length, 36)
   assert.equal(new Set(names).size, names.length)
   assert.equal(getPresetHelpItem('openai-text')?.tag, 'text')
   assert.equal(getPresetHelpItem('openai-img')?.tag, 'img')
@@ -54,11 +62,15 @@ test('预设帮助标签和免责声明保持简体中文', () => {
   assert.equal(PRESET_HELP_TAG.img.label, '图片')
   assert.equal(PRESET_HELP_TAG.vid.label, '视频')
   assert.equal(PRESET_HELP_TAG.tts.label, '语音')
-  assert.deepEqual(PRESET_HELP_SECTIONS.map((section) => section.id), ['text', 'image', 'video', 'tts'])
+  assert.equal(PRESET_HELP_TAG.ocr.label, '识别')
+  assert.equal(PRESET_HELP_TAG.asr.label, '转写')
+  assert.deepEqual(PRESET_HELP_SECTIONS.map((section) => section.id), ['text', 'image', 'video', 'tts', 'ocr', 'transcription'])
   assert.equal(PRESET_HELP_SECTIONS[0].title, '文本 / OpenAI 兼容')
   assert.match(PRESET_HELP_SECTIONS[1].title, /图片 \/ 分镜图 协议/)
   assert.match(PRESET_HELP_SECTIONS[2].title, /视频 协议/)
   assert.equal(PRESET_HELP_SECTIONS[3].title, '语音 TTS')
+  assert.equal(PRESET_HELP_SECTIONS[4].title, '图片识别 OCR')
+  assert.equal(PRESET_HELP_SECTIONS[5].title, '语音转写')
 })
 
 test('每条厂商帮助都有标题、合法标签和正文，空条目不会混进目录', () => {
@@ -97,4 +109,14 @@ test('每条厂商帮助都有标题、合法标签和正文，空条目不会�
   assert.match(comfy, /http:\/\/127\.0\.0\.1:8188/)
   const tts = flattenBody(getPresetHelpItem('siliconflow-tts').body)
   assert.match(tts, /不代表语音合成已真实接入/)
+  const qwen = flattenBody(getPresetHelpItem('qwen-text').body)
+  assert.match(qwen, /dashscope.aliyuncs.com/)
+  const agnes = flattenBody(getPresetHelpItem('agnes-suite').body)
+  assert.match(agnes, /一键配置 Agnes/)
+  const kling = flattenBody(getPresetHelpItem('kling-vid').body)
+  assert.match(kling, /kling-v3-omni/)
+  const ocr = flattenBody(getPresetHelpItem('openai-ocr').body)
+  assert.match(ocr, /PDF\/图片抽文字/)
+  const asr = flattenBody(getPresetHelpItem('openai-transcription').body)
+  assert.match(asr, /音频\/视频转写/)
 })

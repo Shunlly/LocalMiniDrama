@@ -33,16 +33,26 @@
       <strong>项目“{{ exportFailure.drama.title || '未命名项目' }}”导出失败</strong>
       <p>{{ exportFailure.message }}。项目内容未受影响，可以重试。</p>
     </div>
+    <el-tooltip :content="exportingId !== null && exportingId !== exportFailure.drama.id ? '正在导出其他项目，请稍候' : ''" :disabled="!(exportingId !== null && exportingId !== exportFailure.drama.id)" placement="top">
+      <span
+        class="tooltip-trigger"
+        :tabindex="exportingId !== null && exportingId !== exportFailure.drama.id ? 0 : undefined"
+        :aria-describedby="exportingId !== null && exportingId !== exportFailure.drama.id ? 'project-export-busy-reason' : undefined"
+      >
+        <p v-if="exportingId !== null && exportingId !== exportFailure.drama.id" id="project-export-busy-reason" class="visually-hidden">正在导出其他项目，请稍候</p>
     <el-button
       type="primary"
       plain
       :loading="exportingId === exportFailure.drama.id"
       :disabled="exportingId !== null && exportingId !== exportFailure.drama.id"
       :title="exportingId !== null && exportingId !== exportFailure.drama.id ? '正在导出其他项目，请稍候' : undefined"
+      :aria-describedby="exportingId !== null && exportingId !== exportFailure.drama.id ? 'project-export-busy-reason' : undefined"
       :aria-label="exportingId === exportFailure.drama.id ? '正在导出项目包' : (exportingId !== null && exportingId !== exportFailure.drama.id ? '正在导出其他项目，请稍候' : '重试导出项目包')" @click="onExport(exportFailure.drama)"
     >
       <el-icon><RefreshLeft /></el-icon>重试导出
     </el-button>
+      </span>
+    </el-tooltip>
   </section>
 
   <section
@@ -60,17 +70,25 @@
       <p>{{ importFailure.message }}</p>
     </div>
     <div class="import-failure-actions">
+      <el-tooltip :content="listWriteLockReason" :disabled="!listWriteLocked" placement="top">
+        <span
+          class="tooltip-trigger"
+          :tabindex="listWriteLocked ? 0 : undefined"
+          :aria-describedby="listWriteLocked && listWriteLockReason ? 'project-list-write-lock-reason' : undefined"
+        >
       <el-button
         type="primary"
         plain
         :loading="importing"
         :disabled="listWriteLocked"
         :title="listWriteLocked ? listWriteLockReason : undefined"
-        :aria-describedby="listError ? 'project-list-load-error' : undefined"
-        :aria-label="importing ? '正在导入项目包' : (listWriteLocked ? listWriteLockReason : '重新选择项目包')" @click="triggerImport"
+        :aria-describedby="listWriteLocked && listWriteLockReason ? 'project-list-write-lock-reason' : undefined"
+        :aria-label="importing ? '正在导入项目包' : (listWriteLocked ? `重新选择项目包不可用：${listWriteLockReason}` : '重新选择项目包')" @click="triggerImport"
       >
         <el-icon><RefreshLeft /></el-icon>重新选择项目包
       </el-button>
+        </span>
+      </el-tooltip>
       <el-button plain :disabled="importing" :title="importing ? '正在导入项目包，请稍候' : undefined" :aria-label="importing ? '正在导入项目包，请稍候' : '关闭导入失败提示'" @click="dismissImportFailure">
         关闭
       </el-button>
@@ -204,5 +222,18 @@ html.light .data-load-state__detail { color: #b91c1c; }
 .export-failure-state:focus-visible {
   outline: 2px solid #fbbf24;
   outline-offset: 2px;
+}
+.tooltip-trigger { display: inline-flex; }
+.tooltip-trigger:focus-visible { outline: 2px solid #fbbf24; outline-offset: 2px; }
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 </style>

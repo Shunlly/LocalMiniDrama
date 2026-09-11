@@ -23,9 +23,18 @@
     <main class="main">
       <section v-if="sourceImportIntent" class="source-import-intent" role="status" aria-live="polite">
         <span>选择已有项目后导入网页 URL，或新建项目后继续。</span>
-        <el-button type="primary" size="small" :disabled="listWriteLocked" aria-label="新建项目" :title="listWriteLocked ? listWriteLockReason : undefined" :aria-describedby="listError ? 'project-list-load-error' : undefined" @click="openSourceImportProject">
-          <el-icon><Plus /></el-icon>新建项目
-        </el-button>
+        <el-tooltip :content="listWriteLockReason" :disabled="!listWriteLocked" placement="bottom">
+          <span
+            class="tooltip-trigger"
+            :tabindex="listWriteLocked ? 0 : undefined"
+            :aria-label="listWriteLocked ? `新建项目不可用：${listWriteLockReason}` : undefined"
+            :aria-describedby="listWriteLocked && listWriteLockReason ? 'project-list-write-lock-reason' : undefined"
+          >
+            <el-button type="primary" size="small" :disabled="listWriteLocked" aria-label="新建项目" :title="listWriteLocked ? listWriteLockReason : undefined" :aria-describedby="listWriteLocked && listWriteLockReason ? 'project-list-write-lock-reason' : undefined" @click="openSourceImportProject">
+              <el-icon><Plus /></el-icon>新建项目
+            </el-button>
+          </span>
+        </el-tooltip>
       </section>
       <div v-loading="loading" class="projects-wrap" :aria-busy="loading">
         <FilmListFailureBanners
@@ -145,7 +154,16 @@
       </el-form>
       <template #footer>
         <el-button aria-label="取消新建项目" @click="showNewDialog = false">取消</el-button>
-        <el-button type="primary" :loading="newSaving" :disabled="Boolean(newSubmitDisabledReason)" :title="newSubmitDisabledReason || undefined" :aria-label="newSaving ? '正在创建项目' : (newSubmitDisabledReason || '确定新建项目')" @click="submitNew">确定</el-button>
+        <p v-if="newSubmitDisabledReason" id="project-new-submit-reason" class="visually-hidden">{{ newSubmitDisabledReason }}</p>
+        <el-tooltip :content="newSubmitDisabledReason" :disabled="!newSubmitDisabledReason" placement="top">
+          <span
+            class="tooltip-trigger"
+            :tabindex="newSubmitDisabledReason ? 0 : undefined"
+            :aria-describedby="newSubmitDisabledReason ? 'project-new-submit-reason' : undefined"
+          >
+            <el-button type="primary" :loading="newSaving" :disabled="Boolean(newSubmitDisabledReason)" :title="newSubmitDisabledReason || undefined" :aria-describedby="newSubmitDisabledReason ? 'project-new-submit-reason' : undefined" :aria-label="newSaving ? '正在创建项目' : (newSubmitDisabledReason || '确定新建项目')" @click="submitNew">确定</el-button>
+          </span>
+        </el-tooltip>
       </template>
     </AccessibleDialog>
 
@@ -188,7 +206,16 @@
       </el-form>
       <template #footer>
         <el-button aria-label="取消编辑项目" @click="showEditDialog = false">取消</el-button>
-        <el-button type="primary" :loading="editSaving" :disabled="Boolean(editSubmitDisabledReason)" :title="editSubmitDisabledReason || undefined" :aria-label="editSaving ? '正在保存项目' : (editSubmitDisabledReason || '保存项目')" @click="submitEdit">保存</el-button>
+        <p v-if="editSubmitDisabledReason" id="project-edit-submit-reason" class="visually-hidden">{{ editSubmitDisabledReason }}</p>
+        <el-tooltip :content="editSubmitDisabledReason" :disabled="!editSubmitDisabledReason" placement="top">
+          <span
+            class="tooltip-trigger"
+            :tabindex="editSubmitDisabledReason ? 0 : undefined"
+            :aria-describedby="editSubmitDisabledReason ? 'project-edit-submit-reason' : undefined"
+          >
+            <el-button type="primary" :loading="editSaving" :disabled="Boolean(editSubmitDisabledReason)" :title="editSubmitDisabledReason || undefined" :aria-describedby="editSubmitDisabledReason ? 'project-edit-submit-reason' : undefined" :aria-label="editSaving ? '正在保存项目' : (editSubmitDisabledReason || '保存项目')" @click="submitEdit">保存</el-button>
+          </span>
+        </el-tooltip>
       </template>
     </AccessibleDialog>
   </div>
@@ -539,6 +566,19 @@ html.light .badge-status--draft {
   background: rgba(107, 114, 128, 0.1);
   color: #4b5563;
   border-color: rgba(107, 114, 128, 0.25);
+}
+.tooltip-trigger { display: inline-flex; }
+.tooltip-trigger:focus-visible { outline: 2px solid #818cf8; outline-offset: 2px; }
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 

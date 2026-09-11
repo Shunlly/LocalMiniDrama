@@ -26,9 +26,11 @@ export const PRESET_HELP_TAG = Object.freeze({
   img: Object.freeze({ label: '图片', className: 'ph-tag-img' }),
   vid: Object.freeze({ label: '视频', className: 'ph-tag-vid' }),
   tts: Object.freeze({ label: '语音', className: 'ph-tag-tts' }),
+  ocr: Object.freeze({ label: '识别', className: 'ph-tag-ocr' }),
+  asr: Object.freeze({ label: '转写', className: 'ph-tag-asr' }),
 })
 
-export const PRESET_HELP_DISCLAIMER = "选择预设只会自动填入公开 Base URL 和常见模型名，方便保存配置。以下说明用于对照填写，不代表本应用已真实接入或跑通对应厂商的图片、视频或语音生成。"
+export const PRESET_HELP_DISCLAIMER = "选择预设只会自动填入公开 Base URL 和常见模型名，方便保存配置。以下说明用于对照填写，不代表本应用已真实接入或跑通对应厂商的图片、视频、语音、识别或转写。"
 
 export const PRESET_HELP_SECTIONS = Object.freeze([
     {
@@ -66,6 +68,26 @@ export const PRESET_HELP_SECTIONS = Object.freeze([
         ],
       },
       {
+        name: "qwen-text",
+        tag: "text",
+        title: "通义千问 / 阿里云百炼",
+        body: [
+          line(b("Base URL："), c("https://dashscope.aliyuncs.com/compatible-mode/v1")),
+          line(b("常见模型："), c("qwen3.8-max"), "、", c("qwen-plus"), "、", c("qwen-flash")),
+          line("国内访问较稳。选此预设只填表，实际对话取决于密钥和已开通的模型。"),
+        ],
+      },
+      {
+        name: "volcengine-text",
+        tag: "text",
+        title: "火山引擎方舟",
+        body: [
+          line(b("Base URL："), c("https://ark.cn-beijing.volces.com/api/v3")),
+          line(b("常见模型："), "填方舟控制台的接入点 ID，例如 ", c("deepseek-v3-2-251201"), "，不要填展示名。"),
+          line("推荐用于国内文本生成。预设不代表已真实接入。"),
+        ],
+      },
+      {
         name: "cn-cloud-text",
         tag: "text",
         title: "Moonshot / DeepSeek / 智谱 / MiniMax",
@@ -85,6 +107,16 @@ export const PRESET_HELP_SECTIONS = Object.freeze([
           line(b("LM Studio："), c("http://127.0.0.1:1234/v1")),
           line(b("vLLM："), c("http://127.0.0.1:8000/v1")),
           line("请先在本机启动对应服务。保存时请使用本机地址，例如 127.0.0.1。"),
+        ],
+      },
+      {
+        name: "agnes-suite",
+        tag: "text",
+        title: "Agnes AI（一键配置）",
+        body: [
+          line(b("Base URL："), c("https://apihub.agnes-ai.com/v1")),
+          line(b("常见模型："), "文本 ", c("agnes-2.0-flash"), "，图片 ", c("agnes-image-2.1-flash"), "，视频 ", c("agnes-video-v2.0"), "。"),
+          line("可用页面「一键配置 Agnes」同时创建文本、图片、视频三类配置。只填表，不代表已真实跑通生成。"),
         ],
       },
       ],
@@ -241,6 +273,16 @@ export const PRESET_HELP_SECTIONS = Object.freeze([
         ],
       },
       {
+        name: "kling-vid",
+        tag: "vid",
+        title: "可灵 Kling 视频",
+        body: [
+          line(b("Base URL："), c("https://api.klingai.com"), " 或区域地址 ", c("api-beijing.klingai.com"), " / ", c("api-singapore.klingai.com"), "，须与密钥所属区域一致。"),
+          line(b("常见模型："), c("kling-v3-omni"), "、", c("kling-video"), "、", c("kling-omni-video")),
+          line("可灵图片和视频是不同服务类型。选此预设只填表，不代表视频生成已真实跑通。"),
+        ],
+      },
+      {
         name: "vidu-vid",
         tag: "vid",
         title: "Vidu",
@@ -340,6 +382,61 @@ export const PRESET_HELP_SECTIONS = Object.freeze([
       },
       ],
     },
+    {
+      id: "ocr",
+      title: "图片识别 OCR",
+      items: [
+      {
+        name: "openai-ocr",
+        tag: "ocr",
+        title: "OpenAI 兼容视觉",
+        body: [
+          line(b("适用："), "PDF/图片抽文字。通常走视觉对话接口 ", c("/chat/completions"), "，而不是单独的 OCR 接口。"),
+          line(b("Base URL："), "与文本配置相同，例如 ", c("https://api.openai.com/v1"), " 或兼容网关。"),
+          line(b("常见模型："), c("gpt-4o-mini"), "、", c("gpt-4o"), "、", c("qwen-vl-max")),
+          line("下一步：添加一个配置并设为默认，即可用于素材抽取。预设不代表识别已真实跑通。"),
+        ],
+      },
+      {
+        name: "qwen-ocr",
+        tag: "ocr",
+        title: "通义千问视觉 / 本地视觉",
+        body: [
+          line(b("通义："), c("https://dashscope.aliyuncs.com/compatible-mode/v1"), "，模型如 ", c("qwen-vl-max"), "、", c("qwen-vl-plus")),
+          line(b("Ollama："), c("http://127.0.0.1:11434/v1"), "，模型如 ", c("qwen2.5vl"), "、", c("llava"), "。请先在本机启动服务。"),
+          line("没有模型目录时，可直接输入视觉模型名。"),
+        ],
+      },
+      ],
+    },
+    {
+      id: "transcription",
+      title: "语音转写",
+      items: [
+      {
+        name: "openai-transcription",
+        tag: "asr",
+        title: "OpenAI 兼容转写",
+        body: [
+          line(b("适用："), "音频/视频转写。通常走 ", c("/audio/transcriptions"), "，而不是对话接口。"),
+          line(b("Base URL："), "与文本配置相同，例如 ", c("https://api.openai.com/v1"), " 或兼容网关。"),
+          line(b("常见模型："), c("whisper-1"), "、", c("gpt-4o-mini-transcribe")),
+          line("下一步：添加一个配置并设为默认，即可用于音视频素材抽取。预设不代表转写已真实跑通。"),
+        ],
+      },
+      {
+        name: "qwen-transcription",
+        tag: "asr",
+        title: "通义千问 / Groq 转写",
+        body: [
+          line(b("通义："), c("https://dashscope.aliyuncs.com/compatible-mode/v1"), "，模型如 ", c("qwen3-asr-flash"), "、", c("paraformer-v2")),
+          line(b("Groq："), c("https://api.groq.com/openai/v1"), "，模型如 ", c("whisper-large-v3")),
+          line("没有模型目录时，可直接输入转写模型名。"),
+        ],
+      },
+      ],
+    },
+
 ])
 
 export function listPresetHelpItems() {

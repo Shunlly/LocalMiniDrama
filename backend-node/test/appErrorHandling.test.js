@@ -91,6 +91,9 @@ test('production 500 response hides details and returns its request id', () => {
   assert.equal(operations[0].phase, 'error');
   assert.equal(operations[0].code, 'INTERNAL_ERROR');
   assert.equal(operations[0].category, 'http_5xx');
+  assert.equal(operations[0].request_id, 'req-500');
+  assert.match(String(operations[0].operationId || ''), /^http_request-/);
+  assert.notEqual(operations[0].operationId, 'req-500');
 });
 
 test('expected client errors retain actionable messages', () => {
@@ -199,9 +202,10 @@ test('user-facing errors strip stack frames even in development', () => {
 
 test('timeout failures keep generic production copy and classify logs as timeout', () => {
   const entries = [];
+  const operations = [];
   const handler = createErrorHandler({
     errorw(message, fields) { entries.push({ message, fields }); },
-    operation() {},
+    operation(event) { operations.push(event); },
   }, { production: true });
   const res = responseRecorder();
   const error = new Error('connect ETIMEDOUT 10.0.0.1');
@@ -215,14 +219,20 @@ test('timeout failures keep generic production copy and classify logs as timeout
   assert.equal(res.body.error.request_id, 'req-timeout');
   assert.equal(res.headers['x-request-id'], 'req-timeout');
   assert.equal(entries[0].fields.category, 'timeout');
+  assert.equal(operations[0].category, 'timeout');
+  assert.equal(operations[0].phase, 'error');
+  assert.notEqual(operations[0].phase, 'cancel');
+  assert.equal(operations[0].request_id, 'req-timeout');
+  assert.notEqual(operations[0].operationId, 'req-timeout');
   assert.doesNotMatch(JSON.stringify(res.body), /ETIMEDOUT|10\.0\.0\.1|connect /);
 });
 
 test('cancel failures classify logs as cancel without exposing stack', () => {
   const entries = [];
+  const operations = [];
   const handler = createErrorHandler({
     errorw(message, fields) { entries.push({ message, fields }); },
-    operation() {},
+    operation(event) { operations.push(event); },
   }, { production: true });
   const res = responseRecorder();
   const error = new Error('aborted\n    at abort (internal.js:1:1)');
@@ -235,6 +245,11 @@ test('cancel failures classify logs as cancel without exposing stack', () => {
   assert.equal(res.body.request_id, 'req-cancel');
   assert.equal(res.body.error.request_id, 'req-cancel');
   assert.equal(entries[0].fields.category, 'cancel');
+  assert.equal(operations[0].category, 'cancel');
+  assert.equal(operations[0].phase, 'cancel');
+  assert.notEqual(operations[0].category, 'timeout');
+  assert.equal(operations[0].request_id, 'req-cancel');
+  assert.notEqual(operations[0].operationId, 'req-cancel');
   assert.doesNotMatch(JSON.stringify(res.body), /internal\.js|aborted/);
 });
 
