@@ -1511,13 +1511,13 @@ async function createDramaFromUi(page, { title, description }) {
   assert.match(page.url(), new RegExp(`/drama/${payload.data.id}(?:[?#]|$)`))
   assert.equal(
     new URL(page.url()).hash,
-    '#source-intake-workflow',
-    'new projects must land on the source intake workflow rather than an unscoped detail page',
+    '#episode-list',
+    'blank new projects must land on the episode list rather than forcing source intake',
   )
-  const workflow = page.locator('#source-intake-workflow')
-  await workflow.waitFor({ state: 'visible', timeout: 30000 })
-  const workflowBox = await workflow.boundingBox()
-  assert.ok(workflowBox && workflowBox.y >= 0, 'new project source workflow must be visible in the viewport')
+  const episodeList = page.locator('#episode-list')
+  await episodeList.waitFor({ state: 'visible', timeout: 30000 })
+  const episodeBox = await episodeList.boundingBox()
+  assert.ok(episodeBox && episodeBox.y >= 0, 'new project episode list must be visible in the viewport')
   return payload.data
 }
 
@@ -1559,7 +1559,7 @@ async function verifyAiConfigReturnUi(page, dramaId) {
 }
 
 async function importSourceFromUi(page, dramaId, { title, text }) {
-  await page.goto(`${FRONTEND_URL}/drama/${dramaId}`, { waitUntil: 'domcontentloaded' })
+  await page.goto(`${FRONTEND_URL}/drama/${dramaId}#source-intake-workflow`, { waitUntil: 'domcontentloaded' })
   const workflow = page.locator('#source-intake-workflow')
   await workflow.waitFor({ state: 'visible', timeout: 30000 })
   await flowStepButton(workflow, UI.intakeStep).click()
