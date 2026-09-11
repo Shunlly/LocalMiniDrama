@@ -94,6 +94,7 @@
       :move-storyboard-up="moveStoryboardUp"
       :move-storyboard-down="moveStoryboardDown"
       :insert-storyboard-before="insertStoryboardBefore"
+      :append-storyboard="appendStoryboard"
     />
   </div>
 </template>
@@ -551,6 +552,39 @@ async function insertStoryboardBefore() {
   } catch (error) {
     if (isCanvasUserAbort(error)) return
     ElMessage.error(canvasUserError(error, '插入分镜失败'))
+  } finally {
+    reorderBusy.value = false
+  }
+}
+
+async function appendStoryboard() {
+  const blocked = reorderDisabledReason.value
+  if (blocked) {
+    ElMessage.warning(blocked)
+    return
+  }
+  const list = episodeStoryboards()
+  const episodeId = Number(props.storyboard?.episode_id || list[0]?.episode_id)
+  if (!Number.isInteger(episodeId) || episodeId <= 0) {
+    ElMessage.warning('无法确认当前集，不能追加分镜')
+    return
+  }
+  const maxNum = list.reduce((max, item) => Math.max(max, Number(item.storyboard_number) || 0), 0)
+  reorderBusy.value = true
+  try {
+    const created = await storyboardsAPI.create({
+      episode_id: episodeId,
+      storyboard_number: maxNum + 1,
+      title: `镜头 ${maxNum + 1}`,
+      description: '',
+    })
+    ElMessage.success('已在本集末尾追加空白分镜')
+    await ctx?.refresh?.()
+    const createdId = created?.id ?? created?.data?.id
+    if (createdId) await ctx?.setFocusedNode?.(`sb:${createdId}`)
+  } catch (error) {
+    if (isCanvasUserAbort(error)) return
+    ElMessage.error(canvasUserError(error, '追加分镜失败'))
   } finally {
     reorderBusy.value = false
   }

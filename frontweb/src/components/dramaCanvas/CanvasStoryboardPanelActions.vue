@@ -88,6 +88,14 @@
       :aria-label="insertTitle"
       @click.stop="insertStoryboardBefore"
     >前插</el-button>
+    <el-button
+      size="small"
+      :disabled="Boolean(reorderDisabledReason)"
+      :loading="reorderBusy"
+      :title="appendTitle"
+      :aria-label="appendTitle"
+      @click.stop="appendStoryboard"
+    >追加</el-button>
     <el-button size="small" type="danger" plain aria-label="删除分镜" @click.stop="deleteStoryboard">删除</el-button>
   </div>
 </template>
@@ -122,6 +130,7 @@ const props = defineProps({
   moveStoryboardUp: { type: Function, default: () => {} },
   moveStoryboardDown: { type: Function, default: () => {} },
   insertStoryboardBefore: { type: Function, default: () => {} },
+  appendStoryboard: { type: Function, default: () => {} },
 })
 
 const moveUpTitle = computed(() => {
@@ -135,6 +144,7 @@ const moveDownTitle = computed(() => {
   return '下移分镜'
 })
 const insertTitle = computed(() => props.reorderDisabledReason || '在此分镜前插入空白分镜')
+const appendTitle = computed(() => props.reorderDisabledReason || '在本集末尾追加空白分镜')
 </script>
 
 <style scoped>
