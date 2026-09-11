@@ -1636,7 +1636,7 @@ async function exerciseFreeCanvas({
         if (await characterSection.getAttribute('open') === null) {
           await characterSection.locator('summary').click()
         }
-        const characterButton = library.getByRole('button', { name: seeded.character.name, exact: true })
+        const characterButton = library.getByRole('button', { name: `添加角色${seeded.character.name}`, exact: true })
         await assertUniqueLocator(characterButton, 'fixture character library item')
         await characterButton.click()
       },
