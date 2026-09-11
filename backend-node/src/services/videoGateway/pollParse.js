@@ -4,6 +4,8 @@
  * 视频轮询响应解析：从 helpers 拆出的纯装配，不发真实厂商请求。
  */
 
+const { isProviderTaskCancelledStatus } = require('./requestError');
+
 /** 仅把 http(s) 当作可下载直链，避免方舟/中转让 result_url 填入错误文案 */
 function isPlausibleHttpVideoUrl(s) {
   if (typeof s !== 'string') return false;
@@ -34,7 +36,7 @@ function extractPollTaskStatus(data) {
 }
 
 function isPollTaskCancelled(status) {
-  return status === 'cancelled' || status === 'canceled' || status === 'cancelled_by_user';
+  return isProviderTaskCancelledStatus(status);
 }
 
 function isPollTaskFailed(status) {

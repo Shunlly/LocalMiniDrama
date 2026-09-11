@@ -409,6 +409,31 @@ describe('aiConfigService.testConnection', () => {
     assert.equal(sawSignal, true);
   });
 
+  it('network failures return Chinese copy instead of fetch/ECONNREFUSED text', async () => {
+    const fetchImpl = async () => {
+      const error = new Error('fetch failed');
+      error.code = 'ECONNREFUSED';
+      throw error;
+    };
+    await assert.rejects(
+      aiConfigService.testConnection({
+        base_url: 'https://provider.example.com/v1',
+        api_key: 'saved-secret',
+        provider: 'openai',
+        service_type: 'text',
+        model: 'text-model',
+        fetch_impl: fetchImpl,
+        provider_dns_lookup: async () => [{ address: '93.184.216.34', family: 4 }],
+      }),
+      (error) => {
+        assert.match(String(error.message), /[\u4e00-\u9fff]/);
+        assert.doesNotMatch(String(error.message), /fetch failed|ECONNREFUSED|aborted/i);
+        assert.equal(isTrustedChineseUserError(error.message), true);
+        return true;
+      }
+    );
+  });
+
   it('returns Chinese TTS auth errors without status codes', async () => {
     const secret = 'tts-secret-key-123456';
     const fetchImpl = async () => new Response(JSON.stringify({

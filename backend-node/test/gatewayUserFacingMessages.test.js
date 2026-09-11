@@ -55,6 +55,19 @@ describe('图片/视频 gateway 用户错误为简体中文', () => {
     assert.doesNotMatch(videoResult.error, LEAK);
   });
 
+  it('缺省视频厂商名使用中文，不把 Video provider 原文交给用户', () => {
+    const timeout = requestTimeoutError(null, { provider: 'Video provider', operation: 'video request' });
+    assert.match(timeout.message, /超时/);
+    assert.match(timeout.message, /视频/);
+    assert.doesNotMatch(timeout.message, /Video provider|video request|timed out/i);
+    const canceled = normalizeProviderRequestError(
+      Object.assign(new Error('The operation was aborted.'), { name: 'AbortError' }),
+      { provider: 'Video provider', operation: 'video request' }
+    );
+    assert.match(canceled.message, /取消/);
+    assert.doesNotMatch(canceled.message, /Video provider|aborted/i);
+  });
+
   it('英文超时、取消和网络错误映射为中文', () => {
     const timeout = Object.assign(new Error('Image generation HTTP timeout after 15ms'), {
       name: 'AbortError',

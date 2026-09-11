@@ -81,6 +81,28 @@ test('读取模型禁用原因和 Comfy 判定只看当前表单，不把编辑 
   assert.equal(textComfyName.api.isDeepSeekOfficialForm.value, true)
 })
 
+test('切换服务类型后厂商和模型下拉仍有可选项', () => {
+  const created = createDerived({
+    service_type: 'text',
+    provider: '',
+    api_protocol: '',
+    base_url: '',
+    api_key: '',
+    modelText: '',
+    default_model: '',
+  })
+  assert.ok(created.api.availableProviderOptions.value.length > 1)
+  created.api.onServiceTypeChange()
+  created.form.value.service_type = 'video'
+  created.api.onServiceTypeChange()
+  assert.equal(created.form.value.service_type, 'video')
+  assert.ok(created.api.availableProviderOptions.value.length > 1)
+  assert.equal(created.api.availableProviderOptions.value.at(-1).id, '__custom__')
+  created.form.value.provider = 'minimax'
+  assert.ok(created.api.availableModels.value.length > 0)
+  assert.match(created.api.providerModelEmptyHint.value || 'ok', /ok|可直接输入/)
+})
+
 test('新增时手填默认模型会进列表，编辑时保留已失效默认模型', () => {
   const created = createDerived({
     service_type: 'text',

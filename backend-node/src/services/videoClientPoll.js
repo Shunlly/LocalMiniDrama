@@ -9,6 +9,7 @@ const { pollMinimaxVideo } = require('./videoGateway/minimaxVideoAdapter');
 const { pollSoraVideo } = require('./videoGateway/openAiSoraAdapter');
 const {
   createSafeVideoLogger,
+  videoProviderLabel,
   fetchVideoWithTimeout,
   videoProviderFailure,
   buildQueryUrl,
@@ -108,7 +109,7 @@ async function pollVideoTaskInternal(db, log, videoGenId, taskId, config, maxAtt
           ...summarizeProviderResponse(raw),
         });
         if (res.status >= 400 && res.status < 500) {
-          return videoProviderFailure(provider || 'Video provider', 'video task', res.status, raw);
+          return videoProviderFailure(videoProviderLabel(provider), 'video task', res.status, raw);
         }
         continue;
       }
@@ -155,7 +156,7 @@ async function pollVideoTaskInternal(db, log, videoGenId, taskId, config, maxAtt
 }
 
 async function pollVideoTask(db, log, videoGenId, taskId, config, maxAttempts = 300, intervalMs = 10000, signal) {
-  const provider = config?.provider || 'Video provider';
+  const provider = videoProviderLabel(config?.provider);
   try {
     const result = await pollVideoTaskInternal(
       db,

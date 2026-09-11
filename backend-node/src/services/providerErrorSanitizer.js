@@ -155,7 +155,7 @@ function extractProviderCodeFromMessage(value) {
 
 function extractHttpStatus(value) {
   if (value && typeof value === 'object') {
-    for (const candidate of [value.status, value.statusCode, value.httpStatus, value.http_status]) {
+    for (const candidate of [value.status, value.statusCode, value.httpStatus, value.http_status, value.response?.status]) {
       const status = Number(candidate);
       if (Number.isInteger(status) && status >= 100 && status <= 599) return status;
     }
@@ -239,8 +239,37 @@ function isUnsafeMediaError(error) {
     || error?.name === 'UnsafeMediaReferenceError';
 }
 
+function isCancelLikeError(error) {
+  if (!error || typeof error !== 'object' || isTimeoutLikeError(error)) return false;
+  const name = String(error.name || '');
+  const code = String(error.code || '');
+  return name === 'AbortError'
+    || name === 'CanceledError'
+    || code === 'OPERATION_CANCELLED'
+    || code === 'ERR_CANCELED'
+    || code === 'ABORT_ERR';
+}
+
+function isNetworkLikeError(error, errorCode) {
+  const code = String(errorCode || error?.code || '');
+  if (/^(?:ERR_NETWORK|EAI_AGAIN|ECONNREFUSED|ECONNRESET|ENETUNREACH|ENOTFOUND|EPIPE)$/i.test(code)) return true;
+  return /network error|fetch failed|socket hang up|ECONNREFUSED|ENOTFOUND/i.test(`${code} ${error?.message || error || ''}`);
+}
+
+function cancelProviderError(error) {
+  const raw = String(error?.message || '').trim();
+  const safeError = new Error(isTrustedChineseUserError(raw) ? raw : '操作已取消');
+  safeError.name = 'AbortError';
+  safeError.code = 'OPERATION_CANCELLED';
+  safeError.retryable = false;
+  if (error instanceof Error) safeError.cause = error;
+  Object.defineProperty(safeError, SAFE_PROVIDER_ERROR, { value: true });
+  return safeError;
+}
+
 function sanitizeProviderException(error, options = {}) {
   if (isUnsafeMediaError(error) || error?.[SAFE_PROVIDER_ERROR]) return error;
+  if (isCancelLikeError(error)) return cancelProviderError(error);
   const status = extractHttpStatus(error) || extractHttpStatus(options.status);
   const errorCode = safeProviderCode(error?.providerCode)
     || safeProviderCode(error?.code)
@@ -255,10 +284,12 @@ function sanitizeProviderException(error, options = {}) {
     responseBody,
   });
   if (error?.retryable === true) safeError.retryable = true;
-  if (/timeout|abort/i.test(String(error?.name || '')) || /(?:^|_)TIME(?:D)?OUT$/i.test(errorCode || '')) {
+  if (isTimeoutLikeError(error) || /(?:^|_)TIME(?:D)?OUT$/i.test(errorCode || '')) {
     safeError.message = `${labeledProvider(options.provider)} ${labeledOperation(options.operation)}超时，请稍后重试。`;
-  } else if (errorCode && /^(?:EAI_AGAIN|ECONNREFUSED|ECONNRESET|ENETUNREACH|ENOTFOUND|EPIPE)$/i.test(errorCode)) {
+    safeError.retryable = true;
+  } else if (isNetworkLikeError(error, errorCode)) {
     safeError.message = `${labeledProvider(options.provider)} ${labeledOperation(options.operation)}网络连接失败，请检查网络后重试。`;
+    safeError.retryable = true;
   }
   return safeError;
 }
@@ -281,6 +312,13 @@ function toSafeProviderErrorMessage(error, options = {}) {
   const source = typeof error === 'string' ? error : error?.message || error;
   if (isTimeoutLikeError(error, source)) {
     return `${labeledProvider(options.provider)} ${labeledOperation(options.operation)}超时，请稍后重试。`;
+  }
+  if (isCancelLikeError(error)) {
+    const raw = String(error?.message || '').trim();
+    return isTrustedChineseUserError(raw) ? raw : '操作已取消';
+  }
+  if (isNetworkLikeError(error, error?.code) || isNetworkLikeError(source)) {
+    return `${labeledProvider(options.provider)} ${labeledOperation(options.operation)}网络连接失败，请检查网络后重试。`;
   }
   const status = extractHttpStatus(error) || extractHttpStatus(source) || extractHttpStatus(options.status);
   const code = safeProviderCode(error?.providerCode)
@@ -539,6 +577,8 @@ module.exports = {
   sanitizeUrl,
   summarizeProviderResponse,
   isTimeoutLikeError,
+  isCancelLikeError,
+  isNetworkLikeError,
   isTrustedChineseUserError,
   ttsBusinessFailureMessage,
   ttsHttpFailureMessage,

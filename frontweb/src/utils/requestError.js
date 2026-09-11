@@ -27,7 +27,7 @@ const NETWORK_ERROR_CODES = new Set([
   'ERR_FAILED',
 ])
 const SECRET_RE = /password\s*=|client_secret|cookie\s*:|authorization\s*:|api[_-]?key\s*[:=]/i
-const TECHNICAL_ENGLISH_RE = /network error|timeout of \d+ms|request failed with status code|err_network|econnaborted|etimedout|failed to fetch|fetch failed|load failed|internal server error|econnrefused|enotfound|econnreset|eai_again|socket hang up|getaddrinfo|und_err_|\baborterror\b|\baborted\b|the operation was aborted|this operation was aborted/i
+const TECHNICAL_ENGLISH_RE = /network error|timeout of \d+ms|request failed with status code|err_network|econnaborted|etimedout|failed to fetch|fetch failed|load failed|internal server error|econnrefused|enotfound|econnreset|eai_again|socket hang up|getaddrinfo|und_err_|project_load_failed|\baborterror\b|\baborted\b|\btypeerror\b|\breferenceerror\b|the operation was aborted|this operation was aborted|the user aborted|\bcanceled\b|\bcancelled\b/i
 const NETWORK_ERROR_MESSAGE_RE = /network error|failed to fetch|fetch failed|load failed|socket hang up|econnrefused|enotfound|econnreset|eai_again|getaddrinfo/i
 const INTERNAL_FIELD_RE = /\bdrama_id\b/i
 

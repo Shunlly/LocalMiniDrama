@@ -62,7 +62,7 @@ test('全流程任务取消会留下开始和结果日志', async () => {
     restore()
   }
   const logs = getOperationLogs().filter((item) => item.operation === 'pipeline_task_cancel')
-  assert.deepEqual(logs.map((item) => item.phase), ['start', 'success'])
+  assert.deepEqual(logs.map((item) => item.phase), ['start', 'cancel'])
   assert.equal(captured.length >= 2, true)
 })
 

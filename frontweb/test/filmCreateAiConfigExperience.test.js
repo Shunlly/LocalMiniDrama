@@ -741,6 +741,7 @@ test('一键配置密钥可显隐，且不把无效 show-password-on 写到原�
 test('保存后切到配置列表并清筛选，loadList 仍留在页面', () => {
   assert.match(aiConfigSource, /function revealSavedConfigs\(\)/)
   assert.match(aiConfigSource, /selectConfigWorkspaceView\('configs'\)/)
+  assert.match(aiConfigSource, /activeTab\.value = 'configs'/)
   assert.match(aiConfigSource, /activeServiceFilter\.value = ''/)
   assert.match(aiConfigSource, /revealSavedConfigs,/)
   assert.match(formActionsSource, /revealSavedConfigs\?\.\(\)/)

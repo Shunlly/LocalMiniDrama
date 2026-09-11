@@ -52,6 +52,22 @@ test('超时、取消和模型目录失败给出可执行中文说明', () => {
   assert.match(transcription.detail, /语音转写用于音频\/视频/)
 })
 
+test('英文网络原文不会进入连接测试标题', () => {
+  const cases = [
+    Object.assign(new Error('fetch failed'), { code: 'ECONNREFUSED' }),
+    Object.assign(new Error('connect ECONNREFUSED 127.0.0.1:443'), { code: 'ECONNREFUSED' }),
+    new Error('socket hang up'),
+    new Error('AI 配置服务：socket hang up'),
+    Object.assign(new Error('The operation was aborted.'), { name: 'AbortError' }),
+  ]
+  for (const error of cases) {
+    const described = describeConnectionTestError(error, undefined, 'text')
+    assert.match(described.title, /[\u4e00-\u9fff]/)
+    assert.doesNotMatch(described.title, /fetch failed|ECONNREFUSED|socket hang up|aborted|127\.0\.0\.1/i)
+    assert.doesNotMatch(described.detail, /fetch failed|ECONNREFUSED|socket hang up|aborted|127\.0\.0\.1/i)
+  }
+})
+
 test('openTest 仍留在页面并消费描述函数', () => {
   assert.match(vueSource, /async function openTest\(row\)/)
   assert.match(vueSource, /describeConnectionTestError\(e, controller\.signal, row\.service_type\)/)

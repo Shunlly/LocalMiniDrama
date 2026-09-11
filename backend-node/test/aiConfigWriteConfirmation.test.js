@@ -7,6 +7,10 @@ const aiConfigRoutes = require('../src/routes/aiConfig');
 const sceneModelMapRoutes = require('../src/routes/sceneModelMap');
 const aiConfigService = require('../src/services/aiConfigService');
 const videoClient = require('../src/services/videoClient');
+const imageClient = require('../src/services/imageClient');
+const { assembleImageApiCall } = require('../src/services/imageGateway/imageApiAssembly');
+const { assembleVideoApiCall } = require('../src/services/videoGateway/videoApiAssembly');
+const { checkNovel2AnimeReadiness } = require('../src/services/readinessService');
 
 const log = {
   info() {},
@@ -310,4 +314,104 @@ test('vendor lock update ignores forged provider fields', (t) => {
   assert.equal(row.is_active, 1);
   assert.equal(row.api_key, 'fixture-key-locked');
   assert.equal(String(row.settings || '').includes('allow_local_http'), false);
+});
+
+test('配置写入后真实业务入口能读到同一条配置', async (t) => {
+  const db = createDb(t);
+  const dramaId = 17;
+  const now = new Date().toISOString();
+  db.prepare(
+    `INSERT INTO dramas (id, title, status, created_at, updated_at)
+     VALUES (?, '消费链路项目', 'draft', ?, ?)`
+  ).run(dramaId, now, now);
+  const routes = aiConfigRoutes(db, log, {});
+  const lookup = async () => [{ address: '93.184.216.34', family: 4 }];
+
+  function createService(body) {
+    const res = response();
+    routes.create({ body }, res);
+    assert.equal(res.statusCode, 201, body.service_type);
+    return res.body.data;
+  }
+
+  const text = createService(configRequest({
+    service_type: 'text',
+    name: '文本消费配置',
+    provider: 'openai',
+    api_protocol: 'openai',
+    base_url: 'https://text.example/v1',
+    model: ['gpt-4o-mini'],
+    default_model: 'gpt-4o-mini',
+  }));
+  const image = createService(configRequest({
+    service_type: 'image',
+    name: '图片消费配置',
+    provider: 'openai',
+    api_protocol: 'openai',
+    base_url: 'https://image.example/v1',
+    model: ['gpt-image-1'],
+    default_model: 'gpt-image-1',
+  }));
+  const storyboard = createService(configRequest({
+    service_type: 'storyboard_image',
+    name: '分镜图消费配置',
+    provider: 'openai',
+    api_protocol: 'openai',
+    base_url: 'https://storyboard.example/v1',
+    model: ['gpt-image-1'],
+    default_model: 'gpt-image-1',
+  }));
+  const video = createService(configRequest({
+    name: '视频消费配置',
+    provider: 'minimax',
+    api_protocol: 'minimax',
+    base_url: 'https://api.minimaxi.com/v1',
+    model: ['MiniMax-Hailuo-2.3'],
+    default_model: 'MiniMax-Hailuo-2.3',
+  }));
+  const tts = createService(configRequest({
+    service_type: 'tts',
+    name: '配音消费配置',
+    provider: 'openai',
+    api_protocol: 'openai',
+    base_url: 'https://tts.example/v1',
+    model: ['tts-1'],
+    default_model: 'tts-1',
+    settings: JSON.stringify({ voice_id: 'alloy' }),
+  }));
+  assert.notEqual(Number(text.id), dramaId);
+  assert.notEqual(Number(image.id), Number(video.id));
+
+  const readiness = checkNovel2AnimeReadiness(db, { drama_id: dramaId, qa_mode: 'production' }, {
+    validateMediaTools: () => ({ ok: true, ffmpeg: { ok: true }, ffprobe: { ok: true } }),
+  });
+  const byKey = Object.fromEntries(readiness.capabilities.map((item) => [item.key, item]));
+  assert.equal(byKey.text.ready, true);
+  assert.equal(byKey.text.config.id, text.id);
+  assert.equal(byKey.asset_image.ready, true);
+  assert.equal(byKey.asset_image.config.id, image.id);
+  assert.equal(byKey.image.ready, true);
+  assert.equal(byKey.image.config.id, storyboard.id);
+  assert.equal(byKey.video.ready, true);
+  assert.equal(byKey.video.config.id, video.id);
+  assert.equal(byKey.tts.ready, true);
+  assert.equal(byKey.tts.config.id, tts.id);
+
+  const imageRuntime = imageClient.getDefaultImageConfig(db, 'gpt-image-1', null, 'image');
+  assert.equal(imageRuntime.id, image.id);
+  const assembledImage = await assembleImageApiCall(db, log, {
+    prompt: '消费链路生图',
+    drama_id: dramaId,
+    provider_dns_lookup: lookup,
+  });
+  assert.equal(assembledImage.config.id, image.id);
+  assert.equal(assembledImage.model, 'gpt-image-1');
+
+  const assembledVideo = await assembleVideoApiCall(db, log, {
+    prompt: '消费链路生视频',
+    drama_id: dramaId,
+    provider_dns_lookup: lookup,
+  });
+  assert.equal(assembledVideo.config.id, video.id);
+  assert.equal(videoClient.getDefaultVideoConfig(db).id, video.id);
 });

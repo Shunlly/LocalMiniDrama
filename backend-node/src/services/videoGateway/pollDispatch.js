@@ -8,6 +8,7 @@
 const { summarizeProviderResponse } = require('../providerErrorSanitizer');
 const {
   videoProviderFailure,
+  videoProviderLabel,
   resolveVideoProtocol,
   buildQueryUrl,
   isPlausibleHttpVideoUrl,
@@ -328,7 +329,7 @@ function interpretVideoPollResponse(ctx) {
       status,
       ...summarizeProviderResponse(data),
     });
-    return done(videoProviderFailure(provider || 'Video provider', 'video task', res.status, data, data?.error?.code));
+    return done(videoProviderFailure(videoProviderLabel(provider), 'video task', res.status, data, data?.error?.code));
   }
   if (videoUrl && isPlausibleHttpVideoUrl(videoUrl)) return done({ video_url: videoUrl });
   if (failMsg) {
@@ -337,7 +338,7 @@ function interpretVideoPollResponse(ctx) {
       round: pollRound,
       ...summarizeProviderResponse(data),
     });
-    return done(videoProviderFailure(provider || 'Video provider', 'video task', res.status, data, data?.error?.code));
+    return done(videoProviderFailure(videoProviderLabel(provider), 'video task', res.status, data, data?.error?.code));
   }
   return cont();
 }

@@ -7,6 +7,7 @@ const { summarizeProviderResponse } = require('../providerErrorSanitizer');
 const {
   fetchVideoWithTimeout,
   videoProviderFailure,
+  videoProviderLabel,
   normalizeVolcModel,
   buildVideoUrl,
   pickProxyVideoUrl,
@@ -168,7 +169,7 @@ async function dispatchCompatibleVideoRequest(ctx) {
   });
   if (!res.ok) {
     log.error('Video API failed', { status: res.status, ...summarizeProviderResponse(raw) });
-    return videoProviderFailure('Video provider', 'video request', res.status, raw);
+    return videoProviderFailure(videoProviderLabel(config?.provider), 'video request', res.status, raw);
   }
   let data;
   try {
@@ -178,7 +179,7 @@ async function dispatchCompatibleVideoRequest(ctx) {
       video_gen_id,
       ...summarizeProviderResponse(raw),
     });
-    return videoProviderFailure('Video provider', 'video response', res.status, raw);
+    return videoProviderFailure(videoProviderLabel(config?.provider), 'video response', res.status, raw);
   }
   log.info('Video API parsed response', { video_gen_id, ...summarizeProviderResponse(data) });
   const taskId = data.id || data.task_id || (data.data && data.data.id);
@@ -196,7 +197,7 @@ async function dispatchCompatibleVideoRequest(ctx) {
     video_gen_id,
     ...summarizeProviderResponse(data),
   });
-  return videoProviderFailure('Video provider', 'video response', res.status, data);
+  return videoProviderFailure(videoProviderLabel(config?.provider), 'video response', res.status, data);
 }
 
 module.exports = {

@@ -13,6 +13,7 @@ const {
   normalizeProviderRequestError,
   operationCancelledError,
   rethrowIfRequestCanceled,
+  throwIfAborted,
   withRequestRetry,
 } = require('./requestError');
 
@@ -26,11 +27,6 @@ const imageRequestContext = new AsyncLocalStorage();
 
 function normalizeIdempotencyKey(value) {
   return String(value || '').trim().slice(0, 200);
-}
-
-function throwIfAborted(signal) {
-  if (!signal?.aborted) return;
-  throw normalizeProviderRequestError(signal.reason || new Error('请求已取消'), { signal });
 }
 
 function isOperationCancelled(error, signal) {

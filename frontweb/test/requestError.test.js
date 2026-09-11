@@ -60,6 +60,8 @@ test('service load errors prefer backend copy and localize timeout/network', () 
 test('Failed to fetch 视为网络错误，英文 HTTP 500 和 drama_id 不会直出', () => {
   assert.equal(isRequestNetworkError({ message: 'Failed to fetch' }), true)
   assert.equal(isRequestNetworkError({ message: 'fetch failed' }), true)
+  assert.equal(isRequestNetworkError({ message: 'socket hang up' }), true)
+  assert.equal(classifyRequestError({ message: 'socket hang up' }), REQUEST_ERROR_CATEGORY.NETWORK)
   assert.equal(classifyRequestError({ message: 'Failed to fetch' }), REQUEST_ERROR_CATEGORY.NETWORK)
   assert.equal(
     describeServiceLoadError({ message: 'Failed to fetch' }, { serviceLabel: '项目服务' }),

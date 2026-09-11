@@ -7,10 +7,6 @@ function errorText(error) {
   return String(error?.message || '').trim()
 }
 
-function hasChinese(text) {
-  return /[\u4e00-\u9fff]/.test(text)
-}
-
 function resolveUserFacingError(error, fallback = '操作失败，请稍后重试', options = {}) {
   if (error === 'cancel' || isRequestCanceled(error, options.signal)) return '操作已取消'
   const described = describeServiceLoadError(error, {
@@ -24,7 +20,7 @@ function resolveUserFacingError(error, fallback = '操作失败，请稍后重�
   if (isRequestTimeout(error, options.signal)) return '连接超时，请稍后重试'
   const fallbackText = fallback == null ? '' : String(fallback)
   if (fallbackText === '') return ''
-  if (hasChinese(fallbackText) && !/\bdrama_id\b/i.test(fallbackText)) return fallbackText
+  if (isSafeUserFacingMessage(fallbackText)) return fallbackText
   return '操作失败，请稍后重试'
 }
 

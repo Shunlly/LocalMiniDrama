@@ -20,6 +20,20 @@ test('编辑未知厂商时保留当前项，并始终提供自定义入口', ()
   assert.match(options[options.length - 1].name, /自定义/)
 })
 
+test('各服务类型厂商下拉都有预设项和自定义入口', () => {
+  const serviceTypes = ['text', 'image', 'storyboard_image', 'video', 'tts', 'ocr', 'transcription', 'jimeng2_character_auth']
+  for (const serviceType of serviceTypes) {
+    const options = buildAvailableProviderOptions(serviceType, '')
+    assert.ok(options.length > 1, serviceType + ' 厂商下拉不应为空')
+    assert.equal(options[options.length - 1].id, CUSTOM_PROVIDER_SENTINEL)
+    assert.notEqual(options[0].id, CUSTOM_PROVIDER_SENTINEL)
+  }
+  const models = buildAvailableModels('text', 'deepseek')
+  assert.ok(models.length > 0)
+  assert.ok(buildAvailableModels('image', 'dashscope').length > 0)
+  assert.ok(buildAvailableModels('video', 'minimax').length > 0)
+})
+
 test('没有厂商或没有预设模型时给出可输入的中文提示', () => {
   assert.equal(providerModelEmptyHint('text', ''), '请先选择厂商，或直接输入模型名。')
   assert.equal(providerModelEmptyHint('text', 'unknown-vendor', []), '当前厂商没有预设模型，可直接输入模型名。')

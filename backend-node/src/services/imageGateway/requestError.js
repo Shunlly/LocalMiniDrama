@@ -4,7 +4,7 @@
 // 取消不得记成失败；超时可重试；用户可见文案使用简体中文。
 // 本模块只做客户端分类，不接真实厂商。
 
-const { createProviderHttpError } = require('../providerErrorSanitizer');
+const { createProviderHttpError, isTrustedChineseUserError } = require('../providerErrorSanitizer');
 
 const SAFE_PROVIDER_ERROR = Symbol.for('localMiniDrama.safeProviderError');
 const DEFAULT_JSON_TIMEOUT_MS = 15_000;
@@ -102,7 +102,9 @@ function operationLabel(operation) {
 
 function providerLabel(provider) {
   const label = String(provider || '').trim();
-  return label || '厂商';
+  if (!label) return '图片服务';
+  if (/^video provider$/i.test(label)) return '视频服务';
+  return label;
 }
 
 function looksEnglishOnly(message) {
@@ -113,7 +115,12 @@ function looksEnglishOnly(message) {
 
 function userFacingCancelMessage(reason) {
   const message = reason instanceof Error ? reason.message : String(reason || '');
-  return looksEnglishOnly(message) ? '请求已取消' : message;
+  return isTrustedChineseUserError(message) ? message : '请求已取消';
+}
+
+function isProviderTaskCancelledStatus(status) {
+  const value = String(status || '').trim().toLowerCase();
+  return value === 'cancelled' || value === 'canceled' || value === 'cancelled_by_user';
 }
 
 function operationCancelledError(reason) {
@@ -208,15 +215,20 @@ function normalizeProviderRequestError(error, options = {}) {
   }
   const message = String(error?.message || error || '').trim();
   const fallback = new Error(
-    looksEnglishOnly(message)
-      ? `${providerLabel(options.provider)} ${operationLabel(options.operation)}失败，请稍后重试`
-      : message
+    isTrustedChineseUserError(message)
+      ? message
+      : `${providerLabel(options.provider)} ${operationLabel(options.operation)}失败，请稍后重试`
   );
   fallback.name = error?.name || 'ProviderError';
   fallback.code = error?.code;
   fallback.retryable = error?.retryable === true;
   if (error instanceof Error) fallback.cause = error;
   return markSafeProviderError(fallback);
+}
+
+function throwIfAborted(signal) {
+  if (!signal?.aborted) return;
+  throw normalizeProviderRequestError(signal.reason || new Error('请求已取消'), { signal });
 }
 
 function rethrowIfRequestCanceled(error, signal) {
@@ -313,6 +325,7 @@ module.exports = {
   createTimeoutController,
   describeProviderRequestError,
   gatewayErrorResult,
+  isProviderTaskCancelledStatus,
   isRequestCanceled,
   isRequestNetworkError,
   isRequestTimeout,
@@ -322,5 +335,6 @@ module.exports = {
   requestTimeoutError,
   rethrowIfRequestCanceled,
   shouldRetryRequest,
+  throwIfAborted,
   withRequestRetry,
 };

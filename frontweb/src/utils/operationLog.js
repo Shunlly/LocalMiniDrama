@@ -1,3 +1,6 @@
+import { isRequestCanceled, isRequestTimeout } from './requestError.js'
+import { isUserFacingAbort } from './userFacingError.js'
+
 /**
  * 本地操作生命周期日志。
  * 只记录开始 / 成功 / 失败 / 取消，不向远端上报，也不写入密钥或提示词正文。
@@ -54,7 +57,7 @@ export function logOperation(event = {}) {
     event: 'operation',
     ts: event.ts || nowIso(),
     operation: String(event.operation || 'unknown'),
-    operationId: event.operationId || null,
+    operationId: event.operationId || createOperationId(event.operation || 'op'),
     phase,
     status: event.status || phase,
     durationMs: Number.isFinite(event.durationMs) ? event.durationMs : null,
@@ -117,8 +120,12 @@ export async function runLoggedOperation(operation, execute, extra = {}) {
   } catch (error) {
     const cancelled = extra.cancelled === true
       || error?.pipelineAborted === true
-      || error?.name === 'AbortError'
-      || /cancel|取消|停止/i.test(String(error?.message || ''))
+      || (!isRequestTimeout(error) && (
+        isUserFacingAbort(error)
+        || isRequestCanceled(error)
+        || error?.name === 'AbortError'
+        || /cancel|取消|停止/i.test(String(error?.message || ''))
+      ))
     logOperation({
       operation,
       operationId,

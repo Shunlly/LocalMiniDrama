@@ -813,6 +813,7 @@ function onRowEdit(row) {
 }
 
 function revealSavedConfigs() {
+  activeTab.value = 'configs'
   selectConfigWorkspaceView('configs')
   activeServiceFilter.value = ''
 }
