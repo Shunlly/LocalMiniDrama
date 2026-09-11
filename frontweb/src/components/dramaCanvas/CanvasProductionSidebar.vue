@@ -15,17 +15,25 @@
         <span>角色 {{ (drama.characters || []).length }}</span>
         <el-button v-if="canvasMode === 'production'" link size="small" type="primary" aria-label="新建角色" @click="openCreateDialog('character')">+</el-button>
       </div>
-      <button
-        type="button"
-        v-for="c in (drama.characters || [])"
-        :key="'c-' + c.id"
-        class="sidebar-item"
-        :class="{ active: highlightAssetId === 'char:' + c.id }"
-        :aria-label="`定位角色${c.name || '未命名'}`"
-        @click="selectSidebarAsset('char:' + c.id)"
+      <CanvasWindowedList
+        v-if="(drama.characters || []).length"
+        name="characters"
+        :items="drama.characters || []"
+        :item-key="characterItemKey"
+        :force-index="characterForceIndex"
       >
-        {{ c.name || '未命名' }}
-      </button>
+        <template #item="{ item }">
+          <button
+            type="button"
+            class="sidebar-item"
+            :class="{ active: highlightAssetId === 'char:' + item.id }"
+            :aria-label="`定位角色${item.name || '未命名'}`"
+            @click="selectSidebarAsset('char:' + item.id)"
+          >
+            {{ item.name || '未命名' }}
+          </button>
+        </template>
+      </CanvasWindowedList>
       <p v-if="!(drama.characters || []).length" class="sidebar-empty" role="status">
         暂无角色
         <el-button link type="primary" size="small" aria-label="新建角色" @click="openCreateDialog('character')">新建</el-button>
@@ -36,17 +44,25 @@
         <span>场景 {{ (drama.scenes || []).length }}</span>
         <el-button v-if="canvasMode === 'production'" link size="small" type="primary" aria-label="新建场景" @click="openCreateDialog('scene')">+</el-button>
       </div>
-      <button
-        type="button"
-        v-for="s in (drama.scenes || [])"
-        :key="'s-' + s.id"
-        class="sidebar-item"
-        :class="{ active: highlightAssetId === 'scene:' + s.id }"
-        :aria-label="`定位场景${s.location || '未命名'}`"
-        @click="selectSidebarAsset('scene:' + s.id)"
+      <CanvasWindowedList
+        v-if="(drama.scenes || []).length"
+        name="scenes"
+        :items="drama.scenes || []"
+        :item-key="sceneItemKey"
+        :force-index="sceneForceIndex"
       >
-        {{ s.location || '未命名' }}
-      </button>
+        <template #item="{ item }">
+          <button
+            type="button"
+            class="sidebar-item"
+            :class="{ active: highlightAssetId === 'scene:' + item.id }"
+            :aria-label="`定位场景${item.location || '未命名'}`"
+            @click="selectSidebarAsset('scene:' + item.id)"
+          >
+            {{ item.location || '未命名' }}
+          </button>
+        </template>
+      </CanvasWindowedList>
       <p v-if="!(drama.scenes || []).length" class="sidebar-empty" role="status">
         暂无场景
         <el-button link type="primary" size="small" aria-label="新建场景" @click="openCreateDialog('scene')">新建</el-button>
@@ -57,17 +73,25 @@
         <span>道具 {{ (drama.props || []).length }}</span>
         <el-button v-if="canvasMode === 'production'" link size="small" type="primary" aria-label="新建道具" @click="openCreateDialog('prop')">+</el-button>
       </div>
-      <button
-        type="button"
-        v-for="p in (drama.props || [])"
-        :key="'p-' + p.id"
-        class="sidebar-item"
-        :class="{ active: highlightAssetId === 'prop:' + p.id }"
-        :aria-label="`定位道具${p.name || '未命名'}`"
-        @click="selectSidebarAsset('prop:' + p.id)"
+      <CanvasWindowedList
+        v-if="(drama.props || []).length"
+        name="props"
+        :items="drama.props || []"
+        :item-key="propItemKey"
+        :force-index="propForceIndex"
       >
-        {{ p.name || '未命名' }}
-      </button>
+        <template #item="{ item }">
+          <button
+            type="button"
+            class="sidebar-item"
+            :class="{ active: highlightAssetId === 'prop:' + item.id }"
+            :aria-label="`定位道具${item.name || '未命名'}`"
+            @click="selectSidebarAsset('prop:' + item.id)"
+          >
+            {{ item.name || '未命名' }}
+          </button>
+        </template>
+      </CanvasWindowedList>
       <p v-if="!(drama.props || []).length" class="sidebar-empty" role="status">
         暂无道具
         <el-button link type="primary" size="small" aria-label="新建道具" @click="openCreateDialog('prop')">新建</el-button>
@@ -88,9 +112,11 @@
 </template>
 
 <script setup>
+import { computed } from 'vue'
+import CanvasWindowedList from '@/components/dramaCanvas/CanvasWindowedList.vue'
 import CanvasWorkflowSidebarList from '@/components/dramaCanvas/CanvasWorkflowSidebarList.vue'
 
-defineProps({
+const props = defineProps({
   drama: { type: Object, required: true },
   canvasMode: { type: String, default: 'production' },
   highlightAssetId: { default: null },
@@ -106,6 +132,21 @@ defineProps({
   setActiveGroupId: { type: Function, required: true },
   reorderWorkflowStoryboards: { type: Function, required: true },
 })
+
+function forceIndexByPrefix(items, prefix) {
+  const highlight = String(props.highlightAssetId || '')
+  if (!highlight.startsWith(prefix)) return null
+  const id = highlight.slice(prefix.length)
+  const index = (items || []).findIndex((item) => String(item?.id) === id)
+  return index >= 0 ? index : null
+}
+
+const characterItemKey = (item) => `c-${item?.id}`
+const sceneItemKey = (item) => `s-${item?.id}`
+const propItemKey = (item) => `p-${item?.id}`
+const characterForceIndex = computed(() => forceIndexByPrefix(props.drama?.characters, 'char:'))
+const sceneForceIndex = computed(() => forceIndexByPrefix(props.drama?.scenes, 'scene:'))
+const propForceIndex = computed(() => forceIndexByPrefix(props.drama?.props, 'prop:'))
 </script>
 
 <style scoped>

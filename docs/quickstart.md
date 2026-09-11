@@ -161,7 +161,7 @@ npm run dist:cn
 - `LocalMiniDrama-Portable-x.x.x-x64.exe` — 便携版
 - `win-unpacked/` — 未压缩目录
 
-本地 `npm run dist` 会生成 Setup、Portable 与 `win-unpacked`，只供本机使用，不是发版。当前请从源码或 Docker 运行。这些 Windows 制品未做 Authenticode 签名；若将来从官方 GitHub Release 下载，核验步骤见根目录 [README](../README.md#未签名制品与下载核验)。若将来发版，正式发布顺序是：分支 CI 通过后创建 annotated tag，再由工作流生成草稿 Release 并人工发布。
+本地 `npm run dist` 会生成 Setup、Portable 与 `win-unpacked`，只供本机使用，不是发版。`pack` / `dist` 固定 `--publish never`；CI 与 Windows 安全扫描不会创建 GitHub Release。当前请从源码或 Docker 运行。这些 Windows 制品未做 Authenticode 签名；若将来从官方 GitHub Release 下载，核验步骤见根目录 [README](../README.md#未签名制品与下载核验)。若将来发版，正式发布顺序是：分支 CI 通过后创建 annotated tag，再由工作流生成草稿 Release 并人工发布。
 
 **打包原理：**
 1. 构建前端静态文件

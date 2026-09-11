@@ -20,8 +20,16 @@ import {
 
 const sidebarUrl = new URL('../src/components/dramaCanvas/CanvasProductionSidebar.vue', import.meta.url)
 const workflowListUrl = new URL('../src/components/dramaCanvas/CanvasWorkflowSidebarList.vue', import.meta.url)
+const windowedListUrl = new URL('../src/components/dramaCanvas/CanvasWindowedList.vue', import.meta.url)
 
 const iconStubUrl = compileIconStub(['ArrowDown', 'ArrowUp', 'Rank'])
+const compiledWindowedListUrl = compileSfc(
+  windowedListUrl,
+  'canvas-windowed-list-production',
+  new Map([
+    ['@/utils/listWindow.js', new URL('../src/utils/listWindow.js', import.meta.url).href],
+  ]),
+)
 const compiledWorkflowListUrl = compileSfc(
   workflowListUrl,
   'canvas-workflow-sidebar-list',
@@ -35,6 +43,7 @@ const CanvasProductionSidebar = await loadCompiledSfc(
   'canvas-production-sidebar-component',
   new Map([
     ['vue', vueUrl],
+    ['@/components/dramaCanvas/CanvasWindowedList.vue', compiledWindowedListUrl],
     ['@/components/dramaCanvas/CanvasWorkflowSidebarList.vue', compiledWorkflowListUrl],
   ]),
 )

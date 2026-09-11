@@ -1418,9 +1418,16 @@ test('unsigned Windows release guidance and draft body require official-source v
     assert.match(source, /expectedChecksumRows[\s\S]*actualChecksumRows[\s\S]*SHA256SUMS does not exactly match/, `${label}: checksum rows must derive from the attested manifest`)
   }
 
+  assert.match(readme, /当前没有正式 `v1\.3\.3` GitHub Release/)
+  assert.match(readme, /没有把发版合并到 `main`/)
+  assert.match(desktopReadme, /本地构建产物不是 GitHub 正式发布/)
+  assert.match(quickstart, /不是 GitHub Release \/ tag，也没有把发版合并到 `main`/)
+
   const publishStep = releaseWorkflowDocument.jobs['publish-release'].steps
     .find((step) => step.name === 'Create draft GitHub release')
   assert.equal(publishStep.with.generate_release_notes, true)
+  assert.equal(publishStep.with.draft, true)
+  assert.equal(Object.hasOwn(publishStep.with, 'make_latest'), false)
   const body = publishStep.with.body
   assert.equal(typeof body, 'string')
   for (const claim of [
@@ -12406,6 +12413,45 @@ test('runtime contracts isolate Node 22 desktop tooling from the Node 20 applica
   assert.ok(desktopNodeIndex >= 0 && desktopNodeIndex < desktopInstallIndex)
   assert.ok(desktopInstallIndex < desktopVerifyIndex)
   assert.ok(desktopVerifyIndex < windowsReleaseIndex)
+})
+
+test('Windows 安全扫描每个任务都钉死 Node 22.12.0 和 engine-strict', () => {
+  const securityDocument = parseYaml(windowsReleaseSecurityWorkflow)
+  assert.equal(securityDocument.permissions.contents, 'read')
+  assert.doesNotMatch(JSON.stringify(rootPackage), /22\.12\.0/)
+  assert.equal(rootPackage.engines.node, '>=20.0.0 <21')
+  assert.equal(desktopPackage.engines.node, '>=22.12.0 <23')
+  assert.match(fs.readFileSync(path.join(root, 'desktop', '.npmrc'), 'utf8'), /^engine-strict=true$/m)
+
+  for (const jobName of ['scan-windows-artifacts', 'scan-trivy-artifacts', 'record-windows-artifacts']) {
+    const job = securityDocument.jobs[jobName]
+    assert.ok(job, `windows-release-security 缺少任务 ${jobName}`)
+    assert.equal(job.permissions.contents, 'read', `${jobName} 必须保持 contents: read`)
+    const nodeSteps = job.steps.filter((step) => String(step.uses || '').startsWith('actions/setup-node@'))
+    assert.equal(nodeSteps.length, 1, `${jobName} 必须只设置一次 Node`)
+    assert.equal(nodeSteps[0].with['node-version'], '22.12.0', `${jobName} 必须钉死 Node 22.12.0`)
+    assert.equal(nodeSteps[0].with['cache-dependency-path'], 'desktop/package-lock.json')
+    const installSteps = job.steps.filter((step) => /npm(?:\s+--prefix desktop)? ci/.test(String(step.run || '')))
+    assert.equal(installSteps.length, 1, `${jobName} 必须只安装一次桌面依赖`)
+    assert.equal(String(installSteps[0].run).trim(), 'npm --prefix desktop ci --ignore-scripts --engine-strict')
+  }
+})
+
+test('CI 与 Windows 制品安全扫描不得发布 GitHub Release', () => {
+  assert.equal(ciWorkflowDocument.permissions.contents, 'read')
+  assert.equal(ciWorkflowDocument.jobs['publish-release'], undefined)
+  assert.doesNotMatch(ciWorkflow, /action-gh-release|softprops\/action-gh-release/)
+  assert.doesNotMatch(ciWorkflow, /^\s+contents:\s*write\s*$/m)
+  assert.doesNotMatch(ciWorkflow, /\bgh release (?:create|upload|edit|publish)\b/)
+
+  assert.doesNotMatch(windowsReleaseSecurityWorkflow, /action-gh-release|softprops\/action-gh-release/)
+  assert.doesNotMatch(windowsReleaseSecurityWorkflow, /^\s+contents:\s*write\s*$/m)
+  assert.doesNotMatch(windowsReleaseSecurityWorkflow, /\bgh release (?:create|upload|edit|publish)\b/)
+  assert.doesNotMatch(windowsReleaseSecurityWorkflow, /\bGH_TOKEN\b/)
+
+  const publish = jobBlock('publish-release')
+  assert.match(publish, /^\s+draft:\s*true\s*$/m)
+  assert.doesNotMatch(jobBlock('desktop', ciWorkflow), /electron-builder[^\n]*--publish (?!never)/)
 })
 
 test('source-only release verification dispatches only Node 20 source and container gates', () => {

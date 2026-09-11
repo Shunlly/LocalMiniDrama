@@ -67,13 +67,21 @@
 
     <details :open="isAssetSectionOpen(filteredCharacters.length)" class="asset-section" data-asset-section="characters">
       <summary>角色 <span>{{ filteredCharacters.length }}</span></summary>
-      <button
-        v-for="item in filteredCharacters"
-        :key="`character:${item.id}`"
-        type="button"
-        class="asset-item"
-        :aria-label="`添加角色${item.name || '未命名角色'}`" @click="emit('add-entity', { kind: 'character', item })"
-      >{{ item.name || '未命名角色' }}</button>
+      <CanvasWindowedList
+        v-if="filteredCharacters.length"
+        name="characters"
+        :items="filteredCharacters"
+        :item-key="characterItemKey"
+      >
+        <template #item="{ item }">
+          <button
+            type="button"
+            class="asset-item"
+            :aria-label="`添加角色${item.name || '未命名角色'}`"
+            @click="emit('add-entity', { kind: 'character', item })"
+          >{{ item.name || '未命名角色' }}</button>
+        </template>
+      </CanvasWindowedList>
       <div v-if="!filteredCharacters.length" class="asset-empty" role="status">
         <p>{{ assetEmptyText('角色') }}</p>
         <button v-if="hasActiveAssetFilters" type="button" class="asset-empty-action" aria-label="清除素材筛选" @click="clearAssetFilters">清除筛选</button>
@@ -83,13 +91,21 @@
 
     <details :open="isAssetSectionOpen(filteredScenes.length)" class="asset-section" data-asset-section="scenes">
       <summary>场景 <span>{{ filteredScenes.length }}</span></summary>
-      <button
-        v-for="item in filteredScenes"
-        :key="`scene:${item.id}`"
-        type="button"
-        class="asset-item"
-        :aria-label="`添加场景${item.location || item.name || '未命名场景'}`" @click="emit('add-entity', { kind: 'scene', item })"
-      >{{ item.location || item.name || '未命名场景' }}</button>
+      <CanvasWindowedList
+        v-if="filteredScenes.length"
+        name="scenes"
+        :items="filteredScenes"
+        :item-key="sceneItemKey"
+      >
+        <template #item="{ item }">
+          <button
+            type="button"
+            class="asset-item"
+            :aria-label="`添加场景${item.location || item.name || '未命名场景'}`"
+            @click="emit('add-entity', { kind: 'scene', item })"
+          >{{ item.location || item.name || '未命名场景' }}</button>
+        </template>
+      </CanvasWindowedList>
       <div v-if="!filteredScenes.length" class="asset-empty" role="status">
         <p>{{ assetEmptyText('场景') }}</p>
         <button v-if="hasActiveAssetFilters" type="button" class="asset-empty-action" aria-label="清除素材筛选" @click="clearAssetFilters">清除筛选</button>
@@ -99,13 +115,21 @@
 
     <details :open="isAssetSectionOpen(filteredProps.length)" class="asset-section" data-asset-section="props">
       <summary>道具 <span>{{ filteredProps.length }}</span></summary>
-      <button
-        v-for="item in filteredProps"
-        :key="`prop:${item.id}`"
-        type="button"
-        class="asset-item"
-        :aria-label="`添加道具${item.name || '未命名道具'}`" @click="emit('add-entity', { kind: 'prop', item })"
-      >{{ item.name || '未命名道具' }}</button>
+      <CanvasWindowedList
+        v-if="filteredProps.length"
+        name="props"
+        :items="filteredProps"
+        :item-key="propItemKey"
+      >
+        <template #item="{ item }">
+          <button
+            type="button"
+            class="asset-item"
+            :aria-label="`添加道具${item.name || '未命名道具'}`"
+            @click="emit('add-entity', { kind: 'prop', item })"
+          >{{ item.name || '未命名道具' }}</button>
+        </template>
+      </CanvasWindowedList>
       <div v-if="!filteredProps.length" class="asset-empty" role="status">
         <p>{{ assetEmptyText('道具') }}</p>
         <button v-if="hasActiveAssetFilters" type="button" class="asset-empty-action" aria-label="清除素材筛选" @click="clearAssetFilters">清除筛选</button>
@@ -115,19 +139,26 @@
 
     <details :open="isAssetSectionOpen(filteredStoryboardMedia.length)" class="asset-section" data-asset-section="storyboard-media">
       <summary>分镜媒体 <span>{{ filteredStoryboardMedia.length }}</span></summary>
-      <button
-        v-for="item in filteredStoryboardMedia"
-        :key="item.id"
-        type="button"
-        class="asset-item asset-item-media"
-        :draggable="true"
-        @dragstart.stop="startMediaDrag($event, item, 'storyboard-media')"
-        :aria-label="`添加分镜素材${item.name || item.id || ''}`"
-        @click="emit('add-media', item)"
+      <CanvasWindowedList
+        v-if="filteredStoryboardMedia.length"
+        name="storyboard-media"
+        :items="filteredStoryboardMedia"
+        :item-key="storyboardMediaItemKey"
       >
+        <template #item="{ item }">
+          <button
+            type="button"
+            class="asset-item asset-item-media"
+            :draggable="true"
+            @dragstart.stop="startMediaDrag($event, item, 'storyboard-media')"
+            :aria-label="`添加分镜素材${item.name || item.id || ''}`"
+            @click="emit('add-media', item)"
+          >
         <span class="asset-kind">{{ item.type === 'video' ? '视频' : '图片' }}</span>
         <span>{{ item.label }}</span>
-      </button>
+          </button>
+        </template>
+      </CanvasWindowedList>
       <div v-if="!filteredStoryboardMedia.length" class="asset-empty" role="status">
         <p>{{ assetEmptyText('分镜媒体') }}</p>
         <button v-if="hasActiveAssetFilters" type="button" class="asset-empty-action" aria-label="清除素材筛选" @click="clearAssetFilters">清除筛选</button>
@@ -140,19 +171,26 @@
 
     <details ref="projectAssetsSectionRef" open class="asset-section" data-asset-section="project-assets">
       <summary>项目素材 <span>{{ filteredAssets.length }}</span></summary>
-      <button
-        v-for="item in filteredAssets"
-        :key="`asset:${item.id}`"
-        type="button"
-        class="asset-item asset-item-media"
-        :draggable="true"
-        @dragstart.stop="startMediaDrag($event, item, 'project-asset')"
-        :aria-label="`添加项目素材${item.name || ('素材 ' + item.id)}`"
-        @click="emit('add-media', item)"
+      <CanvasWindowedList
+        v-if="filteredAssets.length"
+        name="project-assets"
+        :items="filteredAssets"
+        :item-key="projectAssetItemKey"
       >
+        <template #item="{ item }">
+          <button
+            type="button"
+            class="asset-item asset-item-media"
+            :draggable="true"
+            @dragstart.stop="startMediaDrag($event, item, 'project-asset')"
+            :aria-label="`添加项目素材${item.name || ('素材 ' + item.id)}`"
+            @click="emit('add-media', item)"
+          >
         <span class="asset-kind">{{ item.type === 'video' ? '视频' : '图片' }}</span>
         <span>{{ item.name || `素材 ${item.id}` }}</span>
-      </button>
+          </button>
+        </template>
+      </CanvasWindowedList>
       <div v-if="!filteredAssets.length" class="asset-empty" role="status">
         <p>{{ assetEmptyText('项目素材') }}</p>
         <button v-if="hasActiveAssetFilters" type="button" class="asset-empty-action" aria-label="清除素材筛选" @click="clearAssetFilters">清除筛选</button>
@@ -167,6 +205,7 @@
 
 <script setup>
 import { computed, nextTick, ref } from 'vue'
+import CanvasWindowedList from '@/components/dramaCanvas/CanvasWindowedList.vue'
 import { Close, FolderOpened, Search, Upload } from '@element-plus/icons-vue'
 import {
   createFreeCanvasMediaDragPayload,
@@ -191,6 +230,11 @@ const projectAssetsSectionRef = ref(null)
 const searchQuery = ref('')
 const mediaType = ref('all')
 const filterOptions = computed(() => ({ query: searchQuery.value, type: mediaType.value }))
+const characterItemKey = (item) => `character:${item?.id}`
+const sceneItemKey = (item) => `scene:${item?.id}`
+const propItemKey = (item) => `prop:${item?.id}`
+const storyboardMediaItemKey = (item) => item?.id
+const projectAssetItemKey = (item) => `asset:${item?.id}`
 const filteredCharacters = computed(() => filterFreeCanvasAssetItems(props.characters, filterOptions.value))
 const filteredScenes = computed(() => filterFreeCanvasAssetItems(props.scenes, filterOptions.value))
 const filteredProps = computed(() => filterFreeCanvasAssetItems(props.propsList, filterOptions.value))

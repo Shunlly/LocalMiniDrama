@@ -80,6 +80,25 @@ npm run dist:cn
 
 这些文件位于本地 `desktop/release/` 时仍是候选，不应称为可下载的 GitHub Release。当前建议从源码或 Docker 运行；只有同一 SHA 的源码、Docker、Windows 制品、安全、回滚、产品验收与 CI 全绿，并在 draft Release 人工复核后正式发布，二进制才进入正式下载与支持边界。
 
+## 当前合同与后置项
+
+当前由测试锁住，不是发版声明：
+
+- 桌面依赖安装、原生重建、打包和 Windows 制品安全扫描使用 Node.js **22.12.0**，`desktop/.npmrc` 必须 `engine-strict=true`
+- 安装包矩阵仅 **Windows x64**：NSIS Setup、Portable；Unpacked ZIP 由 `package:unpacked` 生成，不是 electron-builder 的 zip 目标
+- `pack` / `dist` 必须带 `--publish never`；`dist:cn` 只转调 `npm run dist`；CI 与 `windows-release-security.yml` 不创建 GitHub Release
+- 标签工作流若将来执行，也只允许创建 **draft** Release，须人工复核后才能正式发布
+- macOS 构建脚本失败关闭；Linux 桌面制品不在矩阵内
+- Setup / Portable 未做 Authenticode 签名
+
+仍后置：
+
+- Authenticode 签名与 SmartScreen 缓解
+- 在 electron-builder 脚本中显式钉死 `--x64` / `win.arch`
+- macOS（缺 darwin FFmpeg 哈希、冒烟和独立扫描）
+- Linux 桌面包
+- 合入 `main`、创建 `v1.3.3` 标签、经人工发布的正式 GitHub Release
+
 ### 未签名制品与下载核验
 
 Setup 与 Portable **未做 Authenticode 签名**，Windows 可能显示 `Unknown Publisher` 或 SmartScreen 警告。只能从 [Shunlly/LocalMiniDrama 官方 GitHub Release](https://github.com/Shunlly/LocalMiniDrama/releases) 下载；来源不明、SHA-256 不符、manifest 不符或 GitHub artifact attestation 不匹配时，均不得运行。正式 Release 正文会给出 `$tag` 和完整 `$expectedGitSha`；以下 Windows PowerShell 命令要求 Release tag、预期 Git SHA、`release-manifest.json.git_commit` 与下载的官方标签源码完全一致：

@@ -4,13 +4,16 @@ import assert from 'node:assert/strict'
 import { h, nextTick } from 'vue'
 
 import {
+  buttonByAriaLabel,
   compileIconStub,
   createHostRenderer,
+  findAll,
   loadCompiledSfc,
   mountHarness,
   textContent,
   vueUrl,
 } from './helpers/vueComponentHarness.js'
+import { MEDIA_LIBRARY_DISABLE_REASON } from '../src/utils/mediaLibraryUserError.js'
 import {
   networkItemImportability,
   networkItemSourceLabel,
@@ -33,10 +36,10 @@ const MediaLibraryNetworkCard = await loadCompiledSfc(
 
 const renderer = createHostRenderer()
 
-function mountCard(item) {
+function mountCard(item, options = {}) {
   const mounted = mountHarness(renderer, () => h(MediaLibraryNetworkCard, {
     item,
-    index: 0,
+    index: options.index ?? 0,
     networkImportButtonText: '\u5bfc\u5165\u5230\u7d20\u6750\u4e2d\u5fc3',
     networkItemTitle,
     networkCardImageUrl,
@@ -45,7 +48,7 @@ function mountCard(item) {
     networkItemSourceLabel,
     networkItemImportability,
     safeExternalUrl,
-    isNetworkImporting: () => false,
+    isNetworkImporting: options.isNetworkImporting || (() => false),
     importNetworkItem: () => {},
   }))
   return mounted
@@ -91,5 +94,63 @@ test('\u7f3a\u5c11\u8bb8\u53ef\u65f6\u663e\u793a\u4e2d\u6587\u539f\u56e0\u5e76\u
     assert.doesNotMatch(copy, /unlicensed|unknown author|No license/i)
   } finally {
     harness.app.unmount()
+  }
+})
+
+test('缺少许可时导入按钮 aria-describedby 指向当前卡片原因，不会写成 0 号卡片', async () => {
+  const CARD_INDEX = 3
+  assert.notEqual(CARD_INDEX, 0)
+  const harness = mountCard({
+    title: '月光',
+    author: '',
+    license: '',
+    source: 'openverse',
+  }, { index: CARD_INDEX })
+  try {
+    await nextTick()
+    const imported = buttonByAriaLabel(harness.root, '导入到素材中心：月光')
+    assert.ok(imported)
+    assert.equal(imported.props.disabled, true)
+    assert.equal(imported.props['aria-describedby'], `network-import-reason-${CARD_INDEX}`)
+    const [reason] = findAll(harness.root, (node) => node.props.id === `network-import-reason-${CARD_INDEX}`)
+    assert.ok(reason)
+    assert.match(textContent(reason), /许可|来源/)
+    assert.equal(findAll(harness.root, (node) => node.props.id === 'network-import-reason-0').length, 0)
+  } finally {
+    harness.app.unmount()
+  }
+})
+
+test('导入中把中文原因挂到同一 id，可导入时不挂 describedby', async () => {
+  const item = {
+    title: '雨巷',
+    author: 'Bai Juyi',
+    license: 'CC BY-SA 4.0',
+    license_url: 'https://creativecommons.org/licenses/by-sa/4.0/',
+    source_url: 'https://commons.wikimedia.org/wiki/File:rain.jpg',
+    source: 'commons',
+  }
+  const ready = mountCard(item)
+  try {
+    await nextTick()
+    const imported = buttonByAriaLabel(ready.root, '导入到素材中心：雨巷')
+    assert.ok(imported)
+    assert.notEqual(imported.props.disabled, true)
+    assert.equal(imported.props['aria-describedby'], undefined)
+  } finally {
+    ready.app.unmount()
+  }
+
+  const busy = mountCard(item, { index: 2, isNetworkImporting: () => true })
+  try {
+    await nextTick()
+    const imported = buttonByAriaLabel(busy.root, '导入到素材中心：雨巷')
+    assert.ok(imported)
+    assert.equal(imported.props.disabled, true)
+    assert.equal(imported.props['aria-describedby'], 'network-import-reason-2')
+    const [reason] = findAll(busy.root, (node) => node.props.id === 'network-import-reason-2')
+    assert.equal(textContent(reason).trim(), MEDIA_LIBRARY_DISABLE_REASON.importing)
+  } finally {
+    busy.app.unmount()
   }
 })

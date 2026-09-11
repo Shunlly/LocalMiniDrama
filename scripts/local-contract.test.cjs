@@ -300,6 +300,11 @@ test('operations documentation distinguishes executable data, downtime, API pref
   assert.match(desktopReadme, /四份.*CycloneDX SBOM/)
   assert.match(desktopReadme, /`npm run dist`.*Setup.*Portable.*`win-unpacked`/s)
   assert.match(quickstart, /`npm run dist`.*Setup.*Portable.*`win-unpacked`/s)
+  assert.match(quickstart, /22\.12\.0（`desktop\/\.npmrc` 启用 `engine-strict`）/)
+  assert.match(quickstart, /当前桌面验收矩阵仅包含 Windows x64/)
+  assert.match(quickstart, /--publish never/)
+  assert.match(desktopReadme, /engine-strict=true/)
+  assert.match(desktopReadme, /windows-release-security\.yml` 不创建 GitHub Release/)
 
   for (const source of [quickstart, backendReadme]) {
     assert.doesNotMatch(source, /Server started on port 5679/)

@@ -70,6 +70,7 @@ test('备份页禁用按钮用 aria-describedby 说明原因，失败区保持 l
   assert.match(backupDialog, /:aria-describedby="restoring \? 'backup-dialog-restoring-reason' : undefined"/)
   assert.match(backupDialog, /:aria-describedby="accessState.restoreLocked \? 'backup-dialog-lock-reason' : undefined"/)
 
+  assert.match(backupDialog, /backupPage\.css/)
   assert.match(backupReadiness, /id="backup-readiness-error"/)
   assert.match(backupReadiness, /aria-live="assertive"/)
   assert.match(backupReadiness, /:aria-describedby="readinessLoading \? 'backup-readiness-loading-reason' : 'backup-readiness-error'"/)

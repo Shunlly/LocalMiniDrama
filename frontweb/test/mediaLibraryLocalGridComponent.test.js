@@ -9,11 +9,14 @@ import {
   compileIconStub,
   createHostRenderer,
   dataModule,
+  findAll,
+  findByClass,
   loadCompiledSfc,
   mountHarness,
   textContent,
   vueUrl,
 } from './helpers/vueComponentHarness.js'
+import { MEDIA_LIBRARY_DISABLE_REASON } from '../src/utils/mediaLibraryUserError.js'
 
 const gridUrl = new URL('../src/components/mediaLibrary/MediaLibraryLocalGrid.vue', import.meta.url)
 const iconStubUrl = compileIconStub(['Files', 'Upload', 'Loading', 'Refresh'])
@@ -105,7 +108,9 @@ test('入口条无 returnTo 时返回项目首页，有 returnTo 时改回制作
     const backHome = buttonByAriaLabel(home.root, '返回项目首页')
     assert.ok(backHome)
     assert.match(textContent(backHome), /返回项目首页/)
+    assert.equal(backHome.props['aria-label'], '返回项目首页')
     assert.equal(buttonByAriaLabel(home.root, '返回制作台'), undefined)
+    assert.equal(buttonByAriaLabel(home.root, '返回项目列表'), undefined)
     click(backHome)
     assert.deepEqual(home.events, [['go-back']])
   } finally {
@@ -144,6 +149,11 @@ test('加载失败展示中文下一步，不漏英文', async () => {
     assert.doesNotMatch(copy, /Network Error|Failed to fetch|No data|Loading\.\.\.|AbortError/i)
     const retry = buttonByAriaLabel(harness.root, '重试加载素材')
     assert.ok(retry)
+    assert.equal(retry.props['aria-describedby'], 'media-list-load-error')
+    const [error] = findAll(harness.root, (node) => node.props.id === 'media-list-load-error')
+    assert.ok(error)
+    assert.equal(error.props.role, 'alert')
+    assert.equal(error.props['aria-live'], 'assertive')
   } finally {
     harness.app.unmount()
   }
@@ -170,5 +180,70 @@ test('上传失败给出中文下一步并可重新上传', async () => {
     assert.deepEqual(harness.events, [['upload']])
   } finally {
     harness.app.unmount()
+  }
+})
+
+test('重试加载禁用原因、上传进度和批量删除都挂到 aria-describedby 或 live region', async () => {
+  const retryReason = MEDIA_LIBRARY_DISABLE_REASON.retryLoading
+  const retrying = mountGrid({
+    loadError: '素材服务暂时不可用（HTTP 503）',
+    mediaIsStale: false,
+    hasSuccessfulMediaLoad: false,
+    mediaItems: [],
+    loading: true,
+    mediaRetryLoadDisableReason: retryReason,
+    mediaAccessState: { showEntryStrip: true, navigationLocked: false, writeLocked: true },
+  })
+  try {
+    await nextTick()
+    const retry = buttonByAriaLabel(retrying.root, '正在加载素材')
+    assert.ok(retry)
+    assert.equal(retry.props['aria-describedby'], 'media-retry-load-reason')
+    const [reason] = findAll(retrying.root, (node) => node.props.id === 'media-retry-load-reason')
+    assert.equal(textContent(reason).trim(), retryReason)
+    assert.notEqual(retry.props['aria-describedby'], 'media-list-load-error')
+  } finally {
+    retrying.app.unmount()
+  }
+
+  const uploading = mountGrid({
+    uploading: true,
+    uploadProgress: { current: 1, total: 2 },
+    mediaWriteLocked: false,
+    mediaUploadDisableReason: MEDIA_LIBRARY_DISABLE_REASON.uploading,
+  })
+  try {
+    await nextTick()
+    const [progress] = findByClass(uploading.root, 'upload-progress')
+    assert.ok(progress)
+    assert.equal(progress.props.role, 'status')
+    assert.equal(progress.props['aria-live'], 'polite')
+    assert.equal(progress.props['aria-atomic'], 'true')
+    assert.match(textContent(progress), /正在上传 1\/2/)
+    const upload = buttonByAriaLabel(uploading.root, '上传图片或视频到素材中心')
+    assert.ok(upload)
+    assert.equal(upload.props['aria-describedby'], 'media-grid-upload-reason')
+    const [uploadReason] = findAll(uploading.root, (node) => node.props.id === 'media-grid-upload-reason')
+    assert.equal(textContent(uploadReason).trim(), MEDIA_LIBRARY_DISABLE_REASON.uploading)
+  } finally {
+    uploading.app.unmount()
+  }
+
+  const batchReason = MEDIA_LIBRARY_DISABLE_REASON.batchEmpty
+  const batch = mountGrid({
+    selectedIds: new Set([5]),
+    visibleSelectedMediaCount: 0,
+    mediaBatchDeleteDisableReason: batchReason,
+  })
+  try {
+    await nextTick()
+    const removed = buttonByAriaLabel(batch.root, batchReason)
+    assert.ok(removed)
+    assert.equal(removed.props.disabled, true)
+    assert.equal(removed.props['aria-describedby'], 'media-batch-delete-reason')
+    const [reason] = findAll(batch.root, (node) => node.props.id === 'media-batch-delete-reason')
+    assert.equal(textContent(reason).trim(), batchReason)
+  } finally {
+    batch.app.unmount()
   }
 })

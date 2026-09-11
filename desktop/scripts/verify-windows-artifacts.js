@@ -37,7 +37,7 @@ const BACKEND_RUNTIME_BASE =
 const BACKEND_CONTAINER_USER_EXCEPTION_RATIONALE =
   'Trivy evaluates Dockerfile Config.User before the reviewed entrypoint transition. The pinned Node runtime maps node to UID 1000; after a same-filesystem one-time ownership migration, the entrypoint replaces PID 1 with the requested command under that account. Release evidence validation rejects any change to this source contract.';
 const BACKEND_CONTAINER_USER_SOURCE_SHA256_LF = Object.freeze({
-  'backend-node/Dockerfile': 'be1f4f77bff7fd9a094772041a04cace503fb48fbca2cc1775d5c55dc84270e4',
+  'backend-node/Dockerfile': 'cd4de72a5696fbdcbe40b33be01fc2932324c4849be65738efcb1c6ff302daeb',
   'backend-node/docker-entrypoint.sh': 'e1bc2719bf21da00095f0380576092dcc590838fd8e02c88455dc98a2a79d972',
   'backend-node/.trivyignore.yaml': '97f051b0f207fd354177c36671085f974f6d1a481b438e247889df58609485e4',
 });

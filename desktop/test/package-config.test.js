@@ -55,8 +55,10 @@ test('desktop runtime dependencies cover the backend production dependency set',
 
   assert.equal(packageJson.dependencies['@napi-rs/canvas'], '0.1.80');
   assert.equal(packageJson.dependencies['pdfjs-dist'], '4.10.38');
+  assert.equal(packageJson.dependencies['adm-zip'], '0.6.1');
   assert.equal(packageJson.dependencies['better-sqlite3'], '12.11.1');
   assert.equal(packageJson.dependencies.buffer, '6.0.3');
+  assert.equal(backendPackage.dependencies['adm-zip'], '0.6.1');
   assert.equal(packageJson.devDependencies.electron, '43.1.1');
   assert.equal(packageJson.devDependencies['electron-builder'], '26.15.3');
   assert.equal(packageJson.devDependencies['node-gyp'], '12.4.0');
@@ -64,11 +66,20 @@ test('desktop runtime dependencies cover the backend production dependency set',
   const lockRoot = packageLock.packages[''];
   assert.equal(lockRoot.dependencies['@napi-rs/canvas'], '0.1.80');
   assert.equal(lockRoot.dependencies['pdfjs-dist'], '4.10.38');
+  assert.equal(lockRoot.dependencies['adm-zip'], '0.6.1');
   assert.equal(lockRoot.dependencies.buffer, '6.0.3');
+  assert.equal(packageLock.packages['node_modules/adm-zip'].version, '0.6.1');
   assert.equal(packageLock.packages['node_modules/@napi-rs/canvas'].version, '0.1.80');
   assert.equal(packageLock.packages['node_modules/@napi-rs/canvas-win32-x64-msvc'].version, '0.1.80');
   assert.equal(packageLock.packages['node_modules/pdfjs-dist'].version, '4.10.38');
   assert.equal(packageLock.packages['node_modules/buffer'].version, '6.0.3');
+});
+
+test('桌面包 ZIP 解析器与后端生产补丁对齐到 adm-zip 0.6.1', () => {
+  assert.equal(packageJson.dependencies['adm-zip'], '0.6.1');
+  assert.equal(backendPackage.dependencies['adm-zip'], '0.6.1');
+  assert.equal(packageLock.packages[''].dependencies['adm-zip'], '0.6.1');
+  assert.equal(packageLock.packages['node_modules/adm-zip'].version, '0.6.1');
 });
 
 test('desktop tooling enforces Electron 43 host and embedded runtime contracts', () => {
@@ -209,6 +220,35 @@ test('unverifiable alternate packaging entry points stay disabled', () => {
   assert.equal(fs.existsSync(path.join(desktopRoot, 'electron-builder-mac.json')), false);
   assert.doesNotMatch(distCn, /electron-builder-lite|Lite|纯净版/);
   assert.doesNotMatch(distMac, /electron-builder-mac-lite|Lite|纯净版/);
+});
+
+test('桌面安装包矩阵保持未发布的 Windows x64 Setup 与 Portable', () => {
+  const build = packageJson.build;
+  const distCn = fs.readFileSync(path.join(desktopRoot, 'scripts', 'dist-cn.js'), 'utf8');
+  const smokeWindows = fs.readFileSync(path.join(desktopRoot, 'scripts', 'smoke-windows.js'), 'utf8');
+  const artifactVerifier = fs.readFileSync(
+    path.join(desktopRoot, 'scripts', 'verify-windows-artifacts.js'),
+    'utf8'
+  );
+
+  assert.equal(packageJson.engines.node, '>=22.12.0 <23');
+  assert.match(desktopNpmrc, /^engine-strict=true$/m);
+  assert.doesNotMatch(desktopNpmrc, /^engine-strict=false$/m);
+  assert.match(packageJson.scripts.pack, /electron-builder --dir --publish never/);
+  assert.match(packageJson.scripts.dist, /electron-builder --win --publish never/);
+  assert.equal(packageJson.scripts['dist:cn'], 'node scripts/dist-cn.js');
+  assert.match(distCn, /\[['"]run['"], ['"]dist['"]\]/);
+  assert.doesNotMatch(distCn, /spawnSync\([^\n]*electron-builder|['\"]electron-builder['\"]/);
+  assert.doesNotMatch(distCn, /gh release|action-gh-release/);
+  assert.deepEqual(build.win.target, ['nsis', 'portable']);
+  assert.equal(Object.hasOwn(build, 'linux'), false);
+  assert.equal(Object.hasOwn(build, 'mac'), false);
+  assert.match(build.nsis.artifactName, /LocalMiniDrama-Setup-\$\{version\}-\$\{arch\}\.\$\{ext\}/);
+  assert.match(build.portable.artifactName, /LocalMiniDrama-Portable-\$\{version\}-\$\{arch\}\.\$\{ext\}/);
+  assert.match(smokeWindows, /LocalMiniDrama-\$\{kind\}-\$\{version\}-x64\.exe/);
+  assert.match(artifactVerifier, /LocalMiniDrama-Setup-\$\{version\}-x64\.exe/);
+  assert.match(artifactVerifier, /LocalMiniDrama-Portable-\$\{version\}-x64\.exe/);
+  assert.match(artifactVerifier, /LocalMiniDrama-Unpacked-\$\{version\}-x64\.zip/);
 });
 
 test('production Electron fuses disable runtime injection paths', () => {

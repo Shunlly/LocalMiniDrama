@@ -8,11 +8,14 @@ import {
   click,
   compileIconStub,
   createHostRenderer,
+  findAll,
+  findByClass,
   loadCompiledSfc,
   mountHarness,
   textContent,
   vueUrl,
 } from './helpers/vueComponentHarness.js'
+import { MEDIA_LIBRARY_DISABLE_REASON } from '../src/utils/mediaLibraryUserError.js'
 
 const emptyUrl = new URL('../src/components/mediaLibrary/MediaLibraryEmptyState.vue', import.meta.url)
 const iconStubUrl = compileIconStub(['Files', 'Upload'])
@@ -70,5 +73,72 @@ test('\u7b5b\u9009\u7a7a\u6001\u63d0\u4f9b\u6e05\u9664\u7b5b\u9009\uff0c\u4e0d\u
     assert.deepEqual(harness.events, [['clear']])
   } finally {
     harness.app.unmount()
+  }
+})
+
+test('空态是 live region，禁用上传时用 aria-describedby 挂上中文原因', async () => {
+  const unlocked = mountEmpty()
+  try {
+    await nextTick()
+    const [empty] = findByClass(unlocked.root, 'empty-media')
+    assert.ok(empty)
+    assert.equal(empty.props.role, 'status')
+    assert.equal(empty.props['aria-live'], 'polite')
+    const upload = buttonByAriaLabel(unlocked.root, '上传图片或视频到素材中心')
+    assert.ok(upload)
+    assert.equal(upload.props['aria-describedby'], undefined)
+    assert.equal(findAll(unlocked.root, (node) => node.props.id === 'media-empty-upload-reason').length, 0)
+  } finally {
+    unlocked.app.unmount()
+  }
+
+  const reason = MEDIA_LIBRARY_DISABLE_REASON.loadFailedWrite
+  const locked = mountEmpty({
+    mediaWriteLocked: true,
+    mediaUploadDisableReason: reason,
+  })
+  try {
+    await nextTick()
+    const [empty] = findByClass(locked.root, 'empty-media')
+    assert.equal(empty.props.role, 'status')
+    assert.equal(empty.props['aria-live'], 'polite')
+    const upload = buttonByAriaLabel(locked.root, '上传图片或视频到素材中心')
+    assert.ok(upload)
+    assert.equal(upload.props.disabled, true)
+    assert.equal(upload.props['aria-describedby'], 'media-empty-upload-reason')
+    const [reasonNode] = findAll(locked.root, (node) => node.props.id === 'media-empty-upload-reason')
+    assert.equal(textContent(reasonNode).trim(), reason)
+  } finally {
+    locked.app.unmount()
+  }
+})
+
+test('筛选空态同样是 live region，导入禁用原因挂到独立 id', async () => {
+  const reason = MEDIA_LIBRARY_DISABLE_REASON.uploading
+  const filtered = mountEmpty({ hasActiveFilters: true })
+  try {
+    await nextTick()
+    const [empty] = findByClass(filtered.root, 'empty-media')
+    assert.equal(empty.props.role, 'status')
+    assert.equal(empty.props['aria-live'], 'polite')
+  } finally {
+    filtered.app.unmount()
+  }
+
+  const lockedImport = mountEmpty({
+    mediaAccessState: { navigationLocked: true, writeLocked: false },
+    mediaSourceImportDisableReason: reason,
+  })
+  try {
+    await nextTick()
+    const imported = buttonByAriaLabel(lockedImport.root, '选择目标项目后导入网页 URL')
+    assert.ok(imported)
+    assert.equal(imported.props.disabled, true)
+    assert.equal(imported.props['aria-describedby'], 'media-empty-import-reason')
+    const [reasonNode] = findAll(lockedImport.root, (node) => node.props.id === 'media-empty-import-reason')
+    assert.equal(textContent(reasonNode).trim(), reason)
+    assert.notEqual(imported.props['aria-describedby'], 'media-empty-upload-reason')
+  } finally {
+    lockedImport.app.unmount()
   }
 })

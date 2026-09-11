@@ -192,6 +192,10 @@ export function useFilmCreateStoryboardListWindow(options = {}) {
     })
   }
 
+  watch(visibleItems, () => {
+    nextTick(() => measureVisibleItems())
+  })
+
   watch(() => list().length, (length) => {
     if (focusedIndex.value != null && focusedIndex.value >= length) {
       focusedIndex.value = length > 0 ? length - 1 : null

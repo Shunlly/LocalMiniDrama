@@ -718,10 +718,18 @@ function assertMacReleaseFailsClosed() {
 
 function assertReleaseBuilderNeverPublishes() {
   const desktopPackage = JSON.parse(fs.readFileSync(path.join(root, 'desktop', 'package.json'), 'utf8'))
+  const desktopNpmrc = fs.readFileSync(path.join(root, 'desktop', '.npmrc'), 'utf8')
+  assert.equal(desktopPackage.engines.node, '>=22.12.0 <23')
+  assert.match(desktopNpmrc, /^engine-strict=true$/m)
   for (const scriptName of ['pack', 'dist']) {
     const script = String(desktopPackage.scripts?.[scriptName] || '')
-    assert.match(script, /\belectron-builder\b[^&]*\s--publish(?:=|\s+)never(?:\s|$)/, `${scriptName} must pass --publish never`)
+    assert.match(script, /\belectron-builder\b[^&]*\s--publish(?:=|\s+)never(?:\s|$)/, `${scriptName} 必须传入 --publish never`)
   }
+  assert.equal(desktopPackage.scripts['dist:cn'], 'node scripts/dist-cn.js')
+  const distCn = fs.readFileSync(path.join(root, 'desktop', 'scripts', 'dist-cn.js'), 'utf8')
+  assert.match(distCn, /\[['"]run['"], ['"]dist['"]\]/)
+  assert.doesNotMatch(distCn, /spawnSync\([^\n]*electron-builder|['\"]electron-builder['\"]/)
+  assert.doesNotMatch(distCn, /gh release|action-gh-release/)
   assertMacReleaseFailsClosed()
 }
 

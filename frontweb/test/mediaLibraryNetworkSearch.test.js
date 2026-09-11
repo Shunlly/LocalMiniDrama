@@ -7,6 +7,7 @@ import {
   isMediaLibraryUserAbort,
 } from '../src/utils/mediaLibraryUserError.js'
 import { describeNetworkError } from '../src/components/mediaLibrary/mediaLibraryNetworkActions.js'
+import { remainingExtractNamedFunction } from './helpers/remainingSourceBetween.js'
 import { readMediaLibrarySources } from './helpers/mediaLibrarySources.js'
 
 const source = readMediaLibrarySources()
@@ -85,6 +86,7 @@ test('网络空态区分未搜索和没有结果，并具备状态角色', () =>
   assert.match(source, /aria-label="清除网络素材搜索"/)
   assert.match(source, /function clearNetworkSearch/)
   assert.match(source, /function cancelNetworkSearch/)
+  assert.match(source, /@click="cancelNetworkSearch"/)
   assert.match(source, /搜索可导入的网络素材/)
   assert.match(source, /class="network-empty"\s*role="status"/)
   assert.match(source, /!networkSearched" class="network-empty" role="status"/)
@@ -118,4 +120,16 @@ test('Openverse \u7f29\u7565\u56fe\u4e0d\u76f4\u8fde CDN\uff0c\u7a7a\u89c6\u9891
   assert.match(source, /networkNotice/)
   assert.match(source, /item\?\.thumbnail_url/)
   assert.doesNotMatch(source, /source_url \u5fc5\u987b/)
+})
+
+test('取消搜索会立刻把 loading 设为 false，不把 abort 写成失败', () => {
+  const cancelSource = remainingExtractNamedFunction(source, 'cancelNetworkSearch')
+  assert.match(cancelSource, /networkAbortController\?\.abort\(\)/)
+  assert.match(cancelSource, /networkRequestGuard\.begin\(\)/)
+  assert.match(cancelSource, /networkLoading\.value = false/)
+  assert.doesNotMatch(cancelSource, /networkError\.value =/)
+  assert.doesNotMatch(cancelSource, /await /)
+  assert.match(source, /aria-label="取消网络素材搜索"/)
+  assert.match(source, /v-if="networkLoading"/)
+  assert.match(source, /@click="cancelNetworkSearch"/)
 })

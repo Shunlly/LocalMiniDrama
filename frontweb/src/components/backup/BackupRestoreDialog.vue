@@ -49,3 +49,5 @@ defineProps({
   onConfirmRestore: { type: Function, required: true },
 })
 </script>
+
+<style scoped src="./backupPage.css"></style>

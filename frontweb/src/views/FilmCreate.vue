@@ -278,13 +278,6 @@ const aiConfigWorkspace = useFilmCreateAiConfigWorkspace({
   refreshVideoGenerationCapability: (...args) => refreshVideoGenerationCapability(...args),
   refreshProductionReadiness: (...args) => refreshProductionReadiness(...args),
 })
-const {
-  openAiConfig,
-  openAiConfigFromPipeline,
-  onAiConfigurationChanged,
-  confirmAiConfigWorkspaceClose,
-  requestAiConfigWorkspaceClose,
-} = aiConfigWorkspace
 
 const scriptNovelState = useFilmCreateScriptNovelState({ store, genStore })
 const {
@@ -372,7 +365,6 @@ const {
 const readinessDisplay = useFilmCreateReadinessDisplay({
   productionCapabilityGaps,
 })
-const { productionReadinessServiceType } = readinessDisplay
 
 const {
   pollUntilResourceHasImage,
@@ -391,17 +383,7 @@ const mediaPreview = useFilmCreateMediaPreview({
   ElMessage,
 })
 const {
-  baseUrl,
-  previewImageUrl,
-  imageUrl,
-  assetImageUrl,
-  hasAssetImage,
-  openImagePreview,
-  closeImagePreview,
-  assetVideoUrl,
-  isHttpVideoUrl,
-  recordHasPlayableVideoUrl,
-  toAbsoluteImageUrl,
+  assetImageUrl, hasAssetImage, assetVideoUrl, recordHasPlayableVideoUrl, toAbsoluteImageUrl,
 } = mediaPreview
 const mediaPickerState = useFilmCreateMediaPickerState()
 const {
@@ -419,11 +401,7 @@ const workspaceNav = useFilmCreateWorkspaceNav({
   showGlobalMediaPicker,
 })
 const {
-  filmCreateHeaderRef,
-  goList,
-  goCanvasMode,
-  openMediaLibraryFromPicker,
-  onSelectEpisode,
+  filmCreateHeaderRef, onSelectEpisode,
 } = workspaceNav
 const mediaPickerCopy = useFilmCreateMediaPickerCopy({
   globalMediaPickerMode,
@@ -431,11 +409,6 @@ const mediaPickerCopy = useFilmCreateMediaPickerCopy({
   currentEpisode,
   store,
 })
-const {
-  globalMediaPickerAccept,
-  globalMediaPickerTitle,
-  globalMediaPickerContext,
-} = mediaPickerCopy
 
 const {
   scriptDraftController,
@@ -478,19 +451,6 @@ const deliveryActions = useFilmCreateDeliveryActions({
 })
 const {
   currentEpisodeVideoUrl,
-  deliveryCompositeStatusLabel,
-  deliverySubtitleAvailable,
-  deliveryFileCount,
-  videoDownloadStatus,
-  videoDownloadError,
-  deliveryExportStatus,
-  deliveryExportError,
-  deliveryExportHasError,
-  deliveryExportFeedback,
-  buildDeliveryFilename,
-  downloadCurrentEpisodeVideo,
-  downloadCurrentEpisodeSubtitle,
-  exportCurrentProjectPackage,
 } = deliveryActions
 
 /** 分镜批量生成结束后，按镜序逐个润色全能片段（仅勾选全能模式且各镜为 universal 且有正文时） */
@@ -567,24 +527,9 @@ const charactersApi = useCharacters({
   uploadAPI,
 })
 const {
-  showEditCharacter, editCharacterForm, editCharacterSaving, editCharacterPromptGenerating,
-  extractingCharAppearance, extractingAnchors, addCharRefImage, addCharRefFileInput,
-  charactersGenerating, generatingCharIds, sd2CertifyingId, showCharSd2Cert, charSd2CertPayload,
-  sd2VoiceUploadingId,
-  showCharLibrary, charLibraryList, charLibraryLoading, charLibraryPage, charLibraryPageSize,
-  charLibraryTotal, charLibraryKeyword, charLibraryTab,
-  dramaAllCharList, dramaAllCharLoading, dramaAllCharPage, dramaAllCharPageSize, dramaAllCharTotal, dramaAllCharKeyword,
-  showEditCharLibrary, editCharLibraryForm,
-  editCharLibrarySaving, addingCharToLibraryId, addingCharToMaterialId, addingCharFromLibraryId,
-  charRoleLabel, onGenerateCharacters: onGenerateCharactersRaw, openAddCharacter, stopCharacterPromptPoll, editCharacter,
-  saveCharRefImageIfAny, submitEditCharacter, doGenerateCharacterPrompt, doExtractCharFromImage,
-  extractIdentityAnchors, clearCharRefImage, onCloseCharDialog, onDeleteCharacter, onGenerateCharacterImage, onSd2CertifyCharacter, onSd2CertifyRefresh, sd2ActionLabel, onSd2PrimaryAction, openCharSd2CertDialog,
-  onSd2VoicePrimaryAction, onSd2VoiceReplace, sd2VoiceActionLabel, playSd2Voice,
-  loadCharLibraryList, debouncedLoadCharLibrary, loadDramaAllCharList, debouncedLoadDramaAllCharList,
-  onCharLibraryDialogOpen, onCharLibraryTabChange, isCharAddToEpisodeLoading,
-  openEditCharLibrary, submitEditCharLibrary,
-  onDeleteCharLibrary, onAddCharacterToLibrary, onAddCharacterToMaterialLibrary,
-  onAddCharFromLibrary, onAddDramaCharToEpisode,
+  showEditCharacter, editCharacterForm, doGenerateCharacterPrompt,
+  extractingCharAppearance, addCharRefImage, charactersGenerating, generatingCharIds,
+  showCharLibrary, onGenerateCharacters: onGenerateCharactersRaw,
 } = charactersApi
 
 // ── Composable: Props ──────────────────────────────────
@@ -603,25 +548,8 @@ const propsApi = usePropsComposable({
   uploadAPI,
 })
 const {
-  showAddProp, addPropSaving, addPropForm,
-  showEditProp, editPropForm, editPropSaving, editPropPromptGenerating,
-  extractingPropDesc, addPropRefImage, addPropRefFileInput,
-  addPropAddRefImage, addPropAddRefFileInput, extractingPropAddDesc,
-  propsExtracting, generatingPropIds,
-  showPropLibrary, propLibraryList, propLibraryLoading, propLibraryPage, propLibraryPageSize,
-  propLibraryTotal, propLibraryKeyword, propLibraryTab,
-  dramaAllPropList, dramaAllPropLoading, dramaAllPropPage, dramaAllPropPageSize, dramaAllPropTotal, dramaAllPropKeyword,
-  showEditPropLibrary, editPropLibraryForm,
-  editPropLibrarySaving, addingPropToLibraryId, addingPropToMaterialId, addingPropFromLibraryId,
-  onExtractProps: onExtractPropsRaw, stopPropPromptPoll, editProp, doGeneratePropPrompt, savePropRefImageIfAny,
-  clearPropRefImage, doExtractPropFromImage, submitEditProp, submitAddProp,
-  onClosePropDialog, onDeleteProp, onGeneratePropImage,
-  loadPropLibraryList, debouncedLoadPropLibrary, loadDramaAllPropList, debouncedLoadDramaAllPropList,
-  onPropLibraryDialogOpen, onPropLibraryTabChange, isPropAddToEpisodeLoading,
-  openEditPropLibrary, submitEditPropLibrary,
-  onDeletePropLibrary, onAddPropToLibrary, onAddPropToMaterialLibrary,
-  onAddPropFromLibrary, onAddDramaPropToEpisode,
-  doExtractFromRef2,
+  editPropForm, extractingPropDesc, addPropRefImage, addPropAddRefImage,
+  propsExtracting, generatingPropIds, showPropLibrary, onExtractProps: onExtractPropsRaw,
 } = propsApi
 
 // ── Composable: Scenes ─────────────────────────────────
@@ -642,25 +570,9 @@ const scenesApi = useScenes({
   uploadAPI,
 })
 const {
-  showEditScene, editSceneForm, editSceneSaving, editScenePromptGenerating,
-  extractingSceneDesc, addSceneRefImage, addSceneRefFileInput,
-  scenesExtracting, generatingSceneIds,
-  generatingPanoramaIds,
-  // 场景多视角额外 state（由 FilmCreate 管理）
-  showSceneLibrary, sceneLibraryList, sceneLibraryLoading, sceneLibraryPage, sceneLibraryPageSize,
-  sceneLibraryTotal, sceneLibraryKeyword, sceneLibraryTab,
-  dramaAllSceneList, dramaAllSceneLoading, dramaAllScenePage, dramaAllScenePageSize, dramaAllSceneTotal, dramaAllSceneKeyword,
-  showEditSceneLibrary, editSceneLibraryForm,
-  editSceneLibrarySaving, addingSceneToLibraryId, addingSceneToMaterialId, addingSceneFromLibraryId,
-  onExtractScenes: onExtractScenesRaw, openAddScene, stopScenePromptPoll, editScene, doGenerateScenePrompt, doGenerateSceneSinglePrompt,
-  saveSceneRefImageIfAny, clearSceneRefImage, doExtractSceneFromImage, submitEditScene,
-  onCloseSceneDialog, onDeleteScene, onGenerateSceneImage,
-  onGenerateScenePanorama,
-  loadSceneLibraryList, debouncedLoadSceneLibrary, loadDramaAllSceneList, debouncedLoadDramaAllSceneList,
-  onSceneLibraryDialogOpen, onSceneLibraryTabChange, isSceneAddToEpisodeLoading,
-  openEditSceneLibrary, submitEditSceneLibrary,
-  onDeleteSceneLibrary, onAddSceneToLibrary, onAddSceneToMaterialLibrary,
-  onAddSceneFromLibrary, onAddDramaSceneToEpisode,
+  editSceneForm, extractingSceneDesc, addSceneRefImage,
+  scenesExtracting, generatingSceneIds, generatingPanoramaIds, showSceneLibrary,
+  onExtractScenes: onExtractScenesRaw,
 } = scenesApi
 
 const resourceGenerate = useFilmCreateResourceGenerate({
@@ -813,9 +725,6 @@ const taskCancel = useFilmCreateTaskCancel({
   batchImageStopping,
   batchVideoStopping,
 })
-const {
-  cancelActiveTask,
-} = taskCancel
 
 const activeTasks = useFilmCreateActiveTasks({
   genStore,
@@ -830,10 +739,6 @@ const activeTasks = useFilmCreateActiveTasks({
   batchVideoRunning,
   batchVideoProgress,
 })
-const {
-  allActiveTaskItems,
-  allActiveTaskLabels,
-} = activeTasks
 
 const ttsDisableReason = useFilmCreateTtsDisableReason({
   ttsSbIds,
@@ -896,21 +801,6 @@ const refImageDrop = useFilmCreateRefImageDrop({
   doUploadResourceImage: (...args) => doUploadResourceImage(...args),
   doUploadSbImage: (...args) => doUploadSbImage(...args),
 })
-const {
-  getFirstImageFile,
-  readFileAsRefImage,
-  onRefImageFileChange,
-  onRefImageDrop,
-  onRefImageFileChange2,
-  onRefImageDrop2,
-  doExtractFromRef,
-  onResourceDragOver,
-  onResourceDragLeave,
-  onResourceDrop,
-  onSbImageDragOver,
-  onSbImageDragLeave,
-  onSbImageDrop,
-} = refImageDrop
 // 公共库弹窗状态已移至各 composable
 const storyboardGenerateSettings = useFilmCreateStoryboardGenerateSettings()
 const {
@@ -944,46 +834,11 @@ const storyboardAccessors = useFilmCreateStoryboardAccessors({
   sbVideoReferenceImageId,
 })
 const {
-  sbSelectedImgId,
-  sbSelectedLastImgId,
-  sbSelectedVideoId,
-  sbImageUploadSlotById,
-  uploadingSbImageSlot,
-  frameTypeForSlot,
-  resolveSbImageById,
-  getSbFirstImage,
-  getSbLastImage,
-  hasSbImage,
-  hasSbFirstLastPair,
-  getSbAllImages,
-  hasSbDraftImagePlaceholder,
-  getSbImage,
-  getQuadGridImage,
-  getSbAllVideos,
-  getSbVideo,
-  getNextStoryboard,
-  getPrevStoryboard,
-  canUsePrevTailAsFirst,
-  getVideoStripItems,
-  onSelectSbMainVideo,
-  getSbVideoError,
-  sbMainVideoPlayerKey,
-  restoreSelectionsFromBackend,
-  getStripItems,
-  historyImageLabel,
-  stripItemTitle,
-  onStripItemClick,
-  quadPanelLabel,
-  onSelectStripItem,
-  onSelectSbFrameImage,
-  onSelectSbMainImage,
-  onRemoveSbHistoryImage,
-  getSbGridImages,
-  getSbVideoReferenceGrid,
-  getSbFirstFrameUrl,
-  getSbLastFrameUrl,
-  sbVideoFirstLastUrls,
-  getSbLocalImage,
+  sbSelectedImgId, sbSelectedLastImgId, sbSelectedVideoId, sbImageUploadSlotById,
+  frameTypeForSlot, getSbFirstImage, getSbLastImage, hasSbImage, hasSbDraftImagePlaceholder,
+  getSbAllVideos, getSbVideo, getNextStoryboard, getPrevStoryboard,
+  restoreSelectionsFromBackend, onSelectSbFrameImage, getSbVideoReferenceGrid,
+  getSbFirstFrameUrl, sbVideoFirstLastUrls,
 } = storyboardAccessors
 
 const navStepsState = useFilmCreateNavSteps({
@@ -1039,17 +894,6 @@ const actionDisabledReasons = useFilmCreateActionDisabledReasons({
   videoStatus,
 })
 const {
-  projectActionDisabledReason,
-  episodeActionDisabledReason,
-  characterGenerationDisabledReason,
-  propsExtractionDisabledReason,
-  scenesExtractionDisabledReason,
-  pipelineActionDisabledReason,
-  productionPipelineActionDisabledReason,
-  storyboardActionDisabledReason,
-  batchActionDisabledReason,
-  batchVideoActionDisabledReason,
-  playableStoryboardVideoCount,
   composeActionDisabledReason,
 } = actionDisabledReasons
 
@@ -1077,17 +921,11 @@ const storyboardPrep = useFilmCreateStoryboardPrep({
   angleToPromptFragment: (...args) => angleToPromptFragment(...args),
 })
 const {
-  captureVideoLastFrame, onUpscaleSbImage, onSaveSbNarrationField, isSbUniversalMode,
-  setSbCreationModeId, onToggleSbUniversalMode, onSaveUniversalSegmentField, universalSegmentDurationSecForSb,
+  captureVideoLastFrame, isSbUniversalMode, onSaveUniversalSegmentField, universalSegmentDurationSecForSb,
   getSbVideoDurationForApi, getMainImageUrlForVideo, sbUniversalSegmentTrimmed, sbCanSubmitVideo,
-  sbVideoGenerationDisabledReason, buildSbVideoPromptForApi, clipSecondsForStoryboardEstimate, shotCountEstimateFromDurationSec,
-  scriptStoryboardEstimate, scriptEstimateVideoDurationHint, scriptEstimateVideoDurationTitle, scriptEstimateStoryboardHint,
-  scriptEstimateStoryboardTitle, scriptTextTrimmedForEstimate, userFilledStoryboardCount, userFilledVideoDuration,
-  getVideoDurationForApi, getStoryboardCountForApi, onStoryboardUseFirstLastFrameChange, buildFirstFrameImagePrompt,
-  buildLastFrameImagePrompt, getCachedFramePromptFromDb, ensureProfessionalFramePrompt, openFramePromptEditor,
-  showSbFramePromptPreview, saveEditingFramePrompt, regenerateEditingFramePrompt, onGenerateSbFrameImage,
-  onGenerateSbFramePair, onGenerateSbImage, onUploadSbImageClick, doUploadSbImage,
-  onSbImageFileChange, syncStoryboardStateFromEpisode,
+  sbVideoGenerationDisabledReason, buildSbVideoPromptForApi, getVideoDurationForApi, getStoryboardCountForApi,
+  buildFirstFrameImagePrompt, buildLastFrameImagePrompt, ensureProfessionalFramePrompt, doUploadSbImage,
+  syncStoryboardStateFromEpisode,
 } = storyboardPrep
 
 const projectLoad = useFilmCreateProjectLoad({
@@ -1157,10 +995,8 @@ const scriptActions = useFilmCreateScriptActions({
   novelAiSummarize, showNovelImport,
 })
 const {
-  saveScriptToBackend, saveProjectSettings, onGenerateStory, openSelectScriptDialog,
-  returnToScriptCreation, returnToCharacterPanel, returnToPropPanel, returnToScenePanel,
-  loadSelectScriptList, onPickScriptFromDialog, novelImportReset, onNovelFileChange,
-  onImportNovel, onGenerateScript, onAddEpisode,
+  saveProjectSettings, onGenerateStory, onAddEpisode,
+  returnToPropPanel, returnToScenePanel,
 } = scriptActions
 
 const resourceUpload = useFilmCreateResourceUpload({
@@ -1177,14 +1013,7 @@ const resourceUpload = useFilmCreateResourceUpload({
   uploadingResourceId,
 })
 const {
-  onUploadResourceClick,
-  parseExtraImages,
-  localPathToUrl,
-  findResource,
   doUploadResourceImage,
-  onSetPrimaryImage,
-  onRemoveExtraImage,
-  onResourceImageFileChange,
 } = resourceUpload
 
 
@@ -1228,30 +1057,8 @@ const storyboardActions = useFilmCreateStoryboardActions({
   recordHasPlayableVideoUrl, captureVideoLastFrame, refreshVideoGenerationCapability,
 })
 const {
-  getSbCharacterIds, getMovementLabel, setSbCharacterIds, charactersAvailableToAddToSb,
-  onSbAddCharacterCommand, getSbPropIds, setSbPropIds, onStoryboardPropChange,
-  getSbSelectedScene, getSbSelectedCharacters, getSbSelectedProps, onStoryboardCharacterChange,
-  onLastFrameLayoutLockChange, onStoryboardSceneChange, dedupeStoryboardsForAssetLink, getCharAffectedStoryboards,
-  getSceneAffectedStoryboards, getPropAffectedStoryboards, scrollToStoryboard, onRegenAffectedSbImages,
-  normalizeAudioRelPath, sbDialogueAudioRelPath, sbNarrationAudioRelPath, playSbTtsFromRel,
-  playSbDialogueTts, playSbNarrationTts, onTtsSbDialogue, onTtsSbNarration,
-  formatSrtTimestamp, onExportStoryboardSheet, onExportNarrationSrt, buildUniversalSegmentFieldOverrides,
-  universalSegmentAtImageToGrokTags, onUniversalSegmentToGrokVideoTags, onUniversalSegmentPromptMenu, onGenerateUniversalSegmentPrompt,
-  onPolishUniversalSegmentPromptStream, polishUniversalSegmentsAfterGeneration, currentStoryboardReferenceState, findStoryboardRow,
-  mergeStoryboardIntoStore, getSbFreeReferenceItems, getSbPrimaryFreeReferenceItem, collectSbFreeReferenceAbsoluteUrls,
-  uniqueStoryboardReferenceUrls, saveStoryboardReferenceImages, openGlobalMediaPicker, onGlobalMediaAssetSelected,
-  onRemoveSbFreeReferenceImage, onPromoteSbFreeReferenceImage, currentDramaReferenceEntities, getSbUniversalOmniRefSlots,
-  collectSbOmniReferenceAbsoluteUrls, collectSbSceneOnlyReferenceAbsoluteUrls, getSbPrimaryReferenceAbsoluteUrl, buildStoryboardVideoReferencePayload,
-  onEditSbImagePrompt, onOpenSbPromptDialog, formatVideoPromptForEdit, onPolishSbPrompt,
-  onSaveSbPromptDialog, onSaveSbImagePrompt, onEditSbVideoPrompt, angleToPromptFragment,
-  onSaveSbVideoFields, onSaveSbVideoPrompt, onOpenVideoParamsDialog, onVideoParamsDialogClosed,
-  countDialogueLinesInSb, canSplitSbByAudio, onSplitSbByAudio, onSaveVideoParams,
-  onBatchInferParams, onRegenerateLayoutDescription, onGenerateSbVideo, onLinkTailFrameToNext,
-  onUsePrevTailAsFirst, refreshStoryboardsForEpisode, refreshStoryboardsOnly, onGenerateStoryboard,
-  onAddSingleStoryboard, onDeleteSingleStoryboard, onInsertStoryboardBefore, onInsertStoryboardAfter, storyboardReorderBusy,
-  dropTargetStoryboardIndex, onMoveStoryboardUp, onMoveStoryboardDown, onReorderDragStart,
-  onReorderDragOver, onReorderDragEnd, onReorderDrop, startBatchImageGeneration,
-  startBatchVideoGeneration,
+  polishUniversalSegmentsAfterGeneration, onGlobalMediaAssetSelected, collectSbOmniReferenceAbsoluteUrls,
+  buildStoryboardVideoReferencePayload, angleToPromptFragment, refreshStoryboardsOnly, onInsertStoryboardAfter,
 } = storyboardActions
 
 const pipelineActions = useFilmCreatePipelineActions({
@@ -1279,10 +1086,6 @@ const pipelineActions = useFilmCreatePipelineActions({
   setPipelineStep, storyboardMediaActionReason,
   pollTask,
 })
-const {
-  getFinalizeMergeOptions, onGenerateVideo, startOneClickPipeline, startTextFrameworkPipeline,
-  runOneClickPipeline, startRepairPipeline, runRepairPipeline,
-} = pipelineActions
 
 const {
   hasActivePipelineWork,

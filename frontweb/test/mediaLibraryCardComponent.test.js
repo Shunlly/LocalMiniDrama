@@ -54,6 +54,7 @@ function mountCard(initial = {}) {
     selectedIds,
     mediaWriteLocked: Boolean(initial.mediaWriteLocked),
     mediaWriteLockReason: initial.mediaWriteLockReason ?? '',
+    ...(initial.writeLockDescribedBy ? { writeLockDescribedBy: initial.writeLockDescribedBy } : {}),
     itemUrl,
     thumbnailAlt,
     formatSize: () => '1.2 MB',
@@ -82,6 +83,7 @@ test('本地素材卡片展示中文名称、来源和选择控件', async () =>
     const checkbox = findAll(harness.root, (node) => node.type === 'input' && node.props?.type === 'checkbox')[0]
     assert.ok(checkbox)
     assert.equal(checkbox.props['aria-label'], '选择素材：雨巷')
+    assert.equal(checkbox.props['aria-describedby'], undefined)
     assert.notEqual(checkbox.props.disabled, true)
     checkbox.props.onChange({ target: { checked: true } })
     assert.deepEqual(harness.events.filter((event) => event[0] === 'select'), [['select', RAIN_ID, true]])
@@ -106,8 +108,10 @@ test('写锁禁用选择和删除，预览仍可点且文案带素材名', async
     assert.ok(removed)
     assert.equal(checkbox.props.disabled, true)
     assert.equal(checkbox.props.title, WRITE_LOCK_REASON)
+    assert.equal(checkbox.props['aria-describedby'], 'media-write-lock-reason')
     assert.equal(removed.props.disabled, true)
     assert.equal(removed.props.title, WRITE_LOCK_REASON)
+    assert.equal(removed.props['aria-describedby'], 'media-write-lock-reason')
     assert.notEqual(preview.props.disabled, true)
     click(preview)
     assert.deepEqual(harness.events.filter((event) => event[0] === 'preview'), [['preview', RAIN_ID]])
@@ -141,6 +145,29 @@ test('视频卡片用静音预览，空名称显示未命名，悬停把当前�
     card.props.onMouseleave()
     assert.deepEqual(harness.events, [['hover', MOON_ID], ['leave', MOON_ID]])
     assert.doesNotMatch(JSON.stringify(harness.events), new RegExp(String(RAIN_ID)))
+  } finally {
+    harness.app.unmount()
+  }
+})
+
+test('写锁 aria-describedby 使用传入的原因 id，不会和默认 id 混用', async () => {
+  const customReasonId = 'media-card-lock-reason-rain'
+  assert.notEqual(customReasonId, 'media-write-lock-reason')
+  const harness = mountCard({
+    mediaWriteLocked: true,
+    mediaWriteLockReason: WRITE_LOCK_REASON,
+    writeLockDescribedBy: customReasonId,
+    hovered: true,
+  })
+  try {
+    await nextTick()
+    const checkbox = findAll(harness.root, (node) => node.type === 'input' && node.props?.type === 'checkbox')[0]
+    const removed = buttonByAriaLabel(harness.root, '删除素材：雨巷')
+    assert.ok(checkbox)
+    assert.ok(removed)
+    assert.equal(checkbox.props['aria-describedby'], customReasonId)
+    assert.equal(removed.props['aria-describedby'], customReasonId)
+    assert.notEqual(checkbox.props['aria-describedby'], 'media-write-lock-reason')
   } finally {
     harness.app.unmount()
   }

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
 import { compileScript, parse } from '@vue/compiler-sfc'
+import { compileSfc } from './helpers/vueComponentHarness.js'
 import { createRenderer, defineComponent, h, nextTick } from 'vue'
 
 const componentUrl = new URL('../src/components/dramaCanvas/FreeCanvasAssetSidebar.vue', import.meta.url)
@@ -13,10 +14,18 @@ let compiledSource = compileScript(descriptor, {
   id: 'free-canvas-asset-sidebar-runtime',
   inlineTemplate: true,
 }).content
+const compiledWindowedListUrl = compileSfc(
+  new URL('../src/components/dramaCanvas/CanvasWindowedList.vue', import.meta.url),
+  'canvas-windowed-list-asset-sidebar',
+  new Map([
+    ['@/utils/listWindow.js', new URL('../src/utils/listWindow.js', import.meta.url).href],
+  ]),
+)
 for (const [specifier, resolved] of [
   ['vue', import.meta.resolve('vue')],
   ['@element-plus/icons-vue', import.meta.resolve('@element-plus/icons-vue')],
   ['@/utils/freeCanvasMedia', new URL('../src/utils/freeCanvasMedia.js', import.meta.url).href],
+  ['@/components/dramaCanvas/CanvasWindowedList.vue', compiledWindowedListUrl],
 ]) {
   compiledSource = compiledSource
     .replaceAll(`from '${specifier}'`, `from '${resolved}'`)

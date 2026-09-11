@@ -31,6 +31,7 @@
 - 8 项产品验收已实现并完成三轮复审，结论为 `Spec PASS / Quality PASS`。
 - 自由画布 E2E 代码、证据校验契约、清理合同与串行门禁接线已完成复审，结论为 `Spec PASS / Quality PASS`。
 - 不要把历史 SHA 或当前工作树当作已通过 Docker/浏览器验收。容器级校验执行 `npm run verify:docker`；生产 E2E 必须在干净工作树按 `npm run docker:e2e:up` → `npm run verify:e2e` 重跑（证据要求 `working_tree_dirty=false`）。合入 `main`、Windows 制品、安全扫描、回滚演练和 `v1.3.3` 标签仍未完成，不得宣称该版本已正式发布。
+- 补齐桌面安装包矩阵与安全扫描合同测试：锁住 Node.js 22.12.0、`desktop/.npmrc` 的 `engine-strict`，以及 CI / 打包路径不得发布 GitHub Release。
 
 ---
 

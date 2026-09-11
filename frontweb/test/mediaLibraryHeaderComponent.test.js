@@ -9,6 +9,7 @@ import {
   click,
   compileIconStub,
   createHostRenderer,
+  findAll,
   loadCompiledSfc,
   mountHarness,
   textContent,
@@ -57,7 +58,10 @@ test('素材中心页头按 returnTo 切换返回文案，上传和新建交给�
     const backHome = buttonByAriaLabel(home.root, '返回项目首页')
     assert.ok(backHome)
     assert.match(textContent(backHome), /返回项目首页/)
+    assert.equal(backHome.props['aria-label'], '返回项目首页')
     assert.equal(buttonByAriaLabel(home.root, '返回制作台'), undefined)
+    assert.equal(buttonByAriaLabel(home.root, '返回项目列表'), undefined)
+    assert.equal(buttonByAriaLabel(home.root, '上传图片或视频到素材中心').props['aria-describedby'], undefined)
     click(backHome)
     click(buttonByAriaLabel(home.root, '新建项目'))
     click(buttonByAriaLabel(home.root, '上传图片或视频到素材中心'))
@@ -96,7 +100,10 @@ test('写锁只禁用上传并展示中文原因，新建项目仍可点', async
     assert.equal(upload.props.disabled, true)
     assert.equal(upload.props.title, reason)
     assert.equal(upload.props['aria-describedby'], 'media-header-upload-reason')
+    const [uploadReason] = findAll(harness.root, (node) => node.props.id === 'media-header-upload-reason')
+    assert.equal(textContent(uploadReason).trim(), reason)
     assert.notEqual(created.props.disabled, true)
+    assert.equal(created.props['aria-describedby'], undefined)
     assert.equal(created.props.title, undefined)
     click(created)
     assert.deepEqual(harness.events, [['go-new-project']])
@@ -123,8 +130,12 @@ test('导航锁只禁用新建项目；正在上传时上传按钮也展示中�
     assert.ok(upload)
     assert.equal(created.props.disabled, true)
     assert.equal(created.props.title, MEDIA_LIBRARY_DISABLE_REASON.uploading)
+    assert.equal(created.props['aria-describedby'], 'media-header-nav-reason')
+    const [navReason] = findAll(harness.root, (node) => node.props.id === 'media-header-nav-reason')
+    assert.equal(textContent(navReason).trim(), MEDIA_LIBRARY_DISABLE_REASON.uploading)
     assert.equal(upload.props.disabled, true)
     assert.equal(upload.props.title, MEDIA_LIBRARY_DISABLE_REASON.uploading)
+    assert.equal(upload.props['aria-describedby'], 'media-header-upload-reason')
     assert.equal(upload.props['data-loading'], true)
     assert.equal(buttonByText(harness.root, '上传素材').props['data-variant'], 'default')
   } finally {

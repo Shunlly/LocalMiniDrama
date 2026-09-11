@@ -256,6 +256,7 @@ test('取消网络搜索不算失败，也不漏英文', async () => {
 })
 
 test('取消搜索会立刻结束加载，即使请求没有马上抛出', async () => {
+  const deferred = createDeferred()
   const networkKeyword = ref('雨巷')
   const networkMediaType = ref('all')
   const networkSource = ref('all')
@@ -281,7 +282,7 @@ test('取消搜索会立刻结束加载，即使请求没有马上抛出', async
     loadMedia: async () => {},
     mediaLibraryAPI: {
       searchNetwork() {
-        return new Promise(() => {})
+        return deferred.promise
       },
     },
   })
@@ -291,5 +292,14 @@ test('取消搜索会立刻结束加载，即使请求没有马上抛出', async
   cancelNetworkSearch()
   assert.equal(networkLoading.value, false)
   assert.equal(networkError.value, '')
+  assert.equal(networkSearched.value, false)
   assert.doesNotMatch(String(networkError.value), /abort|canceled|Network Error/i)
+  deferred.resolve({ items: [{ title: '晚到结果' }], notice: '晚到说明' })
+  await Promise.resolve()
+  await Promise.resolve()
+  assert.equal(networkLoading.value, false)
+  assert.equal(networkItems.value.length, 0)
+  assert.equal(networkSearched.value, false)
+  assert.equal(networkNotice.value, '')
+  assert.equal(networkError.value, '')
 })

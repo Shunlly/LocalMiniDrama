@@ -8,6 +8,7 @@ import {
   click,
   compileIconStub,
   createHostRenderer,
+  findAll,
   loadCompiledSfc,
   mountHarness,
   textContent,
@@ -67,6 +68,8 @@ test('失败反馈可重试，导入中或缺少许可时禁用按钮', async ()
     const retry = buttonByAriaLabel(failed.root, '重试导入该网络素材')
     assert.ok(retry)
     assert.notEqual(retry.props.disabled, true)
+    assert.equal(retry.props['aria-describedby'], undefined)
+    assert.equal(findAll(failed.root, (node) => node.props.id === 'media-network-import-retry-reason').length, 0)
     click(retry)
     assert.deepEqual(failed.events, [['import', '雨巷']])
   } finally {
@@ -84,6 +87,9 @@ test('失败反馈可重试，导入中或缺少许可时禁用按钮', async ()
     assert.ok(retry)
     assert.equal(retry.props.disabled, true)
     assert.equal(retry.props.title, MEDIA_LIBRARY_DISABLE_REASON.importing)
+    assert.equal(retry.props['aria-describedby'], 'media-network-import-retry-reason')
+    const [busyReason] = findAll(busy.root, (node) => node.props.id === 'media-network-import-retry-reason')
+    assert.equal(textContent(busyReason).trim(), MEDIA_LIBRARY_DISABLE_REASON.importing)
     assert.equal(retry.props['data-loading'], true)
   } finally {
     busy.app.unmount()
@@ -99,7 +105,25 @@ test('失败反馈可重试，导入中或缺少许可时禁用按钮', async ()
     assert.ok(retry)
     assert.equal(retry.props.disabled, true)
     assert.match(String(retry.props.title || ''), /许可|来源/)
+    assert.equal(retry.props['aria-describedby'], 'media-network-import-retry-reason')
+    const [blockedReason] = findAll(blocked.root, (node) => node.props.id === 'media-network-import-retry-reason')
+    assert.match(textContent(blockedReason), /许可|来源/)
   } finally {
     blocked.app.unmount()
+  }
+})
+
+test('只有失败反馈没有重试项时不渲染重试原因 id', async () => {
+  const harness = mountFeedback({
+    feedback: { tone: 'error', title: '网络素材导入失败', detail: '雨巷导入失败' },
+    retryItem: null,
+  })
+  try {
+    await nextTick()
+    assert.match(textContent(harness.root), /网络素材导入失败/)
+    assert.equal(buttonByAriaLabel(harness.root, '重试导入该网络素材'), undefined)
+    assert.equal(findAll(harness.root, (node) => node.props.id === 'media-network-import-retry-reason').length, 0)
+  } finally {
+    harness.app.unmount()
   }
 })
