@@ -75,3 +75,13 @@ test('storyboard panel generates all tracks while media panel regenerates the se
   assert.match(storyboard, /runAudioStep\(sb, \{ signal: generationRun\.signal, kind: 'all' \}\)/)
   assert.match(media, /kind: props\.audioType === 'narration' \? 'narration' : 'dialogue'/)
 })
+
+test('canvas storyboard form edits and saves narration with dialogue', () => {
+  const form = read('../src/components/dramaCanvas/CanvasStoryboardPanelForm.vue')
+  const panel = read('../src/components/dramaCanvas/CanvasStoryboardPanel.vue')
+  assert.match(form, /v-model="form.narration"/)
+  assert.match(form, /storyboardControlLabel\('解说旁白'\)/)
+  assert.match(panel, /narration: '',/)
+  assert.match(panel, /form.narration = sb\?\.narration/)
+  assert.match(panel, /narration: draft.narration.trim\(\) \|\| null/)
+})

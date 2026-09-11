@@ -50,6 +50,16 @@
           placeholder="生视频提示词"
         />
       </el-form-item>
+      <el-form-item label="旁白">
+        <el-input
+          v-model="form.narration"
+          type="textarea"
+          :rows="2"
+          resize="vertical"
+          :aria-label="storyboardControlLabel('解说旁白')"
+          placeholder="解说旁白"
+        />
+      </el-form-item>
     </template>
     <template v-else>
       <div class="text-row-2">
@@ -74,6 +84,16 @@
           />
         </el-form-item>
       </div>
+      <el-form-item label="旁白">
+        <el-input
+          v-model="form.narration"
+          type="textarea"
+          :rows="2"
+          resize="vertical"
+          :aria-label="storyboardControlLabel('解说旁白')"
+          placeholder="解说旁白"
+        />
+      </el-form-item>
       <el-form-item label="生图词">
         <el-input
           v-model="form.image_prompt"

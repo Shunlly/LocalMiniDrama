@@ -35,6 +35,7 @@ test('storyboard draft fingerprint distinguishes unsaved text and relation chang
   })
   assert.equal(hasStoryboardDraftChanges(saved, { title: '镜头一', image_prompt: '雨夜', characterIds: [1, 2], sceneId: 4, propIds: [8] }), false)
   assert.equal(hasStoryboardDraftChanges(saved, { title: '镜头一（修改）', image_prompt: '雨夜', characterIds: [1, 2], sceneId: 4, propIds: [8] }), true)
+  assert.equal(hasStoryboardDraftChanges(saved, { title: '镜头一', image_prompt: '雨夜', narration: '开场解说', characterIds: [1, 2], sceneId: 4, propIds: [8] }), true)
 })
 
 test('batch import routes the explicit parent handler and event fallback through its lifecycle', () => {

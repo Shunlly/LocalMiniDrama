@@ -16,6 +16,7 @@ export function createStoryboardDraftFingerprint(value = {}) {
     title: normalizeText(value.title),
     action: normalizeText(value.action),
     dialogue: normalizeText(value.dialogue),
+    narration: normalizeText(value.narration),
     image_prompt: normalizeText(value.image_prompt),
     video_prompt: normalizeText(value.video_prompt),
     universal_segment_text: normalizeText(value.universal_segment_text),

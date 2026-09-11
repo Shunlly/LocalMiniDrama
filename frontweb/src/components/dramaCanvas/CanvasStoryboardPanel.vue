@@ -138,6 +138,7 @@ const form = reactive({
   title: '',
   action: '',
   dialogue: '',
+  narration: '',
   image_prompt: '',
   video_prompt: '',
   universal_segment_text: '',
@@ -272,6 +273,7 @@ function syncForm(sb) {
   form.title = sb?.title || ''
   form.action = sb?.action || ''
   form.dialogue = sb?.dialogue || ''
+  form.narration = sb?.narration || ''
   form.image_prompt = sb?.image_prompt || sb?.polished_prompt || ''
   form.video_prompt = sb?.video_prompt || ''
   form.universal_segment_text = sb?.universal_segment_text || ''
@@ -401,6 +403,7 @@ async function persistForm(silent = false, draftValue = currentDraftValue()) {
     ? {
         title: draft.title.trim() || null,
         universal_segment_text: draft.universal_segment_text.trim() || null,
+        narration: draft.narration.trim() || null,
         video_prompt: draft.video_prompt.trim() || null,
         shot_type: draft.shot_type.trim() || null,
         duration: draft.duration ?? 5,
@@ -414,6 +417,7 @@ async function persistForm(silent = false, draftValue = currentDraftValue()) {
         title: draft.title.trim() || null,
         action: draft.action.trim() || null,
         dialogue: draft.dialogue.trim() || null,
+        narration: draft.narration.trim() || null,
         image_prompt: draft.image_prompt.trim() || null,
         video_prompt: draft.video_prompt.trim() || null,
         shot_type: draft.shot_type.trim() || null,
@@ -534,6 +538,7 @@ function universalFieldOverrides() {
     title: form.title.trim(),
     action: form.action.trim(),
     dialogue: form.dialogue.trim(),
+    narration: form.narration.trim(),
     video_prompt: form.video_prompt.trim(),
     shot_type: form.shot_type.trim(),
   }
