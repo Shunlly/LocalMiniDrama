@@ -128,7 +128,7 @@
         </p>
       </el-form-item>
     </el-form>
-    <p class="config-tip">分镜图、分镜视频和旁白语音使用的模型，以「<button type="button" class="ai-config-text-button" @click="emit('open-ai-config')">AI 配置</button>」中设为默认的为准。分辨率也会用于新生成的分镜视频；字幕、对白烧录和水印只影响合成整集。</p>
+    <p class="config-tip">分镜图、分镜视频和旁白语音使用的模型，以「<button type="button" class="ai-config-text-button" aria-label="前往 AI 配置" @click="emit('open-ai-config')">AI 配置</button>」中设为默认的为准。分辨率也会用于新生成的分镜视频；字幕、对白烧录和水印只影响合成整集。</p>
   </section>
 </template>
 

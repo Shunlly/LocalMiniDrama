@@ -24,7 +24,7 @@
             plain
             :loading="sbPromptPolishing"
             :title="sbPromptPolishing ? '正在生成提示词，请稍候' : undefined"
-            @click="onPolishSbPrompt"
+            :aria-label="sbPromptPolishing ? '正在生成提示词，请稍候' : '重新生成提示词'" @click="onPolishSbPrompt"
           >{{ sbPromptPolishedText ? '重新生成' : '立即生成' }}</el-button>
           <span class="sb-prompt-polish-hint">只更新通用优化字段，不影响首尾帧专用提示词</span>
         </div>
@@ -48,8 +48,8 @@
       </el-form-item>
     </el-form>
     <template #footer>
-      <el-button @click="showSbPromptDialog = false">取消</el-button>
-      <el-button type="primary" :loading="sbPromptSaving" :title="sbPromptSaving ? '正在保存提示词，请稍候' : undefined" @click="onSaveSbPromptDialog">保存</el-button>
+      <el-button aria-label="取消编辑提示词" @click="showSbPromptDialog = false">取消</el-button>
+      <el-button type="primary" :loading="sbPromptSaving" :title="sbPromptSaving ? '正在保存提示词，请稍候' : undefined" :aria-label="sbPromptSaving ? '正在保存提示词，请稍候' : '保存提示词'" @click="onSaveSbPromptDialog">保存</el-button>
     </template>
   </AccessibleDialog>
 </template>

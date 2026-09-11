@@ -39,7 +39,7 @@
             :loading="isSbVideoGenerating(sb.id)"
             :disabled="Boolean(sbVideoGenerationDisabledReason(sb))"
             :title="isSbVideoGenerating(sb.id) ? '正在生成分镜视频，请稍候' : (sbVideoGenerationDisabledReason(sb) || undefined)"
-            @click="onGenerateSbVideo(sb)"
+            :aria-label="isSbVideoGenerating(sb.id) ? '正在生成分镜视频，请稍候' : (sbVideoGenerationDisabledReason(sb) || `生成分镜${sb.storyboard_number}视频`)" @click="onGenerateSbVideo(sb)"
           >
             生成分镜视频
           </el-button>
@@ -57,6 +57,7 @@
         :key="item.key"
         class="sb-video-thumb"
         :title="`${item.label}（点击切换）`"
+        :aria-label="`切换到${item.label}`"
         @click="onSelectSbMainVideo(sb, item.video)"
       >
         <video :src="item.src" preload="metadata" aria-hidden="true" class="sb-video-thumb-player" />
@@ -65,10 +66,10 @@
     </div>
     <div v-if="getSbVideo(sb.id)" class="sb-video-actions">
       <ActionGate :reason="sbVideoGenerationDisabledReason(sb)" label="重新生成">
-        <el-button size="small" :loading="isSbVideoGenerating(sb.id)" :disabled="Boolean(sbVideoGenerationDisabledReason(sb))" :title="isSbVideoGenerating(sb.id) ? '正在生成分镜视频，请稍候' : (sbVideoGenerationDisabledReason(sb) || undefined)" @click="onGenerateSbVideo(sb)">重新生成</el-button>
+        <el-button size="small" :loading="isSbVideoGenerating(sb.id)" :disabled="Boolean(sbVideoGenerationDisabledReason(sb))" :title="isSbVideoGenerating(sb.id) ? '正在生成分镜视频，请稍候' : (sbVideoGenerationDisabledReason(sb) || undefined)" :aria-label="isSbVideoGenerating(sb.id) ? '正在生成分镜视频，请稍候' : (sbVideoGenerationDisabledReason(sb) || `生成分镜${sb.storyboard_number}视频`)" @click="onGenerateSbVideo(sb)">重新生成</el-button>
       </ActionGate>
       <el-tooltip v-if="getNextStoryboard(sb.id)" content="提取本视频尾帧，设为下一个分镜的首帧" placement="top">
-        <el-button size="small" :loading="linkingTailFrameIds.has(sb.id)" :title="linkingTailFrameIds.has(sb.id) ? '正在衔接尾帧，请稍候' : undefined" @click="onLinkTailFrameToNext(sb)">尾帧衔接</el-button>
+        <el-button size="small" :loading="linkingTailFrameIds.has(sb.id)" :title="linkingTailFrameIds.has(sb.id) ? '正在衔接尾帧，请稍候' : undefined" :aria-label="linkingTailFrameIds.has(sb.id) ? '正在衔接尾帧，请稍候' : `将分镜${sb.storyboard_number}尾帧衔接到下一镜`" @click="onLinkTailFrameToNext(sb)">尾帧衔接</el-button>
       </el-tooltip>
       <ActionGate v-if="sb.dialogue" :reason="ttsGenerationDisabledReason(sb.id, 'dialogue')" label="对白配音">
         <el-button
@@ -76,7 +77,7 @@
           :loading="ttsSbIds.has(sb.id)"
           :disabled="Boolean(ttsGenerationDisabledReason(sb.id, 'dialogue'))"
           :title="ttsSbIds.has(sb.id) ? '正在生成对白配音，请稍候' : (ttsGenerationDisabledReason(sb.id, 'dialogue') || undefined)"
-          @click="onTtsSbDialogue(sb)"
+          :aria-label="ttsSbIds.has(sb.id) ? '正在生成对白配音，请稍候' : (ttsGenerationDisabledReason(sb.id, 'dialogue') || `生成分镜${sb.storyboard_number}对白配音`)" @click="onTtsSbDialogue(sb)"
         >
           对白配音
         </el-button>
@@ -123,7 +124,7 @@
     </div>
     <div class="sb-video-params-bar">
       <span class="sb-video-prompt-text sb-video-prompt-text--preview">{{ sb.video_prompt || '暂无视频提示词（在「视频配置」保存后自动生成）' }}</span>
-      <el-button size="small" link type="primary" @click="onOpenSbPromptDialog(sb)">手工编辑</el-button>
+      <el-button size="small" link type="primary" :aria-label="`手工编辑分镜${sb.storyboard_number}视频提示词`" @click="onOpenSbPromptDialog(sb)">手工编辑</el-button>
     </div>
   </div>
 </template>

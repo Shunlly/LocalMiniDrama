@@ -192,7 +192,7 @@
           <el-button
             size="small"
             :loading="regeneratingLayoutSbIds.has(videoParamsTarget.id)" :title="regeneratingLayoutSbIds.has(videoParamsTarget.id) ? '正在重新生成布局描述，请稍候' : undefined"
-            @click="onRegenerateLayoutDescription(videoParamsTarget)"
+            :aria-label="regeneratingLayoutSbIds.has(videoParamsTarget.id) ? '正在重新生成布局描述，请稍候' : '重新生成布局描述'" @click="onRegenerateLayoutDescription(videoParamsTarget)"
             style="margin-top:4px; white-space:nowrap"
           >
             AI 重新生成/优化
@@ -221,7 +221,7 @@
             type="warning"
             plain
             :loading="splitByAudioLoading" :title="splitByAudioLoading ? '正在按对白拆镜，请稍候' : undefined"
-            @click="onSplitSbByAudio(videoParamsTarget)"
+            :aria-label="splitByAudioLoading ? '正在按对白拆镜，请稍候' : '按对白拆镜'" @click="onSplitSbByAudio(videoParamsTarget)"
           >
             按对白拆镜
           </el-button>
@@ -244,8 +244,8 @@
       </el-form-item>
     </el-form>
     <template #footer>
-      <el-button @click="showVideoParamsDialog = false">取消</el-button>
-      <el-button type="primary" :loading="videoParamsSaving" :title="videoParamsSaving ? '正在保存视频参数，请稍候' : undefined" @click="onSaveVideoParams">保存并更新</el-button>
+      <el-button aria-label="取消视频参数" @click="showVideoParamsDialog = false">取消</el-button>
+      <el-button type="primary" :loading="videoParamsSaving" :title="videoParamsSaving ? '正在保存视频参数，请稍候' : undefined" :aria-label="videoParamsSaving ? '正在保存视频参数，请稍候' : '保存并更新视频参数'" @click="onSaveVideoParams">保存并更新</el-button>
     </template>
   </AccessibleDialog>
 </template>

@@ -1,8 +1,8 @@
 <template>
   <div class="vp-reference-panel">
     <div class="vp-reference-toolbar">
-      <el-button size="small" @click="openGlobalMediaPicker(videoParamsTarget, 'reference-primary')">设为视频主参考</el-button>
-      <el-button size="small" plain @click="openGlobalMediaPicker(videoParamsTarget, 'reference')">添加自由参考图</el-button>
+      <el-button size="small" @click="openGlobalMediaPicker(videoParamsTarget, 'reference-primary')" aria-label="设为视频主参考">设为视频主参考</el-button>
+      <el-button size="small" plain aria-label="添加自由参考图" @click="openGlobalMediaPicker(videoParamsTarget, 'reference')">添加自由参考图</el-button>
     </div>
     <div v-if="getSbFreeReferenceItems(videoParamsTarget).length" class="vp-reference-list">
       <div
@@ -30,7 +30,7 @@
               size="small"
               link
               type="primary"
-              @click="onPromoteSbFreeReferenceImage(videoParamsTarget, item)"
+              :aria-label="`将${item.name || ('自由参考图 ' + (index + 1))}设为主参考`" @click="onPromoteSbFreeReferenceImage(videoParamsTarget, item)"
             >
               设为主参考
             </el-button>
@@ -38,7 +38,7 @@
               size="small"
               link
               type="danger"
-              @click="onRemoveSbFreeReferenceImage(videoParamsTarget, index)"
+              :aria-label="`移除${item.name || ('自由参考图 ' + (index + 1))}`" @click="onRemoveSbFreeReferenceImage(videoParamsTarget, index)"
             >
               移除
             </el-button>

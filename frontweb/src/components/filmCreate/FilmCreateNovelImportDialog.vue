@@ -52,14 +52,14 @@
       <el-button
         :disabled="Boolean(cancelDisabledReason)"
         :title="cancelDisabledReason || undefined"
-        @click="requestClose"
+        aria-label="取消导入小说" @click="requestClose"
       >取消</el-button>
       <el-button
         type="primary"
         :loading="importing || fileReading || confirming"
         :disabled="Boolean(importDisabledReason)"
         :title="importDisabledReason || undefined"
-        @click="handleImport"
+        :aria-label="importDisabledReason || (importing || fileReading || confirming ? '正在导入小说，请稍候' : '开始导入')" @click="handleImport"
       >开始导入</el-button>
     </template>
   </AccessibleDialog>

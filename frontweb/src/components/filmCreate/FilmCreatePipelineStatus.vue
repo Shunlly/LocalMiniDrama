@@ -7,9 +7,9 @@
     <div class="pipeline-countdown-body">
       <p class="pipeline-countdown-msg">{{ countdownMessage }}</p>
       <div class="pipeline-countdown-actions">
-        <el-button size="small" type="success" @click="$emit('skip-countdown')">立即开始下一阶段</el-button>
+        <el-button size="small" type="success" aria-label="立即开始下一阶段" @click="$emit('skip-countdown')">立即开始下一阶段</el-button>
         <ActionGate v-if="!paused" label="暂停倒计时" :reason="pauseDisabledReason">
-          <el-button size="small" type="warning" :disabled="Boolean(pauseDisabledReason)" :title="pauseDisabledReason || undefined" @click="$emit('pause')">暂停倒计时</el-button>
+          <el-button size="small" type="warning" :disabled="Boolean(pauseDisabledReason)" :title="pauseDisabledReason || undefined" :aria-label="pauseDisabledReason || '暂停倒计时'" @click="$emit('pause')">暂停倒计时</el-button>
         </ActionGate>
         <span v-else class="pipeline-countdown-paused">已暂停，点击“继续”恢复</span>
       </div>
@@ -26,7 +26,7 @@
       [{{ entry.step }}] {{ entry.message }}
     </div>
     <ActionGate v-if="!running" label="重试全流程" :reason="retryDisabledReason">
-      <el-button type="primary" :disabled="Boolean(retryDisabledReason) || starting" :title="retryDisabledReason || (starting ? '正在启动全流程，请稍候' : undefined)" @click="$emit('start-one-click')">
+      <el-button type="primary" :disabled="Boolean(retryDisabledReason) || starting" :title="retryDisabledReason || (starting ? '正在启动全流程，请稍候' : undefined)" :aria-label="retryDisabledReason || (starting ? '正在启动全流程，请稍候' : '重试全流程')" @click="$emit('start-one-click')">
         重试全流程
       </el-button>
     </ActionGate>

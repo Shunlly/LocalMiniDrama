@@ -58,7 +58,7 @@
           :disabled="Boolean(episodeActionDisabledReason)"
           :loading="exportingStoryboardSheet"
           :title="exportingStoryboardSheet ? '正在导出分镜表，请稍候' : (episodeActionDisabledReason || undefined)"
-          @click="onExportStoryboardSheet"
+          :aria-label="exportingStoryboardSheet ? '正在导出分镜表，请稍候' : (episodeActionDisabledReason || '导出分镜表')" @click="onExportStoryboardSheet"
         >
           导出分镜表
         </el-button>
@@ -71,7 +71,7 @@
           type="primary"
           :disabled="Boolean(episodeActionDisabledReason)"
           :title="episodeActionDisabledReason || undefined"
-          @click="onExportNarrationSrt"
+          :aria-label="episodeActionDisabledReason || '导出解说 SRT'" @click="onExportNarrationSrt"
         >
           导出解说 SRT
         </el-button>
@@ -87,6 +87,7 @@
             type="primary"
             size="large"
             :loading="storyboardGenerating || universalOmniPolishRunning"
+            :aria-label="storyboardGenerating || universalOmniPolishRunning ? '正在生成分镜，请稍候' : (storyboardActionDisabledReason || (storyboards.length > 0 ? '重新生成分镜' : 'AI 生成分镜'))"
             :disabled="Boolean(storyboardActionDisabledReason)"
             :title="storyboardGenerating || universalOmniPolishRunning ? '正在生成分镜，请稍候' : (storyboardActionDisabledReason || undefined)"
             @click="onGenerateStoryboard"
@@ -95,7 +96,7 @@
           </el-button>
         </ActionGate>
         <ActionGate :reason="episodeActionDisabledReason" label="添加一个分镜">
-          <el-button type="info" plain size="large" :disabled="Boolean(episodeActionDisabledReason)" :title="episodeActionDisabledReason || undefined" @click="onAddSingleStoryboard">
+          <el-button type="info" plain size="large" :disabled="Boolean(episodeActionDisabledReason)" :title="episodeActionDisabledReason || undefined" :aria-label="episodeActionDisabledReason || '添加一个分镜'" @click="onAddSingleStoryboard">
             添加一个分镜
           </el-button>
         </ActionGate>
@@ -110,7 +111,7 @@
               :loading="batchImageRunning"
               :disabled="Boolean(batchActionDisabledReason)"
               :title="batchImageRunning ? '正在批量生成分镜图，请稍候' : (batchActionDisabledReason || undefined)"
-              @click="startBatchImageGeneration"
+              :aria-label="batchImageRunning ? '正在批量生成分镜图，请稍候' : (batchActionDisabledReason || '批量生成分镜图')" @click="startBatchImageGeneration"
             >
               批量生成分镜图
             </el-button>
@@ -123,13 +124,13 @@
               :loading="batchVideoRunning"
               :disabled="Boolean(batchVideoActionDisabledReason)"
               :title="batchVideoRunning ? '正在批量生成分镜视频，请稍候' : (batchVideoActionDisabledReason || undefined)"
-              @click="startBatchVideoGeneration"
+              :aria-label="batchVideoRunning ? '正在批量生成分镜视频，请稍候' : (batchVideoActionDisabledReason || '批量生成分镜视频')" @click="startBatchVideoGeneration"
             >
               批量生成分镜视频
             </el-button>
           </ActionGate>
-          <el-button v-if="batchImageRunning" size="large" type="danger" plain @click="batchImageStopping = true">停止图片</el-button>
-          <el-button v-if="batchVideoRunning" size="large" type="danger" plain @click="batchVideoStopping = true">停止视频</el-button>
+          <el-button v-if="batchImageRunning" size="large" type="danger" plain aria-label="停止批量生成图片" @click="batchImageStopping = true">停止图片</el-button>
+          <el-button v-if="batchVideoRunning" size="large" type="danger" plain aria-label="停止批量生成视频" @click="batchVideoStopping = true">停止视频</el-button>
         </div>
         <div v-if="videoCapabilityReason" class="batch-video-capability" role="alert">
           <span>{{ videoCapabilityReason }}</span>

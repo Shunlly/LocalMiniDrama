@@ -155,7 +155,7 @@
   </div>
   <div v-if="!storyboardUseFirstLastFrame" class="sb-prompt-row">
     <span class="sb-prompt-text">{{ sb.image_prompt || '暂无图片提示词' }}</span>
-    <el-button size="small" link type="primary" @click="onOpenSbPromptDialog(sb)">编辑</el-button>
+    <el-button size="small" link type="primary" :aria-label="`编辑分镜${sb.storyboard_number}提示词`" @click="onOpenSbPromptDialog(sb)">编辑</el-button>
   </div>
   <template v-if="storyboardIncludeNarration || (sbNarration[sb.id] || '').trim() || (sb.narration || '').trim()">
     <div class="sb-prompt-label">
@@ -178,7 +178,7 @@
           :loading="ttsSbNarrationIds.has(sb.id)"
           :disabled="Boolean(ttsGenerationDisabledReason(sb.id, 'narration'))"
           :title="ttsSbNarrationIds.has(sb.id) ? '正在生成解说配音，请稍候' : (ttsGenerationDisabledReason(sb.id, 'narration') || undefined)"
-          @click="onTtsSbNarration(sb)"
+          :aria-label="ttsSbNarrationIds.has(sb.id) ? '正在生成解说配音，请稍候' : (ttsGenerationDisabledReason(sb.id, 'narration') || `生成分镜${sb.storyboard_number}解说配音`)" @click="onTtsSbNarration(sb)"
         >
           解说配音
         </el-button>

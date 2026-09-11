@@ -26,9 +26,9 @@
       />
     </div>
     <template #footer>
-      <el-button @click="showFramePromptEditor = false">关闭</el-button>
-      <el-button :loading="editingFramePromptRegenerating" :title="editingFramePromptRegenerating ? '正在重新生成提示词，请稍候' : undefined" @click="regenerateEditingFramePrompt">重新生成</el-button>
-      <el-button type="primary" :loading="editingFramePromptSaving" :title="editingFramePromptSaving ? '正在保存提示词，请稍候' : undefined" @click="saveEditingFramePrompt">保存</el-button>
+      <el-button aria-label="关闭帧提示词" @click="showFramePromptEditor = false">关闭</el-button>
+      <el-button :loading="editingFramePromptRegenerating" :title="editingFramePromptRegenerating ? '正在重新生成提示词，请稍候' : undefined" :aria-label="editingFramePromptRegenerating ? '正在重新生成提示词，请稍候' : '重新生成帧提示词'" @click="regenerateEditingFramePrompt">重新生成</el-button>
+      <el-button type="primary" :loading="editingFramePromptSaving" :title="editingFramePromptSaving ? '正在保存提示词，请稍候' : undefined" :aria-label="editingFramePromptSaving ? '正在保存提示词，请稍候' : '保存帧提示词'" @click="saveEditingFramePrompt">保存</el-button>
     </template>
   </AccessibleDialog>
 </template>

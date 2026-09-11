@@ -35,7 +35,7 @@
     <div v-if="sbTruncatedWarning && !sbTruncatedDismissed && storyboards.length > 0" class="sb-truncated-warning">
       <el-icon><WarningFilled /></el-icon>
       <span>检测到分镜可能不完整（AI 输出被截断），请确认分镜数量是否符合预期，必要时可重新生成。</span>
-      <el-button size="small" text @click="sbTruncatedDismissed = true">关闭</el-button>
+      <el-button size="small" text aria-label="关闭分镜截断提示" @click="sbTruncatedDismissed = true">关闭</el-button>
     </div>
   </div>
 </template>
