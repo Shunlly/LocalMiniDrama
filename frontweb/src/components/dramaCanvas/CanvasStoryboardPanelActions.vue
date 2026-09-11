@@ -35,8 +35,8 @@
       >生视频</el-button>
     </CanvasActionGate>
     <CanvasActionGate
-      :reason="ttsAction.reason"
-      label="生成单镜配音"
+      :reason="audioActionDisabledReason"
+      label="生成对白配音"
       :description-id="ttsReasonId"
       :config-service-type="ttsAction.serviceType"
     >
@@ -46,8 +46,23 @@
         :loading="busyStep === 'audio'"
         :disabled="Boolean(audioActionDisabledReason)"
         :title="audioActionDisabledReason || undefined"
-        :aria-label="busyStep === 'audio' ? '正在生成配音，请稍候' : (audioActionDisabledReason || '生成配音')" @click.stop="runStep('audio')"
+        :aria-label="busyStep === 'audio' ? '正在生成对白配音，请稍候' : (audioActionDisabledReason || '生成对白配音')" @click.stop="runStep('audio')"
       >配音</el-button>
+    </CanvasActionGate>
+    <CanvasActionGate
+      :reason="narrationActionDisabledReason"
+      label="生成旁白配音"
+      :description-id="ttsNarrationReasonId"
+      :config-service-type="ttsAction.serviceType"
+    >
+      <el-button
+        size="small"
+        type="warning"
+        :loading="busyStep === 'narration-audio'"
+        :disabled="Boolean(narrationActionDisabledReason)"
+        :title="narrationActionDisabledReason || undefined"
+        :aria-label="busyStep === 'narration-audio' ? '正在生成旁白配音，请稍候' : (narrationActionDisabledReason || '生成旁白配音')" @click.stop="runStep('narration-audio')"
+      >旁白</el-button>
     </CanvasActionGate>
     <el-button
       size="small"
@@ -93,6 +108,8 @@ const props = defineProps({
   videoReasonId: { type: String, required: true },
   ttsReasonId: { type: String, required: true },
   audioActionDisabledReason: { type: String, default: '' },
+  narrationActionDisabledReason: { type: String, default: '' },
+  ttsNarrationReasonId: { type: String, default: '' },
   saveFields: { type: Function, required: true },
   polishPrompt: { type: Function, required: true },
   runUniversalPrompt: { type: Function, required: true },

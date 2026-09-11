@@ -264,6 +264,7 @@ test('操作栏经典模式可生图，首尾帧模式露出生成首帧/尾帧�
     assert.match(text, /生图/)
     assert.match(text, /生视频/)
     assert.match(text, /配音/)
+    assert.match(text, /旁白/)
     assert.match(text, /删除/)
     assert.match(text, /上移/)
     assert.match(text, /下移/)

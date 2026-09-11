@@ -113,7 +113,7 @@
         <div v-else-if="!busy" class="preview-empty">暂无配音</div>
         <CanvasActionGate
           :reason="ttsAction.reason"
-          label="重新生成单镜配音"
+          :label="audioType === 'narration' ? '重新生成旁白配音' : '重新生成对白配音'"
           :description-id="ttsReasonId"
           :config-service-type="ttsAction.serviceType"
         >
@@ -123,8 +123,8 @@
             :loading="busy"
             :disabled="Boolean(audioActionDisabledReason)"
             :title="audioActionDisabledReason || undefined"
-            :aria-label="busy ? '正在配音' : (audioActionDisabledReason || '重新配音')" @click.stop="runStep('audio')"
-          >重新配音</el-button>
+            :aria-label="busy ? (audioType === 'narration' ? '正在生成旁白配音' : '正在生成对白配音') : (audioActionDisabledReason || (audioType === 'narration' ? '重新生成旁白配音' : '重新生成对白配音'))" @click.stop="runStep('audio')"
+          >{{ audioType === 'narration' ? '旁白配音' : '对白配音' }}</el-button>
         </CanvasActionGate>
       </template>
     </div>

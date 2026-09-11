@@ -167,7 +167,7 @@ test('both single-node generation panels register one cancellable run and forwar
     assert.match(source, /runVideoStep\([\s\S]*?\{ signal: generationRun\.signal \}/)
     assert.match(source, name === 'CanvasMediaPanel'
       ? /runAudioStep\([\s\S]*?kind: props\.audioType === 'narration' \? 'narration' : 'dialogue'/
-      : /runAudioStep\([\s\S]*?kind: 'all'/)
+      : /runAudioStep\([\s\S]*?kind: step === 'narration-audio' \? 'narration' : 'dialogue'/)
     assert.match(source, /onBeforeUnmount\([\s\S]*?generationRun\?\.abort/)
     assert.match(source, /audioOutcomeUnknown/)
     assert.match(name === 'CanvasStoryboardPanel' ? storyboardPanelHeaderSource : source, /刷新分镜状态/)

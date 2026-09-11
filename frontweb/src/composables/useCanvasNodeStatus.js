@@ -38,6 +38,7 @@ export const CANVAS_NODE_STATUS_LABELS = {
   'last-frame': '生成尾帧',
   video: '生视频中',
   audio: '配音中',
+  'narration-audio': '旁白配音中',
   polish: '润色中',
   save: '保存中',
   ref_image: '生成参考图',

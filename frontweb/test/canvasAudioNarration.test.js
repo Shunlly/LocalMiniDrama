@@ -69,10 +69,14 @@ test('drama canvas graph renders a narration audio node without replacing dialog
   assert.match(String(narration.data.url || ''), /narration/)
 })
 
-test('storyboard panel generates all tracks while media panel regenerates the selected track', () => {
+test('storyboard panel generates dialogue and narration on separate buttons', () => {
   const storyboard = read('../src/components/dramaCanvas/CanvasStoryboardPanel.vue')
+  const actions = read('../src/components/dramaCanvas/CanvasStoryboardPanelActions.vue')
   const media = read('../src/components/dramaCanvas/CanvasMediaPanel.vue')
-  assert.match(storyboard, /runAudioStep\(sb, \{ signal: generationRun\.signal, kind: 'all' \}\)/)
+  assert.match(storyboard, /kind: step === 'narration-audio' \? 'narration' : 'dialogue'/)
+  assert.match(actions, /runStep\('audio'\)/)
+  assert.match(actions, /runStep\('narration-audio'\)/)
+  assert.match(actions, />旁白</)
   assert.match(media, /kind: props\.audioType === 'narration' \? 'narration' : 'dialogue'/)
 })
 

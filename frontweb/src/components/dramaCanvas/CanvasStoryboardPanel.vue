@@ -70,7 +70,9 @@
       :tts-action="ttsAction"
       :video-reason-id="videoReasonId"
       :tts-reason-id="ttsReasonId"
+      :tts-narration-reason-id="ttsNarrationReasonId"
       :audio-action-disabled-reason="audioActionDisabledReason"
+      :narration-action-disabled-reason="narrationActionDisabledReason"
       :save-fields="saveFields"
       :polish-prompt="polishPrompt"
       :run-universal-prompt="runUniversalPrompt"
@@ -168,9 +170,16 @@ const videoAction = computed(() => ctx?.productionActions?.value?.video || unava
 const ttsAction = computed(() => ctx?.productionActions?.value?.tts || unavailableProductionAction)
 const videoReasonId = computed(() => `canvas-storyboard-video-reason-${props.storyboard?.id || 'unknown'}`)
 const ttsReasonId = computed(() => `canvas-storyboard-tts-reason-${props.storyboard?.id || 'unknown'}`)
+const ttsNarrationReasonId = computed(() => `canvas-storyboard-tts-narration-reason-${props.storyboard?.id || 'unknown'}`)
 const audioActionDisabledReason = computed(() => (
   ttsAction.value.reason
   || (audioOutcomeUnknown.value ? '请先刷新分镜状态，确认上一次配音结果后再重试' : '')
+  || (String(form.dialogue || '').trim() ? '' : '当前分镜没有对白')
+))
+const narrationActionDisabledReason = computed(() => (
+  ttsAction.value.reason
+  || (audioOutcomeUnknown.value ? '请先刷新分镜状态，确认上一次配音结果后再重试' : '')
+  || (String(form.narration || '').trim() ? '' : '当前分镜没有解说旁白')
 ))
 
 function storyboardControlLabel(control) {
@@ -324,11 +333,11 @@ function onSelectVisibleChange(open) {
 
 async function confirmStoryboardLeave() {
   if (!hasPendingStoryboardWork.value) return true
-  const billableGenerationActive = ['image', 'video', 'audio'].includes(busyStep.value)
+  const billableGenerationActive = ['image', 'video', 'audio', 'narration-audio'].includes(busyStep.value)
     && ctx?.hasNodeGeneration?.()
   const universalBusy = busyStep.value === 'universal-generate' || busyStep.value === 'universal-polish'
   if (universalBusy) abortUniversalPrompt()
-  if (saving.value || uploadingReference.value || (busyStep.value && !['image', 'video', 'audio'].includes(busyStep.value) && !universalBusy) || billableGenerationActive) {
+  if (saving.value || uploadingReference.value || (busyStep.value && !['image', 'video', 'audio', 'narration-audio'].includes(busyStep.value) && !universalBusy) || billableGenerationActive) {
     ElMessage.warning('分镜正在保存或生成，请完成后再离开。')
     return false
   }
@@ -695,7 +704,7 @@ async function runStep(step) {
   const drama = ctx?.drama?.value
   const sbId = props.storyboard?.id
   if (!drama || !sbId) return
-  if (step === 'video' || step === 'audio') {
+  if (step === 'video' || step === 'audio' || step === 'narration-audio') {
     const allowed = ctx?.ensureProductionStepReady?.(step)
     if (allowed !== true) {
       if (allowed == null) ElMessage.warning('无法确认正式制作能力，请刷新后重试。')
@@ -703,11 +712,11 @@ async function runStep(step) {
     }
   }
 
-  if (step === 'audio' && hasUnsavedDraft.value) {
+  if ((step === 'audio' || step === 'narration-audio') && hasUnsavedDraft.value) {
     ElMessage.warning('请先保存当前分镜修改，再生成配音。')
     return
   }
-  if (step === 'audio' && audioOutcomeUnknown.value) {
+  if ((step === 'audio' || step === 'narration-audio') && audioOutcomeUnknown.value) {
     ElMessage.warning('请先刷新分镜状态，确认上一次配音结果后再重试')
     return
   }
@@ -720,7 +729,7 @@ async function runStep(step) {
   if (step === 'last-frame') ctx?.nodeStatus?.set(`sbimg-last:${sbId}`, { step, message: statusMsg })
   if (step === 'video') ctx?.nodeStatus?.set(`sbvid:${sbId}`, { step, message: statusMsg })
   try {
-    if (step !== 'audio') {
+    if (step !== 'audio' && step !== 'narration-audio') {
       const draftSnapshot = currentDraftValue()
       const snapshotFingerprint = createStoryboardDraftFingerprint(draftSnapshot)
       await persistForm(true, draftSnapshot)
@@ -747,8 +756,8 @@ async function runStep(step) {
       })
     }
     else if (step === 'video') await runVideoStep(drama, sb, genOpts, { signal: generationRun.signal })
-    else if (step === 'audio') {
-      const res = await runAudioStep(sb, { signal: generationRun.signal, kind: 'all' })
+    else if (step === 'audio' || step === 'narration-audio') {
+      const res = await runAudioStep(sb, { signal: generationRun.signal, kind: step === 'narration-audio' ? 'narration' : 'dialogue' })
       if (res?.skipped) {
         ElMessage.info(canvasUserError(res.reason, '已跳过'))
         return
