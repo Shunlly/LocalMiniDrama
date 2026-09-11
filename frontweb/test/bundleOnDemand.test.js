@@ -1,12 +1,21 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { readdirSync, readFileSync, statSync } from 'node:fs'
+import { createRequire } from 'node:module'
+import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
   buildElementPlusComponentMap,
+  getElementPlusStyleSideEffects,
   parseElementPlusIconModules,
   rewriteElementPlusBarrelImports,
 } from '../scripts/elementPlusOnDemand.js'
+
+const require = createRequire(import.meta.url)
+const {
+  findLeakedUnusedElementPlusCss,
+  UNUSED_ELEMENT_PLUS_CSS,
+} = require('../scripts/check-bundle-budget.cjs')
 
 const componentsRoot = fileURLToPath(new URL('../node_modules/element-plus/es/components/', import.meta.url))
 const iconsIndex = readFileSync(new URL('../node_modules/@element-plus/icons-vue/dist/index.js', import.meta.url), 'utf8')
@@ -51,4 +60,72 @@ test('图标包可以拆成独立模块', () => {
   assert.match(modules.get('MagicStick'), /name: "MagicStick"/)
   assert.match(modules.get('Watermelon'), /name: "Watermelon"/)
   assert.doesNotMatch(modules.get('Close'), /name: "Watermelon"/)
+})
+
+test('element-plus/es barrel 也会改写成按需入口', () => {
+  const rewritten = rewriteElementPlusBarrelImports(
+    'import { ElDialog } from "element-plus/es"\n',
+    componentMap,
+    componentsRoot,
+  )
+  assert.match(rewritten, /element-plus\/es\/components\/dialog\/index\.mjs/)
+  assert.match(rewritten, /element-plus\/es\/components\/dialog\/style\/css/)
+  assert.doesNotMatch(rewritten, /from "element-plus\/es"/)
+})
+
+test('组件样式副作用只引入当前组件 css，不引入全量 theme-chalk', () => {
+  const sideEffects = getElementPlusStyleSideEffects('dialog', componentsRoot)
+  assert.deepEqual(sideEffects, [
+    'element-plus/es/components/base/style/css',
+    'element-plus/es/components/dialog/style/css',
+  ])
+  assert.ok(!sideEffects.join('\n').includes('theme-chalk/index'))
+  assert.ok(!sideEffects.join('\n').includes('element-plus/dist'))
+})
+
+function listAppSourceFiles(dir) {
+  const files = []
+  for (const name of readdirSync(dir)) {
+    const fullPath = path.join(dir, name)
+    if (statSync(fullPath).isDirectory()) {
+      files.push(...listAppSourceFiles(fullPath))
+      continue
+    }
+    if (/\.(?:js|vue|css)$/.test(name)) files.push(fullPath)
+  }
+  return files
+}
+
+test('业务源码不再全量引入 Element Plus 组件或 CSS', () => {
+  const srcRoot = fileURLToPath(new URL('../src/', import.meta.url))
+  const forbidden = [
+    /from\s*['"]element-plus(?:\/es)?['"]/,
+    /import\s*\(\s*['"]element-plus(?:\/es)?['"]/,
+    /element-plus\/dist/,
+    /element-plus\/theme-chalk\/index/,
+    /app\.use\(\s*ElementPlus/,
+    /import\s+ElementPlus\b/,
+    /import\s+\*\s+as\s+\w+\s+from\s*['"]@element-plus\/icons-vue['"]/,
+  ]
+  const hits = []
+  for (const file of listAppSourceFiles(srcRoot)) {
+    const source = readFileSync(file, 'utf8')
+    for (const [index, line] of source.split(/\r?\n/).entries()) {
+      if (forbidden.some((pattern) => pattern.test(line))) {
+        hits.push(`${path.relative(srcRoot, file)}:${index + 1}:${line.trim()}`)
+      }
+    }
+  }
+  assert.deepEqual(hits, [])
+})
+
+test('全量 Element Plus CSS 会被预算检查拦住', () => {
+  const fullCss = readFileSync(new URL('../node_modules/element-plus/dist/index.css', import.meta.url), 'utf8')
+  assert.deepEqual(
+    [...findLeakedUnusedElementPlusCss(fullCss)].sort(),
+    [...UNUSED_ELEMENT_PLUS_CSS].sort(),
+  )
+  assert.deepEqual(findLeakedUnusedElementPlusCss('.el-dialog{}.el-button{}.el-overlay{}'), [])
+  const themeCss = readFileSync(new URL('../src/styles/theme.css', import.meta.url), 'utf8')
+  assert.deepEqual(findLeakedUnusedElementPlusCss(themeCss), [])
 })

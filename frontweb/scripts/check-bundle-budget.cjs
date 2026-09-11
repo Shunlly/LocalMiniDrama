@@ -19,6 +19,20 @@ const UNUSED_ICON_ASSETS = Object.freeze([
   'Baseball',
 ])
 
+// 业务未使用的组件类名。全量 theme-chalk / dist/index.css 会带上它们。
+const UNUSED_ELEMENT_PLUS_CSS = Object.freeze([
+  'el-calendar',
+  'el-cascader',
+  'el-color-picker',
+  'el-transfer',
+  'el-tour',
+])
+
+function findLeakedUnusedElementPlusCss(cssText) {
+  const source = String(cssText || '')
+  return UNUSED_ELEMENT_PLUS_CSS.filter((name) => source.includes(`.${name}`))
+}
+
 function gzipSize(relativePath) {
   const absolutePath = path.join(DIST_ROOT, relativePath)
   return zlib.gzipSync(fs.readFileSync(absolutePath), { level: 9 }).length
@@ -85,6 +99,14 @@ function verifyBundleBudget(manifest) {
   if (leakedInitialIconChunks.length) {
     failures.push(`initial JavaScript still includes on-demand icon chunks: ${leakedInitialIconChunks.join(', ')}`)
   }
+  const cssText = assetNames
+    .filter((name) => name.endsWith('.css'))
+    .map((name) => fs.readFileSync(path.join(DIST_ROOT, 'assets', name), 'utf8'))
+    .join('\n')
+  const leakedUnusedCss = findLeakedUnusedElementPlusCss(cssText)
+  if (leakedUnusedCss.length) {
+    failures.push(`unused Element Plus CSS still emitted: ${leakedUnusedCss.join(', ')}`)
+  }
 
   if (failures.length) throw new Error(`Bundle budget exceeded:\n- ${failures.join('\n- ')}`)
 
@@ -92,6 +114,7 @@ function verifyBundleBudget(manifest) {
     initialJavaScriptGzip,
     initialCssGzip,
     leakedUnusedIcons,
+    leakedUnusedCss,
     largestAsyncChunkGzip: Math.max(0, ...Object.entries(manifest)
       .filter(([key, item]) => item.file?.endsWith('.js') && !initialKeys.has(key))
       .map(([, item]) => gzipSize(item.file))),
@@ -106,6 +129,6 @@ function main() {
   console.log(JSON.stringify({ bundle_budget: 'passed', ...result }))
 }
 
-module.exports = { BUDGETS, collectInitialEntries, verifyBundleBudget }
+module.exports = { BUDGETS, collectInitialEntries, verifyBundleBudget, findLeakedUnusedElementPlusCss, UNUSED_ELEMENT_PLUS_CSS }
 
 if (require.main === module) main()
