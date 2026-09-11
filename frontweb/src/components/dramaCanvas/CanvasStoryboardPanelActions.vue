@@ -49,15 +49,40 @@
         :aria-label="busyStep === 'audio' ? '正在生成配音，请稍候' : (audioActionDisabledReason || '生成配音')" @click.stop="runStep('audio')"
       >配音</el-button>
     </CanvasActionGate>
+    <el-button
+      size="small"
+      :disabled="!canMoveUp || Boolean(reorderDisabledReason)"
+      :loading="reorderBusy"
+      :title="moveUpTitle"
+      :aria-label="moveUpTitle"
+      @click.stop="moveStoryboardUp"
+    >上移</el-button>
+    <el-button
+      size="small"
+      :disabled="!canMoveDown || Boolean(reorderDisabledReason)"
+      :loading="reorderBusy"
+      :title="moveDownTitle"
+      :aria-label="moveDownTitle"
+      @click.stop="moveStoryboardDown"
+    >下移</el-button>
+    <el-button
+      size="small"
+      :disabled="Boolean(reorderDisabledReason)"
+      :loading="reorderBusy"
+      :title="insertTitle"
+      :aria-label="insertTitle"
+      @click.stop="insertStoryboardBefore"
+    >前插</el-button>
     <el-button size="small" type="danger" plain aria-label="删除分镜" @click.stop="deleteStoryboard">删除</el-button>
   </div>
 </template>
 
 <script setup>
+import { computed } from 'vue'
 import { MagicStick, Refresh } from '@element-plus/icons-vue'
 import CanvasActionGate from './CanvasActionGate.vue'
 
-defineProps({
+const props = defineProps({
   saving: { type: Boolean, default: false },
   busyStep: { type: String, default: '' },
   isUniversal: { type: Boolean, default: false },
@@ -73,7 +98,26 @@ defineProps({
   runUniversalPrompt: { type: Function, required: true },
   runStep: { type: Function, required: true },
   deleteStoryboard: { type: Function, required: true },
+  canMoveUp: { type: Boolean, default: false },
+  canMoveDown: { type: Boolean, default: false },
+  reorderBusy: { type: Boolean, default: false },
+  reorderDisabledReason: { type: String, default: '' },
+  moveStoryboardUp: { type: Function, default: () => {} },
+  moveStoryboardDown: { type: Function, default: () => {} },
+  insertStoryboardBefore: { type: Function, default: () => {} },
 })
+
+const moveUpTitle = computed(() => {
+  if (props.reorderDisabledReason) return props.reorderDisabledReason
+  if (!props.canMoveUp) return '已经是本集第一条分镜'
+  return '上移分镜'
+})
+const moveDownTitle = computed(() => {
+  if (props.reorderDisabledReason) return props.reorderDisabledReason
+  if (!props.canMoveDown) return '已经是本集最后一条分镜'
+  return '下移分镜'
+})
+const insertTitle = computed(() => props.reorderDisabledReason || '在此分镜前插入空白分镜')
 </script>
 
 <style scoped>

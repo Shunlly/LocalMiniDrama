@@ -76,6 +76,13 @@
       :run-universal-prompt="runUniversalPrompt"
       :run-step="runStep"
       :delete-storyboard="deleteStoryboard"
+      :can-move-up="canMoveStoryboardUp"
+      :can-move-down="canMoveStoryboardDown"
+      :reorder-busy="reorderBusy"
+      :reorder-disabled-reason="reorderDisabledReason"
+      :move-storyboard-up="moveStoryboardUp"
+      :move-storyboard-down="moveStoryboardDown"
+      :insert-storyboard-before="insertStoryboardBefore"
     />
   </div>
 </template>
@@ -95,6 +102,7 @@ import {
 } from '@/utils/canvasEntityIds'
 import { runImageStep, runFrameImageStep, runVideoStep, runAudioStep } from '@/composables/useCanvasWorkflowRunner'
 import { findStoryboardInDrama, getDramaGenerationOptions } from '@/utils/canvasWorkflow'
+import { runStoryboardReorder } from '@/composables/filmCreate/useFilmCreateStoryboardReorder.js'
 import { collectStoryboardReferenceSlots } from '@/utils/storyboardVideoRequest'
 import { assetImageUrl } from '@/utils/mediaUrl'
 import { buildCanvasReferenceDisplaySlots } from '@/composables/useCanvasReferenceDisplay'
@@ -121,6 +129,7 @@ const saving = ref(false)
 const busyStep = ref('')
 const uploadingReference = ref(false)
 const audioOutcomeUnknown = ref(false)
+const reorderBusy = ref(false)
 const characterIds = ref([])
 const sceneId = ref(null)
 const propIds = ref([])
@@ -446,6 +455,84 @@ async function saveFields() {
   } finally {
     saving.value = false
     if (!busyStep.value) ctx?.nodeStatus?.clear(sbNodeId.value)
+  }
+}
+
+function episodeStoryboards() {
+  const id = String(props.storyboard?.id ?? '')
+  for (const episode of ctx?.drama?.value?.episodes || []) {
+    const list = episode.storyboards || []
+    if (list.some((item) => String(item.id) === id)) return list
+  }
+  return []
+}
+
+const storyboardIndex = computed(() => (
+  episodeStoryboards().findIndex((item) => String(item.id) === String(props.storyboard?.id))
+))
+const canMoveStoryboardUp = computed(() => storyboardIndex.value > 0)
+const canMoveStoryboardDown = computed(() => {
+  const list = episodeStoryboards()
+  return storyboardIndex.value >= 0 && storyboardIndex.value < list.length - 1
+})
+const reorderDisabledReason = computed(() => {
+  if (saving.value || busyStep.value || reorderBusy.value || uploadingReference.value) {
+    return '分镜忙碌时不能调整顺序'
+  }
+  if (hasUnsavedDraft.value) return '请先保存当前分镜修改，再调整顺序'
+  return ''
+})
+
+async function moveStoryboardByOffset(offset) {
+  const blocked = reorderDisabledReason.value
+  if (blocked) {
+    ElMessage.warning(blocked)
+    return
+  }
+  const list = episodeStoryboards()
+  const fromIndex = storyboardIndex.value
+  const toIndex = fromIndex + offset
+  if (fromIndex < 0 || toIndex < 0 || toIndex >= list.length) return
+  reorderBusy.value = true
+  try {
+    await runStoryboardReorder({ list, fromIndex, toIndex, storyboardsAPI })
+    ElMessage.success(offset < 0 ? '已上移分镜' : '已下移分镜')
+    await ctx?.refresh?.()
+  } catch (error) {
+    if (isCanvasUserAbort(error)) return
+    ElMessage.error(canvasUserError(error, '调整分镜顺序失败'))
+  } finally {
+    reorderBusy.value = false
+  }
+}
+
+function moveStoryboardUp() {
+  return moveStoryboardByOffset(-1)
+}
+
+function moveStoryboardDown() {
+  return moveStoryboardByOffset(1)
+}
+
+async function insertStoryboardBefore() {
+  if (!props.storyboard?.id) return
+  const blocked = reorderDisabledReason.value
+  if (blocked) {
+    ElMessage.warning(blocked)
+    return
+  }
+  reorderBusy.value = true
+  try {
+    const created = await storyboardsAPI.insertBefore(props.storyboard.id)
+    ElMessage.success('已在此位置前插入空白分镜')
+    await ctx?.refresh?.()
+    const createdId = created?.id ?? created?.data?.id
+    if (createdId) await ctx?.setFocusedNode?.(`sb:${createdId}`)
+  } catch (error) {
+    if (isCanvasUserAbort(error)) return
+    ElMessage.error(canvasUserError(error, '插入分镜失败'))
+  } finally {
+    reorderBusy.value = false
   }
 }
 

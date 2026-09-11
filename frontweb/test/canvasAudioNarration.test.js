@@ -85,3 +85,14 @@ test('canvas storyboard form edits and saves narration with dialogue', () => {
   assert.match(panel, /form.narration = sb\?\.narration/)
   assert.match(panel, /narration: draft.narration.trim\(\) \|\| null/)
 })
+
+test('canvas storyboard panel reuses list-mode reorder helpers for up, down and insert-before', () => {
+  const panel = read('../src/components/dramaCanvas/CanvasStoryboardPanel.vue')
+  const actions = read('../src/components/dramaCanvas/CanvasStoryboardPanelActions.vue')
+  assert.match(panel, /runStoryboardReorder/)
+  assert.match(panel, /storyboardsAPI.insertBefore/)
+  assert.match(panel, /moveStoryboardUp/)
+  assert.match(actions, />上移</)
+  assert.match(actions, />下移</)
+  assert.match(actions, />前插</)
+})

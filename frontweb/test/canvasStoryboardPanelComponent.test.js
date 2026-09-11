@@ -254,6 +254,8 @@ test('操作栏经典模式可生图，首尾帧模式露出生成首帧/尾帧�
     runUniversalPrompt: (mode) => events.push(['universal', mode]),
     runStep: (step) => events.push(['step', step]),
     deleteStoryboard: () => events.push('delete'),
+    canMoveUp: true,
+    moveStoryboardUp: () => events.push('up'),
   })
   try {
     const text = textContent(classic.root)
@@ -263,6 +265,9 @@ test('操作栏经典模式可生图，首尾帧模式露出生成首帧/尾帧�
     assert.match(text, /生视频/)
     assert.match(text, /配音/)
     assert.match(text, /删除/)
+    assert.match(text, /上移/)
+    assert.match(text, /下移/)
+    assert.match(text, /前插/)
     assert.doesNotMatch(text, /AI 分镜/)
     assert.equal(buttonByText(classic.root, '生成首帧'), undefined)
     buttonByText(classic.root, '生图').props.onClick({ stopPropagation() {} })
