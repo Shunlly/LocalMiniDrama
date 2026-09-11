@@ -57,10 +57,11 @@ const UI = Object.freeze({
   intakeStepper: '\u7d20\u6750\u5904\u7406\u6b65\u9aa4',
   workflowTitle: '\u6545\u4e8b\u7d20\u6750\u6d41\u7a0b',
   intakeStep: '\u5bfc\u5165\u7d20\u6750',
+  processStep: '\u542f\u52a8\u5904\u7406',
   draftMode: '\u8349\u7a3f\u9884\u6f14',
-  startDraft: '\u542f\u52a8\u7d20\u6750\u6d41\u7a0b',
+  startDraft: '\u4ee5\u8349\u7a3f\u9884\u6f14\u542f\u52a8',
   productionMode: '\u6b63\u5f0f\u5236\u4f5c',
-  startProduction: '\u542f\u52a8\u7d20\u6750\u6d41\u7a0b',
+  startProduction: '\u4ee5\u6b63\u5f0f\u5236\u4f5c\u542f\u52a8',
   refresh: '\u5237\u65b0\u7d20\u6750\u5904\u7406',
   timelineStep: '\u5267\u96c6 / \u65f6\u95f4\u7ebf',
   continueImport: '\u53bb\u5bfc\u5165\u7d20\u6750',
@@ -1803,13 +1804,13 @@ async function startWorkflowModeFromUi(page, dramaId, {
   for (const pattern of routePatterns) await page.route(pattern, injectProviderOptions)
 
   try {
-    await page.goto(`${FRONTEND_URL}/drama/${dramaId}`, { waitUntil: 'domcontentloaded' })
+    await page.goto(`${FRONTEND_URL}/drama/${dramaId}#source-intake-workflow`, { waitUntil: 'domcontentloaded' })
     const workflow = page.locator('#source-intake-workflow')
     await workflow.waitFor({ state: 'visible', timeout: 30000 })
     await workflow.getByText(UI.workflowTitle, { exact: true }).waitFor({ timeout: 30000 })
     await workflow.getByRole('navigation', { name: UI.intakeStepper }).waitFor({ timeout: 30000 })
     await revealWorkflowHistoryIfCompleted(workflow)
-    await flowStepButton(workflow, UI.intakeStep).click()
+    await flowStepButton(workflow, UI.processStep).click()
     const modeGroup = workflow.getByRole('radiogroup', {
       name: '\u5de5\u4f5c\u6d41\u542f\u52a8\u6a21\u5f0f',
       exact: true,
