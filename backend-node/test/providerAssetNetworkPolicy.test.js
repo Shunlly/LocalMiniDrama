@@ -200,7 +200,8 @@ test('ModelArk and Jimeng services fail closed without a complete provider netwo
     networkLookup: lookup,
   }, {});
   assert.equal(jimengResult.ok, false);
-  assert.match(jimengResult.error, /PROVIDER_NETWORK_POLICY_REQUIRED/);
+  assert.equal(jimengResult.code, 'PROVIDER_NETWORK_POLICY_REQUIRED');
+  assert.match(jimengResult.error, /使用凭据前必须提供完整的厂商网络策略/);
   assert.equal(lookupCalls, 0);
   assert.deepEqual(requests, []);
 });

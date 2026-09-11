@@ -4,11 +4,13 @@ import { readFileSync } from 'node:fs'
 
 import { createFreeCreateTaskOwner, getReferenceUploadBlockReason } from '../src/utils/freeCreate.js'
 import { hasPendingMediaLibraryOperations } from '../src/utils/mediaLibrary.js'
+import { readSourceIntakeWorkflowSources } from './helpers/sourceIntakeWorkflowSources.js'
+import { readMediaLibrarySources } from './helpers/mediaLibrarySources.js'
 
 const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8')
-const mediaLibrarySource = read('../src/views/MediaLibrary.vue')
-const freeCreateSource = read('../src/views/FreeCreate.vue')
-const sourceWorkflowSource = read('../src/components/SourceIntakeWorkflowPanel.vue')
+const mediaLibrarySource = readMediaLibrarySources()
+const freeCreateSource = [read('../src/views/FreeCreate.vue'), read('../src/composables/useFreeCreateWorkspace.js')].join('\n')
+const sourceWorkflowSource = readSourceIntakeWorkflowSources()
 
 test('media library uploads and network imports participate in route and browser leave protection', () => {
   assert.equal(hasPendingMediaLibraryOperations(false, new Set()), false)
@@ -41,14 +43,19 @@ test('FreeCreate blocks navigation while a reference image upload is in flight',
 
   assert.match(
     freeCreateSource,
-    /onBeforeRouteLeave\(async \(\) => \{[\s\S]*if \(refImageUploadStatus\.value === 'uploading'\) \{[\s\S]*ElMessage\.warning\([\s\S]*return false[\s\S]*if \(!freeCreateTaskOwner\.hasActive\(\)\) return true/,
+    /onBeforeRouteLeave\(async \(\) => \{[\s\S]*if \(refImageUploadStatus\.value === 'uploading'\) \{[\s\S]*return confirmFreeCreateLeave\(\)/,
   )
-  const uploadingIndex = freeCreateSource.indexOf("refImageUploadStatus.value === 'uploading'")
-  const taskOwnerIndex = freeCreateSource.indexOf('freeCreateTaskOwner.hasActive()')
-  assert.ok(uploadingIndex >= 0 && taskOwnerIndex > uploadingIndex)
   assert.match(
     freeCreateSource,
-    /function handleBeforeUnload\(event\) \{[\s\S]*refImageUploadStatus\.value !== 'uploading'[\s\S]*freeCreateTaskOwner\.hasActive\(\)/,
+    /async function confirmFreeCreateLeave\(\) \{[\s\S]*if \(refImageUploadStatus\.value === 'uploading'\) \{[\s\S]*ElMessage\.warning\([\s\S]*return false[\s\S]*if \(!freeCreateTaskOwner\.hasActive\(\)\) return true/,
+  )
+  const confirmStart = freeCreateSource.indexOf('async function confirmFreeCreateLeave')
+  const uploadingIndex = freeCreateSource.indexOf("refImageUploadStatus.value === 'uploading'", confirmStart)
+  const taskOwnerIndex = freeCreateSource.indexOf('freeCreateTaskOwner.hasActive()', confirmStart)
+  assert.ok(confirmStart >= 0 && uploadingIndex >= 0 && taskOwnerIndex > uploadingIndex)
+  assert.match(
+    freeCreateSource,
+    /function handleBeforeUnload\(event\) \{[\s\S]*shouldBlockFreeCreateUnload\(\{[\s\S]*uploading: refImageUploadStatus\.value === 'uploading'[\s\S]*hasActive: freeCreateTaskOwner\.hasActive\(\)/,
   )
 })
 

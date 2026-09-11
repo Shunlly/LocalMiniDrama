@@ -111,7 +111,7 @@ test('没有历史时撤销入口展示中文不可用原因，有历史才发�
     const undo = buttonByAriaLabel(enabled.root, '撤销')
     assert.ok(undo)
     assert.notEqual(undo.props.disabled, true)
-    assert.equal(undo.props.title, '撤销')
+    assert.match(String(undo.props.title), /撤销/)
     undo.props.onClick()
     assert.deepEqual(enabled.events, [['undo']])
   } finally {
@@ -135,7 +135,7 @@ test('多选删除入口文案是删除所选节点，确认框标题和按钮�
     assert.match(textContent(multi.root), /已选 2 项/)
     const remove = buttonByAriaLabel(multi.root, '删除所选节点')
     assert.ok(remove)
-    assert.equal(remove.props.title, '删除所选节点')
+    assert.match(String(remove.props.title), /删除所选节点/)
     remove.props.onClick()
     assert.deepEqual(multi.events, [['delete-selection']])
   } finally {

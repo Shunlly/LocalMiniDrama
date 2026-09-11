@@ -4,7 +4,7 @@ Vue 3 桌面 Web，覆盖项目管理、素材中心、项目就绪度、故事�
 
 **包版本：** `1.3.3`（与仓库根目录 [CHANGELOG](../CHANGELOG.md) 一致；不是 GitHub Release / tag，也没有把发版合并到 `main`。当前分支和脏工作树不能当作发布完成）
 
-当前从源码或仓库根目录 Docker 运行即可，不要按发版下载使用。前端开发端口 **3013**，代理后端 **5679**。生产 E2E 必须在干净工作树重跑（证据要求 `working_tree_dirty=false`），不要凭历史 SHA 或脏工作树宣称已通过。
+当前从源码或仓库根目录 Docker 运行即可，不要按发版下载使用。开发用 Vite，端口 **3013**，代理后端 **5679** 的 `/api`、`/static`、`/ready` 与 `/health`。生产可先 `npm run build`，由后端托管 `frontweb/dist`；Docker 生产则由 Nginx 提供静态页。生产 E2E 必须在干净工作树重跑（证据要求 `working_tree_dirty=false`），不要凭历史 SHA 或脏工作树宣称已通过。
 
 ## 主要流程
 
@@ -28,7 +28,7 @@ Vue 3 桌面 Web，覆盖项目管理、素材中心、项目就绪度、故事�
 # 安装依赖
 npm install
 
-# 开发（默认端口 3013，代理到后端 5679）
+# 开发（默认端口 3013，Vite 代理 /api /static /ready /health 到后端 5679）
 npm run dev
 
 # 构建
@@ -38,7 +38,7 @@ npm run build
 npm run verify
 ```
 
-源码前端测试、构建和统一验证使用 Node.js 20.x（不要用本机 Node 24 跑门禁）；桌面依赖安装、原生重建和打包使用 Node.js 22.12.0（`desktop/.npmrc` 启用 `engine-strict`）。请先启动 `backend-node`（如 `http://127.0.0.1:5679`），并确保 `vite.config.js` 中 proxy 的 target 与后端一致。
+源码前端测试、构建、Docker 与通用 PR/分支门禁使用 Node.js 20.x（不要用本机 Node 24 跑门禁）；桌面依赖安装、原生重建和打包使用 Node.js 22.12.0（`desktop/.npmrc` 启用 `engine-strict`）。请先启动 `backend-node`（如 `http://127.0.0.1:5679`），并确保 `vite.config.js` 中 proxy 的 target 与后端一致。构建后也可让后端托管 `frontweb/dist`，访问 `http://127.0.0.1:5679`。
 
 生产 Docker 不在本目录单独启动。仓库根目录：
 
@@ -46,7 +46,7 @@ npm run verify
 docker compose up -d --build --wait
 ```
 
-前端生产镜像见 `frontweb/Dockerfile.prod`，固定 Node.js 20，由 Nginx 提供静态页。健康检查是 `http://127.0.0.1:3013/healthz`，代理后端 `/ready`（失败信息为简体中文）。Compose **不挂载应用源码**，改完 Vue 后必须 `--build`。容器级校验从仓库根目录执行 `npm run verify:docker`。`/health` 不是前端健康检查。页面、API 与 CLI 的用户可见错误为简体中文。
+前端生产镜像见 `frontweb/Dockerfile.prod`，固定 Node.js 20，由 Nginx 提供静态页。健康检查是 `http://127.0.0.1:3013/healthz`，代理后端 `/ready`（失败信息为简体中文）。生产 Nginx 必须另有 `location = /ready`，精确代理到后端 `/ready`，并写在 SPA `location /` 之前；只代理 `/healthz` 时，备份页会把前端 HTML 当成未就绪。Compose **不 bind-mount 应用源码**，改完 Vue 后必须 `--build`。容器级校验从仓库根目录执行 `npm run verify:docker`。`/health` 不是前端健康检查。页面、API 与 CLI 的用户可见错误为简体中文。
 
 生产依赖审计必须显式使用官方 npm registry（不要用 npmmirror 的 audit，会 404）：
 

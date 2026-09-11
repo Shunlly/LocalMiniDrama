@@ -17,17 +17,7 @@ import {
 import * as sourceWorkflowController from '../src/utils/sourceImportOutcome.js'
 import { toUserFacingError, isUserFacingAbort } from '../src/utils/userFacingError.js'
 
-function readSourceIntakeWorkflowSources() {
-  const files = [
-    '../src/components/SourceIntakeWorkflowPanel.vue',
-    '../src/components/sourceIntake/SourceIntakeCompletionBanner.vue',
-    '../src/components/sourceIntake/SourceIntakeStepper.vue',
-    '../src/components/sourceIntake/SourceIntakeSourceTextPanel.vue',
-    '../src/components/sourceIntake/SourceIntakeRunRecordsPanel.vue',
-    '../src/components/sourceIntake/SourceIntakeSourceDetailDrawer.vue',
-  ]
-  return files.map((file) => readFileSync(new URL(file, import.meta.url), 'utf8')).join('\n')
-}
+import { readSourceIntakeWorkflowSources } from './helpers/sourceIntakeWorkflowSources.js'
 
 const source = readSourceIntakeWorkflowSources()
 
@@ -538,7 +528,8 @@ test('disposed source workflow lifecycle suppresses late polling and notificatio
 
   assert.equal(lifecycle.isActive(), false)
   assert.deepEqual(effects, [])
-  assert.match(source, /function startPoll\(\) \{\s*if \(!sourceWorkflowLifecycle\.isActive\(\)\)/)
+  assert.match(source, /isLifecycleActive: \(\) => sourceWorkflowLifecycle\.isActive\(\)/)
+  assert.match(source, /function startPoll\(\) \{\s*if \(!isLifecycleActive\(\)\)/)
   assert.match(source, /onBeforeUnmount\(\(\) => \{\s*sourceWorkflowLifecycle\.dispose\(\)\s*stopPoll\(\)/)
   assert.match(source, /await loadData\(\)\s*if \(!sourceWorkflowLifecycle\.isActive\(\)\) return/)
 })
@@ -738,7 +729,9 @@ test('source workflow component wires the executable controller and keeps the al
   assert.match(source, /sourceImportController\.importSource\(/)
   assert.match(source, /sourceImportController\.refreshSources\(\)/)
   assert.match(source, /role="alert"[\s\S]*?aria-live="assertive"/)
-  assert.match(source, /@click="refreshImportedSources"[\s\S]*?>\s*刷新列表\s*<\/el-button>/)
+  assert.match(source, /@refresh-imported-sources="refreshImportedSources"/)
+  assert.match(source, /@click="\$emit\('refresh-imported-sources'\)"/)
+  assert.match(source, />\s*刷新列表\s*<\/el-button>/)
   assert.match(source, /还没有 QA 结果/)
 })
 
@@ -756,12 +749,13 @@ test('source QA issues hide English technical text and keep Chinese findings', (
 })
 
 test('source intake allows PDF/image/audio/video upload and guides extraction failures to AI config', () => {
-  const source = readFileSync(new URL('../src/components/SourceIntakeWorkflowPanel.vue', import.meta.url), 'utf8')
+  const source = readSourceIntakeWorkflowSources()
   for (const extension of MEDIA_AUTO_EXTRACTION_EXTENSIONS) {
     assert.match(source, new RegExp(`['"]${extension.replace('.', '\\.')}['"]`), extension)
   }
   assert.match(source, /SOURCE_FILE_EXTENSIONS = Object\.freeze\(\[/)
-  assert.match(source, /:accept="SOURCE_FILE_ACCEPT"/)
+  assert.match(source, /:source-file-accept="SOURCE_FILE_ACCEPT"/)
+  assert.match(source, /:accept="sourceFileAccept"/)
   assert.match(source, /SOURCE_INTAKE_MEDIA_HELP/)
   assert.match(source, /TEXT_SOURCE_FILE_EXTENSIONS\.has\(extension\) && file\.size <= 2 \* 1024 \* 1024/)
   assert.match(source, /looksLikeBinaryMedia/)
@@ -847,11 +841,13 @@ test('素材流程面板拆出完成横幅、步骤条、源文本、运行记�
   assert.match(source, /from '@\/components\/sourceIntake\/SourceIntakeCompletionBanner\.vue'/)
   assert.match(source, /from '@\/components\/sourceIntake\/SourceIntakeStepper\.vue'/)
   assert.match(source, /from '@\/components\/sourceIntake\/SourceIntakeSourceTextPanel\.vue'/)
+  assert.match(source, /from '@\/components\/sourceIntake\/SourceIntakeIntakeStageForm\.vue'/)
   assert.match(source, /from '@\/components\/sourceIntake\/SourceIntakeRunRecordsPanel\.vue'/)
   assert.match(source, /from '@\/components\/sourceIntake\/SourceIntakeSourceDetailDrawer\.vue'/)
   assert.match(source, /<SourceIntakeCompletionBanner/)
   assert.match(source, /<SourceIntakeStepper/)
   assert.match(source, /<SourceIntakeSourceTextPanel v-model:text="form\.text" \/>/)
+  assert.match(source, /<SourceIntakeIntakeStageForm/)
   assert.match(source, /<SourceIntakeRunRecordsPanel/)
   assert.match(source, /<SourceIntakeSourceDetailDrawer/)
   assert.doesNotMatch(source, /from 'element-plus'/)

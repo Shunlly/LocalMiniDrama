@@ -16,14 +16,7 @@
 
     <div v-if="compactCompletionVisible" data-testid="source-workflow-complete" class="source-workflow-complete">
       <SourceIntakeCompletionBanner
-        :completion-title="completionTitle"
-        :qa-presentation="qaPresentation"
-        :completion-summary-ready="completionSummaryReady"
-        :completion-episode-count="completionEpisodeCount"
-        :timeline-summary="timelineSummary"
-        :format-duration="formatDuration"
-        :completion-placeholder-count="completionPlaceholderCount"
-        v-model:workflow-history-expanded="workflowHistoryExpanded"
+        v-bind="completionBannerBindings"
         @enter-production="$emit('enter-production')"
         @focus-episode-list="$emit('focus-episode-list')"
       />
@@ -34,8 +27,7 @@
       v-show="!compactCompletionVisible || workflowHistoryExpanded"
     >
     <SourceIntakeStepper
-      :flow-state="flowState"
-      :inspected-flow-step="inspectedFlowStep"
+      v-bind="stepperBindings"
       @select="selectFlowStep"
     />
 
@@ -52,170 +44,29 @@
     </div>
 
     <div class="workflow-focus">
-      <div class="workflow-focus-head">
-        <div class="stage-heading">
-          <span class="stage-number">{{ inspectedFlowStep.number }}</span>
-          <div>
-            <strong>{{ inspectedFlowStep.label }}</strong>
-            <span>{{ inspectedFlowStep.summary }}</span>
-          </div>
-          <el-tag size="small" :type="stageStatusTagType(inspectedFlowStep.status)">{{ inspectedFlowStep.statusLabel }}</el-tag>
-        </div>
-      </div>
+      <SourceIntakeCurrentStageCard v-bind="currentStageBindings" />
 
       <div class="workflow-stage-card">
-        <div v-if="inspectedFlowStep.id === 'intake' || inspectedFlowStep.id === 'process'" class="workflow-mode-band">
-          <div class="workflow-mode-head">
-            <strong>启动模式</strong>
-            <el-tag size="small" :type="workflowMode === 'production' ? 'danger' : 'info'">
-              {{ workflowModeShortLabel }}
-            </el-tag>
-          </div>
-          <el-radio-group
-            v-model="workflowMode"
-            class="workflow-mode-control"
-            aria-label="工作流启动模式"
-            :disabled="isWorkflowLaunchBusy"
-            @change="handleWorkflowModeChange"
-          >
-            <el-radio-button value="draft">草稿预演</el-radio-button>
-            <el-radio-button value="production">正式制作</el-radio-button>
-          </el-radio-group>
-          <p v-if="isWorkflowLaunchBusy" class="action-reason">{{ sourceUploadBusyReason }}</p>
-          <p>{{ workflowModeDescription }}</p>
-
-          <div
-            v-if="workflowMode === 'production' && (readinessChecking || productionReadiness)"
-            class="production-readiness"
-            :class="{ 'is-ready': productionReadiness?.ready, 'has-gaps': productionReadiness && !productionReadiness.ready }"
-            :role="productionReadiness && !productionReadiness.ready ? 'alert' : 'status'"
-            aria-live="polite"
-          >
-            <template v-if="readinessChecking">
-              <strong>正在检查正式制作能力</strong>
-              <span>正在核对文本、图像、视频、语音和本地合成能力…</span>
-            </template>
-            <template v-else-if="productionReadiness?.ready">
-              <strong>正式制作能力已就绪</strong>
-              <span>本次启动需要的服务与本地媒体工具均可用。</span>
-            </template>
-            <template v-else>
-              <div class="readiness-gap-head">
-                <strong>正式制作暂不能启动</strong>
-                <el-button size="small" type="primary" plain @click="openAiConfigForReadiness">
-                  <el-icon><Setting /></el-icon>
-                  前往 AI 配置
-                </el-button>
-              </div>
-              <ul class="readiness-gap-list">
-                <li v-for="gap in productionReadiness?.missing_capabilities || []" :key="gap.key">
-                  <strong>{{ gap.label }}</strong>
-                  <span>{{ gap.detail }}</span>
-                </li>
-              </ul>
-            </template>
-          </div>
-        </div>
+        <SourceIntakeLaunchModeCard
+          v-if="inspectedFlowStep.id === 'intake' || inspectedFlowStep.id === 'process'"
+          v-bind="launchModeBindings"
+          @change="handleWorkflowModeChange"
+          @open-ai-config="openAiConfigForReadiness"
+        />
 
         <template v-if="inspectedFlowStep.id === 'intake'">
           <div class="intake-stage-layout">
-            <el-form label-position="top" class="intake-form">
-              <div class="form-row">
-                <el-form-item label="素材类型">
-                  <el-select v-model="form.source_type" aria-label="素材类型" placeholder="自动识别" clearable>
-                    <el-option
-                      v-for="item in sourceTypeOptions"
-                      :key="item.value"
-                      :label="item.label"
-                      :value="item.value"
-                    />
-                  </el-select>
-                </el-form-item>
-                <el-form-item label="目标集数">
-                  <el-input-number v-model="form.target_episode_count" aria-label="目标集数" :min="1" :max="100" controls-position="right" />
-                </el-form-item>
-              </div>
-
-              <el-form-item label="标题">
-                <el-input v-model="form.title" aria-label="故事素材标题" placeholder="故事素材标题" />
-              </el-form-item>
-
-              <el-form-item label="网页 URL" :error="sourceUrlValidationMessage">
-                <el-input
-                  ref="sourceUrlInput"
-                  v-model="form.source_url"
-                  clearable
-                  aria-label="网页 URL"
-                  placeholder="粘贴公开网页或纯文本链接，系统会抽取正文作为素材"
-                />
-                <div class="field-help">仅导入公开可访问的文本 / HTML 页面，请确认素材版权或授权。</div>
-              </el-form-item>
-
-              <el-form-item label="本地素材文件">
-                <div class="file-row">
-                  <input
-                    ref="sourceFileInput"
-                    type="file"
-                    :accept="SOURCE_FILE_ACCEPT"
-                    class="hidden-file-input"
-                    tabindex="-1"
-                    aria-hidden="true"
-                    @change="handleSourceFile"
-                  />
-                  <ActionGate label="选择故事素材文件" :reason="sourceUploadBusyReason">
-                    <el-button size="small" :loading="sourceFileReading" :disabled="Boolean(sourceUploadBusyReason)" aria-label="选择故事素材文件" @click="sourceFileInput?.click()">选择文件</el-button>
-                  </ActionGate>
-                  <ActionGate v-if="sourceFile" label="移除已选文件" :reason="sourceUploadBusyReason">
-                    <el-button size="small" link type="danger" :disabled="Boolean(sourceUploadBusyReason)" @click="clearSelectedFile">移除</el-button>
-                  </ActionGate>
-                  <span class="file-name">{{ selectedFilename || '支持文本、PDF、图片、音频和视频，单文件最大 20MB' }}</span>
-                </div>
-                <div class="field-help">
-                  {{ SOURCE_INTAKE_MEDIA_HELP }}
-                </div>
-                <div v-if="sourceOperationStatus" class="source-operation-status" role="status" aria-live="polite">
-                  {{ sourceOperationStatus }}
-                </div>
-                <div v-if="sourceOperationError" class="source-operation-error" role="alert" aria-live="assertive">
-                  {{ sourceOperationError }}
-                </div>
-                <div
-                  v-if="sourceListRefreshError"
-                  class="source-operation-error source-import-refresh-alert"
-                  role="alert"
-                  aria-live="assertive"
-                >
-                  <span>{{ sourceListRefreshError }}</span>
-                  <ActionGate label="刷新列表" :reason="sourceListRetryReason">
-                    <el-button
-                      size="small"
-                      type="primary"
-                      plain
-                      :loading="sourceListRefreshing"
-                      :disabled="Boolean(sourceListRetryReason)"
-                      @click="refreshImportedSources"
-                    >
-                      刷新列表
-                    </el-button>
-                  </ActionGate>
-                </div>
-              </el-form-item>
-
-              <SourceIntakeSourceTextPanel v-model:text="form.text" />
-
-              <div class="action-row">
-                <ActionGate label="导入故事素材" :reason="actionReasons.import">
-                    <el-button :loading="sourceSaving" :disabled="Boolean(actionReasons.import)" @click="importSourceOnly">
-                      导入故事素材
-                    </el-button>
-                </ActionGate>
-                <ActionGate :label="`导入并启动 ${workflowModeShortLabel}`" :reason="actionReasons.start">
-                    <el-button type="primary" :loading="workflowStarting && !startingSourceId" :disabled="Boolean(actionReasons.start)" @click="startWorkflow">
-                      {{ workflowStartButtonLabel }}
-                    </el-button>
-                </ActionGate>
-              </div>
-            </el-form>
+            <SourceIntakeIntakeStageForm
+              ref="intakeStageFormRef"
+              v-model="form"
+              v-bind="intakeFormBindings"
+              :source-file-accept="SOURCE_FILE_ACCEPT"
+              @source-file-change="handleSourceFile"
+              @clear-selected-file="clearSelectedFile"
+              @refresh-imported-sources="refreshImportedSources"
+              @import-source="importSourceOnly"
+              @start-workflow="startWorkflow"
+            />
 
             <div class="status-block source-records-block">
               <div class="block-head">
@@ -257,226 +108,67 @@
         </template>
 
         <template v-else-if="inspectedFlowStep.id === 'process'">
-          <div class="status-block">
-            <div class="stage-heading stage-heading--compact">
-              <div>
-                <strong>处理进度</strong>
-                <span>监控改编、资产、分镜和媒体步骤。</span>
-              </div>
-              <el-tag v-if="runState.id" size="small" :type="runTagType">{{ runState.label }}</el-tag>
-            </div>
-
-            <template v-if="selectedRun">
-              <SourceIntakeRunRecordsPanel
-                :selected-run="selectedRun"
-                :run-state="runState"
-                :run-progress-status="runProgressStatus"
-                :displayed-run-error="displayedRunError"
-                :format-time="formatTime"
+          <SourceIntakeProcessStageCard
+            v-bind="processStageBindings"
+            @retry="retryRun"
+            @pause="pauseRun"
+            @resume="resumeRun"
+            @cancel="cancelRun"
+            @restart-latest="startExistingSource"
+            @start-existing="startExistingSource"
+            @select-step="selectFlowStep"
+          >
+            <template #status>
+              <div
+                v-if="pollStatusMessage"
+                class="poll-status-banner"
+                :class="{ 'is-error': pollState === 'error' }"
+                :role="pollState === 'error' ? 'alert' : 'status'"
+                aria-live="polite"
               >
-                <template #status>
-                  <div
-                    v-if="pollStatusMessage"
-                    class="poll-status-banner"
-                    :class="{ 'is-error': pollState === 'error' }"
-                    :role="pollState === 'error' ? 'alert' : 'status'"
-                    aria-live="polite"
-                  >
-                    <span>{{ pollStatusMessage }}</span>
-                    <el-button
-                      v-if="pollState === 'error' || pollState === 'recovering'"
-                      size="small"
-                      type="primary"
-                      link
-                      :loading="pollState === 'recovering'"
-                      @click="resumePolling"
-                    >
-                      恢复轮询
-                    </el-button>
-                  </div>
-                </template>
-                <template #actions>
-                  <div class="action-row compact">
-                    <ActionGate label="重试失败步骤" :reason="controlActionReasons.retry">
-                      <el-button size="small" :disabled="Boolean(controlActionReasons.retry)" :loading="retrying" @click="retryRun">
-                        {{ retrying ? '正在提交重试' : '重试失败步骤' }}
-                      </el-button>
-                    </ActionGate>
-                    <ActionGate label="暂停处理" :reason="controlActionReasons.pause">
-                      <el-button size="small" :disabled="Boolean(controlActionReasons.pause)" :loading="pausing" @click="pauseRun">
-                        {{ pausing ? '正在暂停' : '暂停' }}
-                      </el-button>
-                    </ActionGate>
-                    <ActionGate label="恢复处理" :reason="controlActionReasons.resume">
-                      <el-button size="small" type="primary" plain :disabled="Boolean(controlActionReasons.resume)" :loading="resuming" @click="resumeRun">
-                        {{ resuming ? '正在恢复' : '恢复' }}
-                      </el-button>
-                    </ActionGate>
-                    <ActionGate label="取消处理" :reason="controlActionReasons.cancel">
-                      <el-button size="small" type="danger" plain :disabled="Boolean(controlActionReasons.cancel)" :loading="cancelling" @click="cancelRun">
-                        {{ cancelling ? '正在取消' : '取消' }}
-                      </el-button>
-                    </ActionGate>
-                  </div>
-                  <div v-if="canRestartFromLatestSource" class="action-row compact">
-                    <ActionGate :label="`重新启动${workflowModeShortLabel}`" :reason="existingSourceLaunchReason">
-                      <el-button
-                        type="primary"
-                        :loading="startingSourceId === sources[0].id"
-                        :disabled="Boolean(existingSourceLaunchReason)"
-                        @click="startExistingSource(sources[0])"
-                      >
-                        {{ startingSourceId === sources[0].id ? '正在重新启动' : `重新启动${workflowModeShortLabel}` }}
-                      </el-button>
-                    </ActionGate>
-                  </div>
-                </template>
-              </SourceIntakeRunRecordsPanel>
-            </template>
-
-            <div v-else-if="sources.length > 0" class="stage-empty stage-empty--actionable">
-              <span>已有 {{ sources.length }} 份素材，选择最近导入的素材开始处理。</span>
-              <ActionGate :label="`以 ${workflowModeShortLabel} 启动`" :reason="existingSourceLaunchReason">
-                <el-button type="primary" :loading="startingSourceId === sources[0].id" :disabled="Boolean(existingSourceLaunchReason)" @click="startExistingSource(sources[0])">
-                  以 {{ workflowModeShortLabel }} 启动
+                <span>{{ pollStatusMessage }}</span>
+                <el-button
+                  v-if="pollState === 'error' || pollState === 'recovering'"
+                  size="small"
+                  type="primary"
+                  link
+                  :loading="pollState === 'recovering'"
+                  @click="resumePolling"
+                >
+                  恢复轮询
                 </el-button>
-              </ActionGate>
-            </div>
-            <div v-else class="stage-empty stage-empty--actionable">
-              <span>还没有可处理的故事素材。请先在「导入素材」步骤添加网页、文件或文本。</span>
-              <el-button type="primary" plain @click="selectFlowStep('intake')">去导入素材</el-button>
-            </div>
-          </div>
+              </div>
+            </template>
+          </SourceIntakeProcessStageCard>
         </template>
 
         <template v-else-if="inspectedFlowStep.id === 'qa'">
-          <div class="status-block">
-            <div class="stage-heading stage-heading--compact">
-              <div>
-                <strong>{{ qaPresentation.scopeLabel }}</strong>
-                <span>检查项目结构、产物完整性和流程状态。</span>
-              </div>
-              <el-tag v-if="latestQa.id" size="small" :type="latestQa.passed ? 'success' : 'warning'">
-                {{ qaPresentation.scoreLabel }}
-              </el-tag>
-            </div>
-
-            <div class="stage-action-row">
-              <ActionGate label="执行 QA 审计" :reason="actionReasons.qa">
-                  <el-button size="small" type="primary" plain :disabled="Boolean(actionReasons.qa)" :loading="qaRunning" @click="runQaAudit">
-                    执行 QA 审计
-                  </el-button>
-              </ActionGate>
-              <span v-if="actionReasons.qa" class="action-reason action-reason--inline">{{ actionReasons.qa }}</span>
-            </div>
-
-            <template v-if="latestQa.id">
-              <div v-if="qaPresentation.notice" class="placeholder-note">
-                {{ qaPresentation.notice }}
-              </div>
-              <div class="qa-line" :class="{ passed: latestQa.passed }">
-                {{ qaPresentation.statusLabel }} / {{ latestQa.issueCount }} 个问题
-              </div>
-              <div v-if="displayedQaIssues.length" class="qa-issues">
-                <div v-for="issue in displayedQaIssues" :key="issue.code + issue.message" class="qa-issue">
-                  {{ issue.message }}
-                </div>
-              </div>
-              <div v-else-if="latestQa.issueCount" class="stage-empty">检查结果已记录，暂无可以展示的说明。</div>
-
-              <details class="qa-detail">
-                <summary>完整 QA 明细</summary>
-                <div class="qa-detail-title">检查项</div>
-                <div v-for="check in latestQa.checks" :key="check.key" class="qa-issue">
-                  {{ qaCheckLabel(check.key) }}：{{ check.passed ? '通过' : '未通过' }}
-                </div>
-                <div class="qa-detail-title">建议</div>
-                <div v-if="displayedQaRecommendations.length">
-                  <div v-for="item in displayedQaRecommendations" :key="item" class="qa-issue">
-                    {{ item }}
-                  </div>
-                </div>
-                <div v-else class="stage-empty">暂无可以展示的修复建议。</div>
-              </details>
-            </template>
-            <div v-else class="stage-empty">还没有 QA 结果。完成处理后点击「执行 QA 审计」，问题和建议会显示在这里。</div>
-          </div>
+          <SourceIntakeQaStageCard
+            v-bind="qaStageBindings"
+            @run-qa="runQaAudit"
+          />
         </template>
 
         <template v-else-if="inspectedFlowStep.id === 'remediation'">
-          <div class="status-block">
-            <div class="stage-heading stage-heading--compact">
-              <div>
-                <strong>修复建议</strong>
-                <span>自动重跑可修复步骤，其余问题保留人工建议。</span>
-              </div>
-            </div>
-            <div class="stage-action-row">
-              <ActionGate label="一键修复" :reason="actionReasons.remediate">
-                  <el-button
-                    size="small"
-                    type="warning"
-                    plain
-                    :disabled="Boolean(actionReasons.remediate)"
-                    :loading="remediating"
-                    @click="remediateQa"
-                  >
-                    一键修复
-                  </el-button>
-              </ActionGate>
-              <span v-if="actionReasons.remediate" class="action-reason action-reason--inline">{{ actionReasons.remediate }}</span>
-            </div>
-            <div v-if="remediationStatus" class="remediation-status">{{ remediationStatus }}</div>
-            <div v-if="latestQa.remediationActions.length" class="remediation-actions">
-              <div v-for="action in latestQa.remediationActions" :key="action.code" class="qa-issue">
-                {{ action.label }}：{{ action.automated ? '可自动执行' : '需要人工处理' }}
-              </div>
-            </div>
-            <div v-else-if="latestQa.passed" class="stage-success">QA 已通过，不需要修复。</div>
-            <div v-else class="stage-empty stage-empty--actionable">
-              <span>还没有可自动修复的建议。请先执行 QA 审计。</span>
-              <el-button type="primary" plain @click="selectFlowStep('qa')">去执行 QA</el-button>
-            </div>
-          </div>
+          <SourceIntakeRemediationStageCard
+            v-bind="remediationStageBindings"
+            @remediate="remediateQa"
+            @select-step="selectFlowStep"
+          />
         </template>
 
         <template v-else>
-          <div class="status-block timeline-block">
-            <div class="stage-heading stage-heading--compact">
-              <div>
-                <strong>剧集 / 时间线</strong>
-                <span>确认剧集数量、轨道和可用媒体。</span>
-              </div>
-              <el-tag v-if="timelineSummary.itemCount" size="small" :type="timelineSummary.hasPlaceholderItems ? 'warning' : timelineSummary.hasRequiredTracks ? 'success' : 'warning'">
-                {{ timelineSummary.hasOnlyPlaceholderItems ? '占位' : timelineSummary.hasPlaceholderItems ? '含占位' : timelineSummary.itemCount + ' 条' }}
-              </el-tag>
-            </div>
-            <div v-if="timelineSummary.episodeCount" class="timeline-summary">
-              <span>{{ timelineSummary.episodeCount }} 集</span>
-              <span>{{ timelineSummary.trackCount }} 轨</span>
-              <span>{{ formatDuration(timelineSummary.durationSec) }}</span>
-              <span>{{ timelineSummary.trackTypes.map(timelineTrackTypeLabel).join(' / ') }}</span>
-              <span v-if="timelineSummary.placeholderItemCount">{{ timelineSummary.placeholderItemCount }} 条占位</span>
-            </div>
-            <div v-else-if="props.drama?.episodes?.length" class="timeline-summary">
-              <span>{{ props.drama.episodes.length }} 集已生成</span>
-              <span>时间线尚未生成</span>
-            </div>
-            <div v-else class="stage-empty">完成素材处理后，这里会显示剧集与时间线摘要。</div>
-            <div class="stage-action-row delivery-actions">
-              <el-button type="primary" plain @click="selectFlowStep('intake')">继续导入故事素材</el-button>
-            </div>
-          </div>
+          <SourceIntakeDeliveryStageCard
+            v-bind="deliveryStageBindings"
+            @select-step="selectFlowStep"
+          />
         </template>
       </div>
     </div>
     </div>
 
     <SourceIntakeSourceDetailDrawer
-      v-model:visible="sourceDetailVisible"
-      :loading="sourceDetailLoading"
-      :source-detail="sourceDetail"
-      :format-time="formatTime"
+      v-bind="sourceDetailBindings"
     />
   </section>
 </template>
@@ -484,24 +176,37 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router'
-import { ElMessage, ElMessageBox } from '@/utils/elementPlusFeedback.js'
 import SourceIntakeCompletionBanner from '@/components/sourceIntake/SourceIntakeCompletionBanner.vue'
-import SourceIntakeRunRecordsPanel from '@/components/sourceIntake/SourceIntakeRunRecordsPanel.vue'
+import SourceIntakeCurrentStageCard from '@/components/sourceIntake/SourceIntakeCurrentStageCard.vue'
+import SourceIntakeDeliveryStageCard from '@/components/sourceIntake/SourceIntakeDeliveryStageCard.vue'
+import SourceIntakeIntakeStageForm from '@/components/sourceIntake/SourceIntakeIntakeStageForm.vue'
+import SourceIntakeLaunchModeCard from '@/components/sourceIntake/SourceIntakeLaunchModeCard.vue'
+import SourceIntakeProcessStageCard from '@/components/sourceIntake/SourceIntakeProcessStageCard.vue'
+import SourceIntakeQaStageCard from '@/components/sourceIntake/SourceIntakeQaStageCard.vue'
+import SourceIntakeRemediationStageCard from '@/components/sourceIntake/SourceIntakeRemediationStageCard.vue'
 import SourceIntakeSourceDetailDrawer from '@/components/sourceIntake/SourceIntakeSourceDetailDrawer.vue'
-import SourceIntakeSourceTextPanel from '@/components/sourceIntake/SourceIntakeSourceTextPanel.vue'
 import SourceIntakeStepper from '@/components/sourceIntake/SourceIntakeStepper.vue'
-import { Setting } from '@element-plus/icons-vue'
+import { createSourceIntakeFileSelectController, SOURCE_FILE_ACCEPT } from '@/components/sourceIntake/sourceIntakeFileSelect.js'
+import { createSourceIntakeFlowStepController } from '@/components/sourceIntake/sourceIntakeFlowSteps.js'
+import { createSourceIntakeImportActions } from '@/components/sourceIntake/sourceIntakeImportActions.js'
+import { createSourceIntakeLaunchController } from '@/components/sourceIntake/sourceIntakeLaunchActions.js'
+import { createSourceIntakeLeaveController } from '@/components/sourceIntake/sourceIntakeLeaveGuard.js'
+import { createSourceIntakeMessageHelpers } from '@/components/sourceIntake/sourceIntakeMessages.js'
+import { createSourceIntakePollSession } from '@/components/sourceIntake/sourceIntakePoll.js'
+import { createSourceIntakeQaActions } from '@/components/sourceIntake/sourceIntakeQaActions.js'
+import { createSourceIntakeRunControls } from '@/components/sourceIntake/sourceIntakeRunControls.js'
+import { createSourceIntakeDataActions, createSourceIntakeSnapshotSession } from '@/components/sourceIntake/sourceIntakeSnapshot.js'
+import {
+  bindSourceIntakeWorkspaceWatches,
+  createSourceIntakeWorkspaceBindings,
+  createSourceIntakeWorkspaceComputeds,
+} from '@/components/sourceIntake/sourceIntakeWorkspaceBindings.js'
 import ActionGate from '@/components/filmCreate/ActionGate.vue'
 import { sourceIntakeAPI as rawSourceIntakeAPI } from '@/api/sourceIntake'
 import { workflowRunsAPI as rawWorkflowRunsAPI } from '@/api/workflowRuns'
 import { qaReportsAPI as rawQaReportsAPI } from '@/api/qaReports'
 import { timelinesAPI as rawTimelinesAPI } from '@/api/timelines'
 import {
-  SOURCE_TYPE_OPTIONS,
-  buildSourceIntakePayload,
-  buildSourceUploadFormData,
-  buildWebSourceIntakePayload,
-  inferSourceTypeFromFilename,
   sourceProvenanceLabel,
   sourceTypeLabel,
 } from '@/utils/sourceIntakeAdapter'
@@ -512,51 +217,18 @@ import {
   createSourceWorkflowSnapshotController,
   createSourceWorkflowLifecycleGuard,
   extractCreatedStorySource,
-  runGatedQaRemediation,
-  selectQaReportForRun,
   shouldIgnoreSourceWorkflowPollError,
 } from '@/utils/sourceImportOutcome'
-import { normalizeWorkflowRun } from '@/utils/workflowRunStatus'
-import { buildQaPresentation, normalizeQaReport, qaCheckLabel } from '@/utils/qaReport'
-import { formatDuration, normalizeTimelineSummary, timelineTrackTypeLabel } from '@/utils/timelineSummary'
 import { toUserFacingError, isUserFacingAbort } from '@/utils/userFacingError'
 import {
-  SOURCE_FILE_FORMAT_UNSUPPORTED_MESSAGE,
-  SOURCE_INTAKE_MEDIA_HELP,
-  SOURCE_MEDIA_URL_UPLOAD_HINT,
   SOURCE_WORKFLOW_CANCEL_REASON,
   SOURCE_WORKFLOW_PAUSE_REASON,
-  buildSourceWorkflowState,
-  getNewWorkflowRunReason,
-  getSourceWorkflowActionReasons,
-  getSourceWorkflowBusyReason,
-  isDeferredAutoExtractionSource,
-  localizeSourceIntakeFailure,
-  resolveInspectedWorkflowStep,
-  selectInspectedWorkflowStep,
-  sourceFileExtension,
 } from '@/utils/sourceWorkflowState'
 import {
   DEFAULT_WORKFLOW_MODE,
-  buildAiConfigLocation,
-  isValidHttpSourceUrl,
-  launchSourceWorkflow,
   normalizeProductionReadiness,
 } from '@/utils/sourceWorkflowLaunch'
-import { revealSourceImportIntent } from '@/utils/sourceImportIntent'
 import { projectRouteInstanceKey } from '@/utils/projectListRoute'
-
-const MAX_SOURCE_FILE_BYTES = 20 * 1024 * 1024
-const SOURCE_FILE_EXTENSIONS = Object.freeze([
-  '.txt', '.md', '.csv', '.tsv', '.srt', '.vtt', '.ass', '.json',
-  '.pdf',
-  '.png', '.jpg', '.jpeg', '.webp', '.gif',
-  '.mp3', '.wav', '.m4a', '.aac', '.flac', '.ogg', '.oga',
-  '.mp4', '.mov', '.mkv', '.avi', '.webm', '.ogv',
-])
-const SOURCE_FILE_ACCEPT = SOURCE_FILE_EXTENSIONS.join(',')
-const SOURCE_FILE_EXTENSION_SET = new Set(SOURCE_FILE_EXTENSIONS)
-const TEXT_SOURCE_FILE_EXTENSIONS = new Set(['.txt', '.md', '.csv', '.tsv', '.srt', '.vtt', '.ass', '.json'])
 
 const props = defineProps({
   dramaId: { type: Number, required: true },
@@ -573,33 +245,6 @@ const workflowRunsAPI = sourceWorkflowLifecycle.guardApi(rawWorkflowRunsAPI)
 const qaReportsAPI = sourceWorkflowLifecycle.guardApi(rawQaReportsAPI)
 const timelinesAPI = sourceWorkflowLifecycle.guardApi(rawTimelinesAPI)
 
-function showWorkflowMessage(type, message) {
-  const text = String(message || '').trim()
-  if (!text) return
-  return sourceWorkflowLifecycle.run(() => ElMessage[type](text))
-}
-
-function sourceIntakeFailureMessage(error, fallback = '导入失败') {
-  if (isUserFacingAbort(error)) return ''
-  const localized = localizeSourceIntakeFailure(error, {
-    file: sourceFile.value,
-    filename: selectedFilename.value,
-    sourceUrl: rawSourceUrl.value,
-  })
-  const raw = String(error?.message || error || '').trim()
-  if (localized && localized !== raw) return toUserFacingError(localized, fallback)
-  return toUserFacingError(error, fallback)
-}
-
-function qaIssueDisplayMessage(message) {
-  return toUserFacingError(message, '该项检查未通过')
-}
-
-function emitRefresh() {
-  return sourceWorkflowLifecycle.run(() => emit('refresh'))
-}
-
-const sourceTypeOptions = SOURCE_TYPE_OPTIONS
 const form = reactive({
   title: '',
   source_type: '',
@@ -608,8 +253,9 @@ const form = reactive({
   text: '',
 })
 
-const sourceFileInput = ref(null)
-const sourceUrlInput = ref(null)
+const intakeStageFormRef = ref(null)
+const sourceUrlInput = computed(() => intakeStageFormRef.value?.sourceUrlInput ?? null)
+const sourceFileInput = computed(() => intakeStageFormRef.value?.sourceFileInput ?? null)
 const sourceFile = ref(null)
 const selectedFilename = ref('')
 const sourceFileReading = ref(false)
@@ -644,168 +290,229 @@ const sourceDetailLoading = ref(false)
 const sourceDetail = ref(null)
 const pollState = ref('idle')
 const pollError = ref('')
-let pollTimer = null
-let leaveConfirmationOpen = false
-let activeLoadCount = 0
+const workspaceComputeds = createSourceIntakeWorkspaceComputeds({
+  form,
+  sourceFile,
+  selectedFilename,
+  sourceFileReading,
+  sourceSaving,
+  sourceListRefreshing,
+  workflowStarting,
+  readinessChecking,
+  retrying,
+  pausing,
+  resuming,
+  cancelling,
+  loading,
+  qaRunning,
+  remediating,
+  pollState,
+  pollError,
+  sourceOperationError,
+  sourceListRefreshError,
+  workflowDataError,
+  sourceOperationMessage,
+  workflowMode,
+  productionReadiness,
+  selectedRun,
+  reports,
+  timeline,
+  sources,
+  selectedFlowStepId,
+  getDrama: () => props.drama,
+})
+const {
+  rawSourceUrl,
+  sourceUrlValidationMessage,
+  hasWebSourceUrl,
+  hasUnsavedSourceInput,
+  isWorkflowLaunchBusy,
+  sourceOperationActive,
+  workflowActionBusy,
+  workflowModeShortLabel,
+  runState,
+  newWorkflowRunReason,
+  latestQa,
+  actionReasons,
+  controlActionReasons,
+  existingSourceLaunchReason,
+  refreshBusyReason,
+  flowState,
+  compactCompletionVisible,
+  inspectedFlowStep,
+  pollStatusMessage,
+} = workspaceComputeds
+const {
+  completionBannerBindings,
+  stepperBindings,
+  currentStageBindings,
+  launchModeBindings,
+  intakeFormBindings,
+  processStageBindings,
+  qaStageBindings,
+  remediationStageBindings,
+  deliveryStageBindings,
+  sourceDetailBindings,
+} = createSourceIntakeWorkspaceBindings({
+  ...workspaceComputeds,
+  workflowHistoryExpanded,
+  workflowMode,
+  readinessChecking,
+  productionReadiness,
+  sourceFileReading,
+  sourceFile,
+  selectedFilename,
+  sourceOperationError,
+  sourceListRefreshError,
+  sourceListRefreshing,
+  sourceSaving,
+  workflowStarting,
+  startingSourceId,
+  selectedRun,
+  retrying,
+  pausing,
+  resuming,
+  cancelling,
+  sources,
+  qaRunning,
+  remediating,
+  remediationStatus,
+  sourceDetailVisible,
+  sourceDetailLoading,
+  sourceDetail,
+  getDrama: () => props.drama,
+})
 
-const rawSourceUrl = computed(() => String(form.source_url || '').trim())
-const sourceUrlValidationMessage = computed(() => {
-  if (!rawSourceUrl.value) return ''
-  if (!isValidHttpSourceUrl(rawSourceUrl.value)) return '请输入完整的 http:// 或 https:// 网页地址。'
-  if (isDeferredAutoExtractionSource(rawSourceUrl.value)) return SOURCE_MEDIA_URL_UPLOAD_HINT
-  return ''
+const { showWorkflowMessage, sourceIntakeFailureMessage, emitRefresh } = createSourceIntakeMessageHelpers({
+  lifecycle: sourceWorkflowLifecycle,
+  emit,
+  getFailureContext: () => ({
+    file: sourceFile.value,
+    filename: selectedFilename.value,
+    sourceUrl: rawSourceUrl.value,
+  }),
 })
-const hasWebSourceUrl = computed(() => Boolean(rawSourceUrl.value) && !sourceUrlValidationMessage.value)
-const hasSourceInput = computed(() => Boolean(sourceFile.value || hasWebSourceUrl.value || form.text.trim()))
-const hasUnsavedSourceInput = computed(() => Boolean(sourceFile.value || rawSourceUrl.value || form.text.trim()))
-const isWorkflowLaunchBusy = computed(() => workflowStarting.value || readinessChecking.value)
-const sourceOperationActive = computed(() => Boolean(
-  sourceFileReading.value
-  || sourceSaving.value
-  || sourceListRefreshing.value
-  || workflowStarting.value
-  || readinessChecking.value,
-))
-const workflowActionBusy = computed(() => retrying.value || pausing.value || resuming.value || cancelling.value)
-const workflowModeShortLabel = computed(() => workflowMode.value === 'production' ? '正式制作' : '草稿预演')
-const workflowModeDescription = computed(() => workflowMode.value === 'production'
-  ? '调用正式 AI 服务生成可交付媒体，并在本机完成成片合成。启动前会检查全部制作能力。'
-  : '用于快速验证改编与镜头流程；媒体步骤生成草稿占位，不调用正式媒体服务。')
-const workflowStartButtonLabel = computed(() => {
-  if (readinessChecking.value) return '正在检查正式制作条件'
-  if (workflowStarting.value) return `正在启动 ${workflowModeShortLabel.value}`
-  return `导入并启动 ${workflowModeShortLabel.value}`
+
+const {
+  requestedFlowStepFromRoute,
+  persistInspectedFlowStep,
+  revealInspectedHistoryIfNeeded,
+  selectFlowStep,
+  checkProductionReadiness,
+  handleWorkflowModeChange,
+  captureProductionReadinessError,
+  openAiConfigForReadiness,
+  persistProcessStep,
+} = createSourceIntakeFlowStepController({
+  route,
+  router,
+  flowState,
+  selectedFlowStepId,
+  compactCompletionVisible,
+  workflowHistoryExpanded,
+  productionReadiness,
+  sourceOperationError,
+  sourceOperationMessage,
+  workflowMode,
+  form,
+  getDramaId: () => props.dramaId,
+  getDramaStyle: () => props.drama?.style || '',
+  workflowRunsAPI,
+  readinessChecking,
 })
-const sourceUploadBusyReason = computed(() => {
-  if (sourceFileReading.value) return '正在读取素材文件，请稍候。'
-  if (sourceSaving.value) return '正在保存素材，请稍候。'
-  if (sourceListRefreshing.value) return '正在刷新素材列表，请稍候。'
-  if (readinessChecking.value) return '正在检查正式制作能力，请稍候。'
-  if (workflowStarting.value) return `正在启动 ${workflowModeShortLabel.value}，请稍候。`
-  return ''
+
+const snapshotBridge = {
+  refreshWorkflowSnapshot: async () => ({ status: 'ignored' }),
+}
+const { stopPoll, startPoll, refreshSelectedRun, resumePolling } = createSourceIntakePollSession({
+  sourceWorkflowLifecycle,
+  isRunActive: () => runState.value.active,
+  pollState,
+  pollError,
+  selectedRun,
+  getRun: (runId) => workflowRunsAPI.get(runId),
+  isUserFacingAbort,
+  toUserFacingError,
+  refreshWorkflowSnapshot: (...args) => snapshotBridge.refreshWorkflowSnapshot(...args),
+  emitRefresh,
 })
-const sourceListRetryReason = computed(() => {
-  if (sourceFileReading.value) return '正在读取素材文件，请稍候。'
-  if (sourceSaving.value) return '正在保存素材，请稍候。'
-  if (readinessChecking.value) return '正在检查正式制作能力，请稍候。'
-  if (workflowStarting.value) return `正在启动 ${workflowModeShortLabel.value}，请稍候。`
-  return ''
+
+const snapshotSession = createSourceIntakeSnapshotSession({
+  getDramaId: () => props.dramaId,
+  getTargetEpisodeCount: () => form.target_episode_count,
+  getStyle: () => props.drama?.style || '',
+  sourceIntakeAPI,
+  workflowRunsAPI,
+  qaReportsAPI,
+  timelinesAPI,
+  normalizeProductionReadiness,
+  createSnapshotController: createSourceWorkflowSnapshotController,
+  isActive: () => sourceWorkflowLifecycle.isActive(),
+  sources,
+  runs,
+  reports,
+  productionReadiness,
+  selectedRun,
+  timeline,
+  workflowDataError,
+  startPoll,
 })
-const sourceOperationStatus = computed(() => {
-  if (readinessChecking.value) return '正在检查正式制作所需的文本、图像、视频、配音与本地合成能力…'
-  if (sourceFileReading.value) return `正在读取 ${selectedFilename.value || '文件'}…`
-  if (sourceSaving.value && sourceFile.value) return `正在上传并解析 ${selectedFilename.value}…`
-  if (sourceListRefreshing.value) return '正在刷新素材列表…'
-  if (workflowStarting.value && sourceFile.value) return `正在上传并解析 ${selectedFilename.value}，完成后将启动处理…`
-  if (workflowStarting.value) return `正在启动 ${workflowModeShortLabel.value} 流程…`
-  return sourceOperationMessage.value
+const {
+  refreshWorkflowSnapshot,
+  refreshAndConfirmRun,
+} = snapshotSession
+snapshotBridge.refreshWorkflowSnapshot = refreshWorkflowSnapshot
+
+const { clearSelectedFile, handleSourceFile } = createSourceIntakeFileSelectController({
+  form,
+  sourceFile,
+  selectedFilename,
+  sourceFileReading,
+  sourceOperationMessage,
+  sourceOperationError,
+  sourceFileInput,
+  showWorkflowMessage,
 })
-const runState = computed(() => normalizeWorkflowRun(selectedRun.value))
-const displayedRunError = computed(() => {
-  const localized = localizeSourceIntakeFailure(
-    runState.value.failedStep?.error || selectedRun.value?.error || '',
-  )
-  if (!localized) return ''
-  return toUserFacingError(localized, '处理失败，请稍后重试。')
+
+const importControllerRef = { current: null }
+const {
+  syncDefaults,
+  resetSourceInput,
+  createSourceFromForm,
+  importSourceOnly,
+  refreshImportedSources,
+  openSourceImportIntent,
+  openSourceDetail,
+} = createSourceIntakeImportActions({
+  rawSourceUrl,
+  sourceUrlValidationMessage,
+  sourceFile,
+  sourceIntakeAPI,
+  getDramaId: () => props.dramaId,
+  form,
+  getDrama: () => props.drama,
+  hasWebSourceUrl: () => hasWebSourceUrl.value,
+  clearSelectedFile,
+  getImportController: () => importControllerRef.current,
+  sourceSaving,
+  isWorkflowLaunchBusy: () => isWorkflowLaunchBusy.value,
+  getSelectedFilename: () => selectedFilename.value,
+  sourceListRefreshing,
+  sourceFileReading,
+  workflowHistoryExpanded,
+  selectedFlowStepId,
+  sourceUrlInput,
+  nextTickFn: nextTick,
+  persistInspectedFlowStep,
+  sourceDetailVisible,
+  sourceDetailLoading,
+  sourceDetail,
+  isLifecycleActive: () => sourceWorkflowLifecycle.isActive(),
+  showWorkflowMessage,
+  isUserFacingAbort,
+  toUserFacingError,
 })
-const productionLaunchReason = computed(() => {
-  if (workflowMode.value !== 'production') return ''
-  if (readinessChecking.value) return '正在检查正式制作能力'
-  if (!productionReadiness.value) return '尚未完成正式制作能力检查'
-  if (productionReadiness.value.ready) return ''
-  const labels = (productionReadiness.value.missing_capabilities || [])
-    .map((item) => item?.label)
-    .filter(Boolean)
-  return labels.length
-    ? `正式制作条件未满足：${labels.join('、')}`
-    : '正式制作条件未满足，请检查制作能力配置'
-})
-const newWorkflowRunReason = computed(() => (
-  getNewWorkflowRunReason(runState.value) || productionLaunchReason.value
-))
-const timelineSummary = computed(() => normalizeTimelineSummary(timeline.value))
-const latestQa = computed(() => normalizeQaReport(
-  selectQaReportForRun(reports.value, selectedRun.value?.id),
-))
-const displayedQaIssues = computed(() => (
-  latestQa.value.issues
-    .map((issue) => {
-      const message = qaIssueDisplayMessage(issue?.message)
-      return message ? { code: issue?.code || message, message } : null
-    })
-    .filter(Boolean)
-    .slice(0, 3)
-))
-const displayedQaRecommendations = computed(() => (
-  latestQa.value.recommendations
-    .map((item) => toUserFacingError(item, ''))
-    .filter(Boolean)
-))
-const qaPresentation = computed(() => buildQaPresentation(latestQa.value, runState.value.mode))
-const baseActionReasons = computed(() => getSourceWorkflowActionReasons({
-  hasSourceInput: hasSourceInput.value,
-  runState: runState.value,
-  qa: latestQa.value,
-}))
-const sourceRefreshRecoveryReason = computed(() => (
-  sourceListRefreshError.value ? '素材已导入，请先刷新列表确认。' : ''
-))
-const actionReasons = computed(() => {
-  const reasons = {
-    ...baseActionReasons.value,
-    import: sourceUrlValidationMessage.value || baseActionReasons.value.import,
-    start: sourceUrlValidationMessage.value || baseActionReasons.value.start || productionLaunchReason.value,
-  }
-  if (sourceUploadBusyReason.value) {
-    reasons.import = reasons.import || sourceUploadBusyReason.value
-    reasons.start = reasons.start || sourceUploadBusyReason.value
-  }
-  if (qaRunning.value) reasons.qa = reasons.qa || '正在执行 QA 审计，请稍候。'
-  if (remediating.value) reasons.remediate = reasons.remediate || '正在启动自动修复，请稍候。'
-  if (sourceRefreshRecoveryReason.value) {
-    reasons.import = sourceRefreshRecoveryReason.value
-    reasons.start = sourceRefreshRecoveryReason.value
-  }
-  return reasons
-})
-const workflowBusyReason = computed(() => getSourceWorkflowBusyReason({
-  retrying: retrying.value,
-  pausing: pausing.value,
-  resuming: resuming.value,
-  cancelling: cancelling.value,
-}))
-const controlActionReasons = computed(() => ({
-  retry: actionReasons.value.retry || workflowBusyReason.value,
-  pause: actionReasons.value.pause || workflowBusyReason.value,
-  resume: actionReasons.value.resume || workflowBusyReason.value,
-  cancel: actionReasons.value.cancel || workflowBusyReason.value,
-}))
-const existingSourceLaunchReason = computed(() => (
-  newWorkflowRunReason.value || sourceUploadBusyReason.value
-))
-const refreshBusyReason = computed(() => {
-  if (readinessChecking.value) return '正在检查正式制作能力，请稍候。'
-  if (workflowStarting.value) return `正在启动 ${workflowModeShortLabel.value}，请稍候。`
-  return workflowBusyReason.value
-})
-const canRestartFromLatestSource = computed(() => (
-  sources.value.length > 0
-  && Boolean(selectedRun.value)
-  && (runState.value.status === 'cancelled' || runState.value.status === 'failed')
-))
-const flowState = computed(() => buildSourceWorkflowState({
-  sourceCount: sources.value.length,
-  hasSourceInput: hasSourceInput.value,
-  run: selectedRun.value,
-  qa: latestQa.value,
-  timeline: timelineSummary.value,
-  episodeCount: props.drama?.episodes?.length || 0,
-  actionReasons: actionReasons.value,
-}))
-const workflowSnapshotController = createSourceWorkflowSnapshotController({
-  fetchSnapshot: fetchWorkflowSnapshot,
-  applySnapshot: applyWorkflowSnapshot,
-})
+
 const sourceImportController = createSourceImportController({
   createSource: async () => extractCreatedStorySource(await createSourceFromForm()),
   fetchSources: () => refreshWorkflowSnapshot(),
@@ -820,7 +527,7 @@ const sourceImportController = createSourceImportController({
   },
   onCreated: (_source, context) => {
     const uploadedFilename = context?.uploadedFilename
-    sourceOperationMessage.value = uploadedFilename ? `${uploadedFilename} 上传并解析完成。` : '素材已导入。'
+    sourceOperationMessage.value = uploadedFilename ? `${uploadedFilename} 上传解析完成。` : '素材已导入。'
     showWorkflowMessage('success', '素材已导入')
   },
   onCreateFailed: (error) => {
@@ -832,840 +539,129 @@ const sourceImportController = createSourceImportController({
   setRefreshAlert: (message) => { sourceListRefreshError.value = message },
   emitRefresh,
 })
-const completionVisibilityBlocked = computed(() => Boolean(
-  loading.value
-  || sourceFileReading.value
-  || sourceSaving.value
-  || sourceListRefreshing.value
-  || workflowStarting.value
-  || readinessChecking.value
-  || qaRunning.value
-  || remediating.value
-  || workflowActionBusy.value
-  || pollState.value === 'recovering'
-  || sourceOperationError.value
-  || sourceListRefreshError.value
-  || workflowDataError.value
-  || pollError.value
-))
-const compactCompletionVisible = computed(() => (
-  flowState.value.complete && !completionVisibilityBlocked.value
-))
-const completionSummaryReady = computed(() => (
-  timelineSummary.value.episodeCount > 0
-  && timelineSummary.value.trackCount > 0
-  && timelineSummary.value.itemCount > 0
-  && timelineSummary.value.durationSec > 0
-))
-const completionTitle = computed(() => {
-  if (!completionSummaryReady.value) return '结构处理已完成，交付摘要整理中'
-  if (runState.value.mode !== 'production') return '草稿结构已完成'
-  return runState.value.productionPlaceholder
-    ? '正式流程已结束，媒体产物仍需修复'
-    : '正式媒体已生成，交付检查已通过'
-})
-const completionEpisodeCount = computed(() => (
-  timelineSummary.value.episodeCount || props.drama?.episodes?.length || 0
-))
-const completionPlaceholderCount = computed(() => (
-  timelineSummary.value.placeholderItemCount
-))
-const actualFlowStep = computed(() => (
-  flowState.value.activeStep
-  || flowState.value.steps[0]
-  || {
-    id: 'intake',
-    number: 1,
-    label: '导入素材',
-    summary: '',
-    status: 'ready',
-    statusLabel: '可开始',
-  }
-))
-const inspectedFlowStep = computed(() => (
-  flowState.value.steps.find((step) => step.id === selectedFlowStepId.value)
-  || actualFlowStep.value
-))
-function requestedFlowStepFromRoute() {
-  const raw = Array.isArray(route.query.step) ? route.query.step[0] : route.query.step
-  return typeof raw === 'string' ? raw.trim() : ''
-}
-function persistInspectedFlowStep(stepId) {
-  const liveStepId = flowState.value.activeStepId
-  const nextStepId = stepId && stepId !== liveStepId ? String(stepId).trim() : ''
-  if (requestedFlowStepFromRoute() === nextStepId) return
-  const query = { ...route.query }
-  if (nextStepId) query.step = nextStepId
-  else delete query.step
-  router.replace({ query, hash: route.hash }).catch(() => {})
-}
-function revealInspectedHistoryIfNeeded(stepId) {
-  if (
-    compactCompletionVisible.value
-    && stepId
-    && stepId !== flowState.value.activeStepId
-  ) {
-    workflowHistoryExpanded.value = true
-  }
-}
-watch(
-  () => flowState.value.activeStepId,
-  (_activeStepId, previousActiveStepId) => {
-    const nextStepId = resolveInspectedWorkflowStep(flowState.value, {
-      selectedStepId: selectedFlowStepId.value,
-      previousActiveStepId,
-      requestedStepId: requestedFlowStepFromRoute(),
-    })
-    selectedFlowStepId.value = nextStepId
-    revealInspectedHistoryIfNeeded(nextStepId)
+importControllerRef.current = sourceImportController
+
+const { loadData, loadSources, markWorkflowRefreshUnconfirmed } = createSourceIntakeDataActions({
+  getDramaId: () => props.dramaId,
+  refreshWorkflowSnapshot,
+  loading,
+  workflowDataError,
+  shouldIgnoreError(e) {
+    return shouldIgnoreSourceWorkflowPollError(e, sourceWorkflowLifecycle) || isUserFacingAbort(e)
   },
-  { immediate: true },
-)
-watch(
-  () => route.query.step,
-  () => {
-    const requested = requestedFlowStepFromRoute()
-    if (!requested) return
-    selectedFlowStepId.value = selectInspectedWorkflowStep(
-      flowState.value,
-      selectedFlowStepId.value,
-      requested,
-    )
-    revealInspectedHistoryIfNeeded(selectedFlowStepId.value)
-  },
-)
-watch(
-  () => flowState.value.complete,
-  (complete, previousComplete) => {
-    if (complete && !previousComplete) workflowHistoryExpanded.value = false
-  },
-)
-const runTagType = computed(() => {
-  if (runState.value.productionPlaceholder) return 'danger'
-  if (runState.value.status === 'completed') return 'success'
-  if (runState.value.status === 'failed') return 'danger'
-  if (runState.value.status === 'cancelled') return 'info'
-  if (runState.value.status === 'paused') return 'info'
-  return 'warning'
-})
-const runProgressStatus = computed(() => {
-  if (runState.value.status === 'completed') return 'success'
-  if (runState.value.status === 'failed') return 'exception'
-  return undefined
-})
-const pollStatusMessage = computed(() => {
-  if (!selectedRun.value?.id) return ''
-  if (pollState.value === 'recovering') return '正在恢复处理状态轮询…'
-  if (pollState.value === 'error') return pollError.value || '处理状态刷新失败，自动轮询已暂停。'
-  if (pollState.value === 'polling' && runState.value.active) return '正在自动轮询处理状态。'
-  return ''
+  toUserFacingError,
+  sourceImportController,
+  refreshUnconfirmedMessage: SOURCE_WORKFLOW_REFRESH_UNCONFIRMED_MESSAGE,
+  sourceOperationMessage,
 })
 
-function syncDefaults() {
-  form.target_episode_count = Math.max(1, Number(props.drama?.episodes?.length) || Number(props.drama?.total_episodes) || 1)
-  if (!form.title) form.title = props.drama?.title ? `${props.drama.title} 素材` : ''
-}
+const { startWorkflow, startExistingSource, runSourceEmptyStateAction } = createSourceIntakeLaunchController({
+  isLaunchBusy: () => isWorkflowLaunchBusy.value,
+  getBlockedReason: () => newWorkflowRunReason.value,
+  getSelectedFilename: () => selectedFilename.value,
+  getDramaId: () => props.dramaId,
+  form,
+  getDrama: () => props.drama,
+  getWorkflowMode: () => workflowMode.value,
+  checkReadiness: checkProductionReadiness,
+  lifecycle: sourceWorkflowLifecycle,
+  sourceFile,
+  hasWebSourceUrl: () => hasWebSourceUrl.value,
+  createSourceFromForm,
+  startNovel2Anime: (payload) => workflowRunsAPI.startNovel2Anime(payload),
+  resetSourceInput,
+  refreshAndConfirmRun,
+  markWorkflowRefreshUnconfirmed,
+  persistProcessStep,
+  showWorkflowMessage,
+  emitRefresh,
+  productionReadiness,
+  loadSources,
+  sourceOperationMessage,
+  sourceOperationError,
+  startingSourceId,
+  workflowStarting,
+  getWorkflowModeShortLabel: () => workflowModeShortLabel.value,
+  isUserFacingAbort,
+  toUserFacingError,
+  sourceIntakeFailureMessage,
+  assertSourceWorkflowLifecycleActive,
+  importSourceOnly,
+})
 
-function formatTime(value) {
-  if (!value) return ''
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return ''
-  return date.toLocaleString('zh-CN', { hour12: false })
-}
+const { retryRun, pauseRun, resumeRun, cancelRun } = createSourceIntakeRunControls({
+  selectedRun,
+  isActionBusy: () => workflowActionBusy.value,
+  getControlReasons: () => controlActionReasons.value,
+  retrying,
+  pausing,
+  resuming,
+  cancelling,
+  retryRunApi: (runId) => workflowRunsAPI.retry(runId),
+  pauseRunApi: (runId, reason) => workflowRunsAPI.pause(runId, reason),
+  resumeRunApi: (runId) => workflowRunsAPI.resume(runId),
+  cancelRunApi: (runId, reason) => workflowRunsAPI.cancel(runId, reason),
+  cancelReason: SOURCE_WORKFLOW_CANCEL_REASON,
+  pauseReason: SOURCE_WORKFLOW_PAUSE_REASON,
+  isLifecycleActive: () => sourceWorkflowLifecycle.isActive(),
+  refreshAndConfirmRun,
+  markWorkflowRefreshUnconfirmed,
+  persistProcessStep,
+  showWorkflowMessage,
+  emitRefresh,
+  startPoll,
+  stopPoll,
+  captureProductionReadinessError,
+  shouldIgnoreError: (error) => shouldIgnoreSourceWorkflowPollError(error, sourceWorkflowLifecycle),
+  isUserFacingAbort,
+  toUserFacingError,
+})
 
-function stageStatusTagType(status) {
-  if (status === 'done') return 'success'
-  if (status === 'partial' || status === 'active') return 'warning'
-  if (status === 'error' || status === 'blocked') return 'danger'
-  return 'info'
-}
-
-function selectFlowStep(stepId) {
-  selectedFlowStepId.value = selectInspectedWorkflowStep(
-    flowState.value,
-    selectedFlowStepId.value,
-    stepId,
-  )
-  persistInspectedFlowStep(selectedFlowStepId.value)
-  revealInspectedHistoryIfNeeded(selectedFlowStepId.value)
-}
-
-async function handleWorkflowModeChange() {
-  productionReadiness.value = null
-  sourceOperationError.value = ''
-  sourceOperationMessage.value = ''
-  if (workflowMode.value !== 'production') return
-  try {
-    await checkProductionReadiness({
-      drama_id: props.dramaId,
-      qa_mode: 'production',
-      target_episode_count: form.target_episode_count,
-      style: props.drama?.style || '',
-    })
-  } catch (_) {
-    sourceOperationError.value = '暂时无法检查正式制作能力，请稍后重试。'
-  }
-}
-
-async function checkProductionReadiness(payload) {
-  readinessChecking.value = true
-  productionReadiness.value = null
-  try {
-    const readiness = normalizeProductionReadiness(
-      await workflowRunsAPI.getNovel2AnimeReadiness(payload)
-    )
-    productionReadiness.value = readiness
-    return readiness
-  } finally {
-    readinessChecking.value = false
-  }
-}
-
-function captureProductionReadinessError(error) {
-  const apiError = error?.response?.data?.error
-  if (apiError?.code !== 'WORKFLOW_NOT_READY' || !apiError.details) return false
-  try {
-    productionReadiness.value = normalizeProductionReadiness(apiError.details)
-    workflowMode.value = 'production'
-    selectedFlowStepId.value = 'process'
-    persistInspectedFlowStep('process')
-    return true
-  } catch (_) {
-    return false
-  }
-}
-
-function openAiConfigForReadiness() {
-  router.push(buildAiConfigLocation({
-    dramaId: props.dramaId,
-    readiness: productionReadiness.value,
-    returnTo: route.fullPath,
-  }))
-}
-
-function stopPoll() {
-  if (pollTimer) {
-    clearInterval(pollTimer)
-    pollTimer = null
-  }
-}
-
-function startPoll() {
-  if (!sourceWorkflowLifecycle.isActive()) {
-    stopPoll()
-    return
-  }
-  stopPoll()
-  if (!runState.value.active) {
-    pollState.value = 'idle'
-    pollError.value = ''
-    return
-  }
-  pollState.value = 'polling'
-  pollError.value = ''
-  pollTimer = setInterval(refreshSelectedRun, 2500)
-}
-
-function clearSelectedFile() {
-  sourceFile.value = null
-  selectedFilename.value = ''
-  sourceOperationMessage.value = ''
-  sourceOperationError.value = ''
-  if (sourceFileInput.value) sourceFileInput.value.value = ''
-}
-
-async function handleSourceFile(event) {
-  const file = event.target.files?.[0]
-  if (!file) return
-  sourceOperationMessage.value = ''
-  sourceOperationError.value = ''
-  const extension = sourceFileExtension(file.name)
-  if (!SOURCE_FILE_EXTENSION_SET.has(extension)) {
-    clearSelectedFile()
-    sourceOperationError.value = SOURCE_FILE_FORMAT_UNSUPPORTED_MESSAGE
-    showWorkflowMessage('warning', sourceOperationError.value)
-    return
-  }
-  if (file.size > MAX_SOURCE_FILE_BYTES) {
-    clearSelectedFile()
-    sourceOperationError.value = '单个素材文件最大 20MB，请拆分或压缩后再导入。'
-    showWorkflowMessage('warning', sourceOperationError.value)
-    return
-  }
-  if (file.size === 0) {
-    clearSelectedFile()
-    sourceOperationError.value = '素材文件为空，请重新选择。'
-    showWorkflowMessage('warning', sourceOperationError.value)
-    return
-  }
-  sourceFile.value = file
-  selectedFilename.value = file.name
-  if (!form.title) form.title = file.name.replace(/\.[^.]+$/, '')
-  const inferredType = inferSourceTypeFromFilename(file.name)
-  if (inferredType && !form.source_type) form.source_type = inferredType
-  const mime = String(file.type || '').toLowerCase()
-  const looksLikeBinaryMedia = mime === 'application/pdf' || mime.startsWith('image/') || mime.startsWith('audio/') || mime.startsWith('video/')
-  if (TEXT_SOURCE_FILE_EXTENSIONS.has(extension) && file.size <= 2 * 1024 * 1024 && !looksLikeBinaryMedia) {
-    sourceFileReading.value = true
-    try {
-      form.text = await file.text()
-    } catch (error) {
-      clearSelectedFile()
-      if (isUserFacingAbort(error)) return
-      sourceOperationError.value = toUserFacingError(error, '读取文本文件失败，请重新选择。')
-      showWorkflowMessage('error', sourceOperationError.value)
-      return
-    } finally {
-      sourceFileReading.value = false
-    }
-  } else {
-    form.text = ''
-  }
-  sourceOperationMessage.value = `${file.name} 已选择，导入时将上传并解析。`
-  showWorkflowMessage('success', `已选择 ${file.name}`)
-}
-
-async function refreshSelectedRun() {
-  if (!selectedRun.value?.id) return
-  try {
-    const run = await workflowRunsAPI.get(selectedRun.value.id)
-    if (!sourceWorkflowLifecycle.isActive()) return
-    selectedRun.value = run
-    pollState.value = normalizeWorkflowRun(run).active ? 'polling' : 'idle'
-    pollError.value = ''
-    if (!normalizeWorkflowRun(run).active) {
-      stopPoll()
-      await refreshWorkflowSnapshot()
-      if (!sourceWorkflowLifecycle.isActive()) return
-      emitRefresh()
-    }
-  } catch (error) {
-    if (shouldIgnoreSourceWorkflowPollError(error, sourceWorkflowLifecycle) || isUserFacingAbort(error)) return
-    stopPoll()
-    pollState.value = 'error'
-    pollError.value = toUserFacingError(error, '处理状态刷新失败，自动轮询已暂停。', {
-      serviceLabel: '处理状态',
-    })
-  }
-}
-
-async function resumePolling() {
-  if (!selectedRun.value?.id || pollState.value === 'recovering') return
-  pollState.value = 'recovering'
-  pollError.value = ''
-  try {
-    const run = await workflowRunsAPI.get(selectedRun.value.id)
-    if (!sourceWorkflowLifecycle.isActive()) return
-    selectedRun.value = run
-    if (normalizeWorkflowRun(run).active) {
-      startPoll()
-      return
-    }
-    pollState.value = 'idle'
-    await refreshWorkflowSnapshot()
-    if (!sourceWorkflowLifecycle.isActive()) return
-    emitRefresh()
-  } catch (error) {
-    if (shouldIgnoreSourceWorkflowPollError(error, sourceWorkflowLifecycle) || isUserFacingAbort(error)) {
-      if (sourceWorkflowLifecycle.isActive()) startPoll()
-      return
-    }
-    pollState.value = 'error'
-    pollError.value = toUserFacingError(error, '恢复轮询失败，请重试。', {
-      serviceLabel: '处理状态',
-    })
-  }
-}
-
-async function loadSources() {
-  return sourceImportController.loadSources()
-}
-
-async function fetchWorkflowSnapshot({ generation }) {
-  const dramaId = props.dramaId
-  const readinessPayload = {
-    drama_id: dramaId,
-    qa_mode: 'production',
+const { runQaAudit, remediateQa } = createSourceIntakeQaActions({
+  qaRunning,
+  remediating,
+  remediationStatus,
+  getDramaId: () => props.dramaId,
+  getSelectedRunId: () => selectedRun.value?.id,
+  getRunMode: () => runState.value.mode,
+  getLatestQa: () => latestQa.value,
+  getRemediateReason: () => actionReasons.value.remediate,
+  getRemediatePayload: () => ({
     target_episode_count: form.target_episode_count,
     style: props.drama?.style || '',
-  }
-  const [nextSources, nextRuns, nextReports, nextReadiness, nextTimeline] = await Promise.all([
-    sourceIntakeAPI.listForDrama(dramaId),
-    workflowRunsAPI.list({ drama_id: dramaId, type: 'novel2anime', limit: 10 }),
-    qaReportsAPI.list({ drama_id: dramaId, limit: 10 }),
-    workflowRunsAPI.getNovel2AnimeReadiness(readinessPayload),
-    timelinesAPI.getDramaTimeline(dramaId).catch(() => null),
-  ])
-  const latest = nextRuns[0]
-  const nextSelectedRun = latest ? await workflowRunsAPI.get(latest.id) : null
-  return {
-    dramaId,
-    generation,
-    sources: nextSources,
-    runs: nextRuns,
-    reports: nextReports,
-    readiness: normalizeProductionReadiness(nextReadiness),
-    selectedRun: nextSelectedRun,
-    timeline: nextTimeline,
-  }
-}
-
-function applyWorkflowSnapshot(snapshot) {
-  if (!sourceWorkflowLifecycle.isActive() || snapshot.dramaId !== props.dramaId) return
-  sources.value = snapshot.sources
-  runs.value = snapshot.runs
-  reports.value = snapshot.reports
-  productionReadiness.value = snapshot.readiness
-  selectedRun.value = snapshot.selectedRun
-  timeline.value = snapshot.timeline
-  workflowDataError.value = ''
-  startPoll()
-}
-
-async function refreshWorkflowSnapshot() {
-  return workflowSnapshotController.refresh({ dramaId: props.dramaId })
-}
-
-async function refreshAndConfirmRun(runId) {
-  try {
-    const outcome = await refreshWorkflowSnapshot()
-    return outcome.status === 'applied'
-      && outcome.data?.runs?.some((run) => String(run?.id) === String(runId))
-  } catch (_) {
-    return false
-  }
-}
-
-function markWorkflowRefreshUnconfirmed() {
-  sourceImportController.markRefreshUnconfirmed(SOURCE_WORKFLOW_REFRESH_UNCONFIRMED_MESSAGE)
-  sourceOperationMessage.value = SOURCE_WORKFLOW_REFRESH_UNCONFIRMED_MESSAGE
-}
-
-async function loadData() {
-  if (!props.dramaId) return
-  activeLoadCount += 1
-  loading.value = true
-  workflowDataError.value = ''
-  try {
-    return await refreshWorkflowSnapshot()
-  } catch (e) {
-    if (shouldIgnoreSourceWorkflowPollError(e, sourceWorkflowLifecycle) || isUserFacingAbort(e)) {
-      return { status: 'ignored', error: e }
-    }
-    workflowDataError.value = toUserFacingError(e, '加载素材流程状态失败，请稍后重试。', {
-      serviceLabel: '素材流程',
-    })
-    return { status: 'failed', error: e }
-  } finally {
-    activeLoadCount -= 1
-    loading.value = activeLoadCount > 0
-  }
-}
-
-async function openSourceImportIntent() {
-  await revealSourceImportIntent({
-    historyExpanded: workflowHistoryExpanded,
-    selectedStepId: selectedFlowStepId,
-    sourceUrlInput,
-    nextTickFn: nextTick,
-  })
-  persistInspectedFlowStep(selectedFlowStepId.value)
-  await nextTick()
-  sourceUrlInput.value?.focus?.()
-}
-
-async function createSourceFromForm() {
-  if (rawSourceUrl.value && sourceUrlValidationMessage.value) {
-    throw new Error(sourceUrlValidationMessage.value)
-  }
-  if (sourceFile.value) {
-    return sourceIntakeAPI.uploadForDrama(props.dramaId, buildSourceUploadFormData(form, props.drama, sourceFile.value))
-  }
-  if (hasWebSourceUrl.value) {
-    return sourceIntakeAPI.importUrlForDrama(
-      props.dramaId,
-      buildWebSourceIntakePayload(form, props.drama),
-    )
-  }
-  return sourceIntakeAPI.createForDrama(props.dramaId, buildSourceIntakePayload(form, props.drama))
-}
-
-function resetSourceInput() {
-  form.text = ''
-  form.source_url = ''
-  clearSelectedFile()
-}
-
-async function confirmSourceInputLeave() {
-  if (sourceOperationActive.value) {
-    showWorkflowMessage('warning', '素材正在保存、解析或启动工作流，请完成后再离开。')
-    return false
-  }
-  if (!hasUnsavedSourceInput.value) return true
-  if (leaveConfirmationOpen) return false
-  leaveConfirmationOpen = true
-  try {
-    await ElMessageBox.confirm(
-      '网页地址、原始素材或待上传文件尚未保存，离开后会丢失。',
-      '离开素材编辑？',
-      {
-        confirmButtonText: '放弃并离开',
-        cancelButtonText: '继续编辑',
-        type: 'warning',
-        distinguishCancelAndClose: true,
-      },
-    )
-    return true
-  } catch (_) {
-    return false
-  } finally {
-    leaveConfirmationOpen = false
-  }
-}
-
-function handleBeforeUnload(event) {
-  if (!hasUnsavedSourceInput.value && !sourceOperationActive.value) return
-  event.preventDefault()
-  event.returnValue = ''
-}
-
-async function importSourceOnly() {
-  if (sourceSaving.value || isWorkflowLaunchBusy.value) return
-  const uploadedFilename = selectedFilename.value
-  sourceSaving.value = true
-  try {
-    await sourceImportController.importSource({ uploadedFilename })
-  } finally {
-    sourceSaving.value = false
-  }
-}
-
-async function refreshImportedSources() {
-  if (sourceListRefreshing.value || sourceSaving.value || sourceFileReading.value || isWorkflowLaunchBusy.value) return
-  sourceListRefreshing.value = true
-  try {
-    await sourceImportController.refreshSources()
-  } finally {
-    sourceListRefreshing.value = false
-  }
-}
-
-async function startWorkflow() {
-  if (isWorkflowLaunchBusy.value || newWorkflowRunReason.value) return
-  const uploadedFilename = selectedFilename.value
-  let createdSource = null
-  sourceOperationMessage.value = ''
-  sourceOperationError.value = ''
-  startingSourceId.value = null
-  workflowStarting.value = true
-  try {
-    const basePayload = {
-      drama_id: props.dramaId,
-      ...buildSourceIntakePayload(form, props.drama),
-    }
-    const result = await launchSourceWorkflow({
-      mode: workflowMode.value,
-      payload: basePayload,
-      checkReadiness: checkProductionReadiness,
-      start: async (launchPayload) => {
-        assertSourceWorkflowLifecycleActive(sourceWorkflowLifecycle)
-        if (!sourceFile.value && !hasWebSourceUrl.value) {
-          return workflowRunsAPI.startNovel2Anime(launchPayload)
-        }
-        const sourceResult = await createSourceFromForm()
-        assertSourceWorkflowLifecycleActive(sourceWorkflowLifecycle)
-        createdSource = sourceResult?.source || null
-        if (!createdSource?.id) throw new Error('素材导入成功，但未返回可启动的素材记录。')
-        const sourceLaunchPayload = { ...launchPayload }
-        delete sourceLaunchPayload.text
-        return workflowRunsAPI.startNovel2Anime({
-          ...sourceLaunchPayload,
-          source_id: createdSource.id,
-          title: createdSource.title || launchPayload.title || '',
-          source_type: createdSource.source_type || launchPayload.source_type || '',
-        })
-      },
-    })
-    if (!sourceWorkflowLifecycle.isActive()) return
-    resetSourceInput()
-    const refreshConfirmed = await refreshAndConfirmRun(result.run.id)
-    if (!sourceWorkflowLifecycle.isActive()) return
-    if (!refreshConfirmed) {
-      markWorkflowRefreshUnconfirmed()
-      return
-    }
-    selectedFlowStepId.value = 'process'
-    persistInspectedFlowStep('process')
-    sourceOperationMessage.value = uploadedFilename
-      ? `${uploadedFilename} 上传解析完成，${workflowModeShortLabel.value} 流程已启动。`
-      : `${workflowModeShortLabel.value} 流程已启动。`
-    showWorkflowMessage('success', `${workflowModeShortLabel.value} 流程已启动`)
-    emitRefresh()
-  } catch (e) {
-    if (!sourceWorkflowLifecycle.isActive()) return
-    if (e?.readiness) productionReadiness.value = e.readiness
-    if (createdSource) {
-      resetSourceInput()
-      sourceOperationMessage.value = '素材已导入，但处理流程未启动。可从“已导入素材”中重试。'
-      try {
-        await loadSources()
-      } catch (_) {}
-    }
-    if (isUserFacingAbort(e)) return
-    sourceOperationError.value = createdSource
-      ? toUserFacingError(e, '启动失败')
-      : sourceIntakeFailureMessage(e, '启动失败')
-    if (!sourceOperationError.value) return
-    showWorkflowMessage('error', sourceOperationError.value)
-  } finally {
-    workflowStarting.value = false
-  }
-}
-
-async function startWorkflowFromSource(source) {
-  if (!source?.id) throw new Error('素材记录无效，无法启动处理。')
-  const result = await launchSourceWorkflow({
-    mode: workflowMode.value,
-    payload: {
-        drama_id: props.dramaId,
-        source_id: source.id,
-        title: source.title || '',
-        source_type: source.source_type || '',
-        target_episode_count: form.target_episode_count,
-        style: props.drama?.style || '',
-        metadata: props.drama?.metadata || {},
-    },
-    checkReadiness: checkProductionReadiness,
-    start: (launchPayload) => {
-      assertSourceWorkflowLifecycleActive(sourceWorkflowLifecycle)
-      return workflowRunsAPI.startNovel2Anime(launchPayload)
-    },
-  })
-  assertSourceWorkflowLifecycleActive(sourceWorkflowLifecycle)
-  return result.run
-}
-
-async function startExistingSource(source) {
-  if (isWorkflowLaunchBusy.value || newWorkflowRunReason.value) return
-  sourceOperationMessage.value = ''
-  sourceOperationError.value = ''
-  startingSourceId.value = source.id
-  workflowStarting.value = true
-  try {
-    const run = await startWorkflowFromSource(source)
-    if (!sourceWorkflowLifecycle.isActive()) return
-    if (!await refreshAndConfirmRun(run.id)) {
-      markWorkflowRefreshUnconfirmed()
-      return
-    }
-    selectedFlowStepId.value = 'process'
-    persistInspectedFlowStep('process')
-    showWorkflowMessage('success', `已从素材启动 ${workflowModeShortLabel.value} 流程`)
-    emitRefresh()
-  } catch (e) {
-    if (!sourceWorkflowLifecycle.isActive()) return
-    if (e?.readiness) productionReadiness.value = e.readiness
-    if (isUserFacingAbort(e)) return
-    sourceOperationError.value = toUserFacingError(e, '启动失败')
-    if (!sourceOperationError.value) return
-    showWorkflowMessage('error', sourceOperationError.value)
-  } finally {
-    workflowStarting.value = false
-    startingSourceId.value = null
-  }
-}
-
-async function retryRun() {
-  if (!selectedRun.value?.id || workflowActionBusy.value || controlActionReasons.value.retry) return
-  retrying.value = true
-  try {
-    const nextRun = await workflowRunsAPI.retry(selectedRun.value.id)
-    if (!sourceWorkflowLifecycle.isActive()) return
-    if (!nextRun?.id) throw new Error('重试接口未返回有效的流程记录。')
-    if (!await refreshAndConfirmRun(nextRun.id)) {
-      selectedRun.value = nextRun
-      markWorkflowRefreshUnconfirmed()
-      selectedFlowStepId.value = 'process'
-      persistInspectedFlowStep('process')
-      startPoll()
-      return
-    }
-    selectedFlowStepId.value = 'process'
-    persistInspectedFlowStep('process')
-    showWorkflowMessage('success', '已提交重试')
-    emitRefresh()
-    startPoll()
-  } catch (e) {
-    if (shouldIgnoreSourceWorkflowPollError(e, sourceWorkflowLifecycle) || isUserFacingAbort(e)) return
-    captureProductionReadinessError(e)
-    showWorkflowMessage('error', toUserFacingError(e, '重试失败', { serviceLabel: '处理流程' }))
-  } finally {
-    retrying.value = false
-  }
-}
-
-async function cancelRun() {
-  if (!selectedRun.value?.id || workflowActionBusy.value || controlActionReasons.value.cancel) return
-  cancelling.value = true
-  try {
-    const nextRun = await workflowRunsAPI.cancel(selectedRun.value.id, SOURCE_WORKFLOW_CANCEL_REASON)
-    if (!sourceWorkflowLifecycle.isActive()) return
-    selectedRun.value = nextRun
-    showWorkflowMessage('success', '已取消')
-    stopPoll()
-    emitRefresh()
-  } catch (e) {
-    if (shouldIgnoreSourceWorkflowPollError(e, sourceWorkflowLifecycle) || isUserFacingAbort(e)) return
-    showWorkflowMessage('error', toUserFacingError(e, '取消失败', { serviceLabel: '处理流程' }))
-  } finally {
-    cancelling.value = false
-  }
-}
-
-async function pauseRun() {
-  if (!selectedRun.value?.id || workflowActionBusy.value || controlActionReasons.value.pause) return
-  pausing.value = true
-  try {
-    const nextRun = await workflowRunsAPI.pause(selectedRun.value.id, SOURCE_WORKFLOW_PAUSE_REASON)
-    if (!sourceWorkflowLifecycle.isActive()) return
-    selectedRun.value = nextRun
-    showWorkflowMessage('success', '已暂停')
-    stopPoll()
-    emitRefresh()
-  } catch (e) {
-    if (shouldIgnoreSourceWorkflowPollError(e, sourceWorkflowLifecycle) || isUserFacingAbort(e)) return
-    showWorkflowMessage('error', toUserFacingError(e, '暂停失败', { serviceLabel: '处理流程' }))
-  } finally {
-    pausing.value = false
-  }
-}
-
-async function resumeRun() {
-  if (!selectedRun.value?.id || workflowActionBusy.value || controlActionReasons.value.resume) return
-  resuming.value = true
-  try {
-    const nextRun = await workflowRunsAPI.resume(selectedRun.value.id)
-    if (!sourceWorkflowLifecycle.isActive()) return
-    selectedRun.value = nextRun
-    showWorkflowMessage('success', '已恢复')
-    emitRefresh()
-    startPoll()
-  } catch (e) {
-    if (shouldIgnoreSourceWorkflowPollError(e, sourceWorkflowLifecycle) || isUserFacingAbort(e)) return
-    captureProductionReadinessError(e)
-    showWorkflowMessage('error', toUserFacingError(e, '恢复失败', { serviceLabel: '处理流程' }))
-  } finally {
-    resuming.value = false
-  }
-}
-
-async function runQaAudit() {
-  qaRunning.value = true
-  try {
-    await qaReportsAPI.audit({
-      drama_id: props.dramaId,
-      run_id: selectedRun.value?.id || undefined,
-      mode: runState.value.mode,
-    })
-    if (!sourceWorkflowLifecycle.isActive()) return
-    await refreshWorkflowSnapshot()
-    if (!sourceWorkflowLifecycle.isActive()) return
-    showWorkflowMessage('success', 'QA 审计已完成')
-  } catch (e) {
-    if (!sourceWorkflowLifecycle.isActive()) return
-    if (isUserFacingAbort(e)) return
-    showWorkflowMessage('error', toUserFacingError(e, 'QA 审计失败'))
-  } finally {
-    qaRunning.value = false
-  }
-}
-
-async function remediateQa() {
-  await runGatedQaRemediation({
-    report: latestQa.value,
-    blockedReason: actionReasons.value.remediate,
-    payload: {
-      target_episode_count: form.target_episode_count,
-      style: props.drama?.style || '',
-    },
-    remediate: (reportId, payload) => qaReportsAPI.remediate(reportId, payload),
-    onStarted: () => {
-      remediating.value = true
-      remediationStatus.value = '正在提交自动修复...'
-    },
-    onSucceeded: async (result) => {
-      if (!sourceWorkflowLifecycle.isActive()) return
-      if (result.workflow_run) {
-        if (!await refreshAndConfirmRun(result.workflow_run.id)) {
-          markWorkflowRefreshUnconfirmed()
-          remediationStatus.value = SOURCE_WORKFLOW_REFRESH_UNCONFIRMED_MESSAGE
-          return
-        }
-        const action = result.actions_taken?.[0]?.code || 'workflow'
-        remediationStatus.value = `已启动修复：${action}`
-        showWorkflowMessage('success', '已启动自动修复流程')
-      } else {
-        try {
-          const refreshOutcome = await refreshWorkflowSnapshot()
-          if (refreshOutcome.status !== 'applied') {
-            markWorkflowRefreshUnconfirmed()
-            remediationStatus.value = SOURCE_WORKFLOW_REFRESH_UNCONFIRMED_MESSAGE
-            return
-          }
-        } catch (_) {
-          markWorkflowRefreshUnconfirmed()
-          remediationStatus.value = SOURCE_WORKFLOW_REFRESH_UNCONFIRMED_MESSAGE
-          return
-        }
-        remediationStatus.value = result.reason || '当前 QA 报告没有可自动执行的修复动作'
-        showWorkflowMessage('warning', remediationStatus.value)
-      }
-    },
-    onFailed: (error) => {
-      if (!sourceWorkflowLifecycle.isActive()) return
-      remediationStatus.value = ''
-      if (isUserFacingAbort(error)) return
-      showWorkflowMessage('error', toUserFacingError(error, '自动修复失败'))
-    },
-    onFinished: () => { remediating.value = false },
-  })
-}
-
-async function runSourceEmptyStateAction(actionId) {
-  if (actionId === 'import') {
-    await importSourceOnly()
-    return
-  }
-  if (actionId === 'start') {
-    await startWorkflow()
-  }
-}
-
-async function openSourceDetail(source) {
-  sourceDetailVisible.value = true
-  sourceDetailLoading.value = true
-  sourceDetail.value = null
-  try {
-    const detail = await sourceIntakeAPI.get(source.id)
-    if (!sourceWorkflowLifecycle.isActive()) return
-    sourceDetail.value = detail
-  } catch (e) {
-    if (!sourceWorkflowLifecycle.isActive()) return
-    if (isUserFacingAbort(e)) return
-    showWorkflowMessage('error', toUserFacingError(e, '加载素材详情失败'))
-  } finally {
-    sourceDetailLoading.value = false
-  }
-}
-
-watch(() => props.drama, syncDefaults, { immediate: true })
-watch(() => props.dramaId, () => {
-  workflowSnapshotController.reset()
-  sourceImportController.reset()
-  loadData()
+  }),
+  auditQa: (payload) => qaReportsAPI.audit(payload),
+  remediateQaApi: (reportId, payload) => qaReportsAPI.remediate(reportId, payload),
+  isLifecycleActive: () => sourceWorkflowLifecycle.isActive(),
+  refreshWorkflowSnapshot,
+  refreshAndConfirmRun,
+  markWorkflowRefreshUnconfirmed,
+  refreshUnconfirmedMessage: SOURCE_WORKFLOW_REFRESH_UNCONFIRMED_MESSAGE,
+  showWorkflowMessage,
+  isUserFacingAbort,
+  toUserFacingError,
 })
-watch(() => props.sourceImportIntent, (active) => {
-  if (active) openSourceImportIntent()
+
+const { confirmSourceInputLeave, handleBeforeUnload } = createSourceIntakeLeaveController({
+  sourceOperationActive,
+  hasUnsavedSourceInput,
+  showWorkflowMessage,
+})
+
+bindSourceIntakeWorkspaceWatches({
+  watch,
+  flowState,
+  selectedFlowStepId,
+  requestedFlowStepFromRoute,
+  revealInspectedHistoryIfNeeded,
+  route,
+  workflowHistoryExpanded,
+  props,
+  syncDefaults,
+  snapshotSession,
+  sourceImportController,
+  loadData,
+  openSourceImportIntent,
 })
 
 onBeforeRouteLeave(() => confirmSourceInputLeave())
@@ -1685,7 +681,7 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   sourceWorkflowLifecycle.dispose()
   stopPoll()
-  workflowSnapshotController.reset()
+  snapshotSession.reset()
   sourceImportController.reset()
   window.removeEventListener('beforeunload', handleBeforeUnload)
 })
@@ -1723,9 +719,7 @@ onBeforeUnmount(() => {
   font-size: 12px;
   color: var(--source-text-muted);
 }
-.head-actions,
-.action-row,
-.file-row {
+.head-actions {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1756,210 +750,13 @@ onBeforeUnmount(() => {
   display: grid;
   gap: 12px;
 }
-.workflow-focus-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
 .workflow-stage-card {
   min-width: 0;
-}
-.workflow-mode-band {
-  display: grid;
-  gap: 9px;
-  margin-bottom: 16px;
-  padding-bottom: 16px;
-  border-bottom: 1px solid rgba(63, 63, 70, 0.7);
-}
-.workflow-mode-head,
-.readiness-gap-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-}
-.workflow-mode-head strong,
-.production-readiness strong {
-  color: #e4e4e7;
-  font-size: 13px;
-  font-weight: 600;
-}
-.workflow-mode-control {
-  display: flex;
-  width: 100%;
-  max-width: 100%;
-}
-.workflow-mode-control :deep(.el-radio-button) {
-  min-width: 0;
-  flex: 1;
-}
-.workflow-mode-control :deep(.el-radio-button__inner) {
-  width: 100%;
-  min-height: 32px;
-  padding-inline: 10px;
-  white-space: normal;
-}
-.workflow-mode-band > p {
-  margin: 0;
-  color: var(--source-text-muted);
-  font-size: 12px;
-  line-height: 1.5;
-}
-.production-readiness {
-  display: grid;
-  gap: 6px;
-  padding: 10px 12px;
-  border-left: 3px solid #f59e0b;
-  border-radius: 4px;
-  background: rgba(245, 158, 11, 0.1);
-  color: #fcd34d;
-  font-size: 12px;
-  line-height: 1.45;
-}
-.production-readiness.is-ready {
-  border-left-color: #22c55e;
-  background: rgba(34, 197, 94, 0.1);
-  color: #86efac;
-}
-.production-readiness.has-gaps strong {
-  color: #fde68a;
-}
-.readiness-gap-list {
-  display: grid;
-  gap: 6px;
-  margin: 2px 0 0;
-  padding: 0;
-  list-style: none;
-}
-.readiness-gap-list li {
-  display: grid;
-  grid-template-columns: minmax(90px, auto) 1fr;
-  gap: 8px;
-  align-items: baseline;
-}
-.readiness-gap-list li strong {
-  font-size: 12px;
 }
 .intake-stage-layout {
   display: grid;
   grid-template-columns: minmax(0, 1.2fr) minmax(280px, 0.8fr);
   gap: 18px;
-}
-.form-row {
-  display: grid;
-  grid-template-columns: 1fr 150px;
-  gap: 12px;
-}
-.hidden-file-input {
-  display: none;
-}
-.file-name {
-  color: var(--source-text-muted);
-  font-size: 12px;
-}
-.field-help {
-  margin-top: 6px;
-  color: var(--source-text-muted);
-  font-size: 12px;
-  line-height: 1.45;
-}
-.source-operation-status,
-.source-operation-error {
-  margin-top: 7px;
-  font-size: 12px;
-  line-height: 1.45;
-}
-.source-operation-status {
-  color: var(--status-success);
-}
-.source-operation-error {
-  color: var(--el-color-danger);
-}
-.source-import-refresh-alert {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-}
-.stage-heading {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.stage-heading--compact {
-  margin-bottom: 12px;
-}
-.stage-heading > div {
-  min-width: 0;
-  flex: 1;
-  display: grid;
-  gap: 2px;
-}
-.stage-heading strong {
-  color: #f4f4f5;
-  font-size: 14px;
-  font-weight: 600;
-}
-.stage-heading div span {
-  color: var(--source-text-muted);
-  font-size: 11px;
-  line-height: 1.4;
-}
-.stage-number {
-  width: 24px;
-  height: 24px;
-  flex: 0 0 24px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 50%;
-  color: var(--accent-text);
-  background: rgba(139, 92, 246, 0.18);
-  font-size: 11px;
-  font-weight: 700;
-}
-.action-reason {
-  margin-top: 7px;
-  color: var(--status-warning);
-  font-size: 11px;
-  line-height: 1.45;
-}
-.action-reason--inline {
-  margin-top: 0;
-}
-.stage-action-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-height: 32px;
-  margin-bottom: 10px;
-}
-.delivery-actions {
-  margin-top: 12px;
-  margin-bottom: 0;
-}
-.stage-empty,
-.stage-success {
-  padding: 10px 0;
-  color: var(--source-text-muted);
-  font-size: 12px;
-  line-height: 1.5;
-}
-.stage-empty--actionable {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px 12px;
-}
-.empty-stage-hint {
-  margin: 0;
-  color: var(--source-text-muted);
-  font-size: 12px;
-  line-height: 1.5;
-}
-.stage-success {
-  color: var(--status-success);
 }
 .status-block {
   border: 1px solid rgba(63, 63, 70, 0.7);
@@ -1994,99 +791,15 @@ onBeforeUnmount(() => {
   font-size: 12px;
   line-height: 1.5;
 }
-.run-meta,
-.timeline-summary {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px 12px;
-  margin: 8px 0 10px;
-  color: var(--source-text-secondary);
+.empty-stage-hint {
+  margin: 0;
+  color: var(--source-text-muted);
   font-size: 12px;
+  line-height: 1.5;
 }
-.run-meta .cost-unconfigured {
-  color: #fbbf24;
-}
-.placeholder-note {
-  margin: 8px 0 10px;
-  padding: 8px 10px;
-  border-radius: 8px;
-  color: #fde68a;
-  background: rgba(245, 158, 11, 0.12);
-  font-size: 12px;
-  line-height: 1.45;
-}
-.placeholder-note.is-error {
-  color: #fecaca;
-  background: rgba(239, 68, 68, 0.12);
-}
-.run-detail,
-.qa-detail {
-  color: var(--source-text-secondary);
-  font-size: 12px;
-}
-.run-detail summary,
-.qa-detail summary {
-  cursor: pointer;
-  color: #93c5fd;
-  margin-bottom: 8px;
-}
-.step-list,
-.remediation-actions,
-.mini-list,
-.qa-issues {
+.mini-list {
   display: grid;
   gap: 6px;
-}
-.step-item {
-  display: grid;
-  grid-template-columns: 10px 1fr auto auto;
-  align-items: center;
-  gap: 8px;
-  font-size: 12px;
-  color: var(--source-text-secondary);
-}
-.step-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: #52525b;
-}
-.step-completed .step-dot {
-  background: #22c55e;
-}
-.step-processing .step-dot {
-  background: #60a5fa;
-}
-.step-failed .step-dot {
-  background: #ef4444;
-}
-.step-cancelled .step-dot {
-  background: #71717a;
-}
-.step-name {
-  color: #e4e4e7;
-}
-.step-status,
-.step-attempts {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  color: var(--source-text-muted);
-}
-.run-error,
-.remediation-status {
-  margin-top: 10px;
-  padding: 8px 10px;
-  border-radius: 8px;
-  color: #fecaca;
-  background: rgba(239, 68, 68, 0.12);
-  font-size: 12px;
-}
-.remediation-status {
-  color: #bfdbfe;
-  background: rgba(96, 165, 250, 0.12);
-  margin-bottom: 8px;
-}
-.compact {
-  margin-top: 12px;
 }
 .mini-item {
   display: flex;
@@ -2127,52 +840,6 @@ onBeforeUnmount(() => {
   gap: 6px;
   flex-shrink: 0;
 }
-.qa-line {
-  font-size: 13px;
-  color: #facc15;
-  margin-bottom: 8px;
-}
-.qa-line.passed {
-  color: var(--status-success);
-}
-.qa-issue,
-.empty-line {
-  font-size: 12px;
-  color: var(--source-text-muted);
-  line-height: 1.45;
-}
-.qa-detail {
-  margin-top: 10px;
-}
-.qa-detail-title,
-.detail-title {
-  margin-top: 8px;
-  color: #e4e4e7;
-  font-weight: 600;
-}
-.detail-meta {
-  display: grid;
-  gap: 4px;
-  color: var(--source-text-muted);
-  font-size: 13px;
-  margin-bottom: 16px;
-}
-.detail-section {
-  margin-top: 14px;
-}
-.detail-row {
-  border-bottom: 1px solid #27272a;
-  padding: 8px 0;
-  color: var(--source-text-secondary);
-  font-size: 12px;
-}
-.detail-row p {
-  margin: 4px 0 0;
-  line-height: 1.5;
-}
-.compact-row {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-}
 html.light .source-workflow-section {
   --source-text-muted: #52525b;
   --source-text-secondary: #3f3f46;
@@ -2192,51 +859,17 @@ html.light .poll-status-banner.is-error {
   border-color: rgba(239, 68, 68, 0.24);
   color: #b91c1c;
 }
-html.light .stage-heading strong,
 html.light .block-head,
-html.light .step-name,
-html.light .empty-stage-state strong,
-html.light .qa-detail-title,
-html.light .detail-title {
+html.light .empty-stage-state strong {
   color: #18181b;
 }
 html.light .status-block {
   background: #f8fafc;
   border-color: #e5e7eb;
 }
-html.light .workflow-mode-band {
-  border-bottom-color: #e5e7eb;
-}
-html.light .workflow-mode-head strong,
-html.light .production-readiness strong {
-  color: #18181b;
-}
-html.light .production-readiness {
-  color: #854d0e;
-  background: #fffbeb;
-}
-html.light .production-readiness.has-gaps strong {
-  color: #713f12;
-}
-html.light .production-readiness.is-ready {
-  color: #166534;
-  background: #f0fdf4;
-}
-html.light .detail-row {
-  border-bottom-color: #e5e7eb;
-}
 @media (max-width: 900px) {
-  .intake-stage-layout,
-  .form-row {
+  .intake-stage-layout {
     grid-template-columns: 1fr;
-  }
-  .readiness-gap-head {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-  .readiness-gap-list li {
-    grid-template-columns: 1fr;
-    gap: 2px;
   }
 }
 
@@ -2249,6 +882,4 @@ html.light .detail-row {
   padding: 12px 0;
   border-bottom: 1px solid var(--el-border-color);
 }
-
-
 </style>

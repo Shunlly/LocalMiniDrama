@@ -183,7 +183,7 @@ test('scene and storyboard entry points reject unsafe media references', () => {
     );
     assert.throws(
       () => storyboardService.normalizeStoryboardVideoReference(outside),
-      /storage/
+      /存储|storage/
     );
     assert.throws(
       () => storyboardService.normalizeStoryboardVideoReference('http://127.0.0.1/private.mp4'),

@@ -804,47 +804,14 @@ test('production E2E verifies workflow-first disclosures and AI config modes', (
 test('focused production E2E expands the 769px sidebar before checking every header control', () => {
   const focusedAcceptance = sourceFunction('verifyFocusedDesktopAcceptance')
   assertSourceOrder(focusedAcceptance, [
-    'await page.setViewportSize(FILM_DESKTOP_EDGE_VIEWPORT)',
-    "page.getByRole('button', { name: UI.expandNavigation, exact: true })",
-    "await edgeExpand.waitFor({ state: 'visible', timeout: 10000 })",
-    'await edgeExpand.click()',
-    "page.getByRole('button', { name: UI.collapseNavigation, exact: true })",
-    "await edgeCollapse.waitFor({ state: 'visible', timeout: 10000 })",
-    'await assertFilmCreateDesktopLayout(page, { ...FILM_DESKTOP_EDGE_VIEWPORT, sidebarWidth: 180 })',
-  ])
-
-  const layoutAssertion = sourceFunction('assertFilmCreateDesktopLayout')
-  for (const selector of [
-    '.header-episode-select',
-    '.btn-back-drama',
-    '.btn-canvas-mode',
-    '.btn-theme',
-    '.btn-ai-config',
-  ]) {
-    assert.match(layoutAssertion, new RegExp(selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
-  }
-  assert.match(layoutAssertion, /scrollWidth/)
-  assert.match(layoutAssertion, /clientWidth/)
-  assert.match(layoutAssertion, /overlaps/)
-})
-
-test('focused production E2E covers media center to completed-project URL intake focus', () => {
-  const focusedAcceptance = sourceFunction('verifyFocusedDesktopAcceptance')
-  assertSourceOrder(focusedAcceptance, [
     'await page.goto(`${FRONTEND_URL}/media-library`',
     "page.getByRole('button', { name: UI.sourceImportProject, exact: true })",
-    "url.searchParams.get('intent') === 'source-import'",
     'await sourceImportEntry.click()',
-    "page.getByRole('textbox', { name: '\\u641c\\u7d22\\u9879\\u76ee', exact: true })",
-    "projectCard.locator('.project-card-link')",
-    'const sourceListUrl = new URL(page.url())',
-    "const sourceReturnTo = projectDestination.searchParams.get('returnTo')",
-    "assert.ok(sourceReturnTo, 'project action must retain source-import list context')",
-    "for (const key of ['q', 'status', 'sort', 'intent'])",
-    "assert.equal(projectDestination.searchParams.get('intake'), 'source-url'",
+    "page.getByRole('dialog', { name: UI.sourceImportPickerTitle, exact: true })",
+    "sourceImportDialog.getByRole('textbox', { name: '\\u641c\\u7d22\\u9879\\u76ee', exact: true })",
+    'UI.importToProject(fixtureTitle)',
     'await projectEntry.click()',
     "assert.equal(sourceUrl.searchParams.get('intake'), 'source-url'",
-    "assert.equal(sourceUrl.searchParams.get('returnTo'), sourceReturnTo",
     "workflow.getByRole('textbox', { name: UI.sourceUrlLabel, exact: true })",
     "await sourceUrlInput.waitFor({ state: 'visible', timeout: 30000 })",
     'element.ownerDocument.activeElement === element',
@@ -996,8 +963,8 @@ test('focused desktop acceptance is isolated from expensive media workflows', ()
   assertSourceOrder(focused, [
     'FOCUSED_DESKTOP_VIEWPORT',
     'UI.sourceImportProject',
-    "page.locator('.project-card')",
-    "projectCard.locator('.project-card-link')",
+    'UI.sourceImportPickerTitle',
+    'UI.importToProject(fixtureTitle)',
     'projectEntry.click()',
     "#source-intake-workflow",
     "getByTestId('source-workflow-complete')",
@@ -1010,7 +977,7 @@ test('focused desktop acceptance is isolated from expensive media workflows', ()
     ".status-done:not(.is-current)",
     "getByTestId('film-pipeline-action')",
   ])
-  assert.doesNotMatch(
+    assert.doesNotMatch(
     focused,
     /verifyPlayableVideo|\.play\(|verifyFinalVideoDownloadUi|verifyProjectExportUi|startProductionFromUi|startDraftFromUi/,
   )

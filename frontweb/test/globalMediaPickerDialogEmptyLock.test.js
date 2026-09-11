@@ -31,12 +31,21 @@ const assetsApiStubUrl = dataModule(`
   }
 `)
 
+const cardModuleUrl = compileSfc(new URL('../src/components/globalMediaPicker/GlobalMediaPickerCard.vue', import.meta.url), 'gmp-card')
+const emptyModuleUrl = compileSfc(new URL('../src/components/globalMediaPicker/GlobalMediaPickerEmpty.vue', import.meta.url), 'gmp-empty')
+const footerModuleUrl = compileSfc(new URL('../src/components/globalMediaPicker/GlobalMediaPickerFooter.vue', import.meta.url), 'gmp-footer')
+const presentationModuleUrl = new URL('../src/components/globalMediaPicker/globalMediaPickerPresentation.js', import.meta.url).href
+
 const GlobalMediaPickerDialog = await loadCompiledSfc(
   pickerUrl,
   'global-media-picker-empty-lock',
   new Map([
     ['vue', vueUrl],
     ['@/api/assets', assetsApiStubUrl],
+    ['./globalMediaPicker/GlobalMediaPickerCard.vue', cardModuleUrl],
+    ['./globalMediaPicker/GlobalMediaPickerEmpty.vue', emptyModuleUrl],
+    ['./globalMediaPicker/GlobalMediaPickerFooter.vue', footerModuleUrl],
+    ['./globalMediaPicker/globalMediaPickerPresentation.js', presentationModuleUrl],
   ]),
 )
 
@@ -265,6 +274,24 @@ test('类型或项目范围不兼容时确认保持写锁，兼容素材才能�
     assert.equal(harness.selections[0].id, 3)
     assert.equal(harness.selections[0].drama_id, DRAMA_ID)
     assert.notEqual(harness.selections[0].drama_id, OTHER_DRAMA_ID)
+  } finally {
+    harness.app.unmount()
+    delete globalThis.__globalMediaPickerEmptyLockState
+  }
+})
+
+test('空数据时取消会关闭弹窗，确认保持写锁', async () => {
+  const controller = createListController()
+  const harness = mountPicker()
+  try {
+    await openPicker(harness)
+    controller.requests[0].resolve({ items: [], pagination: { total: 0 } })
+    await flushUi(nextTick)
+    assert.equal(confirmButton(harness.root).props.disabled, true)
+    buttonByText(harness.root, '取消').props.onClick()
+    await nextTick()
+    assert.equal(harness.visible.value, false)
+    assert.deepEqual(harness.selections, [])
   } finally {
     harness.app.unmount()
     delete globalThis.__globalMediaPickerEmptyLockState

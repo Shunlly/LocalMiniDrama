@@ -133,7 +133,7 @@
         </div>
         <div v-if="videoCapabilityReason" class="batch-video-capability" role="alert">
           <span>{{ videoCapabilityReason }}</span>
-          <el-button link type="primary" @click="openAiConfig('video')">前往 AI 配置</el-button>
+          <el-button link type="primary" aria-label="前往 AI 配置" @click="openAiConfig('video')">前往 AI 配置</el-button>
         </div>
         <!-- 连贯帧模式 UI 暂时隐藏（保留变量与批量生成逻辑，后续可快速恢复） -->
         <div v-if="false" class="batch-video-options" style="margin-top:8px;display:flex;align-items:center;gap:8px;font-size:13px;">

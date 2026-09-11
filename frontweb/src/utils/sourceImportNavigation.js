@@ -35,6 +35,6 @@ export function newProjectDestination(project, sourceImportIntent, returnTo) {
     query: sourceImportIntent
       ? { intake: 'source-url', returnTo }
       : { returnTo },
-    hash: '#source-intake-workflow',
+    hash: sourceImportIntent ? '#source-intake-workflow' : '#episode-list',
   }
 }

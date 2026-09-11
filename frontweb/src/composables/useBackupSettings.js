@@ -1,15 +1,19 @@
 /**
- * 数据备份与维护页的列表、文件选择和恢复确认逻辑。
+ * 数据备份与维护页的列表、创建和维护状态逻辑。
+ * 文件校验与恢复确认在 useBackupSettingsRestore.js，本文件再导出公开 API。
  * 用户可见文案保持中文；内部操作日志可用英文 operation 名。
  */
 import { computed, ref } from 'vue'
 import request from '@/utils/request'
 import { describeServiceLoadError, isRequestCanceled, withRequestRetry } from '@/utils/requestError'
 import { createOperationId, logOperation } from '@/utils/operationLog'
+import {
+  createValidateBackupFile,
+  restoreConfirmationCopy,
+  useBackupSettingsRestore,
+} from './useBackupSettingsRestore.js'
 
 const HAN_RE = /[\u3400-\u9fff]/
-const BACKUP_ZIP_RE = /\.zip$/i
-const UNSAFE_BACKUP_NAME_RE = /[\\/]|\.\./
 
 export const BACKUP_ERROR_MESSAGES = Object.freeze({
   ARCHIVE_CHANGED: '校验过程中备份文件发生了变化，请重新选择。',
@@ -98,6 +102,9 @@ export const BACKUP_ERROR_MESSAGES = Object.freeze({
   UNSUPPORTED_ARCHIVE: '备份压缩包使用了加密或不支持的压缩方式。',
   UNSUPPORTED_FORMAT: '不支持该备份格式版本。',
 })
+
+export const validateBackupFile = createValidateBackupFile(BACKUP_ERROR_MESSAGES)
+export { restoreConfirmationCopy }
 
 const ENGLISH_BACKUP_MESSAGE_MAP = Object.freeze([
   [/restore requires explicit confirmation/i, BACKUP_ERROR_MESSAGES.CONFIRMATION_REQUIRED],
@@ -240,33 +247,6 @@ export function backupAccessState({
   }
 }
 
-export function validateBackupFile(file) {
-  if (!file) {
-    return { ok: false, code: 'BACKUP_FILE_REQUIRED', message: BACKUP_ERROR_MESSAGES.BACKUP_FILE_REQUIRED }
-  }
-  const fileName = String(file.name || '').trim() || '未命名文件'
-  if (UNSAFE_BACKUP_NAME_RE.test(fileName)) {
-    return { ok: false, code: 'BACKUP_FILE_INVALID_NAME', message: BACKUP_ERROR_MESSAGES.BACKUP_FILE_INVALID_NAME, fileName }
-  }
-  if (!BACKUP_ZIP_RE.test(fileName)) {
-    return { ok: false, code: 'BACKUP_FILE_TYPE', message: BACKUP_ERROR_MESSAGES.BACKUP_FILE_TYPE, fileName }
-  }
-  if (Number(file.size) === 0) {
-    return { ok: false, code: 'BACKUP_FILE_EMPTY', message: BACKUP_ERROR_MESSAGES.BACKUP_FILE_EMPTY, fileName }
-  }
-  return { ok: true, fileName }
-}
-
-export function restoreConfirmationCopy(targetName = '') {
-  const name = String(targetName || '').trim() || '所选备份'
-  return {
-    title: '确认恢复备份',
-    body: `将用「${name}」覆盖当前全部项目、素材和原文。默认备份不含 AI 密钥，恢复后需要重新填写。此操作不可撤销。`,
-    confirmButtonText: '确认恢复',
-    cancelButtonText: '取消',
-  }
-}
-
 export function formatBackupTimestamp(value) {
   const raw = String(value || '').trim()
   if (!raw) return ''
@@ -406,77 +386,9 @@ export function useBackupSettings(options = {}) {
   let listRequestSequence = 0
   let readinessRequestSequence = 0
 
-  function dismissFileError() {
-    fileError.value = ''
-    fileErrorName.value = ''
-  }
-
   function dismissActionError() {
     actionError.value = ''
     lastFailedAction.value = ''
-  }
-
-  function clearSelectedFile() {
-    const current = selectedFile.value
-    selectedFile.value = null
-    dismissFileError()
-    if (restoreTarget.value?.kind === 'file') {
-      restoreDialogVisible.value = false
-      restoreTarget.value = null
-    }
-    if (lastRestoreTarget.value?.kind === 'file' && lastRestoreTarget.value?.file === current) {
-      lastRestoreTarget.value = null
-    }
-  }
-
-  function selectBackupFile(file) {
-    if (file == null) return { ok: true, cancelled: true }
-    const validation = validateBackupFile(file)
-    if (!validation.ok) {
-      selectedFile.value = null
-      fileError.value = validation.message
-      fileErrorName.value = validation.fileName || ''
-      restoreDialogVisible.value = false
-      restoreTarget.value = null
-      return validation
-    }
-    selectedFile.value = file
-    dismissFileError()
-    actionError.value = ''
-    return validation
-  }
-
-  function requestRestoreFromSelection() {
-    if (accessState.value.restoreLocked) return false
-    const validation = validateBackupFile(selectedFile.value)
-    if (!validation.ok) {
-      fileError.value = validation.message
-      fileErrorName.value = validation.fileName || ''
-      return false
-    }
-    restoreTarget.value = { kind: 'file', file: selectedFile.value, name: validation.fileName }
-    restoreDialogVisible.value = true
-    actionError.value = ''
-    return true
-  }
-
-  function requestRestoreFromItem(item) {
-    if (accessState.value.restoreFromListLocked) return false
-    const name = String(item?.name || '').trim()
-    if (!name) {
-      actionError.value = BACKUP_ERROR_MESSAGES.BACKUP_FILE_REQUIRED
-      lastFailedAction.value = 'restore'
-      return false
-    }
-    restoreTarget.value = { kind: 'item', name, id: item.id }
-    restoreDialogVisible.value = true
-    actionError.value = ''
-    return true
-  }
-
-  function cancelRestore() {
-    restoreDialogVisible.value = false
-    restoreTarget.value = null
   }
 
   async function loadBackups() {
@@ -618,76 +530,33 @@ export function useBackupSettings(options = {}) {
     }
   }
 
-  async function confirmRestore() {
-    if (!restoreDialogVisible.value) {
-      actionError.value = BACKUP_ERROR_MESSAGES.CONFIRMATION_REQUIRED
-      lastFailedAction.value = 'restore'
-      return { ok: false, message: actionError.value }
-    }
-    const target = restoreTarget.value
-    if (!target) {
-      actionError.value = BACKUP_ERROR_MESSAGES.BACKUP_FILE_REQUIRED
-      lastFailedAction.value = 'restore'
-      return { ok: false, message: actionError.value }
-    }
-    restoring.value = true
-    actionError.value = ''
-    const operationId = createOperationId('backup_restore')
-    logOperation({ operation: 'backup_restore', operationId, phase: 'start', name: target.name })
-    try {
-      const result = await api.restore({
-        file: target.file,
-        name: target.name,
-        confirmed: true,
-      })
-      restoreDialogVisible.value = false
-      restoreTarget.value = null
-      lastRestoreTarget.value = null
-      selectedFile.value = null
-      lastFailedAction.value = ''
-      logOperation({ operation: 'backup_restore', operationId, phase: 'success', name: target.name })
-      await loadBackups()
-      const pendingRestart = Boolean(result?.pending_restart)
-      return {
-        ok: true,
-        pendingRestart,
-        message: pendingRestart
-          ? (result?.message || '已安排在下次启动时恢复，请重启应用。')
-          : '备份已恢复',
-      }
-    } catch (error) {
-      const message = describeBackupError(error)
-      actionError.value = message
-      lastFailedAction.value = 'restore'
-      lastRestoreTarget.value = target
-      logOperation({
-        operation: 'backup_restore',
-        operationId,
-        phase: 'error',
-        error: backupErrorCode(error) || error?.message || 'RESTORE_FAILED',
-        name: target.name,
-      })
-      return { ok: false, message }
-    } finally {
-      restoring.value = false
-    }
-  }
-
-  async function retryRestore() {
-    const target = restoreTarget.value || lastRestoreTarget.value
-    if (!target) {
-      actionError.value = BACKUP_ERROR_MESSAGES.BACKUP_FILE_REQUIRED
-      lastFailedAction.value = 'restore'
-      return { ok: false, message: actionError.value }
-    }
-    restoreTarget.value = target
-    lastRestoreTarget.value = target
-    if (!restoreDialogVisible.value) {
-      restoreDialogVisible.value = true
-      return { ok: false, needsConfirmation: true }
-    }
-    return confirmRestore()
-  }
+  const {
+    dismissFileError,
+    clearSelectedFile,
+    selectBackupFile,
+    requestRestoreFromSelection,
+    requestRestoreFromItem,
+    cancelRestore,
+    confirmRestore,
+    retryRestore,
+  } = useBackupSettingsRestore({
+    api,
+    accessState,
+    selectedFile,
+    restoreDialogVisible,
+    restoreTarget,
+    lastRestoreTarget,
+    restoring,
+    actionError,
+    lastFailedAction,
+    fileError,
+    fileErrorName,
+    errorMessages: BACKUP_ERROR_MESSAGES,
+    validateBackupFile,
+    describeBackupError,
+    backupErrorCode,
+    loadBackups,
+  })
 
   function dispose() {
     listAbortController?.abort()

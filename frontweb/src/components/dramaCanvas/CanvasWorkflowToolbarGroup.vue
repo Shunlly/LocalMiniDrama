@@ -42,7 +42,7 @@
         size="small"
         aria-label="创建分组（工作流）"
         :disabled="Boolean(actionReasons.createWorkflow)"
-        :title="actionReasons.createWorkflow || undefined"
+        :title="actionReasons.createWorkflow || '创建分组（工作流）'"
         @click="emit('create-workflow')"
       >
         <el-icon><Plus /></el-icon>
@@ -54,6 +54,7 @@
       <el-select
         :model-value="activeGroupId"
         aria-label="当前工作流分组"
+        title="当前工作流分组"
         size="small"
         placeholder="选择工作流"
         clearable
@@ -79,7 +80,7 @@
           type="primary"
           :loading="workflowRunning"
           :disabled="Boolean(actionReasons.runWorkflow)"
-          :title="actionReasons.runWorkflow || undefined"
+          :title="actionReasons.runWorkflow || '执行工作流分组'"
           @click="emit('run-workflow')"
         >
           <el-icon><Refresh /></el-icon>
@@ -93,6 +94,7 @@
         type="warning"
         plain
         aria-label="取消执行"
+        title="取消执行"
         @click="emit('cancel-workflow')"
       >
         取消执行
@@ -104,7 +106,7 @@
           type="danger"
           plain
           :disabled="Boolean(actionReasons.deleteWorkflow)"
-          :title="actionReasons.deleteWorkflow || undefined"
+          :title="actionReasons.deleteWorkflow || '删除工作流分组'"
           @click="emit('delete-workflow')"
         >
           <el-icon><Delete /></el-icon>

@@ -11,6 +11,18 @@ import {
 import { isPlaceholderMediaUrl } from '@/utils/mediaUrl'
 import { isUserFacingAbort, toUserFacingError } from '@/utils/userFacingError'
 
+export const DELIVERY_PACKAGE_HINT = '随时可导出工程'
+
+export function describeDeliveryFileOverview({
+  hasCompositeVideo = false,
+  subtitleAvailable = false,
+} = {}) {
+  return {
+    deliveryFileCount: Number(Boolean(hasCompositeVideo)) + Number(Boolean(subtitleAvailable)),
+    deliveryPackageHint: DELIVERY_PACKAGE_HINT,
+  }
+}
+
 function readHttpStatus(error) {
   const status = Number(error?.status || error?.response?.status)
   return Number.isInteger(status) && status > 0 ? status : 0
@@ -76,9 +88,12 @@ export function useFilmCreateDeliveryActions(deps = {}) {
     [storyboard?.dialogue, storyboard?.narration, storyboard?.action]
       .some((value) => Boolean(String(value || '').trim()))
   )))
-  const deliveryFileCount = computed(() => (
-    1 + (deliverySubtitleAvailable.value ? 1 : 0) + (currentEpisodeVideoUrl.value ? 1 : 0)
-  ))
+  const deliveryFileOverview = computed(() => describeDeliveryFileOverview({
+    hasCompositeVideo: Boolean(currentEpisodeVideoUrl.value),
+    subtitleAvailable: Boolean(deliverySubtitleAvailable.value),
+  }))
+  const deliveryFileCount = computed(() => deliveryFileOverview.value.deliveryFileCount)
+  const deliveryPackageHint = computed(() => deliveryFileOverview.value.deliveryPackageHint)
 
   const videoDownloadStatus = ref('idle')
   const videoDownloadError = ref('')
@@ -177,6 +192,7 @@ export function useFilmCreateDeliveryActions(deps = {}) {
     deliveryCompositeStatusLabel,
     deliverySubtitleAvailable,
     deliveryFileCount,
+    deliveryPackageHint,
     videoDownloadStatus,
     videoDownloadError,
     deliveryExportStatus,

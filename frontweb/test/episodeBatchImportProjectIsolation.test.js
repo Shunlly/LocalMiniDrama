@@ -10,8 +10,12 @@ import { createProjectInstanceLifecycle } from '../src/utils/projectInstanceLife
 import request from '../src/utils/request.js'
 
 const componentUrl = new URL('../src/components/EpisodeBatchImportDialog.vue', import.meta.url)
-const source = readFileSync(componentUrl, 'utf8')
-const { descriptor, errors } = parse(source, { filename: componentUrl.pathname })
+const parentSource = readFileSync(componentUrl, 'utf8')
+const previewSource = readFileSync(new URL('../src/components/episodeBatchImport/EpisodeBatchImportPreviewPanel.vue', import.meta.url), 'utf8')
+const footerSource = readFileSync(new URL('../src/components/episodeBatchImport/EpisodeBatchImportFooter.vue', import.meta.url), 'utf8')
+const chaptersSource = readFileSync(new URL('../src/components/episodeBatchImport/episodeBatchImportChapters.js', import.meta.url), 'utf8')
+const source = [parentSource, previewSource, footerSource, chaptersSource].join('\n')
+const { descriptor, errors } = parse(parentSource, { filename: componentUrl.pathname })
 assert.deepEqual(errors, [])
 
 function dataModule(code) {
@@ -35,6 +39,22 @@ const elementPlusStubUrl = dataModule(`
 `)
 const iconsStubUrl = dataModule('export const Upload = { render() { return null } }')
 
+function compileLocalVue(rel, id) {
+  const url = new URL(rel, import.meta.url)
+  const localSource = readFileSync(url, 'utf8')
+  const parsed = parse(localSource, { filename: url.pathname })
+  assert.deepEqual(parsed.errors, [])
+  let compiled = compileScript(parsed.descriptor, { id, inlineTemplate: true }).content
+  compiled = compiled
+    .replaceAll("from 'vue'", `from '${import.meta.resolve('vue')}'`)
+    .replaceAll('from "vue"', `from '${import.meta.resolve('vue')}'`)
+  return dataModule(compiled)
+}
+
+const previewModuleUrl = compileLocalVue('../src/components/episodeBatchImport/EpisodeBatchImportPreviewPanel.vue', 'episode-batch-import-preview')
+const footerModuleUrl = compileLocalVue('../src/components/episodeBatchImport/EpisodeBatchImportFooter.vue', 'episode-batch-import-footer')
+const chaptersModuleUrl = new URL('../src/components/episodeBatchImport/episodeBatchImportChapters.js', import.meta.url).href
+
 let compiledSource = compileScript(descriptor, {
   id: 'episode-batch-import-project-isolation',
   inlineTemplate: true,
@@ -46,6 +66,9 @@ for (const [specifier, resolved] of [
   ['@/utils/elementPlusFeedback.js', elementPlusStubUrl],
   ['@element-plus/icons-vue', iconsStubUrl],
   ['@/utils/projectInstanceLifecycle.js', new URL('../src/utils/projectInstanceLifecycle.js', import.meta.url).href],
+  ['./episodeBatchImport/EpisodeBatchImportPreviewPanel.vue', previewModuleUrl],
+  ['./episodeBatchImport/EpisodeBatchImportFooter.vue', footerModuleUrl],
+  ['./episodeBatchImport/episodeBatchImportChapters.js', chaptersModuleUrl],
 ]) {
   compiledSource = compiledSource
     .replaceAll(`from '${specifier}'`, `from '${resolved}'`)
@@ -411,5 +434,22 @@ test('预览确认页签未就绪时给出中文禁用原因，且不改坏已�
     harness.app.unmount()
     delete globalThis.__episodeBatchImportMessages
     delete globalThis.FileReader
+  }
+})
+
+test('空数据时取消会直接关闭，不弹出放弃确认', async () => {
+  globalThis.__episodeBatchImportMessages = []
+  const harness = mountDialog(async () => {})
+  try {
+    clickButton(harness.root, '批量导入剧集')
+    await nextTick()
+    assert.equal(findAll(harness.root, (node) => node.type === 'dialog-stub').length, 1)
+    clickButton(harness.root, '取消')
+    await nextTick()
+    assert.equal(findAll(harness.root, (node) => node.type === 'dialog-stub').length, 0)
+    assert.deepEqual(globalThis.__episodeBatchImportMessages, [])
+  } finally {
+    harness.app.unmount()
+    delete globalThis.__episodeBatchImportMessages
   }
 })

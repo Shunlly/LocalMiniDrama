@@ -1,15 +1,18 @@
 const response = require('../response');
-const { sendCaughtRouteError } = require('./serviceFailure');
+const { sendCaughtRouteError, logCaughtRouteError, publicErrorMessage } = require('./serviceFailure');
 const videoMergeService = require('../services/videoMergeService');
 const { isBoundaryError } = require('../services/dramaWriteGuard');
 
 function sendBoundaryError(res, error) {
   if (!isBoundaryError(error)) return false;
+  const fallback = error.code === 'DRAMA_NOT_FOUND' || error.code === 'RESOURCE_NOT_FOUND'
+    ? '项目或成片记录不可访问'
+    : '当前项目不可用';
   response.error(
     res,
     error.statusCode || (error.code === 'DRAMA_NOT_FOUND' || error.code === 'RESOURCE_NOT_FOUND' ? 404 : 409),
     error.code,
-    error.message,
+    publicErrorMessage(error, fallback),
     error.details
   );
   return true;
@@ -24,7 +27,7 @@ function routes(db, log) {
         response.success(res, items);
       } catch (err) {
         if (sendBoundaryError(res, err)) return;
-        log.error('video-merges list', { error: err.message });
+        logCaughtRouteError(log, 'video-merges list', err, { fallback: '成片记录操作失败，请稍后重试' });
         sendCaughtRouteError(res, err, '成片记录操作失败，请稍后重试');
       }
     },
@@ -41,7 +44,7 @@ function routes(db, log) {
         response.success(res, item);
       } catch (err) {
         if (sendBoundaryError(res, err)) return;
-        log.error('video-merges get', { error: err.message });
+        logCaughtRouteError(log, 'video-merges get', err, { fallback: '成片记录操作失败，请稍后重试' });
         sendCaughtRouteError(res, err, '成片记录操作失败，请稍后重试');
       }
     },
@@ -52,7 +55,7 @@ function routes(db, log) {
         response.success(res, { message: '删除成功' });
       } catch (err) {
         if (sendBoundaryError(res, err)) return;
-        log.error('video-merges delete', { error: err.message });
+        logCaughtRouteError(log, 'video-merges delete', err, { fallback: '成片记录操作失败，请稍后重试' });
         sendCaughtRouteError(res, err, '成片记录操作失败，请稍后重试');
       }
     },

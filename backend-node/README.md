@@ -81,7 +81,7 @@ curl.exe --fail http://127.0.0.1:5679/ready
 
 未就绪时 `checks.database.error`、`checks.storage.error`、`checks.maintenance.error` 为简体中文（如「数据库不可用」）。`/health` 只是存活探针，不代表可以接业务。Docker Compose 后端健康检查探测的是 `/ready`。
 
-开发前端默认在 `3013`。CORS 只允许 `http://localhost:3013` 与 `http://127.0.0.1:3013`。未配置外部 API Key 也可以启动服务；真正生成内容通过前端「AI 配置」写入数据库。厂商预设填表不等于真实图片/视频/TTS 接入已跑通。页面、API 与 CLI 的用户可见错误为简体中文。
+开发前端默认在 `3013`，用 Vite 代理 `/api`、`/static`、`/ready` 与 `/health`。CORS 只允许 `http://localhost:3013` 与 `http://127.0.0.1:3013`。生产也可以先构建前端，由本服务在 5679 托管同级 `frontweb/dist`（`WEB_DIST_PATH` 可覆盖）；`dist` 不存在时打开 `/` 会提示先构建。未配置外部 API Key 也可以启动服务；真正生成内容通过前端「AI 配置」写入数据库。厂商预设填表不等于真实图片/视频/TTS 接入已跑通。页面、API 与 CLI 的用户可见错误为简体中文。
 
 ---
 
@@ -95,7 +95,7 @@ docker compose up -d --build --wait
 
 后端镜像见 `backend-node/Dockerfile`，固定 Node.js 20。Compose **不挂载应用源码**，改完代码必须 `--build`。默认数据目录是宿主机 `backend-node/data/`。
 
-Compose 后端健康检查探测 `http://127.0.0.1:5679/ready`（失败信息为简体中文）；前端 `http://127.0.0.1:3013/healthz` 代理 `/ready`。`/health` 不是 Compose 健康检查。
+Compose 后端健康检查探测 `http://127.0.0.1:5679/ready`（失败信息为简体中文）；前端 `http://127.0.0.1:3013/healthz` 代理 `/ready`。生产 Nginx 还必须有 `location = /ready`，精确代理到后端 `/ready`，并写在 SPA `location /` 之前。只代理 `/healthz` 时，备份页请求 `/ready` 会吃到前端 HTML，恢复会被误锁。`/health` 不是 Compose 健康检查。
 
 容器级校验从仓库根目录执行 `npm run verify:docker`。生产 E2E 必须在干净工作树、仓库外空数据目录上按 `npm run docker:e2e:up` → `npm run verify:e2e` 执行，证据要求 `working_tree_dirty=false`；当前脏工作树不能当作已通过。
 
@@ -254,7 +254,7 @@ style:
 
 自由画布只接受 `text`、`image`、`video`、`config`、`reference` 五类节点，并在 API 边界限制节点、连线、文本和嵌套数据规模。`free_canvas` 独立合并到 `drama.metadata`，不会替换现有 `canvas_layout`、`workflow_groups` 或未知 metadata。图片/视频引用继续执行项目隔离、素材身份和本地媒体策略；项目 ZIP 导出/导入会验证归档清单、媒体与引用并在导入时安全重映射身份。该 ZIP 合同已完成 `Spec PASS / Security PASS` 复审。
 
-自由画布的 E2E 代码和证据契约只说明对应历史范围。干净提交 `f2fa2a85` 上曾通过本地 Docker 生产 E2E，只绑定该 SHA。生产 E2E 必须在干净工作树重跑，当前脏工作树不能当作新证据。自动化测试仅使用本地协议兼容测试服务，不调用外部真实 Provider。
+自由画布的 E2E 代码和证据契约只说明对应历史范围。不要把历史 SHA 或当前工作树当作已通过 Docker/浏览器验收；容器级校验用仓库根目录 `npm run verify:docker`，生产 E2E 必须在干净工作树按 `npm run docker:e2e:up` → `npm run verify:e2e` 重跑。自动化测试仅使用本地协议兼容测试服务，不调用外部真实 Provider。
 
 ### 集数（Episode）
 
@@ -430,7 +430,7 @@ style:
 
 **可灵 Omni（`kling_omni`）** 同样支持分镜全能模式的多图参考与片段描述-only 提交逻辑，配置方式见前端 AI 配置页说明。
 
-> Novel2Anime 明确区分 Draft 与 Production：Draft 预演可以使用本地 mock provider SDK 产物；Production 工作流由 `workflowService.js` / `aiClient.js` 路由已配置的文本 Provider，由 `providerSdkService.js` 执行素材图、分镜图、视频、TTS 和本机 FFmpeg/FFprobe 合成与输出校验。production QA 会拒绝 mock/占位产物，并要求成功的非 mock text/asset_image/image/video/tts/compositor audit 记录。Ollama 兼容文本路由和 ComfyUI 工作流执行已接入公共适配层；但厂商预设填表不等于真实接入已跑通。真实图片/视频/TTS 厂商接入以及每个第三方厂商、账号、模型、区域和额度组合仍需在实际部署中单独配置并执行连接测试，不能当作已完成。故事素材上传可由 `sourceMediaExtractionService.js` 抽取文本：文本可直接导入；PDF/图片需要图片识别（本机 Tesseract 或 `service_type=ocr`）；音视频需要 `service_type=transcription`。这是素材抽取扩展，不是正式制作的成片就绪条件。前端故事素材入口仍在接通；真实云 OCR/Whisper 账号联调仍后置。
+> Novel2Anime 明确区分 Draft 与 Production：Draft 预演可以使用本地 mock provider SDK 产物；Production 工作流由 `workflowService.js` / `aiClient.js` 路由已配置的文本 Provider，由 `providerSdkService.js` 执行素材图、分镜图、视频、TTS 和本机 FFmpeg/FFprobe 合成与输出校验。production QA 会拒绝 mock/占位产物，并要求成功的非 mock text/asset_image/image/video/tts/compositor audit 记录。Ollama 兼容文本路由和 ComfyUI 工作流执行已接入公共适配层；但厂商预设填表不等于真实接入已跑通。真实图片/视频/TTS 厂商接入以及每个第三方厂商、账号、模型、区域和额度组合仍需在实际部署中单独配置并执行连接测试，不能当作已完成。故事素材上传可由 `sourceMediaExtractionService.js` 抽取文本：文本可直接导入；PDF/图片需要图片识别（本机 Tesseract 或 `service_type=ocr`）；音视频需要 `service_type=transcription`。这是素材抽取扩展，不是正式制作的成片就绪条件。前端故事素材入口已接通；真实云 OCR/Whisper 账号联调仍后置。
 
 ### 提示词国际化
 

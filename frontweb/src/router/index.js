@@ -154,6 +154,10 @@ const router = createRouter({
       meta: { title: '素材中心', normalizeReturnTo: normalizeMediaLibraryReturnTo }
     },
     {
+      path: '/media',
+      redirect: '/media-library'
+    },
+    {
       path: '/not-found',
       name: 'not-found',
       component: () => import('@/views/NotFound.vue'),

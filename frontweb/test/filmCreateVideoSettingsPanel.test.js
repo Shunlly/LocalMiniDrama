@@ -43,8 +43,11 @@ test('视频设置面板保留成片控件语义和无障碍标签', () => {
   assert.match(panelSource, /active-text="开"/)
   assert.match(panelSource, /inactive-text="关"/)
   assert.match(panelSource, /<button type="button" class="ai-config-text-button" @click="emit\('open-ai-config'\)">AI 配置<\/button>/)
-  assert.match(panelSource, /这里的成片选项只影响合成整集/)
-  assert.match(panelSource, /这些选项只在合成整集时生效，不会改已生成的分镜视频。/)
+  assert.match(panelSource, /分辨率也会用于新生成的分镜视频；字幕、对白烧录和水印只影响合成整集。/)
+  assert.match(panelSource, /分辨率会用于新生成的分镜视频。字幕、对白烧录和水印只在合成整集时生效，不会改已经生成的分镜视频。/)
+  assert.match(panelSource, /id="video-settings-lock-reason"/)
+  assert.match(panelSource, /:aria-describedby="subtitleDescribedBy"/)
+  assert.match(panelSource, /:aria-describedby="burnDialogueDescribedBy"/)
 })
 
 test('关闭态说明始终可见，不再只在打开开关后才出现', () => {
@@ -135,6 +138,20 @@ test('禁用原因优先用传入中文，空原因才回退默认文案', () =>
   assert.notEqual(both.settingsLockedReason, otherProject.settingsLockedReason)
   assert.match(both.settingsLockedReason, new RegExp(DRAMA_ID))
   assert.doesNotMatch(both.settingsLockedReason, new RegExp(EPISODE_ID))
+
+  const english = describeVideoSettingsPanel({
+    disabled: false,
+    disabledReason: 'Network Error',
+  })
+  const mixed = describeVideoSettingsPanel({
+    disabled: true,
+    disabledReason: `HTTP Error for ${DRAMA_ID}`,
+  })
+  assert.equal(english.settingsLocked, true)
+  assert.equal(english.settingsLockedReason, '当前不能修改视频配置。')
+  assert.equal(mixed.settingsLockedReason, '当前不能修改视频配置。')
+  assert.doesNotMatch(mixed.settingsLockedReason, /HTTP Error/i)
+  assert.doesNotMatch(mixed.settingsLockedReason, new RegExp(DRAMA_ID))
 })
 
 test('面板用户可见文案保持简体中文', () => {

@@ -4,71 +4,45 @@ import { taskAPI } from '@/api/task'
 import { imagesAPI } from '@/api/images'
 import { videosAPI } from '@/api/videos'
 import { logOperation } from '@/utils/operationLog'
+import {
+  GEN_RESOURCE,
+  STALE_TASK_MS,
+  findCompletedLocalAsset,
+  findTaskKeysByTaskId,
+  finishCleanupDelayMs,
+  isActiveTaskStatus,
+  isInvalidTaskKey,
+  isMarkedRunning,
+  isOrphanedProcessingTask,
+  isStaleLocalRunningTask,
+  listInFlightTasks,
+  listInFlightTasksForEpisode,
+  normalizeCancellingTask,
+  normalizeFinishedTask,
+  normalizeRunningTask,
+  resolveFinishTaskKeys,
+  resolveTaskLookupKey,
+  taskFailMessage,
+  taskKey,
+} from './generationTaskStore.helpers.js'
+import {
+  buildAssetResourceRecoveryLabel,
+  buildCharacterExtractionRecovery,
+  buildEpisodeBackendTaskRecovery,
+  buildEpisodeRecoveryScope,
+  buildPendingImageRecovery,
+  buildPendingVideoRecovery,
+  buildResourceTaskRecovery,
+  buildStoryGenerationRecovery,
+  resolveReconcileAssets,
+  shouldRecoverDramaLevelTask,
+} from './generationTaskStore.recovery.js'
 
-/** 资源类型常量 */
-export const GEN_RESOURCE = {
-  CHAR_IMAGE: 'char_image',
-  PROP_IMAGE: 'prop_image',
-  SCENE_IMAGE: 'scene_image',
-  SB_IMAGE: 'sb_image',
-  SB_FIRST_IMAGE: 'sb_first_image',
-  SB_LAST_IMAGE: 'sb_last_image',
-  SB_VIDEO: 'sb_video',
-  EPISODE_MERGE: 'episode_merge',
-  EXTRACT_CHARACTERS: 'extract_characters',
-  EXTRACT_PROPS: 'extract_props',
-  EXTRACT_SCENES: 'extract_scenes',
-  GENERATE_STORYBOARD: 'generate_storyboard',
-  GENERATE_STORY: 'generate_story',
-}
-
-/** 超过此时间仍为 running 且无进展则自动清理（毫秒） */
-const STALE_TASK_MS = 30 * 60 * 1000
-/** 后端任务 updated_at 长时间不变，视为重启后僵尸任务（毫秒） */
-const ORPHAN_PROCESSING_MS = 10 * 60 * 1000
-
-const LAST_FRAME_TYPES = new Set(['last', 'storyboard_last', 'tail', 'last_frame'])
-const FIRST_FRAME_TYPES = new Set(['first', 'storyboard_first', 'head', 'first_frame'])
-
-function taskKey({ dramaId, episodeId, resourceType, resourceId }) {
-  return `${dramaId}:${episodeId}:${resourceType}:${resourceId}`
-}
-
-function isLastFrameType(frameType) {
-  if (frameType == null || frameType === '') return false
-  return LAST_FRAME_TYPES.has(String(frameType).toLowerCase())
-}
-
-function isFirstFrameType(frameType) {
-  if (frameType == null || frameType === '') return false
-  return FIRST_FRAME_TYPES.has(String(frameType).toLowerCase())
-}
-
-function sbImageResourceType(frameType) {
-  if (isLastFrameType(frameType)) return GEN_RESOURCE.SB_LAST_IMAGE
-  if (isFirstFrameType(frameType)) return GEN_RESOURCE.SB_FIRST_IMAGE
-  return GEN_RESOURCE.SB_IMAGE
-}
-
-function isActiveTaskStatus(status) {
-  return status === 'pending' || status === 'processing' || status === 'running' || status === 'cancelling'
-}
-
-function isOrphanedProcessingTask(remote, staleMs = ORPHAN_PROCESSING_MS) {
-  if (!remote || remote.status === 'cancelling' || !isActiveTaskStatus(remote.status)) return false
-  const updatedAt = remote.updated_at ? new Date(remote.updated_at).getTime() : 0
-  if (!updatedAt) return false
-  return Date.now() - updatedAt > staleMs
-}
+export { GEN_RESOURCE }
 
 const ORPHAN_TASK_MSG = '任务长时间无进展，可能因服务重启而中断，请重新操作'
 const USER_CANCEL_TASK_MSG = '用户已取消'
 const REMOTE_CANCEL_RECONCILE_CODES = new Set(['REMOTE_CANCEL_UNCERTAIN', 'REMOTE_CANCEL_EXHAUSTED'])
-
-function taskFailMessage(t) {
-  if (!t) return '任务失败'
-  return (t.error || t.message || '任务失败').trim()
-}
 
 export const useGenerationTaskStore = defineStore('generationTask', () => {
   /** @type {Map<string, object>} */
@@ -81,9 +55,7 @@ export const useGenerationTaskStore = defineStore('generationTask', () => {
   const cancelledPollTaskIds = ref(new Set())
   const pollStopStatuses = ref(new Map())
 
-  const runningTasks = computed(() => {
-    return [...tasks.value.values()].filter((t) => t.status === 'running' || t.status === 'cancelling')
-  })
+  const runningTasks = computed(() => listInFlightTasks(tasks.value))
 
   function _setTask(key, task) {
     const next = new Map(tasks.value)
@@ -98,68 +70,39 @@ export const useGenerationTaskStore = defineStore('generationTask', () => {
   }
 
   function _findKeysByTaskId(taskId) {
-    if (!taskId) return []
-    return [...tasks.value.entries()]
-      .filter(([, t]) => t.taskId === taskId)
-      .map(([k]) => k)
+    return findTaskKeysByTaskId(tasks.value, taskId)
   }
 
   function _finishKeys(keys, status, error) {
     for (const key of keys) {
       const existing = tasks.value.get(key)
       if (!existing) continue
-      _setTask(key, {
-        ...existing,
-        status,
-        error: error || '',
-        finishedAt: Date.now(),
-      })
-      const delay = status === 'failed' ? 8000 : 3000
-      setTimeout(() => _deleteTask(key), delay)
+      _setTask(key, normalizeFinishedTask(existing, status, error))
+      setTimeout(() => _deleteTask(key), finishCleanupDelayMs(status))
     }
   }
 
   function markRunning(meta) {
     const key = taskKey(meta)
-    if (!key || key.includes('undefined') || key.includes('null')) return key
-    _setTask(key, {
-      ...meta,
-      key,
-      status: 'running',
-      startedAt: Date.now(),
-    })
+    if (isInvalidTaskKey(key)) return key
+    _setTask(key, normalizeRunningTask(meta, key))
     return key
   }
 
   function markDone(meta) {
-    const key = typeof meta === 'string' ? meta : taskKey(meta)
-    const existing = tasks.value.get(key)
-    const taskId = existing?.taskId || (typeof meta === 'object' ? meta?.taskId : null)
-    const keys = taskId ? _findKeysByTaskId(taskId) : [key]
-    if (keys.length === 0 && key) keys.push(key)
-    _finishKeys(keys, 'completed')
+    _finishKeys(resolveFinishTaskKeys(tasks.value, meta), 'completed')
   }
 
   function markFailed(meta, error) {
-    const key = typeof meta === 'string' ? meta : taskKey(meta)
-    const existing = tasks.value.get(key)
-    const taskId = existing?.taskId || (typeof meta === 'object' ? meta?.taskId : null)
-    const keys = taskId ? _findKeysByTaskId(taskId) : [key]
-    if (keys.length === 0 && key) keys.push(key)
-    _finishKeys(keys, 'failed', error)
+    _finishKeys(resolveFinishTaskKeys(tasks.value, meta), 'failed', error)
   }
 
   function isRunning(meta) {
-    const key = taskKey(meta)
-    const t = tasks.value.get(key)
-    return t?.status === 'running'
+    return isMarkedRunning(tasks.value.get(taskKey(meta)))
   }
 
   function getRunningForEpisode(dramaId, episodeId) {
-    if (dramaId == null || episodeId == null) return []
-    return runningTasks.value.filter(
-      (t) => Number(t.dramaId) === Number(dramaId) && Number(t.episodeId) === Number(episodeId)
-    )
+    return listInFlightTasksForEpisode(runningTasks.value, dramaId, episodeId)
   }
 
   function getAllRunningTasks() {
@@ -170,19 +113,12 @@ export const useGenerationTaskStore = defineStore('generationTask', () => {
     const keys = _findKeysByTaskId(taskId)
     if (!keys.length && meta) {
       const key = taskKey({ ...meta, taskId })
-      if (key && !key.includes('undefined') && !key.includes('null')) keys.push(key)
+      if (!isInvalidTaskKey(key)) keys.push(key)
     }
     for (const key of keys) {
       const existing = tasks.value.get(key)
       if (!existing) continue
-      _setTask(key, {
-        ...existing,
-        status: 'cancelling',
-        error: error || existing.error || '',
-        cancelCode: code || existing.cancelCode || '',
-        cancelDetails: details || existing.cancelDetails || null,
-        cancelObservedAt: Date.now(),
-      })
+      _setTask(key, normalizeCancellingTask(existing, error, code, details))
     }
   }
 
@@ -260,7 +196,7 @@ export const useGenerationTaskStore = defineStore('generationTask', () => {
         return { status: 'failed', error: e?.message || reason }
       }
     }
-    const key = typeof meta === 'string' ? meta : taskKey(meta)
+    const key = resolveTaskLookupKey(meta)
     markFailed(key, reason)
   }
 
@@ -281,7 +217,7 @@ export const useGenerationTaskStore = defineStore('generationTask', () => {
     const now = Date.now()
 
     for (const t of running) {
-      if (t.startedAt && now - t.startedAt > STALE_TASK_MS) {
+      if (isStaleLocalRunningTask(t, now, STALE_TASK_MS)) {
         markFailed(t, '任务等待超时，已自动清除（请刷新确认是否已完成）')
         continue
       }
@@ -314,16 +250,7 @@ export const useGenerationTaskStore = defineStore('generationTask', () => {
         continue
       }
 
-      if (t.resourceType === GEN_RESOURCE.CHAR_IMAGE && t.resourceId != null) {
-        const c = characters.find((x) => Number(x.id) === Number(t.resourceId))
-        if (c && (c.image_url || c.local_path)) markDone(t)
-      } else if (t.resourceType === GEN_RESOURCE.PROP_IMAGE && t.resourceId != null) {
-        const p = props.find((x) => Number(x.id) === Number(t.resourceId))
-        if (p && (p.image_url || p.local_path)) markDone(t)
-      } else if (t.resourceType === GEN_RESOURCE.SCENE_IMAGE && t.resourceId != null) {
-        const s = scenes.find((x) => Number(x.id) === Number(t.resourceId))
-        if (s && (s.image_url || s.local_path)) markDone(t)
-      }
+      if (findCompletedLocalAsset(t, { characters, props, scenes })) markDone(t)
     }
 
     void storyboards
@@ -509,89 +436,36 @@ export const useGenerationTaskStore = defineStore('generationTask', () => {
 
     if (dramaId == null || episodeId == null) return
 
-    const reconcileAssets = {
-      characters: allCharacters.length ? allCharacters : characters,
-      props: allProps.length ? allProps : props,
-      scenes: allScenes.length ? allScenes : scenes,
+    const reconcileAssets = resolveReconcileAssets({
+      characters,
+      props,
+      scenes,
+      allCharacters,
+      allProps,
+      allScenes,
       storyboards,
-    }
+    })
 
     await reconcileRunningTasks(reconcileAssets)
 
-    const sbIdSet = new Set(storyboards.map((s) => Number(s.id)))
-    const charIdSet = new Set(characters.map((c) => Number(c.id)))
-    const sceneIdSet = new Set(scenes.map((s) => Number(s.id)))
-    const propIdSet = new Set(props.map((p) => Number(p.id)))
-    const epLabel = dramaTitle
-      ? `${dramaTitle} · 第${episodeNumber ?? ''}集`
-      : `第${episodeNumber ?? episodeId}集`
-
+    const scope = buildEpisodeRecoveryScope({
+      dramaId,
+      episodeId,
+      dramaTitle,
+      episodeNumber,
+      storyboards,
+      characters,
+      scenes,
+      props,
+    })
     const pollOpts = { ElMessage, showErrorToast: false, showTimeoutToast: false }
 
-    const attachImage = (img) => {
-      if (!img || !['pending', 'processing'].includes(img.status)) return
-      if (!img.task_id) return
-
-      let resourceType = GEN_RESOURCE.SB_IMAGE
-      let resourceId = null
-      let label = ''
-
-      if (img.storyboard_id != null && sbIdSet.has(Number(img.storyboard_id))) {
-        resourceType = sbImageResourceType(img.frame_type)
-        resourceId = Number(img.storyboard_id)
-        const sb = storyboards.find((s) => Number(s.id) === resourceId)
-        const num = sb?.storyboard_number ?? resourceId
-        label = resourceType === GEN_RESOURCE.SB_LAST_IMAGE
-          ? `${epLabel} 尾帧 #${num}`
-          : resourceType === GEN_RESOURCE.SB_FIRST_IMAGE
-            ? `${epLabel} 首帧 #${num}`
-            : `${epLabel} 分镜图 #${num}`
-      } else if (img.character_id != null && charIdSet.has(Number(img.character_id))) {
-        resourceType = GEN_RESOURCE.CHAR_IMAGE
-        resourceId = Number(img.character_id)
-        const c = characters.find((x) => Number(x.id) === resourceId)
-        label = `${epLabel} 角色图: ${c?.name || resourceId}`
-      } else if (img.scene_id != null && sceneIdSet.has(Number(img.scene_id))) {
-        resourceType = GEN_RESOURCE.SCENE_IMAGE
-        resourceId = Number(img.scene_id)
-        const s = scenes.find((x) => Number(x.id) === resourceId)
-        label = `${epLabel} 场景图: ${s?.location || resourceId}`
-      } else {
-        return
-      }
-
-      const meta = {
-        dramaId,
-        episodeId,
-        dramaTitle,
-        episodeNumber,
-        resourceType,
-        resourceId,
-        label,
-      }
-      const onDone = resourceType.startsWith('sb_')
-        ? () => callbacks.onStoryboardMedia?.(resourceId)
+    const attachRecovery = (taskId, recovered) => {
+      if (!taskId || !recovered) return
+      const onDone = recovered.refreshKind === 'storyboard'
+        ? () => callbacks.onStoryboardMedia?.(recovered.meta.resourceId)
         : () => callbacks.onDramaRefresh?.()
-      _recoverAttachTask(img.task_id, meta, onDone, pollOpts)
-    }
-
-    const attachVideo = (vid) => {
-      if (!vid?.storyboard_id || !sbIdSet.has(Number(vid.storyboard_id))) return
-      if (!['pending', 'processing'].includes(vid.status)) return
-      if (!vid.task_id) return
-      const resourceId = Number(vid.storyboard_id)
-      const sb = storyboards.find((s) => Number(s.id) === resourceId)
-      const num = sb?.storyboard_number ?? resourceId
-      const meta = {
-        dramaId,
-        episodeId,
-        dramaTitle,
-        episodeNumber,
-        resourceType: GEN_RESOURCE.SB_VIDEO,
-        resourceId,
-        label: `${epLabel} 分镜视频 #${num}`,
-      }
-      _recoverAttachTask(vid.task_id, meta, () => callbacks.onStoryboardMedia?.(resourceId), pollOpts)
+      _recoverAttachTask(taskId, recovered.meta, onDone, pollOpts)
     }
 
     try {
@@ -607,122 +481,55 @@ export const useGenerationTaskStore = defineStore('generationTask', () => {
         const dedupe = `${img.id}:${img.status}`
         if (seenImg.has(dedupe)) continue
         seenImg.add(dedupe)
-        attachImage(img)
+        attachRecovery(img.task_id, buildPendingImageRecovery(img, scope))
       }
 
       for (const vid of processingVid.items || []) {
-        attachVideo(vid)
+        attachRecovery(vid.task_id, buildPendingVideoRecovery(vid, scope))
       }
 
       for (const t of episodeTasks || []) {
-        if (!isActiveTaskStatus(t.status)) continue
-        if (t.type === 'video_merge') {
-          const meta = {
-            dramaId,
-            episodeId,
-            dramaTitle,
-            episodeNumber,
-            resourceType: GEN_RESOURCE.EPISODE_MERGE,
-            resourceId: Number(episodeId),
-            label: `${epLabel} 合成视频`,
-            taskId: t.id,
-          }
-          _recoverAttachTask(t.id, meta, () => callbacks.onDramaRefresh?.(), pollOpts)
-          continue
-        }
-        const extractTypeMap = {
-          prop_extraction: { resourceType: GEN_RESOURCE.EXTRACT_PROPS, label: `${epLabel} 提取道具` },
-          background_extraction: { resourceType: GEN_RESOURCE.EXTRACT_SCENES, label: `${epLabel} 提取场景` },
-          storyboard_generation: { resourceType: GEN_RESOURCE.GENERATE_STORYBOARD, label: `${epLabel} AI生成分镜` },
-        }
-        const extractCfg = extractTypeMap[t.type]
-        if (extractCfg) {
-          const meta = {
-            dramaId,
-            episodeId,
-            dramaTitle,
-            episodeNumber,
-            resourceType: extractCfg.resourceType,
-            resourceId: Number(episodeId),
-            label: extractCfg.label,
-            taskId: t.id,
-          }
-          _recoverAttachTask(t.id, meta, () => callbacks.onDramaRefresh?.(), pollOpts)
-        }
+        attachRecovery(t.id, buildEpisodeBackendTaskRecovery(t, scope))
       }
 
       // 角色提取 task 挂在 dramaId 上，同一 taskId 只恢复一次（避免多集重复显示）
       const dramaTasks = await taskAPI.listByResource(String(dramaId), { drama_id: dramaId }).catch(() => [])
       for (const t of dramaTasks || []) {
-        if (!isActiveTaskStatus(t.status)) continue
-        if (t.type !== 'character_generation') continue
-        if (recoveredTaskIds.value.has(t.id)) continue
-        if (pollPromises.value.has(t.id)) continue
-        const meta = {
-          dramaId,
-          episodeId,
-          dramaTitle,
-          episodeNumber,
-          resourceType: GEN_RESOURCE.EXTRACT_CHARACTERS,
-          resourceId: Number(episodeId),
-          label: `${epLabel} 提取角色`,
-          taskId: t.id,
-        }
-        _recoverAttachTask(t.id, meta, () => callbacks.onDramaRefresh?.(), pollOpts)
+        if (!shouldRecoverDramaLevelTask(t, 'character_generation', recoveredTaskIds.value, pollPromises.value)) continue
+        attachRecovery(t.id, buildCharacterExtractionRecovery(t, scope))
         break
       }
 
       for (const t of dramaTasks || []) {
-        if (!isActiveTaskStatus(t.status)) continue
-        if (t.type !== 'story_generation') continue
-        if (recoveredTaskIds.value.has(t.id)) continue
-        if (pollPromises.value.has(t.id)) continue
-        const meta = {
-          dramaId,
-          episodeId,
-          dramaTitle,
-          episodeNumber,
-          resourceType: GEN_RESOURCE.GENERATE_STORY,
-          resourceId: Number(dramaId),
-          label: `${dramaTitle || '项目'} 生成剧本`,
-          taskId: t.id,
-        }
-        _recoverAttachTask(t.id, meta, () => callbacks.onDramaRefresh?.(), pollOpts)
+        if (!shouldRecoverDramaLevelTask(t, 'story_generation', recoveredTaskIds.value, pollPromises.value)) continue
+        attachRecovery(t.id, buildStoryGenerationRecovery(t, scope))
         break
       }
 
       const attachResourceTask = (resourceId, resourceType, label) => {
         return taskAPI.listByResource(String(resourceId), { drama_id: dramaId }).then((tasks) => {
           for (const t of tasks || []) {
-            if (!isActiveTaskStatus(t.status)) continue
-            const meta = {
-              dramaId,
-              episodeId,
-              dramaTitle,
-              episodeNumber,
-              resourceType,
-              resourceId: Number(resourceId),
-              label,
-              taskId: t.id,
-            }
-            _recoverAttachTask(t.id, meta, () => callbacks.onDramaRefresh?.(), pollOpts)
+            attachRecovery(t.id, buildResourceTaskRecovery(t, scope, resourceType, resourceId, label))
           }
         }).catch(() => {})
       }
 
       await Promise.all([
-        ...[...charIdSet].map((id) => {
-          const c = characters.find((x) => Number(x.id) === Number(id))
-          return attachResourceTask(id, GEN_RESOURCE.CHAR_IMAGE, `${epLabel} 角色图: ${c?.name || id}`)
-        }),
-        ...[...propIdSet].map((id) => {
-          const p = props.find((x) => Number(x.id) === Number(id))
-          return attachResourceTask(id, GEN_RESOURCE.PROP_IMAGE, `${epLabel} 道具图: ${p?.name || id}`)
-        }),
-        ...[...sceneIdSet].map((id) => {
-          const s = scenes.find((x) => Number(x.id) === Number(id))
-          return attachResourceTask(id, GEN_RESOURCE.SCENE_IMAGE, `${epLabel} 场景图: ${s?.location || id}`)
-        }),
+        ...[...scope.charIdSet].map((id) => attachResourceTask(
+          id,
+          GEN_RESOURCE.CHAR_IMAGE,
+          buildAssetResourceRecoveryLabel(scope, GEN_RESOURCE.CHAR_IMAGE, id),
+        )),
+        ...[...scope.propIdSet].map((id) => attachResourceTask(
+          id,
+          GEN_RESOURCE.PROP_IMAGE,
+          buildAssetResourceRecoveryLabel(scope, GEN_RESOURCE.PROP_IMAGE, id),
+        )),
+        ...[...scope.sceneIdSet].map((id) => attachResourceTask(
+          id,
+          GEN_RESOURCE.SCENE_IMAGE,
+          buildAssetResourceRecoveryLabel(scope, GEN_RESOURCE.SCENE_IMAGE, id),
+        )),
       ])
 
       await reconcileRunningTasks(reconcileAssets)

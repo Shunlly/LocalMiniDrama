@@ -8,6 +8,7 @@ import {
   buttonByText,
   click,
   compileIconStub,
+  compileSfc,
   createHostRenderer,
   dataModule,
   findAll,
@@ -19,26 +20,55 @@ import {
 import { AccessibleDialogStub } from './helpers/accessibleDialogStub.js'
 
 const dialogUrl = new URL('../src/components/aiConfig/AiConfigFormDialog.vue', import.meta.url)
-const labelsUrl = new URL('../src/utils/aiConfigLabels.js', import.meta.url)
+const labelsUrl = new URL('../src/utils/aiConfigLabels.js', import.meta.url).href
 const iconStubUrl = compileIconStub(['QuestionFilled'])
-const childStubUrl = dataModule(`
+const helpStubUrl = dataModule(`
   import { defineComponent, h } from ${JSON.stringify(vueUrl)}
   export default defineComponent({
-    name: 'AiConfigChildStub',
+    name: 'AiConfigPresetHelpStub',
     setup() {
-      return () => h('div', { 'data-testid': 'ai-config-child-stub' }, '模型列表区')
+      return () => h('div', { 'data-testid': 'ai-config-preset-help-stub' }, '接口规范帮助内容')
     },
   })
 `)
+
+function compileSection(fileName, extra = []) {
+  return compileSfc(
+    new URL(`../src/components/aiConfig/${fileName}`, import.meta.url),
+    `ai-config-form-${fileName}`,
+    new Map([
+      ['vue', vueUrl],
+      ['@element-plus/icons-vue', iconStubUrl],
+      ['@/utils/aiConfigLabels.js', labelsUrl],
+      ...extra,
+    ]),
+  )
+}
+
+const compiledModelList = compileSection('AiConfigModelListSection.vue')
+const compiledLock = compileSection('AiConfigFormLockSection.vue')
+const compiledBasic = compileSection('AiConfigFormBasicSection.vue')
+const compiledVendor = compileSection('AiConfigFormVendorSection.vue')
+const compiledEndpoint = compileSection('AiConfigFormEndpointSection.vue', [
+  ['@/components/aiConfig/AiConfigPresetHelpCollapse.vue', helpStubUrl],
+])
+const compiledModel = compileSection('AiConfigFormModelSection.vue', [
+  ['@/components/aiConfig/AiConfigModelListSection.vue', compiledModelList],
+])
+const compiledPolicy = compileSection('AiConfigFormPolicySection.vue')
 const AiConfigFormDialog = await loadCompiledSfc(
   dialogUrl,
   'ai-config-form-dialog-lock-mode-component',
   new Map([
     ['vue', vueUrl],
     ['@element-plus/icons-vue', iconStubUrl],
-    ['@/components/aiConfig/AiConfigModelListSection.vue', childStubUrl],
-    ['@/components/aiConfig/AiConfigPresetHelpCollapse.vue', childStubUrl],
-    ['@/utils/aiConfigLabels.js', labelsUrl.href],
+    ['@/utils/aiConfigLabels.js', labelsUrl],
+    ['@/components/aiConfig/AiConfigFormLockSection.vue', compiledLock],
+    ['@/components/aiConfig/AiConfigFormBasicSection.vue', compiledBasic],
+    ['@/components/aiConfig/AiConfigFormVendorSection.vue', compiledVendor],
+    ['@/components/aiConfig/AiConfigFormEndpointSection.vue', compiledEndpoint],
+    ['@/components/aiConfig/AiConfigFormModelSection.vue', compiledModel],
+    ['@/components/aiConfig/AiConfigFormPolicySection.vue', compiledPolicy],
   ]),
 )
 
@@ -142,17 +172,17 @@ function mountDialog(initial = {}) {
     rules: initial.rules ?? {},
     formModelList: initial.formModelList ?? ['deepseek-v4-flash', 'deepseek-v4-pro'],
     isDefaultModelUnavailable: Boolean(initial.isDefaultModelUnavailable),
-    isComfyUiForm: false,
-    isDeepSeekOfficialForm: false,
+    isComfyUiForm: Boolean(initial.isComfyUiForm),
+    isDeepSeekOfficialForm: Boolean(initial.isDeepSeekOfficialForm),
     availableProviderOptions: initial.availableProviderOptions ?? [],
-    endpointPreviewInfo: null,
+    endpointPreviewInfo: initial.endpointPreviewInfo ?? null,
     jimeng2AssetsLoading: false,
-    availableModels: [],
+    availableModels: initial.availableModels ?? [],
     discoverModelsLoading: false,
     discoverModelsDisabled: false,
     discoverModelsDisabledReason: '',
     providerModelEmptyHint: '',
-    canConfigureLocalHttp: false,
+    canConfigureLocalHttp: Boolean(initial.canConfigureLocalHttp),
     confirmConfigDialogClose: () => events.push(['confirm-close']),
     handleConfigDialogClosed: () => events.push(['closed']),
     requestConfigDialogClose: () => events.push(['request-close']),
@@ -161,12 +191,12 @@ function mountDialog(initial = {}) {
     isConfigFieldInvalid: initial.isConfigFieldInvalid ?? (() => false),
     configFieldDescriptionId: (prop) => `ai-config-${prop}-desc`,
     configFieldDescription: (prop) => `${prop} 说明`,
-    onServiceTypeChange: noop,
-    onProviderChange: noop,
-    onDefaultModelChange: noop,
-    openJimeng2MaterialAssetsDialog: noop,
+    onServiceTypeChange: (...args) => events.push(['service-type', ...args]),
+    onProviderChange: (...args) => events.push(['provider', ...args]),
+    onDefaultModelChange: (...args) => events.push(['default-model', ...args]),
+    openJimeng2MaterialAssetsDialog: () => events.push(['open-assets']),
     setModelListInputRef: noop,
-    discoverModelsFromService: noop,
+    discoverModelsFromService: () => events.push(['discover-models']),
     onPresetModelSelect: noop,
     dialogVisible: dialogVisible.value,
     'onUpdate:dialogVisible': (value) => {
@@ -220,7 +250,7 @@ test('锁定模式标题是修改密钥和默认模型，只渲染 api_key 与 d
     assert.equal(fieldByName(harness.root, 'provider'), undefined)
     assert.doesNotMatch(text, /基础信息/)
     assert.doesNotMatch(text, /厂商与认证/)
-    assert.equal(findAll(harness.root, (node) => node.props?.['data-testid'] === 'ai-config-child-stub').length, 0)
+    assert.equal(findAll(harness.root, (node) => node.props?.['data-testid'] === 'ai-config-preset-help-stub').length, 0)
     assert.equal(fieldByName(harness.root, 'api_key').props.placeholder, '输入你的 API 密钥')
     assert.equal(fieldByName(harness.root, 'default_model').props['aria-label'], '默认模型')
     assert.match(textContent(fieldByName(harness.root, 'default_model')), /deepseek-v4-flash/)
@@ -291,12 +321,44 @@ test('普通模式仍渲染完整表单，不会误用锁定标题', async () =>
     assert.equal(dialog.props['data-title'], '添加配置')
     assert.match(textContent(harness.root), /基础信息/)
     assert.match(textContent(harness.root), /厂商与认证/)
+    assert.match(textContent(harness.root), /调用策略/)
+    assert.match(textContent(harness.root), /维护该厂商可用模型/)
     assert.ok(fieldByName(harness.root, 'service_type'))
     assert.ok(fieldByName(harness.root, 'provider'))
     assert.ok(fieldByName(harness.root, 'api_key'))
     assert.ok(fieldByName(harness.root, 'default_model'))
-    assert.ok(findAll(harness.root, (node) => node.props?.['data-testid'] === 'ai-config-child-stub').length >= 1)
+    assert.ok(buttonByText(harness.root, '从服务读取模型'))
     assert.doesNotMatch(textContent(harness.root), /锁定模式下不能新增模型列表/)
+  } finally {
+    harness.app.unmount()
+  }
+})
+
+test('普通模式校验摘要展示中文字段，即梦2认证隐藏模型分区', async () => {
+  const harness = mountDialog({
+    vendorLock: { enabled: false },
+    form: {
+      name: '即梦2认证',
+      service_type: 'jimeng2_character_auth',
+      provider: 'jimeng2',
+      api_key: '',
+      default_model: '',
+    },
+    configValidationSummary: [
+      { prop: 'api_key', label: 'API Key', message: '请输入 API 密钥' },
+    ],
+  })
+  try {
+    await nextTick()
+    const text = textContent(harness.root)
+    assert.match(text, /无法保存，请检查以下字段：/)
+    assert.match(text, /API 密钥：请输入 API 密钥/)
+    assert.match(text, /令牌（Token）/)
+    assert.match(text, /列出素材/)
+    assert.doesNotMatch(text, /维护该厂商可用模型/)
+    assert.match(text, /03/)
+    assert.ok(fieldByName(harness.root, 'service_type'))
+    assert.equal(fieldByName(harness.root, 'default_model'), undefined)
   } finally {
     harness.app.unmount()
   }

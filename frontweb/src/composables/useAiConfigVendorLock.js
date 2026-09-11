@@ -8,10 +8,11 @@ import {
   isRequestCanceled,
   withRequestRetry,
 } from '@/utils/requestError.js'
+import { jsonRequestOptions as defaultJsonRequestOptions } from '@/utils/aiConfigRequestOptions.js'
 
 export function useAiConfigVendorLock(deps = {}) {
   const aiAPI = deps.aiAPI || defaultAiAPI
-  const jsonRequestOptions = deps.jsonRequestOptions
+  const jsonRequestOptions = deps.jsonRequestOptions || defaultJsonRequestOptions
   const vendorLock = ref({ enabled: false, config_file: '' })
   const vendorLockResolved = ref(false)
   const vendorLockLoading = ref(false)

@@ -96,7 +96,9 @@ npm run dev       # 默认端口 3013
 
 浏览器访问 `http://127.0.0.1:3013`
 
-在页面的「AI 配置」中填写 Provider 地址、模型和 API Key；AI 服务凭据存储在本地 SQLite 数据库，不写入 `config.yaml`。厂商预设填表不等于真实图片/视频/TTS 接入已跑通。页面、API 与 CLI 的用户可见错误为简体中文。
+在页面的「AI 配置」中填写 Provider 地址、模型和 API Key；AI 服务凭据存储在本地 SQLite 数据库，不写入 `config.yaml`，也不要把真实密钥写进文档或提交进仓库。厂商预设填表不等于真实图片/视频/TTS 接入已跑通。页面、API 与 CLI 的用户可见错误为简体中文。
+
+开发用 Vite（`frontweb` 端口 3013）。生产也可先 `npm --prefix frontweb run build`，由后端在 5679 托管 `frontweb/dist`。
 
 ### 一键启动（Windows）
 
@@ -110,7 +112,7 @@ npm run dev       # 默认端口 3013
 docker compose up -d --build --wait
 ```
 
-Compose 不挂载应用源码，生产镜像固定 Node.js 20。改完代码必须 `--build`。健康检查：后端 `/ready`（未就绪时 `checks.*.error` 为简体中文），前端 `/healthz`（代理 `/ready`）。`/health` 只是存活探针。容器级校验用根目录 `npm run verify:docker`。生产 E2E 必须在干净工作树执行，见 [快速开始](docs/quickstart.md#运行方式二docker)。
+Compose 不 bind-mount 应用源码，生产镜像固定 Node.js 20。改完代码必须 `--build`。健康检查：后端 `/ready`（未就绪时 `checks.*.error` 为简体中文），前端 `/healthz`（代理 `/ready`）。生产 Nginx 还必须有 `location = /ready`，精确代理到后端，并写在 SPA 回退之前。`/health` 只是存活探针。容器级校验用根目录 `npm run verify:docker`。生产 E2E 必须在干净工作树执行，见 [快速开始](docs/quickstart.md#运行方式二docker)。
 
 ### 桌面端开发（Electron）
 

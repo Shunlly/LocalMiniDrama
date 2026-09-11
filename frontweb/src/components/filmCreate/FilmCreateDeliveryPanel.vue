@@ -13,6 +13,7 @@
       <div class="delivery-stat">
         <span>可交付文件</span>
         <strong>{{ deliveryFileCount }} 项</strong>
+        <small class="delivery-package-hint">{{ panelState.deliveryPackageHint }}</small>
       </div>
     </div>
     <div
@@ -283,6 +284,7 @@ function describeDeliveryPanelState(input = {}) {
     deliveryExportFeedback: input.deliveryExportHasError
       ? toUserFacingText(input.deliveryExportFeedback, '导出失败，请稍后重试')
       : toOptionalUserFacingText(input.deliveryExportFeedback, '导出失败，请稍后重试'),
+    deliveryPackageHint: '随时可导出工程',
   }
 }
 
@@ -379,9 +381,18 @@ html.light .section-title { color: #1e1b4b; }
   color: var(--el-text-color-primary);
   font-size: 14px;
 }
+.delivery-package-hint {
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  font-style: normal;
+  line-height: 1.4;
+}
 .delivery-guidance {
+  display: grid;
+  gap: 8px;
+  justify-items: start;
   margin: 0 0 12px;
-  padding: 10px 12px;
+  padding: 12px 14px;
   border-radius: 8px;
   background: rgba(99, 102, 241, 0.08);
   color: var(--el-text-color-regular);
@@ -390,6 +401,10 @@ html.light .section-title { color: #1e1b4b; }
 }
 .delivery-guidance p {
   margin: 0;
+  max-width: 42em;
+}
+.delivery-guidance.is-empty {
+  color: var(--film-empty-copy, var(--el-text-color-regular));
 }
 .delivery-guidance.is-disabled {
   background: rgba(245, 158, 11, 0.12);
@@ -400,7 +415,7 @@ html.light .delivery-guidance.is-disabled {
 }
 .delivery-guidance-link {
   display: inline-block;
-  margin-top: 6px;
+  margin-top: 0;
   color: var(--el-color-primary);
   text-decoration: underline;
 }
@@ -410,9 +425,13 @@ html.light .delivery-guidance.is-disabled {
 }
 .delivery-actions {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   flex-wrap: wrap;
   gap: 8px;
+}
+.delivery-actions :deep(.action-gate-wrap) {
+  min-width: 0;
+  max-width: 100%;
 }
 .delivery-export-feedback {
   margin: 12px 0 0;

@@ -4,6 +4,8 @@ import { readFileSync } from 'node:fs'
 import { resolveCatchallNotFoundLocation, resolveNotFoundFromPath, resolveNotFoundNavigation } from '../src/utils/notFoundNavigation.js'
 
 const notFoundSource = readFileSync(new URL('../src/views/NotFound.vue', import.meta.url), 'utf8')
+const routerSource = readFileSync(new URL('../src/router/index.js', import.meta.url), 'utf8')
+const appSource = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
 
 test('没有可用历史时 404 页回到项目列表', () => {
   assert.deepEqual(resolveNotFoundNavigation(null, '/not-found'), { type: 'home' })
@@ -26,6 +28,16 @@ test('404 页焦点落在标题并按历史决定主按钮', () => {
   assert.match(notFoundSource, />返回项目列表<\/el-button>/)
   assert.match(notFoundSource, /aria-label="返回上一页"/)
   assert.match(notFoundSource, /aria-label="返回项目列表"/)
+  assert.match(notFoundSource, /router\.replace\(\{ name: 'list' \}\)/)
+  assert.match(notFoundSource, /watch\(\(\) => route\.fullPath/)
+  assert.doesNotMatch(notFoundSource, /router\.replace\('\/'\)/)
+})
+
+test('共享壳层去掉微信入口，旧素材地址转到素材中心', () => {
+  assert.doesNotMatch(appSource, /微信我/)
+  assert.doesNotMatch(appSource, /WeChat/i)
+  assert.match(routerSource, /path: '\/media'[\s\S]*redirect: '\/media-library'/)
+  assert.match(routerSource, /path: '\/settings'[\s\S]*redirect: '\/backup'/)
 })
 
 test('失效地址和未知路径不会被当成可返回的上一页', () => {

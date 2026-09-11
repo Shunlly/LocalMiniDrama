@@ -287,7 +287,7 @@ test('non-FilmCreate pages keep leave protection and App wires shared unload', (
 
 test('备份页离开保护走共享 inject，注册表必须标 true', () => {
   assert.equal(APP_VIEW_DEFINITIONS.backup.leaveProtection, true)
-  const source = read('../src/views/Backup.vue')
+  const source = [read('../src/views/Backup.vue'), read('../src/components/backup/backupPageCopy.js')].join('\n')
   assert.match(source, /inject\('appRouteLeaveProtection'/)
   assert.match(source, /leaveProtection\?\.register\?\.\('backup'/)
   assert.match(source, /onBeforeRouteLeave/)

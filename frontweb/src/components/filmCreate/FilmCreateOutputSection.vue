@@ -93,11 +93,14 @@ function describeOutputVideoSettingsLock(input = {}) {
   const safeComposeReason = !composeReason
     ? ''
     : ((technicalEnglish.test(composeReason) || !/[\u4e00-\u9fff]/.test(composeReason))
-      ? '当前不能修改视频配置'
+      ? ''
       : composeReason)
-  if (safeComposeReason) return safeComposeReason
-  if (input.videoStatus === 'generating') return '正在合成视频，请等待当前任务完成'
-  return ''
+  const busyLock = /正在|请等待|请先暂停|请先停止/.test(safeComposeReason)
+    && !/^请先(?:创建|生成或添加|为全部)/.test(safeComposeReason)
+  if (input.videoStatus === 'generating') {
+    return busyLock ? safeComposeReason : '正在合成视频，请等待当前任务完成'
+  }
+  return busyLock ? safeComposeReason : ''
 }
 
 function describeDeliveryOutputNextStep(input = {}) {

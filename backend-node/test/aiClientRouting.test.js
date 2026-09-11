@@ -117,6 +117,7 @@ describe('AI production routing', () => {
     ];
     assert.equal(aiClient.resolveTextRoute(fakeDb(), 'text', { model: 'same-name' }), null);
     assert.equal(imageClient.getDefaultImageConfig(fakeDb(), 'same-name', null, 'image'), null);
+    assert.equal(videoClient.getDefaultVideoConfig(fakeDb(), 'same-name', null), null);
   });
 
   it('normalizes preferred model names before selecting text, image, and video configs', () => {

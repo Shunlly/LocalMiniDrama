@@ -13,14 +13,17 @@ import {
   runWorkflowGroup,
 } from '../src/composables/useCanvasWorkflowRunner.js'
 
+import { readDramaCanvasRuntimeSource } from './helpers/dramaCanvasPageSource.js'
+import { readSourceIntakeWorkflowSources } from './helpers/sourceIntakeWorkflowSources.js'
 const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8')
 const batchImportSource = read('../src/components/EpisodeBatchImportDialog.vue')
 const dramaDetailSource = read('../src/views/DramaDetail.vue')
-const sourceWorkflowSource = read('../src/components/SourceIntakeWorkflowPanel.vue')
+const dramaDetailEpisodeListSource = read('../src/components/dramaDetail/DramaDetailEpisodeList.vue')
+const sourceWorkflowSource = readSourceIntakeWorkflowSources()
 const storyboardPanelSource = read('../src/components/dramaCanvas/CanvasStoryboardPanel.vue')
 const storyboardNodeSource = read('../src/components/dramaCanvas/CanvasStoryboardNode.vue')
 const inspectorDockSource = read('../src/components/dramaCanvas/CanvasInspectorDock.vue')
-const dramaCanvasSource = [read('../src/views/DramaCanvas.vue'), read('../src/components/dramaCanvas/CanvasPageHeader.vue'), read('../src/views/DramaCanvas.css'), read('../src/composables/useDramaCanvasFreeCanvas.js'), read('../src/composables/useDramaCanvasPersist.js'), read('../src/composables/useDramaCanvasProjectLoad.js'), read('../src/composables/useDramaCanvasWorkflow.js')].join('\n')
+const dramaCanvasSource = readDramaCanvasRuntimeSource()
 
 test('storyboard draft fingerprint distinguishes unsaved text and relation changes', () => {
   const saved = createStoryboardDraftFingerprint({
@@ -40,7 +43,7 @@ test('batch import routes the explicit parent handler and event fallback through
     batchImportSource,
     /await batchImportLifecycle\.execute\(\(\) => \([\s\S]*props\.importHandler[\s\S]*props\.importHandler\(payload\)[\s\S]*emit\('import', payload\)/,
   )
-  assert.match(dramaDetailSource, /:import-handler="onBatchImportEpisodes"/)
+  assert.match(dramaDetailEpisodeListSource, /:import-handler="onBatchImportEpisodes"/)
   assert.doesNotMatch(batchImportSource, /emit\('import', previewEpisodes\.value\.map/)
 })
 
@@ -100,7 +103,7 @@ test('every canvas inspector exit uses the shared dirty guard', () => {
   assert.match(dramaCanvasSource, /window\.addEventListener\('beforeunload', handleCanvasBeforeUnload\)/)
   assert.match(dramaCanvasSource, /async function onPaneClick\(/)
   assert.match(dramaCanvasSource, /await setFocusedCanvasNode\(null, \{ restoreFocus: true \}\)/)
-  assert.match(dramaCanvasSource, /clearFocusedNode:\s*\(options\) => setFocusedCanvasNode\(null, options\)/)
+  assert.match(dramaCanvasSource, /clearFocusedNode:\s*\(options\) => (?:ctx\.)?setFocusedCanvasNode\(null, options\)/)
   assert.doesNotMatch(dramaCanvasSource, /clearFocusedNode:\s*\(\) => \{\s*focusedNodeId\.value = null/)
   assert.match(storyboardPanelSource, /registerFocusGuard\?\.\(confirmStoryboardLeave,\s*hasPendingStoryboardWork\)/)
   assert.match(dramaCanvasSource, /:model-value="filterEpisodeId"/)
@@ -132,9 +135,9 @@ test('free canvas shortcuts ignore interactive controls and inspector content', 
 
 test('open inspector reserves canvas space so the minimap remains usable', () => {
   assert.match(dramaCanvasSource, /'inspector-open': focusedNodeId/)
-  assert.match(dramaCanvasSource, /\.drama-canvas-page\.inspector-open \.canvas-main\s*\{[\s\S]*margin-right:\s*480px/)
+  assert.match(dramaCanvasSource, /\.drama-canvas-page\.inspector-open[\s\S]*canvas-main[\s\S]*margin-right:\s*480px/)
   assert.match(dramaCanvasSource, /'free-inspector-open': selectedFreeNodeId/)
-  assert.match(dramaCanvasSource, /\.drama-canvas-page\.free-inspector-open \.canvas-main\s*\{[\s\S]*margin-right:\s*380px/)
+  assert.match(dramaCanvasSource, /\.drama-canvas-page\.free-inspector-open[\s\S]*canvas-main[\s\S]*margin-right:\s*380px/)
 })
 
 test('canvas keeps node virtualization on while the lifted inspector stays mounted', () => {
@@ -159,7 +162,7 @@ test('canvas guards same-route context changes and carries all return context', 
   assert.match(dramaCanvasSource, /routeFocusNodeId\(\), routeEpisodeId\(\)[\s\S]*startCanvasRouteSynchronization\(\{ resetProject \}\)/)
   assert.match(dramaCanvasSource, /const projectListReturnTo = computed\(\(\) => normalizeProjectListReturnTo\(route\.query\.returnTo\)\)/)
   assert.match(dramaCanvasSource, /function goProjectList\(\)/)
-  assert.match(dramaCanvasSource, /function goListMode\(\)[\s\S]*filterEpisodeId\.value \|\| routeEpisodeId\(\)/)
+  assert.match(dramaCanvasSource, /function goListMode\(\)[\s\S]*(?:ctx\.)?filterEpisodeId\.value \|\| (?:ctx\.)?routeEpisodeId\(\)/)
   assert.match(dramaCanvasSource, /function goListMode\(\)[\s\S]*returnTo/)
   assert.match(dramaCanvasSource, /function navigateToStoryboard\([\s\S]*returnTo/)
   assert.match(dramaCanvasSource, /function buildCanvasReturnTo\([\s\S]*routeEpisodeId\(\)[\s\S]*routeFocusNodeId\(\)[\s\S]*name: 'film-canvas'/)

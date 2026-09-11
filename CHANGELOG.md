@@ -26,7 +26,7 @@
 
 - 8 项产品验收已实现并完成三轮复审，结论为 `Spec PASS / Quality PASS`。
 - 自由画布 E2E 代码、证据校验契约、清理合同与串行门禁接线已完成复审，结论为 `Spec PASS / Quality PASS`。
-- 干净提交 `f2fa2a85` 的本地 Docker 生产 E2E（1280/1366/1440 亮暗矩阵，QA 100，28 张截图）和自由画布 E2E（6 张截图）已通过证据校验。合入 `main`、Windows 制品、安全扫描、回滚演练和 `v1.3.3` 标签仍未完成，不得宣称该版本已正式发布。
+- 不要把历史 SHA 或当前工作树当作已通过 Docker/浏览器验收。容器级校验执行 `npm run verify:docker`；生产 E2E 必须在干净工作树按 `npm run docker:e2e:up` → `npm run verify:e2e` 重跑（证据要求 `working_tree_dirty=false`）。合入 `main`、Windows 制品、安全扫描、回滚演练和 `v1.3.3` 标签仍未完成，不得宣称该版本已正式发布。
 
 ---
 

@@ -15,7 +15,7 @@ import { useFilmCreateTaskPolling } from '../src/composables/filmCreate/useFilmC
 import { useFilmCreateScriptEstimates } from '../src/composables/filmCreate/useFilmCreateScriptEstimates.js'
 import { useFilmCreateFirstLastFrameSetting } from '../src/composables/filmCreate/useFilmCreateFirstLastFrameSetting.js'
 import { useFilmCreateStoryboardMedia } from '../src/composables/filmCreate/useFilmCreateStoryboardMedia.js'
-import { useFilmCreateDeliveryActions } from '../src/composables/filmCreate/useFilmCreateDeliveryActions.js'
+import { describeDeliveryFileOverview, useFilmCreateDeliveryActions } from '../src/composables/filmCreate/useFilmCreateDeliveryActions.js'
 import { useFilmCreateScriptDraft } from '../src/composables/filmCreate/useFilmCreateScriptDraft.js'
 import { useFilmCreateStoryboardVideoFields } from '../src/composables/filmCreate/useFilmCreateStoryboardVideoFields.js'
 import { GEN_RESOURCE } from '../src/stores/generationTaskStore.js'
@@ -255,7 +255,7 @@ test('delivery preview ignores placeholders and reports subtitle availability', 
   assert.equal(currentEpisodeVideoUrl.value, '')
   assert.equal(deliveryCompositeStatusLabel.value, '待合成')
   assert.equal(deliverySubtitleAvailable.value, true)
-  assert.equal(deliveryFileCount.value, 2)
+  assert.equal(deliveryFileCount.value, 1)
   assert.match(buildDeliveryFilename('字幕', 'srt'), /字幕\.srt$/)
 })
 
@@ -377,4 +377,18 @@ test('universal video submit requires a prompt or segment and explains the gap',
   sbUniversalSegmentText.value[8] = ''
   assert.equal(sbCanSubmitVideo(sb), false)
   assert.equal(sbVideoGenerationDisabledReason(sb), '请先填写视频提示词或全能片段描述')
+})
+
+test('可交付文件只统计成片和字幕，空态为 0，项目包不计入', () => {
+  const empty = describeDeliveryFileOverview()
+  const subtitleOnly = describeDeliveryFileOverview({ subtitleAvailable: true })
+  const videoOnly = describeDeliveryFileOverview({ hasCompositeVideo: true })
+  const both = describeDeliveryFileOverview({ hasCompositeVideo: true, subtitleAvailable: true })
+  assert.equal(empty.deliveryFileCount, 0)
+  assert.equal(subtitleOnly.deliveryFileCount, 1)
+  assert.equal(videoOnly.deliveryFileCount, 1)
+  assert.equal(both.deliveryFileCount, 2)
+  assert.equal(empty.deliveryPackageHint, '随时可导出工程')
+  assert.equal(both.deliveryPackageHint, '随时可导出工程')
+  assert.notEqual(empty.deliveryFileCount, 1)
 })

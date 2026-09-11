@@ -1,5 +1,6 @@
 const response = require('../response');
 const path = require('path');
+const { logCaughtRouteError } = require('./serviceFailure');
 
 function routes(db, log, cfg) {
   function getStoragePath() {
@@ -53,13 +54,20 @@ function routes(db, log, cfg) {
                 result.local_path, now, Number(storyboard_id)
               );
             }
-          } catch (_) {}
+          } catch (persistErr) {
+            logCaughtRouteError(log, 'audio extract persist', persistErr, {
+              storyboard_id: Number(storyboard_id),
+              tts_kind: kind,
+              fallback: '配音已生成，但分镜记录未能更新，请稍后重试',
+            });
+            return response.error(res, 500, 'AUDIO_PERSIST_FAILED', '配音已生成，但分镜记录未能更新，请稍后重试');
+          }
         }
         response.success(res, { local_path: result.local_path, url: result.local_path ? '/static/' + result.local_path : '', tts_kind: kind });
       } catch (err) {
         const { toUserFacingTtsError } = require('../services/ttsService');
         const mapped = toUserFacingTtsError(err);
-        log.error('audio extract', { error: err.message, userError: mapped.message });
+        logCaughtRouteError(log, 'audio extract', err, { userError: mapped.message, fallback: mapped.message });
         if (mapped.code === 'BAD_REQUEST' || err.code === 'BAD_REQUEST') {
           return response.badRequest(res, mapped.message);
         }
@@ -96,12 +104,25 @@ function routes(db, log, cfg) {
               db.prepare('UPDATE storyboards SET audio_local_path = ?, updated_at = ? WHERE id = ?').run(
                 result.local_path, now, row.id
               );
-            } catch (_) {}
+            } catch (persistErr) {
+              logCaughtRouteError(log, 'audio extract batch persist', persistErr, {
+                storyboard_id: row.id,
+                fallback: '配音已生成，但分镜记录未能更新，请稍后重试',
+              });
+              results.push({ storyboard_id: sbId, error: '配音已生成，但分镜记录未能更新，请稍后重试' });
+              continue;
+            }
           }
           results.push({ storyboard_id: sbId, local_path: result.local_path });
         } catch (err) {
           const { toUserFacingTtsError } = require('../services/ttsService');
-          results.push({ storyboard_id: sbId, error: toUserFacingTtsError(err).message });
+          const mapped = toUserFacingTtsError(err);
+          logCaughtRouteError(log, 'audio extract batch item', err, {
+            storyboard_id: sbId,
+            userError: mapped.message,
+            fallback: mapped.message,
+          });
+          results.push({ storyboard_id: sbId, error: mapped.message });
         }
       }
       response.success(res, results);

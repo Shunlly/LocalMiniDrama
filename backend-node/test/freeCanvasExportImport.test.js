@@ -704,7 +704,7 @@ test('free canvas export rejects cross-project media before archiving it', (t) =
 
   assert.throws(
     () => exportProject(source, ids.drama),
-    (error) => error?.statusCode === 400 && /free_canvas|canvas/i.test(error.message),
+    (error) => error?.statusCode === 400 && /[一-鿿]/.test(error.message) && !/free_canvas|asset_ref|assetId/.test(error.message),
   );
 });
 
@@ -731,7 +731,7 @@ test('free canvas export rejects malformed edges before creating a ZIP', (t) => 
 
   assert.throws(
     () => exportProject(source, ids.drama),
-    (error) => error?.statusCode === 400 && /free_canvas|canvas/i.test(error.message),
+    (error) => error?.statusCode === 400 && /[一-鿿]/.test(error.message) && !/free_canvas|asset_ref|assetId/.test(error.message),
   );
 });
 
@@ -1022,7 +1022,7 @@ test('free canvas export skips unsafe unused storyboard media paths', (t) => {
 test('free canvas export rejects mismatched assetId and asset_ref before writing a manifest', (t) => {
   assert.throws(
     () => createTwoImageExport(t, { dualMismatch: true, prefix: 'lmd-canvas-dual-export-' }),
-    (error) => error?.statusCode === 400 && /assetId|asset_ref|free_canvas/i.test(error.message),
+    (error) => error?.statusCode === 400 && /素材 ID 与素材引用必须指向同一素材/.test(error.message),
   );
 });
 

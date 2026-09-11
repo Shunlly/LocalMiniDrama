@@ -23,6 +23,10 @@ function badRequestOrInternal(res, err) {
       '存储空间不足，无法保存原始素材。请清理磁盘后重试'
     );
   }
+  const sqliteCode = String(err?.code || '');
+  if (sqliteCode.startsWith('SQLITE') || err?.name === 'SqliteError') {
+    return response.badRequest(res, '素材源操作失败，请稍后重试');
+  }
   return sendCaughtRouteError(res, err, '素材源操作失败，请稍后重试');
 }
 

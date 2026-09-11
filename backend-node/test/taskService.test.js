@@ -192,3 +192,61 @@ describe('taskService.failOrphanedAsyncTasksOnStartup', () => {
     assert.equal(taskService.getTask(db, 'task-complete-race').status, 'completed');
   });
 });
+
+describe('taskService public API', () => {
+  it('keeps the original exported surface after cancel-state and query assembly split', () => {
+    assert.deepEqual(Object.keys(taskService).sort(), [
+      'ORPHAN_ASYNC_TASK_MSG',
+      'REMOTE_CANCEL_EXHAUSTED_MSG',
+      'REMOTE_CANCEL_RETRY_MAX_ATTEMPTS',
+      'USER_CANCEL_TASK_MSG',
+      'cancelTask',
+      'closeRemoteCancelWindow',
+      'createTask',
+      'ensureTaskOperation',
+      'failOrphanedAsyncTasksOnStartup',
+      'failTaskAfterCancellationDecision',
+      'getTask',
+      'getTasksByResource',
+      'markRemoteCancelPending',
+      'refreshCompletedTaskResult',
+      'registerRemoteCancel',
+      'resolveTaskDramaScope',
+      'runTaskMutation',
+      'throwIfTaskInactive',
+      'updateTaskError',
+      'updateTaskResult',
+      'updateTaskStatus',
+      'upgradeTaskCancellationContext',
+      'waitForTaskCancellationDecision',
+    ]);
+  });
+
+  it('maps English remote-cancel timeout to a Chinese user error', async (t) => {
+    const scheduler = require('../src/services/legacyAsyncSchedulerService');
+    t.mock.method(scheduler, 'scheduleDelayedBackgroundTask', () => 'job-timeout-retry');
+    const db = createTestDb();
+    const now = new Date().toISOString();
+    db.prepare(
+      `INSERT INTO async_tasks (id, type, status, progress, message, resource_id, created_at, updated_at)
+       VALUES (?, ?, ?, 0, '', ?, ?, ?)`
+    ).run('task-timeout-cancel', 'video_generation', 'processing', '42', now, now);
+    taskService.markRemoteCancelPending('task-timeout-cancel');
+    taskService.registerRemoteCancel('task-timeout-cancel', async () => ({
+      confirmed: false,
+      uncertain: true,
+      error: 'ETIMEDOUT: connection timed out',
+    }));
+
+    const result = await taskService.cancelTask(db, { info() {}, error() {} }, 'task-timeout-cancel', '用户取消');
+    assert.equal(result.ok, false);
+    assert.equal(result.reason, 'remote_cancel_uncertain');
+    assert.equal(result.error, '远端取消结果不确定');
+    assert.match(result.error, /[\u4e00-\u9fff]/);
+    assert.doesNotMatch(result.error, /ETIMEDOUT|timed out|timeout/i);
+    const task = taskService.getTask(db, 'task-timeout-cancel');
+    assert.equal(task.status, 'cancelling');
+    assert.equal(task.cancel_context.last_error, '远端取消结果不确定');
+    assert.doesNotMatch(String(task.cancel_context.last_error), /ETIMEDOUT|timed out|timeout/i);
+  });
+});

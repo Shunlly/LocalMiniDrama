@@ -1,5 +1,5 @@
 <template>
-<div class="empty-tip">
+<div class="empty-tip" role="status">
   <template v-if="hasAnyEpisode">
     <p>还没有分镜，可生成分镜或添加一个分镜</p>
     <div class="empty-tip-actions">
@@ -24,7 +24,7 @@
   <template v-else>
     <p>请先创建或选择剧集，再生成或添加分镜</p>
     <div class="empty-tip-actions">
-      <el-button type="primary" @click="onAddEpisode">去创建剧集</el-button>
+      <el-button type="primary" aria-label="去创建剧集后再生成分镜" @click="onAddEpisode">去创建剧集</el-button>
     </div>
   </template>
 </div>
@@ -48,15 +48,31 @@ defineProps({
 </script>
 
 <style scoped>
-.empty-tip { color: #5a5a66; font-size: 0.9rem; padding: 16px 0; }
+.empty-tip {
+  color: var(--film-empty-copy, #a1a1aa);
+  font-size: 0.9rem;
+  line-height: 1.55;
+  padding: 16px 0;
+}
 
-html.light .empty-tip { color: #9ca3af; }
+html.light .empty-tip { color: var(--film-empty-copy, #64748b); }
 .empty-tip p { margin: 0; }
 .empty-tip-actions {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
   margin-top: 12px;
+}
+.empty-tip-actions :deep(.el-button:focus-visible) {
+  outline: 2px solid #818cf8;
+  outline-offset: 2px;
+}
+.empty-tip-actions :deep(.action-gate-wrap) {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  max-width: 100%;
 }
 </style>

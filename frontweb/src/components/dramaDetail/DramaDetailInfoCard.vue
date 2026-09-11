@@ -171,4 +171,14 @@ html.light .info-save-status.is-error { color: #b91c1c; border-color: rgba(239, 
   border-color: rgba(248, 113, 113, 0.35);
   color: #fecaca;
 }
+
+@media (max-width: 760px) {
+  .section.card {
+    padding: 16px;
+  }
+  .section-header {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+}
 </style>

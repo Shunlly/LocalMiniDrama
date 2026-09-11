@@ -701,6 +701,8 @@ button:focus-visible,
 [role="menuitem"]:focus-visible,
 [role="tab"]:focus-visible,
 [role="option"]:focus-visible,
+[role="dialog"]:focus-visible,
+.el-dialog:focus-visible,
 [contenteditable="true"]:focus-visible {
   outline: 2px solid var(--el-color-primary, #818cf8);
   outline-offset: 2px;

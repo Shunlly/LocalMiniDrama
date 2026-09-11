@@ -90,7 +90,10 @@ test('toolbar empty next steps and generation cancel remain Chinese and clickabl
 })
 
 test('free canvas delete asks for Chinese confirmation before removing nodes', () => {
-  const composable = read('../src/composables/useDramaCanvasFreeCanvas.js')
+  const composable = [
+    read('../src/composables/useDramaCanvasFreeCanvas.js'),
+    read('../src/composables/useDramaCanvasFreeCanvasClipboard.js'),
+  ].join('\n')
   const node = read('../src/components/dramaCanvas/FreeCanvasNode.vue')
   assert.match(composable, /确定删除/)
   assert.match(composable, /此操作不可恢复/)

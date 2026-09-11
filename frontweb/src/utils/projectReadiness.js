@@ -65,37 +65,24 @@ function buildMediaSummary(storyboardCount, imageCount, videoCount) {
 }
 
 export function buildEpisodeEmptyState(readiness) {
-  const serviceByType = Object.fromEntries((readiness?.services || []).map((service) => [service.type, service]))
-  const counts = readiness?.counts || {}
-  let disabledReason = ''
-  let unblockAction = null
-
-  if (!serviceByType.text?.ready) {
-    disabledReason = '需要先配置默认文本模型，才能从故事素材自动生成剧集。'
-    unblockAction = buildAiAction('text', serviceByType.text?.label || '文本模型')
-  } else if (!counts.sources) {
-    disabledReason = '需要至少导入 1 份故事素材，才能自动拆分成剧集。'
-    unblockAction = buildFlowAction(
-      'import_source',
-      '去导入素材',
-      '先导入故事素材',
-      '粘贴文本、网页地址或上传本地文件后，再启动处理生成剧集。',
-      { target: 'source-workflow' },
-    )
-  }
-
   return {
     title: '还没有剧集',
-    description: '可以从故事素材自动拆分剧集，也可以先批量导入现成剧本，或创建空白剧集再手动完善。',
+    description: '先新增一集，再手写或导入剧本。如果已有长文或网页素材，也可以走可选的故事素材处理。',
     primaryAction: buildFlowAction(
-      'start_episode_generation',
-      '从素材生成剧集',
-      '从故事素材生成剧集',
-      '回到故事流程区导入素材并启动处理，系统会自动拆分剧集并写入脚本。',
+      'create_blank_episode',
+      '新增空白集',
+      '先创建一集',
+      '先加一集，再编写或导入剧本。',
+      { target: 'add-episode' },
+    ),
+    primaryDisabledReason: '',
+    unblockAction: buildFlowAction(
+      'import_source',
+      '去导入素材',
+      '可选：从故事素材拆集',
+      '粘贴文本、网页地址或上传文件后，可以自动拆成剧集。',
       { target: 'source-workflow' },
     ),
-    primaryDisabledReason: disabledReason,
-    unblockAction,
   }
 }
 

@@ -18,6 +18,7 @@ const filmPipelineActionUrl = new URL('../src/utils/filmPipelineAction.js', impo
 const filmCreateSource = readFileSync(new URL('../src/views/FilmCreate.vue', import.meta.url), 'utf8')
 const workspaceBindingsSource = readFileSync(new URL('../src/components/filmCreate/filmCreateWorkspaceBindings.js', import.meta.url), 'utf8')
 const surfaceBindingsSource = readFileSync(new URL('../src/components/filmCreate/filmCreateSurfaceBindings.js', import.meta.url), 'utf8')
+const shellBindingsSource = readFileSync(new URL('../src/components/filmCreate/filmCreateShellBindings.js', import.meta.url), 'utf8')
 const productionBindingsSource = readFileSync(new URL('../src/components/filmCreate/filmCreateProductionBindings.js', import.meta.url), 'utf8')
 const storyboardPanelSource = [
   'FilmCreateStoryboardPanel.vue',
@@ -106,6 +107,19 @@ const compiledCanvasActionGateUrl = compileSfc(canvasActionGateUrl, 'canvas-acti
   ['vue', vueUrl],
 ]))
 
+function compilePipelineChild(name, id) {
+  return compileSfc(
+    new URL(`../src/components/filmCreate/${name}`, import.meta.url),
+    id,
+    new Map([
+      ['vue', vueUrl],
+      ['@/components/filmCreate/ActionGate.vue', compiledActionGateUrl],
+    ]),
+  )
+}
+const compiledPipelineActionsUrl = compilePipelineChild('FilmCreatePipelineActions.vue', 'film-pipeline-actions-contract')
+const compiledPipelineStepsUrl = compilePipelineChild('FilmCreatePipelineSteps.vue', 'film-pipeline-steps-contract')
+const compiledPipelineStatusUrl = compilePipelineChild('FilmCreatePipelineStatus.vue', 'film-pipeline-status-contract')
 const compiledPipelinePanelUrl = compileSfc(
   pipelinePanelUrl,
   'film-pipeline-panel-contract',
@@ -116,6 +130,9 @@ const compiledPipelinePanelUrl = compileSfc(
     ['@/components/filmCreate/ActionGate.vue', compiledActionGateUrl],
     ['@/composables/useDisclosureState', disclosureStateModuleUrl],
     ['@/utils/filmPipelineAction', filmPipelineActionModuleUrl],
+    ['./FilmCreatePipelineActions.vue', compiledPipelineActionsUrl],
+    ['./FilmCreatePipelineSteps.vue', compiledPipelineStepsUrl],
+    ['./FilmCreatePipelineStatus.vue', compiledPipelineStatusUrl],
   ]),
 )
 
@@ -458,9 +475,9 @@ test('pipeline compact status exposes the next executable command', async () => 
 
     assert.ok(action)
     assert.equal(action.type, 'button')
-    assert.match(textContent(action), /配置缺失服务/)
+    assert.match(textContent(action), /先跑草稿预演/)
     action.props.onClick()
-    assert.deepEqual(harness.events, [['open-ai-config', 'video']])
+    assert.deepEqual(harness.events, [['start-text-framework']])
 
     harness.props.value = {
       ...harness.props.value,
@@ -472,7 +489,7 @@ test('pipeline compact status exposes the next executable command', async () => 
     action = getAction()
     assert.match(textContent(action), /一键生成成片/)
     action.props.onClick()
-    assert.deepEqual(harness.events, [['open-ai-config', 'video'], ['start-one-click']])
+    assert.deepEqual(harness.events, [['start-text-framework'], ['start-one-click']])
   } finally {
     harness.app.unmount()
   }
@@ -822,8 +839,10 @@ test('FilmCreate 把剧本工作台交给独立面板并保留空剧集入口', 
   const panel = readFileSync(new URL('../src/components/filmCreate/FilmCreateScriptWorkbench.vue', import.meta.url), 'utf8')
   assert.match(filmCreateSource, /<FilmCreateScriptWorkbench/)
   assert.match(filmCreateSource, /class="section card script-workbench-unified"/)
-  assert.match(filmCreateSource, /v-model:story-input="storyInput"/)
-  assert.match(filmCreateSource, /@generate-story="onGenerateStory"/)
+  assert.match(filmCreateSource, /v-bind="scriptWorkbenchBindings"/)
+  assert.doesNotMatch(filmCreateSource, /v-model:story-input="storyInput"/)
+  assert.doesNotMatch(filmCreateSource, /@generate-story="onGenerateStory"/)
+  assert.match(workspaceBindingsSource, /scriptWorkbench: \{[\s\S]*storyInput[\s\S]*onGenerateStory/)
   assert.match(workspaceBindingsSource, /scriptWorkbench: \{[\s\S]*onAddEpisode/)
   assert.match(productionBindingsSource, /onGoToDrama: \(\) => router\.push\('\/drama\/' \+ unref\(dramaId\)\)/)
   assert.match(panel, /label="创作剧本"/)
@@ -896,7 +915,8 @@ test('FilmCreate 把资源弹窗和分镜弹窗交给独立面板', () => {
 test('FilmCreate 把导入小说弹窗交给独立面板，重新生成分镜需要确认', () => {
   const workspaceDialogs = readFileSync(new URL('../src/components/filmCreate/FilmCreateWorkspaceDialogs.vue', import.meta.url), 'utf8')
   assert.match(filmCreateSource, /<FilmCreateWorkspaceDialogs/)
-  assert.match(filmCreateSource, /v-model:max-chapters="novelMaxChapters"/)
+  assert.match(filmCreateSource, /v-bind="workspaceDialogsLayerBindings"/)
+  assert.match(shellBindingsSource, /maxChapters: novelMaxChapters/)
   assert.match(workspaceDialogs, /<FilmCreateNovelImportDialog/)
   assert.match(remainingImportedFunctionSource(useFilmCreateStoryboardCrud), /重新生成会覆盖当前分镜脚本和已有分镜图、视频进度/)
   assert.match(remainingImportedFunctionSource(useFilmCreateStoryboardCrud), /confirmButtonText: '重新生成'/)
@@ -933,10 +953,11 @@ test('FilmCreate 把侧栏导航交给独立组件并保留步骤滚动与进行
   const nav = readFileSync(new URL('../src/components/filmCreate/FilmCreateQuickNav.vue', import.meta.url), 'utf8')
   assert.match(filmCreateSource, /<FilmCreateQuickNav/)
   assert.match(filmCreateSource, /v-if="projectLoadState === 'ready'"/)
-  assert.match(filmCreateSource, /v-model:storyboard-menu-expanded="storyboardMenuExpanded"/)
-  assert.match(filmCreateSource, /@toggle-nav="toggleNav"/)
-  assert.match(filmCreateSource, /@scroll-to-anchor="scrollToAnchor"/)
-  assert.match(filmCreateSource, /@cancel-active-task="cancelActiveTask"/)
+  assert.match(filmCreateSource, /v-bind="quickNavBindings"/)
+  assert.match(shellBindingsSource, /quickNav: \{[\s\S]*storyboardMenuExpanded/)
+  assert.match(shellBindingsSource, /onToggleNav: toggleNav/)
+  assert.match(shellBindingsSource, /onScrollToAnchor: scrollToAnchor/)
+  assert.match(shellBindingsSource, /onCancelActiveTask: cancelActiveTask/)
   assert.match(nav, /id="film-create-quick-nav"/)
   assert.match(nav, /aria-label="快捷导航"/)
   assert.match(nav, /class="nav-toggle"/)
@@ -949,7 +970,8 @@ test('FilmCreate 把项目加载失败面交给独立组件并保留重试与返
   const loadState = readFileSync(new URL('../src/components/filmCreate/FilmCreateProjectLoadState.vue', import.meta.url), 'utf8')
   assert.match(filmCreateSource, /<FilmCreateProjectLoadState/)
   assert.match(filmCreateSource, /ref="projectLoadFailureRef"/)
-  assert.match(filmCreateSource, /@retry="retryFilmProjectLoad"/)
+  assert.match(filmCreateSource, /v-bind="projectLoadStateBindings"/)
+  assert.match(shellBindingsSource, /onRetry: retryFilmProjectLoad/)
   assert.match(filmCreateSource, /<main v-else class="main">[\s\S]*FilmCreateScriptWorkbench/)
   assert.match(loadState, /<main v-if="state === 'loading'"/)
   assert.match(loadState, /<main v-else-if="state === 'error'"/)

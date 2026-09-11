@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs'
 import { useAiConfigVendorLock } from '../src/composables/useAiConfigVendorLock.js'
 
 const vueSource = readFileSync(new URL('../src/components/AIConfigContent.vue', import.meta.url), 'utf8')
+const pageRequestsSource = readFileSync(new URL('../src/composables/useAiConfigPageRequests.js', import.meta.url), 'utf8')
 
 function jsonRequestOptions(signal) {
   return { signal, timeout: 1000, suppressErrorToast: true }
@@ -64,7 +65,8 @@ test('成功读取后解除依赖锁定；取消不会写成失败', async () =>
 
 test('页面重试仍同时刷新锁定和列表，loadList/openTest 留在页面', () => {
   assert.match(vueSource, /useAiConfigVendorLock\(/)
-  assert.match(vueSource, /async function retryConfigDependencies\(\) \{\s*await Promise\.all\(\[loadVendorLock\(\), loadList\(\)\]\)\s*\}/)
+  assert.match(pageRequestsSource, /async function retryConfigDependencies\(\) \{\s*await Promise\.all\(\[loadVendorLock\(\), loadList\(\)\]\)\s*\}/)
+  assert.match(vueSource, /useAiConfigPageRequests\(/)
   assert.match(vueSource, /async function loadList\(\)/)
   assert.match(vueSource, /async function openTest\(row\)/)
   assert.doesNotMatch(vueSource, /async function loadVendorLock\(\)/)

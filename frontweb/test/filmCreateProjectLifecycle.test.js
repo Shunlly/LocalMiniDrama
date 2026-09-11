@@ -13,6 +13,7 @@ import { useScenes } from '../src/composables/filmCreate/useScenes.js'
 import { remainingImportedFunctionSource } from './helpers/remainingSourceBetween.js'
 
 const filmCreateSource = readFileSync(new URL('../src/views/FilmCreate.vue', import.meta.url), 'utf8')
+const filmCreateGuardedApisSource = readFileSync(new URL('../src/components/filmCreate/filmCreateGuardedApis.js', import.meta.url), 'utf8')
 const workspaceBootstrapSource = readFileSync(new URL('../src/composables/filmCreate/useFilmCreateWorkspaceBootstrap.js', import.meta.url), 'utf8')
 
 function deferred() {
@@ -59,7 +60,9 @@ test('FilmCreate owns API, message, and load invalidation for its keyed project 
   assert.match(loadSource, /const coreDramaAPI = projectLifecycle\.guardApi\(\{/)
   assert.match(filmCreateSource, /createProjectInstanceLifecycle/)
   assert.match(filmCreateSource, /const projectLifecycle = createProjectInstanceLifecycle\(\)/)
-  assert.match(filmCreateSource, /const ElMessage = projectLifecycle\.guardNotifier\(RawElMessage\)/)
+  assert.match(filmCreateSource, /createFilmCreateGuardedApis\(projectLifecycle/)
+  assert.match(filmCreateSource, /ElMessage: RawElMessage/)
+  assert.match(filmCreateGuardedApisSource, /guardNotifier\(apis\.ElMessage\)/)
   assert.match(filmCreateSource, /onBeforeUnmount\(unmountWorkspace\)/)
   assert.match(
     workspaceBootstrapSource,

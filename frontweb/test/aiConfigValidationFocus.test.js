@@ -1,15 +1,21 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { existsSync, readFileSync } from 'node:fs'
+import { readAiConfigFormDialogTreeSource } from './helpers/aiConfigFormDialogSources.js'
 
 const componentSource = readFileSync(
   new URL('../src/components/AIConfigContent.vue', import.meta.url),
   'utf8',
 )
-const formDialogSource = readFileSync(
-  new URL('../src/components/aiConfig/AiConfigFormDialog.vue', import.meta.url),
+const formRulesSource = readFileSync(
+  new URL('../src/composables/useAiConfigFormRules.js', import.meta.url),
   'utf8',
 )
+const formActionsSource = readFileSync(
+  new URL('../src/composables/useAiConfigFormActions.js', import.meta.url),
+  'utf8',
+)
+const formDialogSource = readAiConfigFormDialogTreeSource()
 const modelListSource = readFileSync(
   new URL('../src/components/aiConfig/AiConfigModelListSection.vue', import.meta.url),
   'utf8',
@@ -77,7 +83,7 @@ test('critical AI config fields expose explicit invalid state and descriptions',
 
 test('AI config submit preserves Element Plus invalid fields for focus and clears recovered errors', () => {
   assert.match(
-    componentSource,
+    formActionsSource,
     /async function submit\(\)[\s\S]*?catch \(invalidFields\)[\s\S]*?handleConfigValidationFailure\(invalidFields\)[\s\S]*?return/,
   )
   assert.match(formSource, /@validate="handleConfigFieldValidated"/)
@@ -87,9 +93,10 @@ test('AI config submit preserves Element Plus invalid fields for focus and clear
 })
 
 test('model validation preserves the existing model-less ComfyUI workflow exception', () => {
+  assert.match(componentSource, /useAiConfigFormRules\(/)
   assert.match(
-    componentSource,
-    /modelText:\s*\[[\s\S]*?if \(form\.value\.service_type === 'jimeng2_character_auth' \|\| isComfyUiForm\.value \|\| parseModelText\(value\)\.length > 0\) return cb\(\)/,
+    formRulesSource,
+    /modelText:\s*\[[\s\S]*?if \(form\.service_type === 'jimeng2_character_auth' \|\| isComfyUi \|\| parseModelText\(value\)\.length > 0\) return cb\(\)/,
   )
 })
 

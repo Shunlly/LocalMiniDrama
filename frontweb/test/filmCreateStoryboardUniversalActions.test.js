@@ -10,9 +10,13 @@ const imageColumn = readFileSync(
   new URL('../src/components/filmCreate/FilmCreateStoryboardImageColumn.vue', import.meta.url),
   'utf8',
 ).replace(/\r\n?/g, '\n')
+const imageColumnCopy = readFileSync(
+  new URL('../src/components/filmCreate/filmCreateStoryboardImageColumnCopy.js', import.meta.url),
+  'utf8',
+).replace(/\r\n?/g, '\n')
 
 const describeUniversalSegmentActionDisabledReason = new Function(
-  `'use strict'; ${remainingExtractNamedFunction(imageColumn, 'describeUniversalSegmentActionDisabledReason')}; return describeUniversalSegmentActionDisabledReason;`,
+  `'use strict'; ${remainingExtractNamedFunction(imageColumnCopy, 'describeUniversalSegmentActionDisabledReason')}; return describeUniversalSegmentActionDisabledReason;`,
 )()
 
 function dropdownItem(source, command) {

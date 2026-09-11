@@ -9,10 +9,12 @@ const workflowService = require('../src/services/workflowService');
 
 const log = { info() {}, warn() {}, error() {} };
 
-const SERVICE_SOURCE = fs.readFileSync(
-  path.join(__dirname, '../src/services/workflowService.js'),
-  'utf8'
-);
+const SERVICE_DIR = path.join(__dirname, '../src/services');
+const SERVICE_SOURCE = fs.readdirSync(SERVICE_DIR)
+  .filter((name) => name.startsWith('workflow') && name.endsWith('.js'))
+  .sort()
+  .map((name) => fs.readFileSync(path.join(SERVICE_DIR, name), 'utf8'))
+  .join('\n');
 
 const leftoverEnglish = [
   'Source not found for production text adaptation',
@@ -108,7 +110,7 @@ test('workflowService 源码不再包含已列出的英文用户错误', () => {
     assert.equal(SERVICE_SOURCE.includes(message), true, message);
   }
   assert.match(SERVICE_SOURCE, /质量检查未通过，当前得分 \$\{report\.score\}/);
-  assert.match(SERVICE_SOURCE, /未知的工作流步骤：\$\{step\.step_key\}/);
+  assert.match(SERVICE_SOURCE, /未知的工作流步骤，请刷新后重试/);
   assert.match(SERVICE_SOURCE, /不支持的修复操作：\$\{action\}/);
   assert.match(SERVICE_SOURCE, /工作流无法完成：质量检查得分需至少 80 分/);
   assert.match(SERVICE_SOURCE, /生产文本模型请求失败/);
@@ -177,7 +179,7 @@ test('工作流步骤失败会把中文错误写入 run/step.error', async (t) =
   assertFailedMessage(await runUntilFailed(db, {
     drama_id: 1,
     steps: [{ key: 'not_a_real_step', label: '未知' }],
-  }), '未知的工作流步骤：not_a_real_step，请刷新后重试');
+  }), '未知的工作流步骤，请刷新后重试');
 });
 
 test('生产文本改编失败返回可操作的中文错误', async (t) => {

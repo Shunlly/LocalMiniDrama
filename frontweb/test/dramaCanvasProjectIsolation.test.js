@@ -29,12 +29,19 @@ import {
 const canvasSource = [
   readFileSync(new URL('../src/views/DramaCanvas.vue', import.meta.url), 'utf8'),
   readFileSync(new URL('../src/views/DramaCanvas.css', import.meta.url), 'utf8'),
+  readFileSync(new URL('../src/components/dramaCanvas/dramaCanvasLeaveProtection.js', import.meta.url), 'utf8'),
+  readFileSync(new URL('../src/components/dramaCanvas/dramaCanvasRouteFocus.js', import.meta.url), 'utf8'),
+  readFileSync(new URL('../src/components/dramaCanvas/dramaCanvasProjectActions.js', import.meta.url), 'utf8'),
   readFileSync(new URL('../src/composables/useDramaCanvasFreeCanvas.js', import.meta.url), 'utf8'),
+  readFileSync(new URL('../src/composables/useDramaCanvasFreeCanvasMedia.js', import.meta.url), 'utf8'),
+  readFileSync(new URL('../src/composables/useDramaCanvasFreeCanvasClipboard.js', import.meta.url), 'utf8'),
   readFileSync(new URL('../src/composables/useDramaCanvasPersist.js', import.meta.url), 'utf8'),
   readFileSync(new URL('../src/composables/useDramaCanvasProjectLoad.js', import.meta.url), 'utf8'),
   readFileSync(new URL('../src/composables/useDramaCanvasWorkflow.js', import.meta.url), 'utf8'),
   readFileSync(new URL('../src/composables/useDramaCanvasGraph.js', import.meta.url), 'utf8'),
   readFileSync(new URL('../src/composables/useDramaCanvasViewport.js', import.meta.url), 'utf8'),
+  readFileSync(new URL('../src/composables/useDramaCanvasDisplayState.js', import.meta.url), 'utf8'),
+  readFileSync(new URL('../src/composables/useDramaCanvasPageBindings.js', import.meta.url), 'utf8'),
 ].join('\n')
 
 function deferred() {
@@ -76,7 +83,7 @@ function loadCanvasFunctions(names, dependencies) {
   }
   if (names.some((name) => ['deleteFreeCanvasNode', 'deleteFreeCanvasSelection', 'handleFreeCanvasKeydown'].includes(name))) {
     sourceNames = [
-      ...['confirmFreeCanvasDeletion'].filter((name) => !sourceNames.includes(name)),
+      ...['confirmFreeCanvasDeletion', 'markIgnoreEmptyFreeSelection'].filter((name) => !sourceNames.includes(name)),
       ...sourceNames,
     ]
   }

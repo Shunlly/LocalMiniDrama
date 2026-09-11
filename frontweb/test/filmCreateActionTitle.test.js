@@ -30,7 +30,7 @@ test('小说导入改走按需反馈，导入中给出中文 title', () => {
 
 test('交付、全流程、分镜和资源禁用按钮带中文 title', () => {
   const delivery = read('FilmCreateDeliveryPanel.vue')
-  const pipeline = read('FilmCreatePipelinePanel.vue')
+  const pipeline = read('FilmCreatePipelinePanel.vue') + read('filmCreatePipelinePanelUx.js') + read('filmCreatePipelinePanelBindings.js') + read('FilmCreatePipelineActions.vue')
   const storyboard = read('FilmCreateStoryboardPanel.vue') + read('FilmCreateStoryboardEmptyState.vue')
   const configBar = read('FilmCreateStoryboardConfigBar.vue')
   const resource = read('FilmCreateResourcePanel.vue')
@@ -58,6 +58,9 @@ test('制作页组件用户可见文案不再弹出 Network Error / Please', () 
   const files = [
     'FilmCreateDeliveryPanel.vue',
     'FilmCreatePipelinePanel.vue',
+    'FilmCreatePipelineActions.vue',
+    'FilmCreatePipelineSteps.vue',
+    'FilmCreatePipelineStatus.vue',
     'FilmCreateStoryboardPanel.vue',
     'FilmCreateStoryboardEmptyState.vue',
     'FilmCreateStoryboardToolbar.vue',

@@ -4,6 +4,7 @@
     :title="title"
     width="980px"
     destroy-on-close
+    :close-on-press-escape="true"
     @closed="handleClosed"
   >
     <div class="global-media-picker">
@@ -43,75 +44,27 @@
       </div>
 
       <div v-loading="loading" class="picker-grid" :aria-busy="loading">
-        <el-tooltip
+        <GlobalMediaPickerCard
           v-for="item in items"
           :key="item.id"
-          :content="item.name || '未命名素材'"
-          placement="top"
-          popper-class="media-name-tooltip"
-          :show-after="250"
-          :visible="focusedItemId === item.id || hoveredItemId === item.id"
-        >
-          <button
-            type="button"
-            class="picker-card"
-            :class="{
-              'picker-card--selected': selectedId === item.id,
-              'picker-card--incompatible': !isCompatible(item),
-            }"
-            :aria-pressed="selectedId === item.id"
-            :aria-label="cardLabel(item)"
-            :aria-describedby="`media-card-name-${item.id}`"
-            @click="selectItem(item)"
-            @focus="focusedItemId = item.id"
-            @blur="focusedItemId = null"
-            @mouseenter="hoveredItemId = item.id"
-            @mouseleave="hoveredItemId = null"
-            @keydown.enter.prevent="onCardEnter(item)"
-            @keydown.space.prevent="selectItem(item)"
-          >
-            <span :id="`media-card-name-${item.id}`" class="visually-hidden">
-              完整素材名称：{{ item.name || '未命名素材' }}
-            </span>
-            <div class="picker-card__thumb">
-              <video
-                v-if="item.type === 'video'"
-                :src="itemUrl(item)"
-                muted
-                preload="metadata"
-                aria-hidden="true"
-                class="picker-card__video"
-              />
-              <img
-                v-else
-                :src="itemUrl(item)"
-                :alt="`${item.name || '未命名素材'} 预览图`"
-                class="picker-card__image"
-              />
-            </div>
-            <div class="picker-card__body">
-              <div class="picker-card__title-row">
-                <span class="picker-card__title">{{ item.name || '未命名素材' }}</span>
-                <span class="picker-card__type">{{ item.type === 'video' ? '视频' : '图片' }}</span>
-              </div>
-              <div class="picker-card__meta">
-                <span>{{ mediaOriginLabel(item) }}</span>
-                <span v-if="item.file_size">{{ formatSize(item.file_size) }}</span>
-              </div>
-              <div v-if="selectedId === item.id" class="picker-card__selection">
-                {{ isCompatible(item) ? '已选中' : incompatibleReason(item) }}
-              </div>
-            </div>
-          </button>
-        </el-tooltip>
+          :item="item"
+          :selected="selectedId === item.id"
+          :compatible="isCompatible(item)"
+          :origin-label="mediaOriginLabel(item)"
+          :size-label="item.file_size ? formatSize(item.file_size) : ''"
+          :card-label="cardLabel(item)"
+          :thumb-url="itemUrl(item)"
+          :incompatible-reason="incompatibleReason(item)"
+          @select="selectItem(item)"
+          @confirm="onCardEnter(item)"
+        />
 
-        <div v-if="!loading && !loadError && !items.length" class="picker-empty">
-          <p>{{ hasActiveFilters ? '当前筛选下没有素材。' : '素材中心还是空的。' }}</p>
-          <div class="picker-empty__actions">
-            <el-button v-if="hasActiveFilters" size="small" @click="clearFilters">清除筛选</el-button>
-            <el-button size="small" type="primary" @click="openMediaLibrary">前往素材中心上传</el-button>
-          </div>
-        </div>
+        <GlobalMediaPickerEmpty
+          v-if="!loading && !loadError && !items.length"
+          :has-active-filters="hasActiveFilters"
+          @clear-filters="clearFilters"
+          @open-library="openMediaLibrary"
+        />
       </div>
 
       <div v-if="total > pageSize" class="picker-pagination">
@@ -126,27 +79,19 @@
     </div>
 
     <template #footer>
-      <div class="picker-footer">
-        <span class="picker-footer__status">{{ footerStatus }}</span>
-        <div class="picker-footer__actions">
-          <el-button @click="innerVisible = false">取消</el-button>
-          <el-button
-            type="primary"
-            :disabled="confirmDisabled"
-            :title="confirmDisabledReason || undefined"
-            :aria-label="confirmDisabledReason ? `选择素材不可用：${confirmDisabledReason}` : '选择素材'"
-            @click="confirmSelection"
-          >
-            选择素材
-          </el-button>
-        </div>
-      </div>
+      <GlobalMediaPickerFooter
+        :status="footerStatus"
+        :confirm-disabled="confirmDisabled"
+        :confirm-disabled-reason="confirmDisabledReason"
+        @cancel="innerVisible = false"
+        @confirm="confirmSelection"
+      />
     </template>
   </AccessibleDialog>
 </template>
 
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { assetsAPI } from '@/api/assets'
 import {
   createLatestMediaRequestGuard,
@@ -154,6 +99,13 @@ import {
   getMediaOriginLabel,
   mediaPickerIncompatibleReason,
 } from '@/utils/mediaLibrary'
+import {
+  mediaPickerCardLabel,
+  mediaPickerItemUrl,
+} from './globalMediaPicker/globalMediaPickerPresentation.js'
+import GlobalMediaPickerCard from './globalMediaPicker/GlobalMediaPickerCard.vue'
+import GlobalMediaPickerEmpty from './globalMediaPicker/GlobalMediaPickerEmpty.vue'
+import GlobalMediaPickerFooter from './globalMediaPicker/GlobalMediaPickerFooter.vue'
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
@@ -176,8 +128,6 @@ const loading = ref(false)
 const loadError = ref('')
 const items = ref([])
 const selectedId = ref(null)
-const focusedItemId = ref(null)
-const hoveredItemId = ref(null)
 const keyword = ref('')
 const mediaType = ref('all')
 const page = ref(1)
@@ -238,15 +188,15 @@ function isCompatible(item) {
 }
 
 function itemUrl(item) {
-  if (!item) return ''
-  if (item.local_path) return '/static/' + String(item.local_path).replace(/^\//, '')
-  return item.url || item.image_url || item.video_url || ''
+  return mediaPickerItemUrl(item)
 }
 
 function cardLabel(item) {
-  const source = mediaOriginLabel(item)
-  const state = isCompatible(item) ? '可选' : incompatibleReason(item)
-  return `${item.name || '未命名素材'}，${item.type === 'video' ? '视频' : '图片'}，来源 ${source}，${state}`
+  return mediaPickerCardLabel(item, {
+    originLabel: mediaOriginLabel(item),
+    compatible: isCompatible(item),
+    incompatibleReason: incompatibleReason(item),
+  })
 }
 
 function clearKeywordTimer() {
@@ -268,8 +218,6 @@ function resetPickerState() {
   clearKeywordTimer()
   loading.value = false
   selectedId.value = null
-  focusedItemId.value = null
-  hoveredItemId.value = null
   loadError.value = ''
   items.value = []
   keyword.value = ''
@@ -375,6 +323,11 @@ watch(
     loadAssets()
   },
 )
+
+onBeforeUnmount(() => {
+  invalidatePendingLoads()
+  clearKeywordTimer()
+})
 </script>
 
 <style scoped>
@@ -449,145 +402,13 @@ watch(
   min-height: 240px;
 }
 
-.picker-card {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  padding: 0;
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  background: var(--bg-card);
-  color: inherit;
-  text-align: left;
-  overflow: hidden;
-}
-
-.picker-card:focus-visible {
-  outline: 2px solid var(--el-color-primary);
-  outline-offset: 2px;
-}
-
-.picker-card--selected {
-  border-color: var(--el-color-primary);
-  box-shadow: 0 0 0 1px var(--el-color-primary-light-5);
-}
-
-.picker-card--incompatible {
-  opacity: 0.72;
-}
-
-.picker-card__thumb {
-  aspect-ratio: 16 / 10;
-  background: var(--bg-page);
-  overflow: hidden;
-}
-
-.picker-card__image,
-.picker-card__video {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-}
-
-.picker-card__body {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 10px;
-}
-
-.picker-card__title-row,
-.picker-card__meta {
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.picker-card__title {
-  flex: 1;
-  min-width: 0;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-bright);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.picker-card__type,
-.picker-card__meta,
-.picker-card__selection {
-  font-size: 12px;
-  color: var(--text-muted);
-}
-
-:global(.media-name-tooltip) {
-  max-width: min(560px, calc(100vw - 32px));
-  overflow-wrap: anywhere;
-}
-
-.picker-card__selection {
-  color: var(--el-color-primary);
-}
-
-.picker-empty {
-  grid-column: 1 / -1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 200px;
-  border: 1px dashed var(--border-color);
-  border-radius: 8px;
-  color: var(--text-muted);
-  flex-direction: column;
-  gap: 10px;
-}
-
-.picker-empty__actions {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 8px;
-}
-
-.visually-hidden {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
-  border: 0;
-}
-
 .picker-pagination {
   display: flex;
   justify-content: flex-end;
 }
 
-.picker-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.picker-footer__status {
-  font-size: 12px;
-  color: var(--text-muted);
-}
-
-.picker-footer__actions {
-  display: flex;
-  gap: 8px;
-}
-
 @media (max-width: 768px) {
-  .picker-toolbar,
-  .picker-footer {
+  .picker-toolbar {
     flex-direction: column;
     align-items: stretch;
   }
@@ -600,9 +421,6 @@ watch(
   .picker-search {
     max-width: none;
   }
-
-  .picker-footer__actions {
-    justify-content: flex-end;
-  }
 }
 </style>
+

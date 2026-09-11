@@ -1,9 +1,5 @@
 const response = require('../response');
-const { sendMappedServiceFailure } = require('./serviceFailure');
-
-function sendLibraryFailure(res, err, fallback) {
-  sendMappedServiceFailure(res, { ok: false, error: err && err.message }, { fallback });
-}
+const { sendCaughtRouteError } = require('./serviceFailure');
 
 const propLibraryService = require('../services/propLibraryService');
 
@@ -16,7 +12,7 @@ function routes(db, cfg, log) {
         response.successWithPagination(res, items, total, page, pageSize);
       } catch (err) {
         log.error('prop-library list', { error: err.message });
-        sendLibraryFailure(res, err, '道具库操作失败，请稍后重试');
+        sendCaughtRouteError(res, err, '道具库操作失败，请稍后重试');
       }
     },
     create: (req, res) => {
@@ -25,7 +21,7 @@ function routes(db, cfg, log) {
         response.created(res, item);
       } catch (err) {
         log.error('prop-library create', { error: err.message });
-        sendLibraryFailure(res, err, '道具库操作失败，请稍后重试');
+        sendCaughtRouteError(res, err, '道具库操作失败，请稍后重试');
       }
     },
     get: (req, res) => {
@@ -35,7 +31,7 @@ function routes(db, cfg, log) {
         response.success(res, item);
       } catch (err) {
         log.error('prop-library get', { error: err.message });
-        sendLibraryFailure(res, err, '道具库操作失败，请稍后重试');
+        sendCaughtRouteError(res, err, '道具库操作失败，请稍后重试');
       }
     },
     update: (req, res) => {
@@ -45,7 +41,7 @@ function routes(db, cfg, log) {
         response.success(res, item);
       } catch (err) {
         log.error('prop-library update', { error: err.message });
-        sendLibraryFailure(res, err, '道具库操作失败，请稍后重试');
+        sendCaughtRouteError(res, err, '道具库操作失败，请稍后重试');
       }
     },
     delete: (req, res) => {
@@ -55,7 +51,7 @@ function routes(db, cfg, log) {
         response.success(res, { message: '删除成功' });
       } catch (err) {
         log.error('prop-library delete', { error: err.message });
-        sendLibraryFailure(res, err, '道具库操作失败，请稍后重试');
+        sendCaughtRouteError(res, err, '道具库操作失败，请稍后重试');
       }
     },
   };

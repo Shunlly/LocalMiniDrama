@@ -26,6 +26,7 @@ const dialogSource = readFileSync(
   'utf8',
 )
 const filmCreateSource = readFileSync(new URL('../src/views/FilmCreate.vue', import.meta.url), 'utf8')
+const shellBindingsSource = readFileSync(new URL('../src/components/filmCreate/filmCreateShellBindings.js', import.meta.url), 'utf8')
 
 function utf8(text) {
   return new TextEncoder().encode(text)
@@ -237,8 +238,9 @@ test('小说导入弹窗接入校验、确认文案和离开保护，且不写 s
   assert.match(dialogSource, /aria-label="小说正文"/)
   assert.match(filmCreateSource, /<FilmCreateWorkspaceDialogs/)
   assert.match(readFileSync(new URL('../src/components/filmCreate/FilmCreateWorkspaceDialogs.vue', import.meta.url), 'utf8'), /<FilmCreateNovelImportDialog/)
-  assert.match(filmCreateSource, /@file-change="onNovelFileChange"/)
-  assert.match(filmCreateSource, /@import="onImportNovel"/)
+  assert.match(filmCreateSource, /v-bind="workspaceDialogsLayerBindings"/)
+  assert.match(shellBindingsSource, /onFileChange: onNovelFileChange/)
+  assert.match(shellBindingsSource, /onImport: onImportNovel/)
 })
 
 test('小说导入弹窗取消按钮禁用时给出中文原因', () => {

@@ -33,6 +33,7 @@
           type="primary"
           native-type="button"
           aria-label="新建第一集"
+          title="新建第一集"
           @click="emit('create-episode')"
         >
           <el-icon><Plus /></el-icon>
@@ -54,6 +55,7 @@
           type="primary"
           native-type="button"
           aria-label="返回列表模式"
+          title="返回列表模式"
           @click="emit('go-list')"
         >
           <el-icon><List /></el-icon>

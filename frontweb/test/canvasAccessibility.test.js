@@ -5,21 +5,13 @@ import { readFileSync } from 'node:fs'
 import { buildDramaCanvasGraph } from '../src/utils/dramaCanvasAdapter.js'
 import { getStoryboardMediaAvailability } from '../src/utils/storyboardMedia.js'
 import { readCanvasStoryboardPanelSource } from './helpers/canvasStoryboardPanelSource.js'
+import { readDramaCanvasRuntimeSource } from './helpers/dramaCanvasPageSource.js'
 
 function read(path) {
   return readFileSync(new URL(path, import.meta.url), 'utf8')
 }
 
-const canvasRuntimeSource = [
-  read('../src/views/DramaCanvas.vue'),
-  read('../src/views/DramaCanvas.css'),
-  read('../src/composables/useDramaCanvasFreeCanvas.js'),
-  read('../src/composables/useDramaCanvasPersist.js'),
-  read('../src/composables/useDramaCanvasProjectLoad.js'),
-  read('../src/composables/useDramaCanvasWorkflow.js'),
-  read('../src/composables/useDramaCanvasGraph.js'),
-  read('../src/composables/useDramaCanvasViewport.js'),
-].join('\n')
+const canvasRuntimeSource = readDramaCanvasRuntimeSource()
 
 const expandableNodeSources = [
   read('../src/components/dramaCanvas/CanvasAssetNode.vue'),
@@ -57,9 +49,9 @@ test('canvas disabled actions associate reasons with aria-describedby', () => {
   assert.match(toolbar, /aria-label="新建素材"/)
   assert.match(toolbar, /aria-label="AI 生成分镜"/)
   assert.match(toolbar, />\s*AI 分镜\s*</)
-  assert.match(toolbar, /:title="actionReasons.generateStoryboards \|\| undefined"/)
-  assert.match(toolbar, /:title="actionReasons.batchImages \|\| undefined"/)
-  assert.match(toolbar, /:title="actionReasons.batchVideos \|\| undefined"/)
+  assert.match(toolbar, /:title="actionReasons.generateStoryboards \|\| 'AI 生成分镜'"/)
+  assert.match(toolbar, /:title="actionReasons.batchImages \|\| '批量生成图片'"/)
+  assert.match(toolbar, /:title="actionReasons.batchVideos \|\| '批量生成视频'"/)
   assert.match(toolbar, /aria-label="批量生成图片"/)
   assert.match(toolbar, /aria-label="批量生成视频"/)
   assert.match(toolbar, /description-id="canvas-reason-align-nodes"/)
@@ -68,7 +60,7 @@ test('canvas disabled actions associate reasons with aria-describedby', () => {
   assert.match(workflowToolbar, /description-id="canvas-reason-run-workflow"/)
   assert.match(workflowToolbar, /config-service-type="video"/)
   assert.match(workflowToolbar, /config-service-type="tts"/)
-  assert.match(workflowToolbar, /:title="actionReasons.runWorkflow \|\| undefined"/)
+  assert.match(workflowToolbar, /:title="actionReasons.runWorkflow \|\| '执行工作流分组'"/)
   assert.match(storyboardPanel, /:reason="videoAction\.reason"/)
   assert.match(storyboardPanel, /:reason="ttsAction\.reason"/)
   assert.match(storyboardPanel, /:title="audioActionDisabledReason \|\| undefined"/)
@@ -134,7 +126,7 @@ test('real local media produces consistent image and video availability', () => 
 })
 
 test('Vue Flow mounts only after its container reports a non-zero size', () => {
-  const canvas = read('../src/views/DramaCanvas.vue')
+  const canvas = canvasRuntimeSource
   assert.match(canvas, /v-if="canvasViewportReady && \(nodes\.length \|\| canvasMode === 'free'\)"/)
   assert.match(canvas, /new ResizeObserver\(updateCanvasViewportReady\)/)
   assert.match(canvas, /rect\.width > 0 && rect\.height > 0/)
@@ -158,7 +150,7 @@ test('canvas viewport controls are named and initial fitting keeps nodes readabl
   assert.match(canvas, /if \(!changed\) \{[\s\S]*restoreFocusedNodeSelection\(\)/)
   assert.match(canvas, /setFocusedNode: setFocusedCanvasNode/)
   assert.match(canvas, /querySelector\('\.canvas-node-panel'\)\?\.focus/)
-  assert.match(canvas, /@nodes-initialized="onCanvasNodesInitialized"/)
+  assert.match(canvas, /@nodes-initialized="handleCanvasNodesInitialized"/)
   assert.match(canvas, /\.vue-flow__controls button:focus-visible/)
   for (const name of ['setInteractive', 'setViewport', 'screenToFlowCoordinate', 'zoomIn', 'zoomOut']) {
     assert.match(aligner, new RegExp(`\\b${name}\\b`))

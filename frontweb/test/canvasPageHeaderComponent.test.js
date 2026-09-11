@@ -144,6 +144,8 @@ test('只读兼容和媒体告警展示中文原因与动作', () => {
     assert.match(textContent(harness.root), /部分分镜媒体查询失败/)
     const listMode = buttonByText(harness.root, '列表模式')
     assert.ok(listMode)
+    assert.equal(listMode.props['aria-label'], '返回列表模式')
+    assert.equal(listMode.props.title, '返回列表模式')
     click(listMode)
     const retryMedia = buttonByText(harness.root, '重试媒体查询')
     assert.ok(retryMedia)

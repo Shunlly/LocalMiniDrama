@@ -5,6 +5,8 @@
         size="small"
         :type="mode === 'production' ? 'primary' : 'default'"
         :aria-pressed="mode === 'production'"
+        aria-label="剧集画布"
+        title="剧集画布"
         @click="emit('set-mode', 'production')"
       >
         制作
@@ -13,6 +15,8 @@
         size="small"
         :type="mode === 'free' ? 'primary' : 'default'"
         :aria-pressed="mode === 'free'"
+        aria-label="自由画布"
+        title="自由画布不跑本集生成"
         @click="emit('set-mode', 'free')"
       >
         自由
@@ -39,13 +43,13 @@
         </el-dropdown>
       </el-tooltip>
 
-      <el-tooltip :content="canUndo ? '撤销' : '没有可撤销的操作'" placement="bottom">
-        <el-button size="small" circle :disabled="!canUndo" :aria-label="canUndo ? '撤销' : '撤销不可用：没有可撤销的操作'" :title="canUndo ? '撤销' : '没有可撤销的操作'" @click="emit('undo')">
+      <el-tooltip :content="canUndo ? '撤销（Ctrl+Z）' : '没有可撤销的操作'" placement="bottom">
+        <el-button size="small" circle :disabled="!canUndo" :aria-label="canUndo ? '撤销' : '撤销不可用：没有可撤销的操作'" :title="canUndo ? '撤销（Ctrl+Z）' : '没有可撤销的操作'" @click="emit('undo')">
           <el-icon><RefreshLeft /></el-icon>
         </el-button>
       </el-tooltip>
-      <el-tooltip :content="canRedo ? '重做' : '没有可重做的操作'" placement="bottom">
-        <el-button size="small" circle :disabled="!canRedo" :aria-label="canRedo ? '重做' : '重做不可用：没有可重做的操作'" :title="canRedo ? '重做' : '没有可重做的操作'" @click="emit('redo')">
+      <el-tooltip :content="canRedo ? '重做（Ctrl+Y）' : '没有可重做的操作'" placement="bottom">
+        <el-button size="small" circle :disabled="!canRedo" :aria-label="canRedo ? '重做' : '重做不可用：没有可重做的操作'" :title="canRedo ? '重做（Ctrl+Y）' : '没有可重做的操作'" @click="emit('redo')">
           <el-icon><RefreshRight /></el-icon>
         </el-button>
       </el-tooltip>
@@ -101,13 +105,13 @@
       <div v-if="selectionCount >= 1" class="multi-selection-actions" aria-label="多选操作">
         <span class="selection-summary" role="status">已选 {{ selectionCount }} 项</span>
         <template v-if="selectionCount >= 2">
-          <el-tooltip content="复制所选节点" placement="bottom">
-            <el-button size="small" circle aria-label="复制所选节点" title="复制所选节点" @click="emit('copy-selection')">
+          <el-tooltip content="复制所选节点（Ctrl+C）" placement="bottom">
+            <el-button size="small" circle aria-label="复制所选节点" title="复制所选节点（Ctrl+C）" @click="emit('copy-selection')">
               <el-icon><CopyDocument /></el-icon>
             </el-button>
           </el-tooltip>
-          <el-tooltip content="删除所选节点" placement="bottom">
-            <el-button size="small" circle type="danger" aria-label="删除所选节点" title="删除所选节点" @click="emit('delete-selection')">
+          <el-tooltip content="删除所选节点（Delete）" placement="bottom">
+            <el-button size="small" circle type="danger" aria-label="删除所选节点" title="删除所选节点（Delete）" @click="emit('delete-selection')">
               <el-icon><Delete /></el-icon>
             </el-button>
           </el-tooltip>

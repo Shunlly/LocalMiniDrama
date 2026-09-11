@@ -8,24 +8,32 @@
           highlighted: data.highlighted,
           dimmed: data.dimmed,
           focused: showPanel,
-          processing: isNodeBusy || entityStatus === 'processing',
+          processing: isNodeBusy || entityStatus === 'processing' || isPreviewLoading,
         },
       ]"
       role="button"
       tabindex="0"
       :aria-label="accessibleLabel"
       :aria-expanded="showPanel"
+      :aria-busy="isNodeBusy || entityStatus === 'processing' || isPreviewLoading"
+      :title="accessibleLabel"
       @keydown.enter.stop.prevent="openPanel"
       @keydown.space.stop.prevent="openPanel"
     >
       <Handle type="source" :position="Position.Right" />
       <div class="cover">
-        <img v-if="thumbUrl && !isNodeBusy" :src="thumbUrl" :alt="`${displayName}${kindLabel}参考图`" />
-        <div v-else-if="!isNodeBusy" class="cover-placeholder">
+        <img
+          v-if="thumbUrl"
+          :src="thumbUrl"
+          :alt="`${displayName}${kindLabel}参考图`"
+          @load="onPreviewReady"
+          @error="onPreviewError"
+        />
+        <div v-else-if="!isNodeBusy && !isPreviewLoading" class="cover-placeholder">
           <span class="cover-icon" aria-hidden="true">{{ kindIcon }}</span>
           <span class="cover-empty">暂无参考图</span>
         </div>
-        <CanvasNodeStatusOverlay :node-id="id" />
+        <CanvasNodeStatusOverlay :node-id="id" :fallback-message="busyFallback" />
       </div>
       <div class="info">
         <div class="name-row">
@@ -39,7 +47,7 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { Handle, Position } from '@vue-flow/core'
 import { assetImageUrl } from '@/utils/mediaUrl'
 import { useCanvasContext } from '@/composables/useCanvasContext'
@@ -70,22 +78,45 @@ const displayName = computed(() => {
 
 const thumbUrl = computed(() => assetImageUrl(props.data.entity))
 const entityStatus = computed(() => props.data.entity?.status || '')
+const previewState = ref('idle')
 
 const isNodeBusy = computed(() => {
   const map = ctx?.nodeStatus?.map
   return map ? !!map[props.id] : false
 })
 
+const isPreviewLoading = computed(() => previewState.value === 'loading')
+
+const busyFallback = computed(() => {
+  if (isNodeBusy.value) return ''
+  if (entityStatus.value === 'processing') return '生成中'
+  if (isPreviewLoading.value) return '正在加载预览'
+  return ''
+})
+
 const statusChip = computed(() => {
   const map = ctx?.nodeStatus?.map
   const busy = map?.[props.id]
   if (busy) return { key: 'busy', label: busy.message?.slice(0, 8) || '处理中' }
+  if (isPreviewLoading.value) return { key: 'processing', label: '加载中' }
   const s = entityStatus.value
   if (s === 'processing') return { key: 'processing', label: '生成中' }
   if (s === 'failed') return { key: 'failed', label: '失败' }
   if (thumbUrl.value) return { key: 'ready', label: '有图' }
   return { key: 'empty', label: '无图' }
 })
+
+watch(thumbUrl, (url) => {
+  previewState.value = url ? 'loading' : 'idle'
+}, { immediate: true })
+
+function onPreviewReady() {
+  previewState.value = 'ready'
+}
+
+function onPreviewError() {
+  previewState.value = 'error'
+}
 
 const accessibleLabel = computed(() => (
   `${kindLabel.value}${displayName.value}，${statusChip.value?.label || '暂无图片'}，按 Enter 或空格展开`

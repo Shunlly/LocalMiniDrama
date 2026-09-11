@@ -7,16 +7,14 @@ import { VueFlow } from '@vue-flow/core'
 import { ref } from 'vue'
 
 import { useCanvasWorkflowOrder } from '../src/composables/useCanvasWorkflowOrder.js'
+import { readDramaCanvasPageSource } from './helpers/dramaCanvasPageSource.js'
 import { reorderWorkflowGroupStoryboards } from '../src/utils/canvasWorkflow.js'
 
 const sidebarUrl = new URL('../src/components/dramaCanvas/CanvasWorkflowSidebarList.vue', import.meta.url)
 const canvasUrl = new URL('../src/views/DramaCanvas.vue', import.meta.url)
 const productionSidebarUrl = new URL('../src/components/dramaCanvas/CanvasProductionSidebar.vue', import.meta.url)
 const sidebarSource = readFileSync(sidebarUrl, 'utf8')
-const canvasSource = [
-  readFileSync(canvasUrl, 'utf8'),
-  readFileSync(productionSidebarUrl, 'utf8'),
-].join('\n')
+const canvasSource = readDramaCanvasPageSource()
 
 function workflowGroups() {
   return [

@@ -2,22 +2,41 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { readFilmListSources } from './helpers/filmListSources.js'
+import { readMediaLibrarySourceMap, readMediaLibrarySources } from './helpers/mediaLibrarySources.js'
+import { readAiConfigFormDialogTreeSource } from './helpers/aiConfigFormDialogSources.js'
 
 import { readDramaDetailResourceDialogSources } from './helpers/dramaDetailResourceDialogSources.js'
+import { readSd2AssetSources } from './helpers/sd2AssetSources.js'
 
 const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8')
 
-const mediaLibrarySource = read('../src/views/MediaLibrary.vue')
-const mediaLibraryHeaderSource = read('../src/components/mediaLibrary/MediaLibraryHeader.vue')
-const mediaLibraryFilterSource = read('../src/components/mediaLibrary/MediaLibraryFilterBar.vue')
-const mediaLibraryLocalGridSource = read('../src/components/mediaLibrary/MediaLibraryLocalGrid.vue')
-const mediaLibraryNetworkSource = read('../src/components/mediaLibrary/MediaLibraryNetworkPanel.vue')
-const mediaLibraryCombinedSource = [mediaLibrarySource, mediaLibraryHeaderSource, mediaLibraryFilterSource, mediaLibraryLocalGridSource, mediaLibraryNetworkSource].join('\n')
+const mediaLibraryFiles = readMediaLibrarySourceMap()
+const mediaLibrarySource = mediaLibraryFiles['MediaLibrary.vue']
+const mediaLibraryHeaderSource = mediaLibraryFiles['MediaLibraryHeader.vue']
+const mediaLibraryFilterSource = mediaLibraryFiles['MediaLibraryFilterBar.vue']
+const mediaLibraryLocalGridSource = mediaLibraryFiles['MediaLibraryLocalGrid.vue']
+const mediaLibraryNetworkSource = mediaLibraryFiles['MediaLibraryNetworkPanel.vue']
+const mediaLibraryCombinedSource = readMediaLibrarySources()
 const dramaDetailSource = read('../src/views/DramaDetail.vue')
 const dramaDetailHeaderSource = read('../src/components/dramaDetail/DramaDetailHeader.vue')
 const dramaDetailLoadStateSource = read('../src/components/dramaDetail/DramaDetailLoadState.vue')
 const dramaDetailInfoCardSource = read('../src/components/dramaDetail/DramaDetailInfoCard.vue')
+const dramaDetailEpisodeListSource = read('../src/components/dramaDetail/DramaDetailEpisodeList.vue')
+const dramaDetailResourceLibrarySource = read('../src/components/dramaDetail/DramaDetailResourceLibrary.vue')
+const dramaDetailReadinessSource = read('../src/components/dramaDetail/DramaDetailReadinessSection.vue')
+const dramaDetailSourceWorkflowSource = read('../src/components/dramaDetail/DramaDetailSourceWorkflow.vue')
 const dramaDetailDialogsSource = readDramaDetailResourceDialogSources(read)
+const dramaDetailCombinedSource = [
+  dramaDetailSource,
+  dramaDetailHeaderSource,
+  dramaDetailLoadStateSource,
+  dramaDetailInfoCardSource,
+  dramaDetailEpisodeListSource,
+  dramaDetailResourceLibrarySource,
+  dramaDetailReadinessSource,
+  dramaDetailSourceWorkflowSource,
+  dramaDetailDialogsSource,
+].join('\n')
 const filmListFiles = readFilmListSources()
 const filmListSource = filmListFiles.ui
 const filmListHeaderSource = filmListFiles.header
@@ -39,46 +58,68 @@ const freeCreatePageSource = read('../src/views/FreeCreate.vue')
 const freeCreateHeaderSource = read('../src/components/freeCreate/FreeCreateHeader.vue')
 const freeCreateInputSource = read('../src/components/freeCreate/FreeCreateInputPanel.vue')
 const freeCreateResultSource = read('../src/components/freeCreate/FreeCreateResultPanel.vue')
+const freeCreateWorkspaceSource = read('../src/composables/useFreeCreateWorkspace.js')
+const freeCreateUtilsSource = read('../src/utils/freeCreate.js')
 const freeCreateSource = [
   freeCreatePageSource,
   freeCreateHeaderSource,
   freeCreateInputSource,
   freeCreateResultSource,
+  freeCreateWorkspaceSource,
+  freeCreateUtilsSource,
 ].join('\n')
-const generationTaskStoreSource = read('../src/stores/generationTaskStore.js')
+const generationTaskStoreSource = [
+  read('../src/stores/generationTaskStore.js'),
+  read('../src/stores/generationTaskStore.helpers.js'),
+  read('../src/stores/generationTaskStore.recovery.js'),
+].join('\n')
 const storyGenerationSource = read('../src/composables/useStoryGeneration.js')
 const episodeBatchImportSource = read('../src/components/EpisodeBatchImportDialog.vue')
 const sceneModelMapSource = read('../src/components/SceneModelMap.vue')
 const promptEditorSource = read('../src/components/PromptEditor.vue')
-const sd2Source = read('../src/components/Sd2AssetManagement.vue')
+const sd2Files = readSd2AssetSources()
+const sd2Source = sd2Files.combined
 const aiConfigSource = read('../src/components/AIConfigContent.vue')
 const aiConfigFormDialogSource = read('../src/components/aiConfig/AiConfigFormDialog.vue')
 const aiConfigOneKeyDialogsSource = read('../src/components/aiConfig/AiConfigOneKeyDialogs.vue')
 const aiConfigBulkKeyDialogSource = read('../src/components/aiConfig/AiConfigBulkKeyDialog.vue')
 const aiConfigConnectionTestDialogSource = read('../src/components/aiConfig/AiConfigConnectionTestDialog.vue')
 const aiConfigJimeng2AssetsDialogSource = read('../src/components/aiConfig/AiConfigJimeng2AssetsDialog.vue')
+const aiConfigListToolbarSource = read('../src/components/aiConfig/AiConfigListToolbar.vue')
+const aiConfigListTableSource = read('../src/components/aiConfig/AiConfigListTable.vue')
+const aiConfigDependencyErrorBarSource = read('../src/components/aiConfig/AiConfigDependencyErrorBar.vue')
+const aiConfigWorkspaceSwitchSource = read('../src/components/aiConfig/AiConfigWorkspaceSwitch.vue')
+const aiConfigCoverageHeaderSource = read('../src/components/aiConfig/AiConfigCoverageHeader.vue')
+const aiConfigCoveragePanelSource = read('../src/components/aiConfig/AiConfigCoveragePanel.vue')
+const aiConfigConfigsPanelSource = read('../src/components/aiConfig/AiConfigConfigsPanel.vue')
+const aiConfigFormTreeSource = readAiConfigFormDialogTreeSource()
 const aiConfigOverlaySource = [
   aiConfigSource,
-  aiConfigFormDialogSource,
+  aiConfigFormTreeSource,
   aiConfigOneKeyDialogsSource,
   aiConfigBulkKeyDialogSource,
   aiConfigConnectionTestDialogSource,
   aiConfigJimeng2AssetsDialogSource,
+  aiConfigListToolbarSource,
+  aiConfigListTableSource,
+  aiConfigDependencyErrorBarSource,
+  aiConfigWorkspaceSwitchSource,
+  aiConfigCoverageHeaderSource,
+  aiConfigCoveragePanelSource,
+  aiConfigConfigsPanelSource,
 ].join('\n')
 const aiConfigRowMutationsSource = read('../src/composables/useAiConfigRowMutations.js')
 const aiConfigFormSettingsSource = read('../src/utils/aiConfigFormSettings.js')
 const notFoundSource = read('../src/views/NotFound.vue')
 
 const ALLOWED_SOURCES = {
-  'MediaLibrary.vue': mediaLibrarySource,
-  'MediaLibraryHeader.vue': mediaLibraryHeaderSource,
-  'MediaLibraryFilterBar.vue': mediaLibraryFilterSource,
-  'MediaLibraryLocalGrid.vue': mediaLibraryLocalGridSource,
-  'MediaLibraryNetworkPanel.vue': mediaLibraryNetworkSource,
+  ...mediaLibraryFiles,
   'DramaDetail.vue': dramaDetailSource,
   'DramaDetailHeader.vue': dramaDetailHeaderSource,
   'DramaDetailLoadState.vue': dramaDetailLoadStateSource,
   'DramaDetailInfoCard.vue': dramaDetailInfoCardSource,
+  'DramaDetailEpisodeList.vue': dramaDetailEpisodeListSource,
+  'DramaDetailResourceLibrary.vue': dramaDetailResourceLibrarySource,
   'DramaDetailResourceDialogs.vue': dramaDetailDialogsSource,
   'FilmList.vue': filmListFiles.view,
   'FilmListHeader.vue': filmListHeaderSource,
@@ -98,11 +139,25 @@ const ALLOWED_SOURCES = {
   'EpisodeBatchImportDialog.vue': episodeBatchImportSource,
   'SceneModelMap.vue': sceneModelMapSource,
   'PromptEditor.vue': promptEditorSource,
-  'Sd2AssetManagement.vue': sd2Source,
+  'Sd2AssetManagement.vue': sd2Files.parent,
+  'Sd2AssetGroupList.vue': sd2Files.groupList,
+  'Sd2AssetList.vue': sd2Files.assetList,
+  'Sd2AssetFilter.vue': sd2Files.filter,
+  'Sd2AssetDialogs.vue': sd2Files.dialogs,
+  'Sd2AssetIntro.vue': sd2Files.intro,
+  'Sd2AssetConnectionForm.vue': sd2Files.connectionForm,
+  'Sd2AssetLastResponse.vue': sd2Files.lastResponse,
   'AiConfigOneKeyDialogs.vue': aiConfigOneKeyDialogsSource,
   'AiConfigBulkKeyDialog.vue': aiConfigBulkKeyDialogSource,
   'AiConfigConnectionTestDialog.vue': aiConfigConnectionTestDialogSource,
   'AiConfigJimeng2AssetsDialog.vue': aiConfigJimeng2AssetsDialogSource,
+  'AiConfigListToolbar.vue': aiConfigListToolbarSource,
+  'AiConfigListTable.vue': aiConfigListTableSource,
+  'AiConfigDependencyErrorBar.vue': aiConfigDependencyErrorBarSource,
+  'AiConfigWorkspaceSwitch.vue': aiConfigWorkspaceSwitchSource,
+  'AiConfigCoverageHeader.vue': aiConfigCoverageHeaderSource,
+  'AiConfigCoveragePanel.vue': aiConfigCoveragePanelSource,
+  'AiConfigConfigsPanel.vue': aiConfigConfigsPanelSource,
 }
 
 const CHINESE_RE = /[\u4e00-\u9fff]/
@@ -262,16 +317,16 @@ test('提示词编辑页用户可见句子是简体中文', () => {
 test('素材中心、剧详情、剧本生成和任务轮询的反馈文案保持简体中文', () => {
   assert.match(mediaLibrarySource, /aria-label="素材来源"/)
   assert.match(mediaLibraryCombinedSource, /placeholder="搜索素材..."/)
-  assert.match(mediaLibrarySource, /title="素材预览"/)
-  assert.match(mediaLibrarySource, /import \{ ElMessage, ElMessageBox \} from '@\/utils\/elementPlusFeedback\.js'/)
-  assert.doesNotMatch(mediaLibrarySource, /from 'element-plus'/)
-  assert.match(mediaLibrarySource, /ElMessageBox\.confirm\(`\$\{describeMediaDeleteImpact\(item\)\}确定删除？`, '删除确认'/)
-  assert.match(mediaLibrarySource, /confirmButtonText: '删除'/)
-  assert.match(mediaLibrarySource, /cancelButtonText: '取消'/)
+  assert.match(mediaLibraryCombinedSource, /title="素材预览"/)
+  assert.match(mediaLibraryCombinedSource, /import \{ ElMessage, ElMessageBox \} from '@\/utils\/elementPlusFeedback\.js'/)
+  assert.doesNotMatch(mediaLibraryCombinedSource, /from 'element-plus'/)
+  assert.match(mediaLibraryCombinedSource, /ElMessageBox\.confirm\(`\$\{describeMediaDeleteImpact\(item\)\}确定删除？`, '删除确认'/)
+  assert.match(mediaLibraryCombinedSource, /confirmButtonText: '删除'/)
+  assert.match(mediaLibraryCombinedSource, /cancelButtonText: '取消'/)
   assert.match(mediaLibrarySource, /当前项目（编号 \$\{scopedDramaId\.value\}）/)
-  assert.match(mediaLibrarySource, /Commons 页面编号/)
+  assert.match(mediaLibraryCombinedSource, /Commons 页面编号/)
 
-  assert.match(dramaDetailSource, /aria-label="新增空白集"/)
+  assert.match(dramaDetailCombinedSource, /aria-label="新增空白集"/)
   assert.match(dramaDetailSource, /ElMessage\.warning\('请先新增一集，再进入制作'\)/)
   assert.match(dramaDetailDialogsSource, /title="编辑制作角色"/)
   assert.match(dramaDetailSource, /draft: '草稿', processing: '生成中', completed: '剧本已就绪', failed: '失败'/)
@@ -296,9 +351,9 @@ test('素材中心、剧详情、剧本生成和任务轮询的反馈文案保�
 
 
 test('AI 配置页按钮、占位、表单标签和错误提示改为简体中文', () => {
-  assert.match(aiConfigSource, /一键换密钥/)
-  assert.doesNotMatch(aiConfigSource, /一键换Key/)
-  assert.match(aiConfigSource, /修改密钥/)
+  assert.match(aiConfigOverlaySource, /一键换密钥/)
+  assert.doesNotMatch(aiConfigOverlaySource, /一键换Key/)
+  assert.match(aiConfigOverlaySource, /修改密钥/)
   assert.doesNotMatch(aiConfigSource, /修改Key/)
   assert.match(aiConfigOverlaySource, /label="接口地址（Base URL）"/)
   assert.match(aiConfigOverlaySource, /label="工作流 JSON"/)

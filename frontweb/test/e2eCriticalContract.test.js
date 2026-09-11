@@ -94,7 +94,7 @@ function createCriticalPageMock(options = {}) {
       setHref(`${frontendUrl}/film/${dramaId}/canvas?episode=${episodeId}`)
       return
     }
-    if (name === critical.CRITICAL_UI.listMode) {
+    if (name === critical.CRITICAL_UI.listMode || name === critical.CRITICAL_UI.listModeAria) {
       setHref(`${frontendUrl}/film/${dramaId}?episode=${episodeId}`)
       return
     }
@@ -303,7 +303,7 @@ test('共享合同覆盖工作区入口、素材库空态、项目列表-制作�
     'CRITICAL_UI.openProject(fixture.fixtureTitle)',
     "pathname === `/film/${fixture.dramaId}/canvas`",
     'page.goto(deepLink',
-    'CRITICAL_UI.listMode, exact: true }).first()',
+    'CRITICAL_UI.listModeAria, exact: true }).first()',
     'async function verifyLeaveProtectionWhenAutosavePending',
     'E2E_AUTOSAVE_FAILED',
     "press('Escape')",

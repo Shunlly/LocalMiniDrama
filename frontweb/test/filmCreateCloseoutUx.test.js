@@ -10,6 +10,7 @@ import { toUserFacingError } from '../src/utils/userFacingError.js'
 const resourceDialogsParent = readFileSync(new URL('../src/components/filmCreate/FilmCreateResourceDialogs.vue', import.meta.url), 'utf8')
 const resourceDialogs = readFilmCreateResourceDialogTree()
 const imageColumn = readFileSync(new URL('../src/components/filmCreate/FilmCreateStoryboardImageColumn.vue', import.meta.url), 'utf8').replace(/\r\n?/g, '\n')
+const imageColumnCopy = readFileSync(new URL('../src/components/filmCreate/filmCreateStoryboardImageColumnCopy.js', import.meta.url), 'utf8').replace(/\r\n?/g, '\n')
 const panel = readFileSync(new URL('../src/components/filmCreate/FilmCreateStoryboardPanel.vue', import.meta.url), 'utf8') + '\n' + readFileSync(new URL('../src/components/filmCreate/FilmCreateStoryboardList.vue', import.meta.url), 'utf8')
 const filmCreate = readFileSync(new URL('../src/views/FilmCreate.vue', import.meta.url), 'utf8')
 const workspaceBindingsSource = readFileSync(new URL('../src/components/filmCreate/filmCreateWorkspaceBindings.js', import.meta.url), 'utf8')
@@ -25,14 +26,14 @@ const describeAddToEpisodeDisabledReason = new Function(
   `'use strict'; ${remainingExtractNamedFunction(resourceDialogsParent, 'describeAddToEpisodeDisabledReason')}; return describeAddToEpisodeDisabledReason;`,
 )()
 const describeImageGenerateDisabledReason = new Function(
-  `'use strict'; ${remainingExtractNamedFunction(imageColumn, 'describeImageGenerateDisabledReason')}; return describeImageGenerateDisabledReason;`,
+  `'use strict'; ${remainingExtractNamedFunction(imageColumnCopy, 'describeImageGenerateDisabledReason')}; return describeImageGenerateDisabledReason;`,
 )()
 const describeUpscaleDisabledReason = new Function(
-  `'use strict'; ${remainingExtractNamedFunction(imageColumn, 'describeUpscaleDisabledReason')}; return describeUpscaleDisabledReason;`,
+  `'use strict'; ${remainingExtractNamedFunction(imageColumnCopy, 'describeUpscaleDisabledReason')}; return describeUpscaleDisabledReason;`,
 )()
 const describeStoryboardImageError = new Function(
   'toUserFacingError',
-  `'use strict'; ${remainingExtractNamedFunction(imageColumn, 'describeStoryboardImageError')}; return describeStoryboardImageError;`,
+  `'use strict'; ${remainingExtractNamedFunction(imageColumnCopy, 'describeStoryboardImageError')}; return describeStoryboardImageError;`,
 )(toUserFacingError)
 
 function refOf(value) {

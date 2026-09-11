@@ -38,8 +38,11 @@ function createBoundaryError(code, message, statusCode) {
   return error;
 }
 
-function invalidIdError(name) {
-  return createBoundaryError('BAD_REQUEST', `${name} 必须引用有效 ID`, 400);
+function invalidIdError(kind) {
+  const message = kind === 'resource'
+    ? '资源 ID 必须引用有效编号'
+    : '项目 ID 必须引用有效编号';
+  return createBoundaryError('BAD_REQUEST', message, 400);
 }
 
 function getTableColumns(db, tableName) {
@@ -81,7 +84,7 @@ function isNonEmptyState(value) {
 
 function assertDramaReadable(db, dramaId) {
   const id = Number(dramaId);
-  if (!Number.isInteger(id) || id <= 0) throw invalidIdError('drama_id');
+  if (!Number.isInteger(id) || id <= 0) throw invalidIdError('drama');
   let drama;
   try {
     drama = readDrama(db, id);
@@ -132,7 +135,7 @@ function addRelation(ids, relation, value) {
 function readResource(db, tableName, resourceId) {
   assertResourceTable(tableName);
   const id = positiveId(resourceId);
-  if (!id) throw invalidIdError('resource_id');
+  if (!id) throw invalidIdError('resource');
   if (!hasTable(db, tableName)) return null;
   const columns = getTableColumns(db, tableName);
   const row = db.prepare(`SELECT * FROM ${tableName} WHERE id = ?`).get(id);
@@ -206,7 +209,7 @@ function assertResourceWritable(db, tableName, resourceId) {
 
 function assertResourcesWritable(db, tableName, resourceIds) {
   const ids = [...new Set((resourceIds || []).map((value) => Number(value)))];
-  if (!ids.length) throw invalidIdError('resource_id');
+  if (!ids.length) throw invalidIdError('resource');
   return ids.map((id) => assertResourceWritable(db, tableName, id));
 }
 

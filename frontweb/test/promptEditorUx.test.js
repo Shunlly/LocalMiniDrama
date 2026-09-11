@@ -4,7 +4,14 @@ import { readFileSync } from 'node:fs'
 
 import { remainingExtractNamedFunction } from './helpers/remainingSourceBetween.js'
 
-const source = readFileSync(new URL('../src/components/PromptEditor.vue', import.meta.url), 'utf8')
+function read(rel) {
+  return readFileSync(new URL(rel, import.meta.url), 'utf8')
+}
+
+const parentSource = read('../src/components/PromptEditor.vue')
+const sidebarSource = read('../src/components/promptEditor/PromptEditorSidebar.vue')
+const paneSource = read('../src/components/promptEditor/PromptEditorPane.vue')
+const combined = [parentSource, sidebarSource, paneSource].join('\n')
 
 function templateOnly(vueSource) {
   const start = vueSource.indexOf('<template')
@@ -35,27 +42,31 @@ function openingTags(fragment, tagNames) {
   return tags
 }
 
-const template = templateOnly(source)
+const parentTemplate = templateOnly(parentSource)
+const sidebarTemplate = templateOnly(sidebarSource)
+const paneTemplate = templateOnly(paneSource)
+const combinedTemplate = `${parentTemplate}\n${sidebarTemplate}\n${paneTemplate}`
 const describeSaveDisabledReason = new Function(
-  `'use strict'; ${remainingExtractNamedFunction(source, 'describeSaveDisabledReason')}; return describeSaveDisabledReason;`,
+  `'use strict'; ${remainingExtractNamedFunction(parentSource, 'describeSaveDisabledReason')}; return describeSaveDisabledReason;`,
 )()
 const describeResetDisabledReason = new Function(
-  `'use strict'; ${remainingExtractNamedFunction(source, 'describeResetDisabledReason')}; return describeResetDisabledReason;`,
+  `'use strict'; ${remainingExtractNamedFunction(parentSource, 'describeResetDisabledReason')}; return describeResetDisabledReason;`,
 )()
 
 test('提示词侧栏项可 Tab 聚焦并用 Enter/Space 选中', () => {
-  const menuItems = openingTags(template, ['button']).filter((tag) => tag.includes('v-for="p in prompts"'))
+  const menuItems = openingTags(sidebarTemplate, ['button']).filter((tag) => tag.includes('v-for="p in prompts"'))
   assert.equal(menuItems.length, 1)
   assert.match(menuItems[0], /type="button"/)
   assert.match(menuItems[0], /tabindex="0"/)
   assert.match(menuItems[0], /@click="selectPrompt\(p\.key\)"/)
   assert.match(menuItems[0], /@keydown\.enter\.prevent="selectPrompt\(p\.key\)"/)
   assert.match(menuItems[0], /@keydown\.space\.prevent="selectPrompt\(p\.key\)"/)
-  assert.match(source, /aria-label="提示词列表"/)
-  assert.match(source, /\.menu-item:focus-visible/)
-  assert.doesNotMatch(source, /from '@\/api\/prompts'[\s\S]*promptsAPI\.(create|delete)/)
+  assert.match(sidebarSource, /aria-label="提示词列表"/)
+  assert.match(sidebarSource, /\.menu-item:focus-visible/)
+  assert.match(parentSource, /<PromptEditorSidebar[\s\S]*:select-prompt="selectPrompt"/)
+  assert.doesNotMatch(parentSource, /from '@\/api\/prompts'[\s\S]*promptsAPI\.(create|delete)/)
 
-  const clickableDivs = openingTags(template, ['div', 'span', 'li', 'p', 'article', 'section']).filter((tag) => /@click/.test(tag))
+  const clickableDivs = openingTags(combinedTemplate, ['div', 'span', 'li', 'p', 'article', 'section']).filter((tag) => /@click/.test(tag))
   assert.deepEqual(clickableDivs, [])
 })
 
@@ -79,8 +90,8 @@ test('保存和恢复默认禁用时给出中文原因', () => {
     assert.doesNotMatch(reason, /save|reset|dirty|prompt|default|system/i)
   }
 
-  const saveButton = openingTags(template, ['el-button']).find((tag) => tag.includes('@click="save(currentPrompt)"'))
-  const resetButton = openingTags(template, ['el-button']).find((tag) => tag.includes('@click="reset(currentPrompt)"'))
+  const saveButton = openingTags(paneTemplate, ['el-button']).find((tag) => tag.includes("@click=\"$emit('save')\""))
+  const resetButton = openingTags(paneTemplate, ['el-button']).find((tag) => tag.includes("@click=\"$emit('reset')\""))
   assert.ok(saveButton)
   assert.ok(resetButton)
   assert.match(saveButton, /:disabled="Boolean\(saveDisabledReason\)"/)
@@ -89,15 +100,29 @@ test('保存和恢复默认禁用时给出中文原因', () => {
   assert.match(resetButton, /:disabled="Boolean\(resetDisabledReason\)"/)
   assert.match(resetButton, /:title="resetDisabledReason \|\| undefined"/)
   assert.match(resetButton, /:aria-label="resetDisabledReason \? `恢复默认不可用：\${resetDisabledReason}` : undefined"/)
+  assert.match(parentTemplate, /@save="save\(currentPrompt\)"/)
+  assert.match(parentTemplate, /@reset="reset\(currentPrompt\)"/)
 })
 
 test('说明文案使用系统提示词，不再出现 System Prompt', () => {
-  assert.match(source, /可自定义 AI 生成各阶段使用的系统提示词。/)
-  assert.doesNotMatch(source, /System Prompt/)
-  assert.match(source, /from '@\/utils\/elementPlusFeedback\.js'/)
-  assert.doesNotMatch(source, /from 'element-plus'/)
-  assert.match(source, /from '@\/api\/prompts'/)
-  assert.match(source, /promptsAPI\.list\(\)/)
-  assert.match(source, /promptsAPI\.update\(p\.key, content\.trim\(\)\)/)
-  assert.match(source, /promptsAPI\.reset\(p\.key\)/)
+  assert.match(parentSource, /可自定义 AI 生成各阶段使用的系统提示词。/)
+  assert.doesNotMatch(combined, /System Prompt/)
+  assert.match(parentSource, /from '@\/utils\/elementPlusFeedback\.js'/)
+  assert.doesNotMatch(combined, /from 'element-plus'/)
+  assert.match(parentSource, /from '@\/api\/prompts'/)
+  assert.match(parentSource, /promptsAPI\.list\(\)/)
+  assert.match(parentSource, /promptsAPI\.update\(p\.key, content\.trim\(\)\)/)
+  assert.match(parentSource, /promptsAPI\.reset\(p\.key\)/)
+})
+
+test('加载失败不伪装成空列表，成功且无数据才显示空态', () => {
+  assert.match(parentSource, /const loadError = ref\(''\)/)
+  assert.match(parentSource, /const hasSuccessfulLoad = ref\(false\)/)
+  assert.match(parentSource, /v-if="loading && !hasSuccessfulLoad"/)
+  assert.match(parentSource, /aria-label="重新加载提示词"/)
+  assert.match(parentSource, /description="暂无系统提示词"/)
+  assert.match(parentSource, /v-if="hasSuccessfulLoad && !loadError && !prompts\.length"/)
+  assert.match(parentSource, /v-else-if="hasSuccessfulLoad"/)
+  assert.match(parentSource, /description="请选择一条提示词"/)
+  assert.match(parentSource, /ElMessage\.error\('加载提示词失败'\)/)
 })

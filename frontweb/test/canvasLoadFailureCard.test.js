@@ -17,6 +17,7 @@ import {
 
 const cardUrl = new URL('../src/components/dramaCanvas/CanvasLoadFailureCard.vue', import.meta.url)
 const viewSource = readFileSync(new URL('../src/views/DramaCanvas.vue', import.meta.url), 'utf8')
+const bindingsSource = readFileSync(new URL('../src/components/dramaCanvas/dramaCanvasControlBindings.js', import.meta.url), 'utf8')
 const cardSource = readFileSync(cardUrl, 'utf8')
 
 const CanvasLoadFailureCard = await loadCompiledSfc(
@@ -50,8 +51,9 @@ test('DramaCanvas 把加载失败面交给独立卡片，并保留重试与返�
   assert.match(viewSource, /<CanvasLoadFailureCard/)
   assert.match(viewSource, /v-if="canvasLoadState === 'error'"/)
   assert.match(viewSource, /ref="canvasLoadFailureRef"/)
-  assert.match(viewSource, /:retry-canvas-project-load="retryCanvasProjectLoad"/)
-  assert.match(viewSource, /:go-project-list="goProjectList"/)
+  assert.match(viewSource, /v-bind="loadFailureBindings"/)
+  assert.match(bindingsSource, /retryCanvasProjectLoad: ctx.retryCanvasProjectLoad/)
+  assert.match(bindingsSource, /goProjectList: ctx.goProjectList/)
   assert.match(cardSource, /@click="retryCanvasProjectLoad">重试加载/)
   assert.match(cardSource, /canvas-load-actions[\s\S]*@click="goProjectList">返回项目列表/)
   assert.match(cardSource, /defineExpose\(\{\s*focus:/)

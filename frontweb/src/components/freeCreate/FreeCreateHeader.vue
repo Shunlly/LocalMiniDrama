@@ -36,12 +36,12 @@ function goBack() {
 .page-title {
   font-size: 22px;
   font-weight: 600;
-  color: #1a1a2e;
+  color: var(--text-bright);
   margin: 0;
 }
 
 .page-desc {
-  color: #6b7280;
+  color: var(--text-muted);
   font-size: 14px;
   margin: 0;
 }

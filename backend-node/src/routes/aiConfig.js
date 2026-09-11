@@ -1,6 +1,6 @@
 const aiConfigService = require('../services/aiConfigService');
 const response = require('../response');
-const { publicErrorMessage } = require('./serviceFailure');
+const { publicErrorMessage, logCaughtRouteError } = require('./serviceFailure');
 
 function list(db) {
   return (req, res) => {
@@ -45,7 +45,7 @@ function create(db, log, cfg) {
       });
       response.created(res, aiConfigService.configForResponse(config));
     } catch (err) {
-      log.errorw('Create AI config failed', { error: err.message });
+      logCaughtRouteError(log, 'Create AI config failed', err, { fallback: '创建失败' });
       if (err.status === 400) {
         return response.error(res, 400, err.code || 'BAD_REQUEST', publicErrorMessage(err, 'AI 配置无效'), err.details);
       }
@@ -75,7 +75,7 @@ function update(db, log, cfg) {
       if (!config) return response.notFound(res, '配置不存在');
       response.success(res, aiConfigService.configForResponse(config));
     } catch (err) {
-      log.errorw('Update AI config failed', { error: err.message, config_id: id });
+      logCaughtRouteError(log, 'Update AI config failed', err, { config_id: id, fallback: '更新失败' });
       if (err.status === 400 || err.status === 409) {
         return response.error(res, err.status, err.code || 'BAD_REQUEST', publicErrorMessage(err, 'AI 配置无效'), err.details);
       }
@@ -113,7 +113,7 @@ function bulkUpdateKey(db, log, cfg) {
         message: `已更新 ${result.updated} 条配置的密钥`,
       });
     } catch (err) {
-      log.error('Bulk update api_key failed', { error: err.message });
+      logCaughtRouteError(log, 'Bulk update api_key failed', err, { fallback: '批量换密钥失败' });
       response.internalError(res, '批量换密钥失败');
     }
   };
@@ -266,20 +266,17 @@ function testConnection(db, log) {
           provider: opts.provider || 'AI 服务',
           operation: '连接测试',
         });
-      log.error('AI config test connection failed', { error: safeMessage });
-      log.operation?.({
-        operation: 'ai_config_test',
-        phase: 'error',
+      const userMessage = (err?.code === 'ERR_CANCELED' || err?.name === 'AbortError')
+        ? (safeMessage || '连接测试已取消')
+        : (trustedMessage && markedSafe ? safeMessage : ('连接测试失败: ' + safeMessage));
+      logCaughtRouteError(log, 'AI config test connection failed', err.cause || err, {
         provider: opts.provider || null,
-        error: safeMessage,
+        fallback: userMessage,
       });
       if (err?.code === 'ERR_CANCELED' || err?.name === 'AbortError') {
-        return response.badRequest(res, safeMessage || '连接测试已取消');
+        return response.badRequest(res, userMessage);
       }
-      if (trustedMessage && markedSafe) {
-        return response.badRequest(res, safeMessage);
-      }
-      response.badRequest(res, '连接测试失败: ' + safeMessage);
+      response.badRequest(res, userMessage);
     } finally {
       clientAbort.dispose();
     }
@@ -318,7 +315,7 @@ function modelArkAsset(db, log) {
     } catch (err) {
       const { toSafeProviderErrorMessage } = require('../services/providerErrorSanitizer');
       const safeMessage = toSafeProviderErrorMessage(err, { provider: 'ModelArk', operation: action || 'request' });
-      log.error('model-ark-asset proxy failed', { error: safeMessage, action });
+      logCaughtRouteError(log, 'model-ark-asset proxy failed', err, { action, fallback: safeMessage || '请求失败' });
       const status = err.status >= 400 && err.status < 600 ? err.status : 400;
       return response.error(res, status, 'MODEL_ARK_ASSET', safeMessage || '请求失败');
     }
@@ -450,15 +447,9 @@ function discoverModels(db, log, cfg) {
     } catch (err) {
       if (res.writableEnded) return;
       const safeMessage = publicErrorMessage(err, '读取模型目录失败，请检查接口地址和密钥');
-      log.error('AI config discover models failed', {
-        error: safeMessage,
+      logCaughtRouteError(log, 'AI config discover models failed', err, {
         provider: opts.provider || null,
-      });
-      log.operation?.({
-        operation: 'ai_config_discover_models',
-        phase: 'error',
-        provider: opts.provider || null,
-        error: safeMessage,
+        fallback: safeMessage,
       });
       response.badRequest(res, safeMessage);
     } finally {

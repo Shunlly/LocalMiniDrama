@@ -8,16 +8,17 @@ export function getPipelineCompactAction(state = {}) {
     return { key: 'add-episode', label: '添加一集', event: 'add-episode' }
   }
 
-  if (state.draftReason || state.readinessState === 'checking') return null
+  if (state.readinessState === 'checking') return null
 
   if (state.readinessState === 'missing') {
     return {
-      key: 'configure',
-      label: '配置缺失服务',
-      event: 'open-ai-config',
-      payload: state.serviceType || '',
+      key: 'draft-preview',
+      label: '先跑草稿预演',
+      event: 'start-text-framework',
     }
   }
+
+  if (state.draftReason) return null
 
   if (state.readinessState === 'error') {
     return { key: 'retry', label: '重试能力检查', event: 'retry-readiness' }
@@ -26,6 +27,18 @@ export function getPipelineCompactAction(state = {}) {
   if (state.readinessState !== 'ready' || state.productionReason) return null
   if (state.hasError) return { key: 'retry-run', label: '重试全流程', event: 'start-one-click' }
   return { key: 'start', label: '一键生成成片', event: 'start-one-click' }
+}
+
+export function getPipelineCompactSecondaryAction(state = {}) {
+  if (state.running) return null
+  if (state.hasEpisode === false) return null
+  if (state.readinessState !== 'missing') return null
+  return {
+    key: 'configure',
+    label: '配置缺失服务',
+    event: 'open-ai-config',
+    payload: state.serviceType || '',
+  }
 }
 
 export function getPipelineControlReasons(state = {}) {

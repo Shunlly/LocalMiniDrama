@@ -146,6 +146,7 @@
         :get-sb-grid-images="getSbGridImages"
         :get-sb-video-reference-grid="getSbVideoReferenceGrid"
         :on-open-video-params="onOpenVideoParamsDialog"
+        :grid-mode="gridMode"
       />
     </div>
   </template>
@@ -287,6 +288,7 @@ const props = defineProps({
   onRemoveSbFreeReferenceImage: { type: Function, default: () => {} },
   getSbGridImages: { type: Function, default: undefined },
   getSbVideoReferenceGrid: { type: Function, default: undefined },
+  gridMode: { type: String, default: 'single' },
 
   storyboardUseFirstLastFrame: { type: Boolean, default: false },
   storyboardIncludeNarration: { type: Boolean, default: false },

@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 
 import { defineComponent, h, nextTick } from 'vue'
 
@@ -189,6 +190,52 @@ test('切换剧集中禁用当前集选择并给出中文原因', async () => {
     assert.equal(episodeSelect.props.disabled, true)
     assert.equal(episodeSelect.props.title, '正在切换剧集，请稍候')
     assert.equal(episodeSelect.props['aria-busy'], true)
+  } finally {
+    harness.app.unmount()
+  }
+})
+
+test('返回剧集读屏名称必须精确匹配，装饰图标不参与命名', () => {
+  const headerSource = readFileSync(new URL('../src/components/filmCreate/FilmCreateHeader.vue', import.meta.url), 'utf8')
+  assert.match(headerSource, /aria-label="返回剧集"/)
+  assert.doesNotMatch(headerSource, /返回剧集管理/)
+  assert.equal((headerSource.match(/<el-icon aria-hidden="true">/g) || []).length, 5)
+  assert.doesNotMatch(headerSource, /<el-icon>/)
+
+  const harness = mountHeader()
+  try {
+    const backToDrama = buttonByAriaLabel(harness.root, '返回剧集')
+    assert.ok(backToDrama)
+    assert.equal(backToDrama.props['aria-label'], '返回剧集')
+    assert.equal(textContent(backToDrama).replace(/\s+/g, ' ').trim(), '返回剧集')
+    assert.equal(buttonByAriaLabel(harness.root, '返回剧集管理'), undefined)
+    assert.equal(buttonByText(harness.root, '返回剧集管理'), undefined)
+  } finally {
+    harness.app.unmount()
+  }
+})
+
+test('暗色模式下主题按钮改成浅色，切换剧集会把集编号交给页面', async () => {
+  const harness = mountHeader({
+    isDark: true,
+    hasAnyEpisode: true,
+    selectedEpisodeId: EPISODE_ID,
+    selectedEpisodeContextLabel: '第 1 集 · 开场',
+    episodes: [
+      { id: EPISODE_ID, episode_number: 1, title: '开场' },
+      { id: OTHER_EPISODE_ID, episode_number: 2, title: '对峙' },
+    ],
+  })
+  try {
+    await nextTick()
+    const theme = buttonByAriaLabel(harness.root, '切换到浅色模式')
+    assert.ok(theme)
+    assert.match(textContent(theme), /浅色/)
+    const episodeSelect = selectByAriaLabel(harness.root, '当前集')
+    assert.ok(episodeSelect)
+    episodeSelect.props.onChange({ target: { value: String(OTHER_EPISODE_ID) } })
+    assert.deepEqual(harness.events, [['episode-select', OTHER_EPISODE_ID]])
+    assert.doesNotMatch(JSON.stringify(harness.events), new RegExp(String(DRAMA_ID)))
   } finally {
     harness.app.unmount()
   }

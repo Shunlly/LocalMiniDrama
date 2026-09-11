@@ -4,8 +4,13 @@ import { readFileSync } from 'node:fs'
 
 import { readFilmCreateResourceDialogTree } from './helpers/filmCreateResourceDialogSources.js'
 
+const filmCreateGuardedApisSource = readFileSync(new URL('../src/components/filmCreate/filmCreateGuardedApis.js', import.meta.url), 'utf8')
 const filmCreateSource = readFileSync(
   new URL('../src/views/FilmCreate.vue', import.meta.url),
+  'utf8',
+)
+const pageDisplaySource = readFileSync(
+  new URL('../src/composables/filmCreate/useFilmCreatePageDisplay.js', import.meta.url),
   'utf8',
 )
 const navStepsSource = readFileSync(
@@ -77,6 +82,18 @@ const headerSource = readFileSync(
   new URL('../src/components/filmCreate/FilmCreateHeader.vue', import.meta.url),
   'utf8',
 )
+const surfaceBindingsSource = readFileSync(
+  new URL('../src/components/filmCreate/filmCreateSurfaceBindings.js', import.meta.url),
+  'utf8',
+)
+const shellBindingsSource = readFileSync(
+  new URL('../src/components/filmCreate/filmCreateShellBindings.js', import.meta.url),
+  'utf8',
+)
+const productionBindingsSource = readFileSync(
+  new URL('../src/components/filmCreate/filmCreateProductionBindings.js', import.meta.url),
+  'utf8',
+)
 const workspaceNavSource = readFileSync(
   new URL('../src/composables/filmCreate/useFilmCreateWorkspaceNav.js', import.meta.url),
   'utf8',
@@ -92,7 +109,8 @@ const projectLoadStateSource = readFileSync(
 
 test('film create navigation and resource disclosure controls use native buttons', () => {
   assert.match(filmCreateSource, /<FilmCreateQuickNav/)
-  assert.match(filmCreateSource, /@scroll-to-anchor="scrollToAnchor"/)
+  assert.match(filmCreateSource, /v-bind="quickNavBindings"/)
+  assert.match(shellBindingsSource, /onScrollToAnchor: scrollToAnchor/)
   assert.match(quickNavSource, /<button[\s\S]*?class="nav-toggle"[\s\S]*?:aria-expanded="!navCollapsed"/)
   assert.match(quickNavSource, /<button[\s\S]*?class="nav-step"[\s\S]*?:aria-current="activeNavAnchor === step\.anchor \? 'step' : undefined"/)
   assert.match(quickNavSource, /<button[\s\S]*?class="nav-step"[\s\S]*?@click="emit\('scroll-to-anchor', step\.anchor, step\.anchor\)"/)
@@ -192,14 +210,17 @@ test('delivery stage consolidates composite readiness and user-facing export act
   assert.match(deliveryPanelSource, /<section id="anchor-video" class="section card delivery-section">/)
   assert.match(deliveryPanelSource, /<h2 class="section-title">交付与导出<\/h2>/)
   assert.match(deliveryPanelSource, /分镜视频[\s\S]*playableStoryboardVideoCount[\s\S]*整集合成[\s\S]*可交付文件/)
-  assert.match(filmCreateSource, /@download-video="downloadCurrentEpisodeVideo"/)
-  assert.match(filmCreateSource, /@download-subtitle="downloadCurrentEpisodeSubtitle"/)
-  assert.match(filmCreateSource, /@export-project="exportCurrentProjectPackage"/)
+  assert.match(filmCreateSource, /v-bind="outputSectionBindings"/)
+  assert.match(surfaceBindingsSource, /onDownloadVideo: downloadCurrentEpisodeVideo/)
+  assert.match(surfaceBindingsSource, /onDownloadSubtitle: downloadCurrentEpisodeSubtitle/)
+  assert.match(surfaceBindingsSource, /onExportProject: exportCurrentProjectPackage/)
   assert.match(deliveryActionsSource, /const deliverySubtitleAvailable = computed\(\(\) => storyboards\.value\.some/)
   assert.match(deliveryPanelSource, /<ActionGate :reason="downloadSubtitleDisabledReason" label="下载字幕">/)
   assert.match(deliveryPanelSource, /:disabled="Boolean\(downloadSubtitleDisabledReason\)"/)
   assert.match(filmCreateSource, /import \{ timelinesAPI as rawTimelinesAPI \} from '@\/api\/timelines'/)
-  assert.match(filmCreateSource, /const timelinesAPI = projectLifecycle\.guardApi\(rawTimelinesAPI\)/)
+  assert.match(filmCreateSource, /createFilmCreateGuardedApis\(projectLifecycle/)
+  assert.match(filmCreateSource, /timelinesAPI: rawTimelinesAPI/)
+  assert.match(filmCreateGuardedApisSource, /guardApi\(apis\[inputKey\]\)/)
 })
 
 test('storyboard video controls expose a focusable missing-prompt reason', () => {
@@ -215,7 +236,9 @@ test('script and character library empty states provide direct actions', () => {
   assert.match(scriptWorkbenchSource, /class="select-script-empty"[\s\S]*?emit\('return-to-creation'\)/)
   assert.match(scriptWorkbenchSource, /class="script-select-empty"[\s\S]*?emit\('open-select-script'\)/)
   assert.match(scriptWorkbenchSource, /class="script-select-empty"[\s\S]*?emit\('return-to-creation'\)/)
-  assert.match(filmCreateSource, /@return-to-creation="returnToScriptCreation"/)
+  assert.match(filmCreateSource, /v-bind="scriptWorkbenchBindings"/)
+  assert.doesNotMatch(filmCreateSource, /@return-to-creation="returnToScriptCreation"/)
+  assert.match(productionBindingsSource, /onReturnToCreation: returnToScriptCreation/)
   assert.match(resourceDialogsSource, /class="library-empty"[\s\S]*?@click="returnToCharacterPanel"/)
   assert.match(resourceDialogsSource, /@click="returnToPropPanel">去道具面板/)
   assert.match(resourceDialogsSource, /@click="returnToPropPanel">创建道具/)
@@ -284,14 +307,17 @@ test('制作页侧栏取消任务在停止流水线时说明原因，并保留�
 })
 
 test('制作页空剧集提供可执行入口', () => {
-  assert.match(filmCreateSource, /const hasAnyEpisode = computed\(\(\) => \(store\.drama\?\.episodes \|\| \[\]\)\.length > 0\)/)
-  assert.match(filmCreateSource, /:has-episode="hasAnyEpisode"/)
-  assert.match(filmCreateSource, /@add-episode="onAddEpisode"/)
+  assert.match(pageDisplaySource, /const hasAnyEpisode = computed\(\(\) => \(store\.drama\?\.episodes \|\| \[\]\)\.length > 0\)/)
+  assert.match(filmCreateSource, /useFilmCreateStoreDisplay\(/)
+  assert.doesNotMatch(filmCreateSource, /const hasAnyEpisode = computed/)
+  assert.match(surfaceBindingsSource, /hasEpisode: hasAnyEpisode/)
+  assert.match(surfaceBindingsSource, /onAddEpisode/)
   assert.match(headerSource, /class="header-add-episode"/)
   assert.match(scriptWorkbenchSource, /class="empty-tip film-episode-empty"/)
   assert.match(scriptWorkbenchSource, /还没有剧集/)
   assert.match(scriptWorkbenchSource, /aria-label="添加一集"/)
-  assert.match(scriptWorkbenchSource, /aria-label="返回剧集管理"/)
+  assert.match(scriptWorkbenchSource, /aria-label="返回剧集"/)
+  assert.doesNotMatch(scriptWorkbenchSource, /返回剧集管理/)
   assert.match(scriptWorkbenchSource, /if \(props\.dramaId && !props\.hasAnyEpisode\) return '请先创建或选择剧集'/)
   assert.match(scriptWorkbenchSource, /template v-else/)
   assert.match(scriptWorkbenchSource, /class="script-title-input"/)
@@ -312,7 +338,7 @@ test('storyboard prompt dialogs name every editable field', () => {
 test('制作页加载失败面保持可读状态和重试入口', () => {
   assert.match(filmCreateSource, /<FilmCreateProjectLoadState/)
   assert.match(filmCreateSource, /ref="projectLoadFailureRef"/)
-  assert.match(filmCreateSource, /@retry="retryFilmProjectLoad"/)
+  assert.match(filmCreateSource, /v-bind="projectLoadStateBindings"/)
   assert.match(projectLoadStateSource, /role="status"/)
   assert.match(projectLoadStateSource, /role="alert"/)
   assert.match(projectLoadStateSource, /正在加载制作项目/)
@@ -321,5 +347,7 @@ test('制作页加载失败面保持可读状态和重试入口', () => {
   assert.match(projectLoadStateSource, /项目数据没有被删除/)
   assert.match(projectLoadStateSource, /v-if="!notFound"[\s\S]*重试加载/)
   assert.match(projectLoadStateSource, /返回项目列表/)
+  assert.match(projectLoadStateSource, /aria-label="重试加载"/)
+  assert.match(projectLoadStateSource, /aria-label="返回项目列表"/)
   assert.match(projectLoadStateSource, /focus: \(\) => errorSectionRef\.value\?\.focus\?\.\(\)/)
 })

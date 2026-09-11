@@ -38,6 +38,7 @@ const accessibleLabel = computed(() => `${props.label}不可用：${props.reason
   flex-wrap: wrap;
   gap: 4px 8px;
   max-width: 100%;
+  min-width: 0;
 }
 .action-gate {
   display: inline-flex;
@@ -51,10 +52,15 @@ const accessibleLabel = computed(() => `${props.label}不可用：${props.reason
 .action-gate :deep(.el-button) {
   margin-left: 0;
 }
+.action-gate :deep(.el-button:focus-visible) {
+  outline: 2px solid #818cf8;
+  outline-offset: 2px;
+}
 .action-gate-reason {
   color: var(--el-text-color-secondary);
   font-size: 12px;
-  line-height: 1.4;
-  max-width: 28em;
+  line-height: 1.45;
+  max-width: min(28em, 100%);
+  overflow-wrap: anywhere;
 }
 </style>

@@ -89,7 +89,8 @@ const mediaLibraryHeaderSource = read('../src/components/mediaLibrary/MediaLibra
 const mediaLibraryFilterSource = read('../src/components/mediaLibrary/MediaLibraryFilterBar.vue')
 const mediaLibraryLocalGridSource = read('../src/components/mediaLibrary/MediaLibraryLocalGrid.vue')
 const mediaLibraryNetworkSource = read('../src/components/mediaLibrary/MediaLibraryNetworkPanel.vue')
-const mediaLibrarySource = [mediaLibraryPageSource, mediaLibraryHeaderSource, mediaLibraryFilterSource, mediaLibraryLocalGridSource, mediaLibraryNetworkSource].join('\n')
+const mediaLibraryPreviewSource = read('../src/components/mediaLibrary/MediaLibraryPreviewDialogs.vue')
+const mediaLibrarySource = [mediaLibraryPageSource, mediaLibraryHeaderSource, mediaLibraryFilterSource, mediaLibraryLocalGridSource, mediaLibraryNetworkSource, mediaLibraryPreviewSource].join('\n')
 const dramaCanvasSource = read('../src/views/DramaCanvas.vue')
 const aiConfigSource = read('../src/views/AiConfig.vue')
 const aiConfigOneKeyDialogsSource = read('../src/components/aiConfig/AiConfigOneKeyDialogs.vue')
@@ -97,6 +98,12 @@ const aiConfigBulkKeyDialogSource = read('../src/components/aiConfig/AiConfigBul
 const aiConfigConnectionTestDialogSource = read('../src/components/aiConfig/AiConfigConnectionTestDialog.vue')
 const aiConfigJimeng2AssetsDialogSource = read('../src/components/aiConfig/AiConfigJimeng2AssetsDialog.vue')
 const backupSource = read('../src/views/Backup.vue')
+const backupHeaderSource = read('../src/components/backup/BackupHeader.vue')
+const backupReadinessSource = read('../src/components/backup/BackupReadiness.vue')
+const backupBannersSource = read('../src/components/backup/BackupFailureBanners.vue')
+const backupSelectedSource = read('../src/components/backup/BackupSelectedFile.vue')
+const backupListSource = read('../src/components/backup/BackupList.vue')
+const backupDialogSource = read('../src/components/backup/BackupRestoreDialog.vue')
 const accessibleDialogSource = read('../src/components/AccessibleDialog.vue')
 const readinessSource = read('../src/components/ProjectReadinessPanel.vue')
 
@@ -130,6 +137,12 @@ const targetSources = [
   { name: '../src/components/aiConfig/AiConfigConnectionTestDialog.vue', source: aiConfigConnectionTestDialogSource },
   { name: '../src/components/aiConfig/AiConfigJimeng2AssetsDialog.vue', source: aiConfigJimeng2AssetsDialogSource },
   { name: '../src/views/Backup.vue', source: backupSource },
+  { name: '../src/components/backup/BackupHeader.vue', source: backupHeaderSource },
+  { name: '../src/components/backup/BackupReadiness.vue', source: backupReadinessSource },
+  { name: '../src/components/backup/BackupFailureBanners.vue', source: backupBannersSource },
+  { name: '../src/components/backup/BackupSelectedFile.vue', source: backupSelectedSource },
+  { name: '../src/components/backup/BackupList.vue', source: backupListSource },
+  { name: '../src/components/backup/BackupRestoreDialog.vue', source: backupDialogSource },
 ]
 
 test('列表、剧集、素材、画布和配置页的 Plus 与图标按钮都有可访问名称', () => {

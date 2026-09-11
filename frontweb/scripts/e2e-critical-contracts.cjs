@@ -11,6 +11,7 @@ const CRITICAL_UI = Object.freeze({
   continueProduction: '继续制作',
   canvasMode: '画布模式',
   listMode: '列表模式',
+  listModeAria: '返回列表模式',
   backToList: '返回项目列表',
   projectList: '项目列表',
   canvasModeGroup: '画布模式',
@@ -308,8 +309,8 @@ async function verifyProjectListFilmCanvasRoundTrip(page, options = {}) {
   await modeSwitch.waitFor({ state: 'visible', timeout: 30000 })
   await modeSwitch.getByRole('button', { name: CRITICAL_UI.productionMode, exact: true }).click()
 
-  const listMode = page.getByRole('button', { name: CRITICAL_UI.listMode, exact: true }).first()
-  await waitForEnabled(listMode, '列表模式')
+  const listMode = page.getByRole('button', { name: CRITICAL_UI.listModeAria, exact: true }).first()
+  await waitForEnabled(listMode, CRITICAL_UI.listMode)
   await Promise.all([
     waitForPath(page, (url) => (
       url.pathname === `/film/${fixture.dramaId}`

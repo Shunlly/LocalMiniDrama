@@ -1,5 +1,7 @@
 .film-create {
   --film-nav-width: 180px;
+  --film-empty-copy: #a1a1aa;
+  --film-focus-ring: #818cf8;
   min-height: 100vh;
   background: #16171e;
   background-image:
@@ -11,6 +13,7 @@
 }
 .film-create.sidebar-collapsed { --film-nav-width: 48px; }
 html.light .film-create {
+  --film-empty-copy: #64748b;
   background: #f8f7ff;
   background-image:
     radial-gradient(ellipse 80% 50% at 10% -10%, rgba(139, 92, 246, 0.08) 0%, transparent 50%),
@@ -890,14 +893,55 @@ html.light .section-desc { color: #6b7280; }
   height: 10px;
 }
 .empty-tip {
-  color: #5a5a66;
+  color: var(--film-empty-copy, #a1a1aa);
   font-size: 0.9rem;
+  line-height: 1.55;
   padding: 16px 0;
 }
 
-/* 亮色模式：资源卡片 */
 html.light .empty-tip {
-  color: #9ca3af;
+  color: var(--film-empty-copy, #64748b);
+}
+
+/* 空状态动作区和禁用原因：不改 class/aria，只补间距与焦点 */
+:deep(.empty-tip-actions),
+:deep(.resource-empty-actions),
+:deep(.film-episode-empty-actions),
+:deep(.script-select-empty-actions),
+:deep(.library-empty-actions) {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+:deep(.empty-tip-actions) {
+  margin-top: 12px;
+}
+
+:deep(.empty-tip .el-button:focus-visible),
+:deep(.resource-empty-actions .el-button:focus-visible),
+:deep(.film-episode-empty-actions .el-button:focus-visible),
+:deep(.library-empty .el-button:focus-visible),
+:deep(.pipeline-empty .el-button:focus-visible),
+:deep(.script-select-empty-actions .el-button:focus-visible),
+:deep(.select-script-empty .el-button:focus-visible) {
+  outline: 2px solid var(--film-focus-ring, #818cf8);
+  outline-offset: 2px;
+}
+
+:deep(.empty-tip-actions .action-gate-wrap),
+:deep(.resource-empty-actions .action-gate-wrap) {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  max-width: 100%;
+}
+
+:deep(.empty-tip-actions .action-gate-reason),
+:deep(.resource-empty-actions .action-gate-reason) {
+  max-width: min(28em, 100%);
 }
 
 /* 分镜：每行一个，三列布局 */

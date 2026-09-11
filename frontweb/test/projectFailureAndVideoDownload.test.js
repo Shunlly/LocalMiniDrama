@@ -16,6 +16,7 @@ import { useFilmCreateProjectLoad } from '../src/composables/filmCreate/useFilmC
 import { useFilmCreateStoryboardMedia } from '../src/composables/filmCreate/useFilmCreateStoryboardMedia.js'
 import { remainingImportedFunctionSource } from './helpers/remainingSourceBetween.js'
 import { readFilmCreateResourceDialogTree } from './helpers/filmCreateResourceDialogSources.js'
+import { readDramaDetailPageLogicSources } from './helpers/dramaDetailPageSources.js'
 
 import { ref } from 'vue'
 import { useCanvasEpisodeGenerate } from '../src/composables/useCanvasEpisodeGenerate.js'
@@ -29,12 +30,14 @@ assert.notEqual(DRAMA_ID, EPISODE_ID)
 assert.notEqual(STORYBOARD_OK_ID, STORYBOARD_FAIL_ID)
 
 const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8')
-const dramaDetailSource = read('../src/views/DramaDetail.vue')
+const dramaDetailViewSource = read('../src/views/DramaDetail.vue')
+const dramaDetailSource = readDramaDetailPageLogicSources(read)
 const dramaDetailHeaderSource = read('../src/components/dramaDetail/DramaDetailHeader.vue')
 const dramaDetailLoadStateSource = read('../src/components/dramaDetail/DramaDetailLoadState.vue')
 const dramaDetailInfoCardSource = read('../src/components/dramaDetail/DramaDetailInfoCard.vue')
 const dramaDetailChromeSource = [dramaDetailSource, dramaDetailHeaderSource, dramaDetailLoadStateSource, dramaDetailInfoCardSource].join('\n')
 const filmCreateSource = read('../src/views/FilmCreate.vue')
+const surfaceBindingsSource = read('../src/components/filmCreate/filmCreateSurfaceBindings.js')
 const deliveryPanelSource = read('../src/components/filmCreate/FilmCreateDeliveryPanel.vue')
 const resourceDialogsSource = readFilmCreateResourceDialogTree(read)
 const filmCreateHeaderSource = read('../src/components/filmCreate/FilmCreateHeader.vue')
@@ -184,7 +187,7 @@ test('project pages keep core load failures outside every editable project surfa
     ['DramaDetail', dramaDetailChromeSource],
     ['FilmCreate', filmCreateChromeSource],
   ]) {
-    const parsed = parse(name === 'FilmCreate' ? filmCreateSource : dramaDetailSource, { filename: name + '.vue' })
+    const parsed = parse(name === 'FilmCreate' ? filmCreateSource : dramaDetailViewSource, { filename: name + '.vue' })
     assert.deepEqual(parsed.errors, [], name + ' must remain a valid Vue SFC')
     assert.match(source, /role="alert"/)
     assert.match(source, /项目数据没有被删除/)
@@ -208,10 +211,15 @@ test('project pages keep core load failures outside every editable project surfa
   assert.match(filmCreateSource, /<main v-else class="main">[\s\S]*FilmCreateScriptWorkbench/)
   assert.match(filmCreateSource, /<FilmCreateWorkspaceDialogs[\s\S]*v-if="projectLoadState === 'ready'"/)
   assert.match(resourceDialogsSource, /<AccessibleDialog/)
-  assert.match(filmCreateSource, /@open-ai-config="openAiConfig"/)
+  assert.match(filmCreateSource, /v-bind="headerBindings"/)
+  assert.match(surfaceBindingsSource, /onOpenAiConfig: openAiConfig/)
   assert.match(filmCreateHeaderSource, /:disabled="projectLoadState !== 'ready'"[\s\S]*open-ai-config/)
   assert.match(filmCreateLoadStateSource, /v-if="!notFound"[\s\S]*重试加载/)
   assert.match(dramaDetailLoadStateSource, /v-if="!notFound"[\s\S]*重试加载/)
+  assert.match(filmCreateLoadStateSource, /aria-label="重试加载"/)
+  assert.match(dramaDetailLoadStateSource, /aria-label="重试加载"/)
+  assert.match(filmCreateLoadStateSource, /aria-label="返回项目列表"/)
+  assert.match(dramaDetailLoadStateSource, /aria-label="返回项目列表"/)
 })
 
 test('core drama request failures use stable page state instead of raw request toasts', async () => {

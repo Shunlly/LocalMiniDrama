@@ -41,20 +41,20 @@
           aria-label="添加一集"
           @click="emit('add-episode')"
         >
-          <el-icon><Plus /></el-icon>添加一集
+          <el-icon aria-hidden="true"><Plus /></el-icon>添加一集
         </el-button>
       </div>
       <el-button v-if="projectLoadState === 'ready' && dramaId" class="btn-back-drama" aria-label="返回剧集" @click="emit('go-to-drama')">
-        <el-icon><ArrowLeft /></el-icon>
+        <el-icon aria-hidden="true"><ArrowLeft /></el-icon>
         返回剧集
       </el-button>
       <el-button v-if="projectLoadState === 'ready' && dramaId" type="primary" plain class="btn-canvas-mode" aria-label="画布模式" @click="emit('go-canvas-mode')">
-        <el-icon><Grid /></el-icon>
+        <el-icon aria-hidden="true"><Grid /></el-icon>
         画布模式
       </el-button>
       <div class="header-actions">
         <el-button class="btn-theme" :title="isDark ? '切换到浅色模式' : '切换到暗色模式'" :aria-label="isDark ? '切换到浅色模式' : '切换到暗色模式'" @click="emit('toggle-theme')">
-          <el-icon><Sunny v-if="isDark" /><Moon v-else /></el-icon>
+          <el-icon aria-hidden="true"><Sunny v-if="isDark" /><Moon v-else /></el-icon>
           {{ isDark ? '浅色' : '暗色' }}
         </el-button><el-button
           class="btn-ai-config"
@@ -63,7 +63,7 @@
           :aria-label="projectLoadState !== 'ready' ? 'AI 配置不可用：项目加载完成后才能打开' : '打开 AI 配置'"
           @click="emit('open-ai-config')"
         >
-          <el-icon><Setting /></el-icon>
+          <el-icon aria-hidden="true"><Setting /></el-icon>
           AI 配置
         </el-button>
       </div>

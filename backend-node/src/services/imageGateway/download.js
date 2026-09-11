@@ -19,7 +19,7 @@ async function downloadImageToLocalAbortable(
     let buffer;
     if (imageUrl.startsWith('data:')) {
       const match = imageUrl.match(/^data:image\/([a-z0-9.+-]+);base64,([a-z0-9+/=\s]+)$/i);
-      if (!match) throw new uploadService.UnsafeMediaReferenceError('图片 data URL 无效');
+      if (!match) throw new uploadService.UnsafeMediaReferenceError('图片内嵌地址无效');
       buffer = Buffer.from(match[2].replace(/\s/g, ''), 'base64');
       if (buffer.length === 0 || buffer.length > uploadService.DEFAULT_REMOTE_MEDIA_MAX_BYTES) {
         throw new uploadService.UnsafeMediaReferenceError('图片数据超过大小限制');

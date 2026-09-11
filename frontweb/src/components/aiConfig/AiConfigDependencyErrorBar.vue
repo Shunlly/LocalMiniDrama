@@ -12,7 +12,7 @@
         <template v-if="staleDataHint">当前显示的是上次成功加载的数据，写操作已暂停。</template>
       </span>
     </div>
-    <el-button size="small" type="primary" plain :loading="loading" @click="retryConfigDependencies">
+    <el-button size="small" type="primary" plain aria-label="重新读取 AI 配置依赖" :loading="loading" @click="retryConfigDependencies">
       重试
     </el-button>
   </div>

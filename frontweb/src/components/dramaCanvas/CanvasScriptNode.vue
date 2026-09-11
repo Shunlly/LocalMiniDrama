@@ -11,11 +11,13 @@
       tabindex="0"
       :aria-label="accessibleLabel"
       :aria-expanded="showPanel"
+      :aria-busy="isNodeBusy"
+      :title="accessibleLabel"
       @keydown.enter.stop.prevent="openPanel"
       @keydown.space.stop.prevent="openPanel"
     >
       <Handle type="source" :position="Position.Right" />
-      <CanvasNodeStatusOverlay :node-id="id" />
+      <CanvasNodeStatusOverlay :node-id="id" :fallback-message="busyFallback" />
       <div class="head">
         <span class="badge">📜 剧本</span>
         <span class="ep">第 {{ data.episode?.episode_number ?? '?' }} 集</span>
@@ -59,6 +61,8 @@ const isNodeBusy = computed(() => {
   const map = ctx?.nodeStatus?.map
   return map ? !!map[props.id] : false
 })
+
+const busyFallback = computed(() => (isNodeBusy.value ? '处理中…' : ''))
 
 const accessibleLabel = computed(() => {
   const episodeNumber = props.data.episode?.episode_number ?? '?'

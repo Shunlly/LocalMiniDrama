@@ -6,6 +6,7 @@ import { CUSTOM_PROVIDER_SENTINEL } from '../src/utils/aiProviderPresets.js'
 import { applyProviderSelection } from '../src/utils/aiConfigProviderSelection.js'
 
 const vueSource = readFileSync(new URL('../src/components/AIConfigContent.vue', import.meta.url), 'utf8')
+const formDerivedSource = readFileSync(new URL('../src/composables/useAiConfigFormDerived.js', import.meta.url), 'utf8')
 
 function blankForm(serviceType = 'text') {
   return {
@@ -60,8 +61,9 @@ test('编辑已有配置时不改名称；页面仍走 onProviderChange', () => 
   const form = { ...blankForm('video'), name: '我的视频配置' }
   applyProviderSelection(form, 'agnes', { editingId: 12 })
   assert.equal(form.name, '我的视频配置')
-  assert.match(vueSource, /function onProviderChange\(providerId\)/)
-  assert.match(vueSource, /applyProviderSelection\(form\.value, providerId/)
+  assert.match(vueSource, /onProviderChange,/)
+  assert.match(formDerivedSource, /function onProviderChange\(providerId\)/)
+  assert.match(formDerivedSource, /applyProviderSelection\(form\.value, providerId/)
   assert.match(vueSource, /async function loadList\(\)/)
   assert.match(vueSource, /async function openTest\(row\)/)
 })

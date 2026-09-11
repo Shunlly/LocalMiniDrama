@@ -282,3 +282,104 @@ export function buildFreeCreateGenerationPayload({
   }
   return body
 }
+
+export const FREE_CREATE_LEAVE_CONFIRM_MESSAGE = '正在生成，离开将取消当前任务。仍要离开吗？'
+export const FREE_CREATE_UPLOAD_LEAVE_MESSAGE = '参考图正在上传，请完成后再离开。'
+
+export function getFreeCreateEmptyResultCopy({ status = '', ready = false, serviceLabel = '图片' } = {}) {
+  const label = nonEmpty(serviceLabel) || '图片'
+  if (status === 'loading') return `正在检查${label}服务，就绪后即可在这里查看生成结果`
+  if (status === 'error') return `暂时无法读取${label}服务配置，因此还不能生成。`
+  if (!ready) return `请先配置可用的${label}服务，生成结果会显示在这里`
+  return '填写提示词后，生成结果会显示在这里'
+}
+
+export function getFreeCreateGenerateDisabledReason({
+  generating = false,
+  capabilityReady = false,
+  capabilityNotice = '',
+  serviceLabel = '图片',
+  referenceUploadBlockReason = '',
+  prompt = '',
+} = {}) {
+  if (generating) return ''
+  if (!capabilityReady) {
+    return toFreeCreateUserError(capabilityNotice, `${nonEmpty(serviceLabel) || '图片'}服务尚未就绪`)
+  }
+  if (referenceUploadBlockReason) return referenceUploadBlockReason
+  if (!nonEmpty(prompt)) return '请先填写提示词'
+  return ''
+}
+
+export function getFreeCreateBusyDisabledReason({ cancelling = false, generating = false } = {}) {
+  if (cancelling) return '正在取消生成，请稍候'
+  if (generating) return '正在生成，请稍候'
+  return ''
+}
+
+export function isCancelledTaskStatus(status) {
+  return ['cancelled', 'canceled'].includes(String(status || '').toLowerCase())
+}
+
+export function shouldBlockFreeCreateUnload({ uploading = false, hasActive = false } = {}) {
+  return Boolean(uploading || hasActive)
+}
+
+export async function pollFreeCreateTask({
+  taskId,
+  item,
+  run,
+  maxMs,
+  intervalMs,
+  waitForPendingCancellation,
+  fetchTask,
+  resolveCompletedItem,
+  failResultItem,
+} = {}) {
+  const start = Date.now()
+  let lastPollError = ''
+  while (Date.now() - start < maxMs) {
+    await new Promise((resolve) => setTimeout(resolve, intervalMs))
+    if (await waitForPendingCancellation(run)) return item
+
+    let res
+    try {
+      res = await fetchTask(taskId)
+      lastPollError = ''
+    } catch (error) {
+      lastPollError = toFreeCreateUserError(error, '任务状态读取失败')
+      continue
+    }
+    if (await waitForPendingCancellation(run)) return item
+
+    const status = String(res?.status || '').toLowerCase()
+    if (status === 'completed') {
+      try {
+        const resolved = await resolveCompletedItem(res, item)
+        if (resolved && resolved.retry) {
+          lastPollError = resolved.error || lastPollError
+          continue
+        }
+        if (!item.url) {
+          throw new Error(item.type === 'video' ? '任务完成但未返回视频地址' : '任务完成但未返回图片地址')
+        }
+        item.status = 'completed'
+        return item
+      } catch (error) {
+        failResultItem(item, error)
+        return item
+      }
+    }
+    if (isCancelledTaskStatus(status)) {
+      item.status = 'cancelled'
+      item.error = toFreeCreateUserError(res?.error || res?.message, '生成已取消')
+      return item
+    }
+    if (status === 'failed') {
+      failResultItem(item, res?.error || res?.message)
+      return item
+    }
+  }
+  failResultItem(item, lastPollError ? `轮询超时：${lastPollError}` : '生成超时')
+  return item
+}

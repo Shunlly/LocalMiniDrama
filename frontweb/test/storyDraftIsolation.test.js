@@ -16,6 +16,7 @@ const EPISODE_ID = 22
 assert.notEqual(DRAMA_ID, EPISODE_ID)
 
 const filmCreateSource = readFileSync(new URL('../src/views/FilmCreate.vue', import.meta.url), 'utf8')
+const workspaceBindingsSource = readFileSync(new URL('../src/components/filmCreate/filmCreateWorkspaceBindings.js', import.meta.url), 'utf8')
 
 function refOf(value) {
   return { value }
@@ -293,7 +294,9 @@ test('only the explicit generate-story command can invoke story generation', asy
     assert.equal(harness.generationCalls[0].metadata.summary, undefined)
     assert.equal(harness.generationCalls[0].summary, undefined)
 
-    assert.match(filmCreateSource, /@generate-story="onGenerateStory"/)
+    assert.match(filmCreateSource, /createFilmCreateCloseoutBindings\(\{[\s\S]*onGenerateStory/)
+    assert.doesNotMatch(filmCreateSource, /@generate-story="onGenerateStory"/)
+    assert.match(workspaceBindingsSource, /scriptWorkbench: \{[\s\S]*onGenerateStory/)
     assert.doesNotMatch(filmCreateSource, /runGenerateStoryFromPremise/)
     assert.equal(typeof runGenerateStoryFromPremise, 'function')
     assert.equal(typeof runGenerateStoryFromPremise, 'function')

@@ -71,6 +71,7 @@
           v-bind="props"
           v-model:last-frame-use-first-layout-lock="lastFrameUseFirstLayoutLock"
           v-model:drag-over-sb-id="dragOverSbId"
+          :grid-mode="gridMode"
           :storyboard-use-first-last-frame="storyboardUseFirstLastFrame"
           :storyboard-include-narration="storyboardIncludeNarration"
           :storyboard-reorder-busy="storyboardReorderBusy"

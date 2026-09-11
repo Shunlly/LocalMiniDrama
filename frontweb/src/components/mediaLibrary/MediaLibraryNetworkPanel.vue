@@ -73,94 +73,38 @@
       </section>
 
       <div v-loading="networkLoading" class="network-grid" :aria-busy="networkLoading">
-        <article
+        <MediaLibraryNetworkCard
           v-for="(item, index) in networkItems"
           :key="networkItemKey(item, index)"
-          class="network-card"
-          :aria-labelledby="`network-name-${index}`"
-        >
-          <button
-            type="button"
-            class="network-thumb"
-            :aria-label="`预览网络素材：${networkItemTitle(item)}`"
-            @click="openNetworkPreview(item)"
-          >
-            <img
-              v-if="networkCardImageUrl(item)"
-              :src="networkCardImageUrl(item)"
-              :alt="`网络素材缩略图：${networkItemTitle(item)}`"
-            />
-            <span v-else class="network-thumb-placeholder" aria-hidden="true">
-              <el-icon><Files /></el-icon>
-              <span>暂无缩略图</span>
-            </span>
-            <span class="network-preview-label"><el-icon><ZoomIn /></el-icon>预览</span>
-          </button>
-          <div class="network-info">
-            <h3 :id="`network-name-${index}`" :title="networkItemTitle(item)">{{ networkItemTitle(item) }}</h3>
-            <p class="network-detail">
-              <span>{{ item.author || '作者未知' }}</span>
-              <span>{{ networkDimensions(item) }}</span>
-            </p>
-            <p class="network-source" :title="networkItemSourceLabel(item)">来源：{{ networkItemSourceLabel(item) }}</p>
-            <p class="network-license" :title="item.license || '未注明许可'">许可：{{ item.license || '未注明许可' }}</p>
-            <p
-              v-if="!networkItemImportability(item).allowed"
-              class="network-license-warning"
-              role="status"
-            >{{ networkItemImportability(item).reason }}</p>
-            <div class="network-actions">
-              <a
-                v-if="safeExternalUrl(item.source_url)"
-                :href="safeExternalUrl(item.source_url)"
-                :aria-label="`查看来源：${networkItemTitle(item)}`"
-                target="_blank"
-                rel="noopener noreferrer"
-              >查看来源</a>
-              <span v-else class="source-unavailable">来源链接不可用</span>
-              <a
-                v-if="safeExternalUrl(item.license_url, true)"
-                :href="safeExternalUrl(item.license_url, true)"
-                :aria-label="`查看许可：${networkItemTitle(item)}`"
-                target="_blank"
-                rel="noopener noreferrer"
-              >查看许可</a>
-              <el-button
-                size="small"
-                type="primary"
-                :loading="isNetworkImporting(item)"
-                :disabled="isNetworkImporting(item) || !networkItemImportability(item).allowed"
-                :title="isNetworkImporting(item) ? MEDIA_LIBRARY_DISABLE_REASON.importing : (networkItemImportability(item).reason || networkImportButtonText)"
-                :aria-label="`${networkImportButtonText}：${networkItemTitle(item)}`"
-                @click="importNetworkItem(item)"
-              >{{ networkImportButtonText }}</el-button>
-            </div>
-          </div>
-        </article>
-
-        <div
-          v-if="!networkLoading && !networkError && networkSearched && networkItems.length === 0"
-          class="network-empty"
-          role="status"
-        >
-          <el-icon><Files /></el-icon>
-          <h2>没有找到匹配的网络素材</h2>
-          <p>请更换关键词或素材类型后重试。</p>
-          <el-button aria-label="清除网络素材搜索" @click="clearNetworkSearch">清除搜索</el-button>
-        </div>
-        <div v-else-if="!networkLoading && !networkError && !networkSearched" class="network-empty" role="status">
-          <el-icon><Search /></el-icon>
-          <h2>搜索可导入的网络素材</h2>
-          <p>结果会在这里显示，并附带来源和许可信息。</p>
-        </div>
+          :item="item"
+          :index="index"
+          :network-import-button-text="networkImportButtonText"
+          :network-item-title="networkItemTitle"
+          :network-card-image-url="networkCardImageUrl"
+          :open-network-preview="openNetworkPreview"
+          :network-dimensions="networkDimensions"
+          :network-item-source-label="networkItemSourceLabel"
+          :network-item-importability="networkItemImportability"
+          :safe-external-url="safeExternalUrl"
+          :is-network-importing="isNetworkImporting"
+          :import-network-item="importNetworkItem"
+        />
+        <MediaLibraryNetworkEmpty
+          :network-loading="networkLoading"
+          :network-error="networkError"
+          :network-searched="networkSearched"
+          :network-items="networkItems"
+          :clear-network-search="clearNetworkSearch"
+        />
       </div>
 </template>
 
 <script setup>
 
-// 仅展示网络素材搜索区；搜索、导入和预览仍由素材中心页处理。
-import { Files, Refresh, Search, ZoomIn } from '@element-plus/icons-vue'
-import { MEDIA_LIBRARY_DISABLE_REASON } from '@/utils/mediaLibraryUserError'
+// 仅展示网络素材搜索区；卡片和空态拆到子组件，搜索、导入和预览仍由素材中心页处理。
+import { Refresh, Search } from '@element-plus/icons-vue'
+import MediaLibraryNetworkCard from './MediaLibraryNetworkCard.vue'
+import MediaLibraryNetworkEmpty from './MediaLibraryNetworkEmpty.vue'
 
 const networkSource = defineModel('networkSource', { type: String, required: true })
 const networkMediaType = defineModel('networkMediaType', { type: String, required: true })
@@ -266,135 +210,6 @@ defineProps({
   min-height: 260px;
 }
 
-.network-card {
-  min-width: 0;
-  overflow: hidden;
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  background: var(--bg-card);
-  box-shadow: var(--shadow);
-}
-
-.network-thumb {
-  position: relative;
-  display: block;
-  width: 100%;
-  aspect-ratio: 16 / 10;
-  padding: 0;
-  overflow: hidden;
-  border: 0;
-  background: var(--bg-inner);
-  color: #fff;
-  cursor: pointer;
-}
-
-.network-thumb img,
-.network-thumb video {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.network-thumb-placeholder {
-  display: flex;
-  width: 100%;
-  height: 100%;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  color: var(--text-muted);
-  font-size: 12px;
-}
-
-.network-thumb-placeholder .el-icon {
-  font-size: 28px;
-}
-
-.network-thumb:focus-visible {
-  outline: 3px solid var(--el-color-primary);
-  outline-offset: -3px;
-}
-
-.network-preview-label {
-  position: absolute;
-  right: 8px;
-  bottom: 8px;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 5px 8px;
-  border-radius: 6px;
-  background: rgba(17, 24, 39, .78);
-  font-size: 12px;
-}
-
-.network-info {
-  min-width: 0;
-  padding: 12px;
-}
-
-.network-info h3 {
-  margin: 0;
-  overflow: hidden;
-  color: var(--text-bright);
-  font-size: 14px;
-  line-height: 1.45;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.network-detail {
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
-  margin: 7px 0 0;
-  color: var(--text-muted);
-  font-size: 12px;
-}
-
-.network-detail span {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.network-source,
-.network-license {
-  margin: 5px 0 0;
-  overflow: hidden;
-  color: var(--text-subtle);
-  font-size: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.network-license-warning {
-  margin: 6px 0 0;
-  color: var(--el-color-danger);
-  font-size: 12px;
-  line-height: 1.45;
-}
-
-.network-actions {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  margin-top: 12px;
-}
-
-.network-actions a,
-.source-unavailable {
-  min-width: 0;
-  overflow: hidden;
-  font-size: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .visually-hidden {
   position: absolute;
   width: 1px;
@@ -405,45 +220,6 @@ defineProps({
   white-space: nowrap;
   border: 0;
 }
-
-.network-actions a {
-  color: var(--el-color-primary);
-}
-
-.source-unavailable {
-  color: var(--text-subtle);
-}
-
-.network-empty {
-  grid-column: 1 / -1;
-  display: flex;
-  min-height: 260px;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  color: var(--text-subtle);
-  text-align: center;
-}
-
-.network-empty .el-icon {
-  font-size: 42px;
-}
-
-.network-empty h2,
-.network-empty p {
-  margin: 0;
-}
-
-.network-empty .el-button {
-  margin-top: 12px;
-}
-
-.network-empty h2 {
-  color: var(--text-bright);
-  font-size: 17px;
-}
-
 .network-state > .el-button {
   flex-shrink: 0;
 }

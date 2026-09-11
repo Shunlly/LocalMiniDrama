@@ -358,6 +358,14 @@ function toUserFacingProcessError(error, fallback = '处理失败，请稍后重
   return fallback;
 }
 
+function toVisionExtractUserError(error) {
+  const raw = String((error && error.message) || error || '');
+  const fallback = /image|vision|visual|multimodal/i.test(raw)
+    ? '当前模型不支持图片识别，请在「AI 配置」中改用支持视觉的模型后重试'
+    : '从图片提取描述失败，请稍后重试';
+  return toUserFacingProcessError(error, fallback);
+}
+
 function sanitizeProviderResult(result, options = {}) {
   if (!result || typeof result !== 'object' || !result.error) return result;
   if (isTrustedChineseUserError(result.error)) return result;
@@ -537,5 +545,6 @@ module.exports = {
   toSafeProviderErrorMessage,
   toUserFacingGatewayError,
   toUserFacingProcessError,
+  toVisionExtractUserError,
   toUserFacingTtsMessage,
 };

@@ -99,77 +99,22 @@
       </div>
     </main>
 
-    <AccessibleDialog
-      v-model="showTrashDialog"
-      title="项目回收站"
-      width="680px"
-      :style="{ maxWidth: 'calc(100vw - 32px)' }"
-      destroy-on-close
-      @open="loadTrash"
-    >
-      <div class="trash-policy" role="note">
-        <el-icon class="trash-policy-icon" aria-hidden="true"><FolderOpened /></el-icon>
-        <div>
-          <strong>移除后仍可恢复</strong>
-          <p>项目内容、剧集、分镜和关联素材会完整保留。恢复项目后可继续编辑和生成。</p>
-        </div>
-      </div>
-      <div v-loading="trashLoading" class="trash-dialog-content">
-        <div v-if="trashError" class="trash-error" role="alert">
-          <p>{{ trashError }}</p>
-          <el-button type="primary" plain size="small" :loading="trashLoading" @click="loadTrash">
-            <el-icon><RefreshLeft /></el-icon>重试
-          </el-button>
-        </div>
-        <div
-          v-if="!trashLoading && !trashError && trashItems.length === 0"
-          class="trash-empty"
-          role="status"
-        >
-          <el-icon aria-hidden="true"><Delete /></el-icon>
-          <p>回收站中没有项目</p>
-        </div>
-        <ul v-if="trashItems.length > 0" class="trash-list" aria-label="已移除项目">
-          <li v-for="item in trashItems" :key="item.id" class="trash-list-item">
-            <div class="trash-item-main">
-              <h3 class="trash-item-title">{{ item.title || '未命名项目' }}</h3>
-              <p class="trash-item-meta">
-                移入时间：<time :datetime="item.removed_at || ''">{{ formatDate(item.removed_at) }}</time>
-              </p>
-              <p class="trash-item-retention">内容与关联素材已保留</p>
-            </div>
-            <el-button
-              class="trash-restore-button"
-              type="primary"
-              plain
-              :loading="restoringId === item.id"
-              :disabled="restoringId !== null && restoringId !== item.id"
-              :title="restoringId !== null && restoringId !== item.id ? '正在恢复其他项目，请稍候' : undefined"
-              :aria-label="`恢复项目「${item.title || '未命名项目'}」`"
-              @click="restoreFromTrash(item)"
-            >
-              <el-icon><RefreshLeft /></el-icon>恢复
-            </el-button>
-          </li>
-        </ul>
-        <p class="trash-live-status" role="status" aria-live="polite">
-          {{ trashAnnouncement || (trashLoading ? '正在加载回收站' : `回收站中共有 ${trashTotal} 个项目`) }}
-        </p>
-      </div>
-      <el-pagination
-        v-if="trashTotal > trashPageSize"
-        v-model:current-page="trashPage"
-        :page-size="trashPageSize"
-        :total="trashTotal"
-        layout="total, prev, pager, next"
-        class="trash-pagination"
-        aria-label="回收站分页"
-        @current-change="loadTrash"
-      />
-      <template #footer>
-        <el-button @click="showTrashDialog = false">关闭</el-button>
-      </template>
-    </AccessibleDialog>
+    <FilmListTrashDialog
+      v-model:show-trash-dialog="showTrashDialog"
+      v-model:trash-page="trashPage"
+      :trash-loading="trashLoading"
+      :trash-error="trashError"
+      :trash-items="trashItems"
+      :trash-total="trashTotal"
+      :trash-page-size="trashPageSize"
+      :trash-announcement="trashAnnouncement"
+      :restoring-id="restoringId"
+      :format-date="formatDate"
+      :describe-trash-live-status="describeTrashLiveStatus"
+      :describe-trash-restore-busy-reason="describeTrashRestoreBusyReason"
+      :load-trash="loadTrash"
+      :restore-from-trash="restoreFromTrash"
+    />
 
     <!-- 新建项目：先填标题和描述 -->
     <AccessibleDialog
@@ -251,10 +196,10 @@
 <script setup>
 import { computed, ref, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
-import { ElMessage, ElMessageBox } from '@/utils/elementPlusFeedback.js'
-import { Delete, Plus, FolderOpened, RefreshLeft } from '@element-plus/icons-vue'
+import { ElMessage } from '@/utils/elementPlusFeedback.js'
+import { Plus } from '@element-plus/icons-vue'
 import { useTheme } from '@/composables/useTheme'
-import { newProjectDestination, projectCardDestination } from '@/utils/sourceImportNavigation.js'
+import { projectCardDestination } from '@/utils/sourceImportNavigation.js'
 import { dramaAPI } from '@/api/drama'
 import AIConfigContent from '@/components/AIConfigContent.vue'
 import FilmListHeader from '@/components/filmList/FilmListHeader.vue'
@@ -263,15 +208,28 @@ import FilmListWorkspaceToolbar from '@/components/filmList/FilmListWorkspaceToo
 import FilmListProjectGrid from '@/components/filmList/FilmListProjectGrid.vue'
 import FilmListPagination from '@/components/filmList/FilmListPagination.vue'
 import FilmListLibraryDialogs from '@/components/filmList/FilmListLibraryDialogs.vue'
+import FilmListTrashDialog from '@/components/filmList/FilmListTrashDialog.vue'
 import { aiAPI } from '@/api/ai'
-import { filterProjectList, getProjectCover } from '@/utils/projectList'
+import { filterProjectList } from '@/utils/projectList'
+import {
+  projectSearchText,
+  projectCoverAlt,
+  projectListCountLabel as resolveProjectListCountLabel,
+  formatDate,
+  formatStatus,
+  formatStyle,
+  formatGenre,
+  totalStoryboards,
+  describeTrashLiveStatus,
+  describeTrashRestoreBusyReason,
+} from '@/components/filmList/filmListFormatters.js'
 import { mergeProjectListFilters, normalizeProjectListFilters, normalizeProjectListReturnTo } from '@/utils/projectListRoute'
-import { createOperationId, logOperation } from '@/utils/operationLog'
-import { describeServiceLoadError, isRequestCanceled, withRequestRetry } from '@/utils/requestError'
 import { toUserFacingError, isUserFacingAbort } from '@/utils/userFacingError'
-import { sanitizeExportFilename, validateExportBlob, resolveExportFailureMessage } from '@/utils/projectExport'
-import { normalizeBackupReturnTo } from '@/composables/useBackupSettings.js'
-import { listWorkspaceNavItems, openWorkspaceNavItem } from '@/layouts/AppWorkspaceNav.js'
+import { useFilmListLoad } from '@/components/filmList/useFilmListLoad.js'
+import { useFilmListTrash } from '@/components/filmList/useFilmListTrash.js'
+import { useFilmListProjectForms } from '@/components/filmList/useFilmListProjectForms.js'
+import { useFilmListImportExport } from '@/components/filmList/useFilmListImportExport.js'
+import { useFilmListNavigation } from '@/components/filmList/useFilmListNavigation.js'
 
 const router = useRouter()
 const route = useRoute()
@@ -288,37 +246,42 @@ function openSemanticLibrary(type) {
   if (type === 'prop') showPropLibrary.value = true
 }
 
-const loading = ref(false)
-const dramas = ref([])
-const total = ref(0)
-const projectPage = ref(1)
-const projectPageSize = ref(24)
-const listError = ref('')
-const hasSuccessfulListLoad = ref(false)
-const listIsStale = computed(() => Boolean(listError.value) && hasSuccessfulListLoad.value)
-const listWriteLocked = computed(() => loading.value || !hasSuccessfulListLoad.value || Boolean(listError.value))
-const listWriteLockReason = computed(() => {
-  if (loading.value) return '项目列表正在加载，请稍候'
-  if (listError.value) {
-    return listIsStale.value
-      ? '项目列表刷新失败，成功重试前不能新增或导入'
-      : '项目数据加载失败，成功重试前不能新增或导入'
-  }
-  if (!hasSuccessfulListLoad.value) return '项目列表尚未就绪'
-  return ''
-})
-let listRequestSequence = 0
-let projectReloadTimer = null
 let projectListMounted = false
 const initialProjectListFilters = normalizeProjectListFilters(route.query)
 const projectSearch = ref(initialProjectListFilters.q)
 const projectSort = ref(initialProjectListFilters.sort)
 const projectStatusFilter = ref(initialProjectListFilters.status)
-const projectCoverErrors = ref(new Set())
 const projectListReturnTo = computed(() => normalizeProjectListReturnTo(route.fullPath) || '/')
 const sourceImportIntent = computed(() => route.query.intent === 'source-import')
 const normalizedProjectSearch = computed(() => projectSearch.value.trim().toLowerCase())
 const hasProjectFilters = computed(() => Boolean(normalizedProjectSearch.value) || projectStatusFilter.value !== 'all')
+
+const loadDeps = {
+  normalizedProjectSearch,
+  projectStatusFilter,
+  projectSort,
+  onLoaded: () => {},
+}
+
+const {
+  loading,
+  dramas,
+  total,
+  projectPage,
+  projectPageSize,
+  listError,
+  hasSuccessfulListLoad,
+  listIsStale,
+  listWriteLocked,
+  listWriteLockReason,
+  scheduleProjectListReload,
+  loadList,
+  loadProjectPage,
+  handleProjectPageSizeChange,
+  projectCoverUrl,
+  markProjectCoverError,
+} = useFilmListLoad(loadDeps)
+
 const filteredDramas = computed(() => {
   return filterProjectList(dramas.value, {
     keyword: normalizedProjectSearch.value,
@@ -327,26 +290,15 @@ const filteredDramas = computed(() => {
     getSearchText: projectSearchText,
   })
 })
-const projectListCountLabel = computed(() => {
-  const projectTotal = Number(total.value) || 0
-  if (projectTotal === 0) return hasProjectFilters.value ? '0 个项目' : '暂无项目'
-  if (projectTotal <= projectPageSize.value) return `${filteredDramas.value.length} / ${projectTotal} 个项目`
-  const start = (projectPage.value - 1) * projectPageSize.value + 1
-  const end = Math.min(projectTotal, start + projectPageSize.value - 1)
-  return `${start}-${end} / ${projectTotal} 个项目`
-})
+const projectListCountLabel = computed(() => resolveProjectListCountLabel({
+  total: total.value,
+  page: projectPage.value,
+  pageSize: projectPageSize.value,
+  filteredCount: filteredDramas.value.length,
+  hasFilters: hasProjectFilters.value,
+}))
 
 let applyingProjectListRoute = false
-
-function scheduleProjectListReload() {
-  projectPage.value = 1
-  listRequestSequence += 1
-  if (projectReloadTimer) clearTimeout(projectReloadTimer)
-  projectReloadTimer = setTimeout(() => {
-    projectReloadTimer = null
-    loadList({ page: 1 })
-  }, 240)
-}
 
 function resolvedProjectListPath(query) {
   return router.resolve({ path: route.path, query, hash: route.hash }).fullPath
@@ -398,54 +350,78 @@ async function confirmAiConfigWorkspaceClose(done) {
   if (canClose) done()
 }
 
-function hasPendingProjectPackageWork() {
-  return importing.value || Boolean(importingExample.value) || exportingId.value !== null
-}
-
-function describePendingProjectPackageWork() {
-  if (importing.value || importingExample.value) return '项目包正在导入，请完成后再离开。'
-  if (exportingId.value !== null) return '项目包正在导出，请完成后再离开。'
-  return ''
-}
-
-async function requestFilmListNavigation() {
-  if (hasPendingProjectPackageWork()) {
-    ElMessage.warning(describePendingProjectPackageWork())
-    return false
-  }
-  if (!showAiConfigDialog.value) return true
-  return (await aiConfigContentRef.value?.requestClose?.()) !== false
-}
-
-function handleBeforeUnload(event) {
-  const hasUnsavedAiConfig = showAiConfigDialog.value
-    && aiConfigContentRef.value?.hasUnsavedChanges?.()
-  if (!hasUnsavedAiConfig && !hasPendingProjectPackageWork()) return
-  event.preventDefault()
-  event.returnValue = ''
-}
-
-onBeforeRouteLeave(requestFilmListNavigation)
-
-const showNewDialog = ref(false)
-const newForm = ref({ title: '', description: '', aspect_ratio: '16:9' })
-const newSaving = ref(false)
-const exportingId = ref(null)
-const exportFailure = ref(null)
-const importing = ref(false)
-const importFailure = ref(null)
-const importFileInput = ref(null)
 const headerRef = ref(null)
+const importFileInput = ref(null)
 
-const showTrashDialog = ref(false)
-const trashItems = ref([])
-const trashLoading = ref(false)
-const trashError = ref('')
-const trashAnnouncement = ref('')
-const trashPage = ref(1)
-const trashPageSize = ref(10)
-const trashTotal = ref(0)
-const restoringId = ref(null)
+const {
+  showNewDialog,
+  newForm,
+  newSaving,
+  showEditDialog,
+  editForm,
+  editSaving,
+  newSubmitDisabledReason,
+  editSubmitDisabledReason,
+  resetNewForm,
+  submitNew,
+  openEditDialog,
+  resetEditForm,
+  submitEdit,
+} = useFilmListProjectForms({
+  listWriteLocked,
+  listWriteLockReason,
+  loadList,
+  sourceImportIntent,
+  projectListReturnTo,
+  router,
+})
+
+function maybeOpenNewDialogFromRoute() {
+  if (listWriteLocked.value) return
+  if (route.query.new !== '1') return
+  showNewDialog.value = true
+  const nextQuery = { ...route.query }
+  delete nextQuery.new
+  router.replace({ path: route.path, query: nextQuery })
+}
+loadDeps.onLoaded = maybeOpenNewDialogFromRoute
+
+const {
+  showTrashDialog,
+  trashItems,
+  trashLoading,
+  trashError,
+  trashAnnouncement,
+  trashPage,
+  trashPageSize,
+  trashTotal,
+  restoringId,
+  openTrash,
+  loadTrash,
+  restoreFromTrash,
+  moveToTrash,
+} = useFilmListTrash({
+  listWriteLocked,
+  loadList,
+})
+
+const {
+  exportingId,
+  exportFailure,
+  importing,
+  importFailure,
+  onExport,
+  triggerImport,
+  onImportFile,
+  openSourceImportProject,
+  dismissImportFailure,
+} = useFilmListImportExport({
+  listWriteLocked,
+  loadList,
+  showNewDialog,
+  headerRef,
+  importFileInput,
+})
 
 const exampleList = ref([])
 const importingExample = ref(null)
@@ -471,344 +447,27 @@ async function onImportExample(ex) {
   }
 }
 
-const showEditDialog = ref(false)
-const editForm = ref({ id: null, title: '', description: '' })
-const editSaving = ref(false)
-const newSubmitDisabledReason = computed(() => {
-  if (listWriteLocked.value) return listWriteLockReason.value
-  if (!newForm.value.title?.trim()) return '请先填写项目标题'
-  return ''
+const {
+  backupNavItem,
+  goNewProject,
+  goMaterialCenter,
+  goFreeCreate,
+  goBackup,
+  requestFilmListNavigation,
+  handleBeforeUnload,
+} = useFilmListNavigation({
+  router,
+  listWriteLocked,
+  showNewDialog,
+  projectListReturnTo,
+  importing,
+  importingExample,
+  exportingId,
+  showAiConfigDialog,
+  aiConfigContentRef,
 })
-const editSubmitDisabledReason = computed(() => {
-  if (listWriteLocked.value) return listWriteLockReason.value
-  if (!editForm.value.title?.trim()) return '请先填写项目标题'
-  return ''
-})
 
-function describeProjectLoadError(error) {
-  return describeServiceLoadError(error, { serviceLabel: '项目服务' })
-}
-
-let listAbortController = null
-
-async function loadList(options = {}) {
-  const requestedPage = Math.max(1, Number(options.page ?? projectPage.value) || 1)
-  const requestedPageSize = Math.max(1, Number(options.pageSize ?? projectPageSize.value) || 24)
-  listAbortController?.abort()
-  const controller = new AbortController()
-  listAbortController = controller
-  const requestId = ++listRequestSequence
-  const operationId = createOperationId('project_list_load')
-  loading.value = true
-  let loaded = false
-  logOperation({
-    operation: 'project_list_load',
-    operationId,
-    phase: 'start',
-    page: requestedPage,
-    pageSize: requestedPageSize,
-  })
-  const startedAt = Date.now()
-  try {
-    const res = await withRequestRetry(
-      () => dramaAPI.list({
-        page: requestedPage,
-        page_size: requestedPageSize,
-        keyword: normalizedProjectSearch.value || undefined,
-        status: projectStatusFilter.value !== 'all' ? projectStatusFilter.value : undefined,
-        sort: projectSort.value,
-      }, { signal: controller.signal }),
-      { maxAttempts: 2, delayMs: 400, signal: controller.signal },
-    )
-    if (requestId !== listRequestSequence) {
-      logOperation({
-        operation: 'project_list_load',
-        operationId,
-        phase: 'cancel',
-        status: 'stale',
-        durationMs: Date.now() - startedAt,
-      })
-      return false
-    }
-    const pagination = res?.pagination ?? {}
-    const nextTotal = Number(pagination.total ?? 0) || 0
-    const nextPageSize = Number(pagination.page_size ?? requestedPageSize) || requestedPageSize
-    const lastPage = Math.max(1, Math.ceil(nextTotal / nextPageSize))
-    if (nextTotal > 0 && requestedPage > lastPage) {
-      projectPage.value = lastPage
-      return await loadList({ page: lastPage, pageSize: nextPageSize })
-    }
-    dramas.value = res?.items ?? []
-    total.value = nextTotal
-    projectPage.value = Math.min(Math.max(1, Number(pagination.page ?? requestedPage) || requestedPage), lastPage)
-    projectPageSize.value = nextPageSize
-    projectCoverErrors.value = new Set()
-    hasSuccessfulListLoad.value = true
-    listError.value = ''
-    loaded = true
-  } catch (error) {
-    if (isRequestCanceled(error) || requestId !== listRequestSequence) {
-      return false
-    }
-    if (requestId === listRequestSequence) {
-      listError.value = describeProjectLoadError(error)
-      logOperation({
-        operation: 'project_list_load',
-        operationId,
-        phase: 'error',
-        durationMs: Date.now() - startedAt,
-        error: listError.value,
-      })
-    }
-  } finally {
-    if (requestId === listRequestSequence) loading.value = false
-  }
-  if (loaded) {
-    logOperation({
-      operation: 'project_list_load',
-      operationId,
-      phase: 'success',
-      durationMs: Date.now() - startedAt,
-      page: projectPage.value,
-      total: total.value,
-    })
-    maybeOpenNewDialogFromRoute()
-  }
-  return loaded
-}
-
-function loadProjectPage(page) {
-  return loadList({ page })
-}
-
-function handleProjectPageSizeChange(pageSize) {
-  projectPage.value = 1
-  return loadList({ page: 1, pageSize })
-}
-
-function projectSearchText(drama) {
-  return [
-    drama?.title,
-    drama?.description,
-    formatStatus(drama?.status),
-    formatStyle(drama?.style),
-    formatGenre(drama?.genre),
-    drama?.metadata?.aspect_ratio,
-  ].filter(Boolean).join(' ').toLowerCase()
-}
-
-function projectCoverUrl(drama) {
-  const id = String(drama?.id ?? '')
-  if (projectCoverErrors.value.has(id)) return ''
-  return getProjectCover(drama)?.url || ''
-}
-
-function projectCoverAlt(drama) {
-  const title = drama?.title || '未命名项目'
-  return `项目「${title}」画面预览`
-}
-
-function markProjectCoverError(drama) {
-  const id = String(drama?.id ?? '')
-  if (!id) return
-  const next = new Set(projectCoverErrors.value)
-  next.add(id)
-  projectCoverErrors.value = next
-}
-
-function clearProjectFilters() {
-  projectSearch.value = ''
-  projectStatusFilter.value = 'all'
-}
-
-function formatDate(val) {
-  if (!val) return ''
-  const d = new Date(val)
-  if (Number.isNaN(d.getTime())) return ''
-  return d.toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
-}
-
-function formatStatus(status) {
-  const map = { draft: '草稿', published: '已发布', archived: '已归档', generating: '生成中' }
-  return map[status] || status || '草稿'
-}
-
-function formatStyle(style) {
-  const map = {
-    // 写实 / 影视
-    realistic: '写实',
-    cinematic: '电影感',
-    documentary: '纪录片',
-    noir: '黑色电影',
-    'retro film': '复古胶片',
-    horror: '恐怖',
-    // 动漫 / 卡通
-    'anime style': '日本动漫',
-    anime: '日本动漫',
-    'comic style': '欧美漫画',
-    cartoon: '卡通',
-    // 中国风格
-    'ink wash': '国画水墨',
-    'chinese style': '中国风',
-    historical: '古装',
-    wuxia: '武侠',
-    // 绘画艺术
-    watercolor: '水彩',
-    'oil painting': '油画',
-    sketch: '素描',
-    'woodblock print': '版画',
-    impressionist: '印象派',
-    // 幻想 / 科幻
-    fantasy: '奇幻',
-    'dark fantasy': '暗黑奇幻',
-    'sci-fi': '科幻',
-    sci_fi: '科幻',
-    cyberpunk: '赛博朋克',
-    steampunk: '蒸汽朋克',
-    'post-apocalyptic': '末世废土',
-    // 数字 / 现代
-    '3d render': '3D渲染',
-    'pixel art': '像素风',
-    'low poly': '低多边形',
-    minimalist: '极简',
-    dreamy: '唯美梦幻',
-  }
-  return map[style] || style
-}
-
-function formatGenre(genre) {
-  const map = { drama: '剧情', comedy: '喜剧', adventure: '冒险', romance: '爱情', thriller: '悬疑', action: '动作', horror: '恐怖' }
-  return map[genre] || genre
-}
-
-function totalStoryboards(d) {
-  return (d.episodes || []).reduce((sum, ep) => sum + (ep.storyboards?.length || 0), 0)
-}
-
-function goNewProject() {
-  if (listWriteLocked.value) return
-  showNewDialog.value = true
-}
-
-function openTrash() {
-  trashError.value = ''
-  trashAnnouncement.value = ''
-  showTrashDialog.value = true
-}
-
-async function loadTrash() {
-  trashLoading.value = true
-  trashError.value = ''
-  try {
-    const res = await dramaAPI.listTrash({
-      page: trashPage.value,
-      page_size: trashPageSize.value,
-    })
-    trashItems.value = res?.items ?? []
-    trashTotal.value = res?.pagination?.total ?? 0
-    if (res?.pagination?.page != null) trashPage.value = res.pagination.page
-  } catch (error) {
-    trashError.value = toUserFacingError(error, '回收站加载失败，请重试')
-  } finally {
-    trashLoading.value = false
-  }
-}
-
-async function restoreFromTrash(item) {
-  if (restoringId.value !== null) return
-  restoringId.value = item.id
-  trashError.value = ''
-  trashAnnouncement.value = ''
-  try {
-    await dramaAPI.restore(item.id)
-    if (trashItems.value.length === 1 && trashPage.value > 1) trashPage.value -= 1
-    await loadTrash()
-    loadList()
-    const title = item.title || '未命名项目'
-    trashAnnouncement.value = `项目「${title}」已恢复，内容与关联素材保持不变。`
-    ElMessage.success('项目已恢复')
-  } catch (error) {
-    trashError.value = toUserFacingError(error, '恢复失败，请重试')
-  } finally {
-    restoringId.value = null
-  }
-}
-
-function goMaterialCenter() {
-  openWorkspaceNavItem(router, 'media-library')
-}
-
-function goFreeCreate() {
-  openWorkspaceNavItem(router, 'free-create')
-}
-
-const backupNavItem = listWorkspaceNavItems().find((item) => item.id === 'backup') || null
-
-function goBackup() {
-  if (!backupNavItem) return
-  const returnTo = normalizeBackupReturnTo(projectListReturnTo.value) || '/'
-  openWorkspaceNavItem(router, backupNavItem.id, { query: { returnTo } })
-}
-
-function maybeOpenNewDialogFromRoute() {
-  if (listWriteLocked.value) return
-  if (route.query.new !== '1') return
-  showNewDialog.value = true
-  const nextQuery = { ...route.query }
-  delete nextQuery.new
-  router.replace({ path: route.path, query: nextQuery })
-}
-
-function resetNewForm() {
-  newForm.value = { title: '', description: '', aspect_ratio: '16:9' }
-}
-
-async function submitNew() {
-  if (listWriteLocked.value) return
-  const title = newForm.value.title?.trim()
-  if (!title) return
-  newSaving.value = true
-  try {
-    const drama = await dramaAPI.create({ title, description: newForm.value.description?.trim() || undefined, metadata: { aspect_ratio: newForm.value.aspect_ratio || '16:9' } })
-    showNewDialog.value = false
-    ElMessage.success('项目已创建')
-    loadList()
-    router.push(newProjectDestination(drama, sourceImportIntent.value, projectListReturnTo.value))
-  } catch (e) {
-    if (isUserFacingAbort(e) || e === 'cancel') return
-    ElMessage.error(toUserFacingError(e, '创建失败'))
-  } finally {
-    newSaving.value = false
-  }
-}
-
-function openEditDialog(d) {
-  if (listWriteLocked.value) return
-  editForm.value = { id: d.id, title: d.title || '', description: d.description || '' }
-  showEditDialog.value = true
-}
-
-function resetEditForm() {
-  editForm.value = { id: null, title: '', description: '' }
-}
-
-async function submitEdit() {
-  if (listWriteLocked.value) return
-  const title = editForm.value.title?.trim()
-  if (!title || editForm.value.id == null) return
-  editSaving.value = true
-  try {
-    await dramaAPI.update(editForm.value.id, { title, description: editForm.value.description?.trim() || undefined })
-    showEditDialog.value = false
-    ElMessage.success('已保存')
-    loadList()
-  } catch (e) {
-    if (isUserFacingAbort(e) || e === 'cancel') return
-    ElMessage.error(toUserFacingError(e, '保存失败'))
-  } finally {
-    editSaving.value = false
-  }
-}
+onBeforeRouteLeave(requestFilmListNavigation)
 
 function handleProjectAction(action, drama) {
   if (action === 'export') return onExport(drama)
@@ -816,157 +475,9 @@ function handleProjectAction(action, drama) {
   if (action === 'trash') return moveToTrash(drama)
 }
 
-async function onExport(d) {
-  if (exportingId.value !== null) return
-  exportingId.value = d.id
-  let downloadUrl = ''
-  let anchor = null
-  try {
-    const blob = await validateExportBlob(await dramaAPI.exportDrama(d.id))
-    downloadUrl = URL.createObjectURL(blob)
-    anchor = document.createElement('a')
-    anchor.href = downloadUrl
-    anchor.download = sanitizeExportFilename(d.title)
-    anchor.rel = 'noopener'
-    document.body.appendChild(anchor)
-    anchor.click()
-    exportFailure.value = null
-    ElMessage.success('项目包已验证，下载已开始')
-  } catch (error) {
-    const message = await resolveExportFailureMessage(error)
-    exportFailure.value = {
-      drama: { id: d.id, title: d.title || '未命名项目' },
-      message,
-    }
-    ElMessage.error(message)
-  } finally {
-    if (anchor?.isConnected) anchor.remove()
-    if (downloadUrl) URL.revokeObjectURL(downloadUrl)
-    exportingId.value = null
-  }
-}
-
-function openSourceImportProject() {
-  if (listWriteLocked.value) return
-  showNewDialog.value = true
-}
-
-function clearImportFailure() {
-  importFailure.value = null
-}
-
-async function dismissImportFailure() {
-  clearImportFailure()
-  await nextTick()
-  const trigger = headerRef.value?.importTriggerButton?.$el || headerRef.value?.importTriggerButton
-  trigger?.focus?.()
-}
-
-function normalizeImportFailureFilename(name) {
-  let fileName = String(name || '')
-    .split(/[\\/]/)
-    .pop()
-    ?.replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_')
-    .replace(/^[. ]+/, '')
-    .replace(/[. ]+$/g, '')
-    .trim()
-    .slice(0, 120)
-  if (!fileName) fileName = '未命名项目包'
-  return fileName
-}
-
-function sanitizeImportFailureReason(message) {
-  const collapsed = String(message || '')
-    .replace(/\s+/g, ' ')
-    .trim()
-  if (!collapsed) return '项目包导入失败，请重新选择项目包后重试'
-
-  const redacted = collapsed
-    .replace(/file:\/\/\/\S+/gi, '本地文件')
-    .replace(/[A-Za-z]:\\(?:[^\\/:*?"<>|\r\n]+\\)*[^\\/:*?"<>|\r\n]*/g, '本地文件')
-    .replace(/\/(?:[^/\s]+\/)+[^/\s]*/g, '服务器文件')
-    .trim()
-
-  if (/(traceback|stack|sqlite|sqlstate|sql\b|errno|exception|node_modules|backend-node|frontweb| at [A-Za-z_$][\w$]*\s*\()/i.test(redacted)) {
-    return '项目包解析失败，请确认文件完整且与当前版本兼容'
-  }
-
-  return redacted.slice(0, 160) || '项目包导入失败，请重新选择项目包后重试'
-}
-
-function resolveImportFailureMessage(error) {
-  const fallback = '项目包导入失败，请重新选择项目包后重试'
-  const responseBody = error?.response?.data
-  if (typeof responseBody === 'string' && responseBody.trim()) {
-    return toUserFacingError({ message: sanitizeImportFailureReason(responseBody) }, fallback)
-  }
-  if (responseBody && typeof responseBody === 'object') {
-    const responseMessage = responseBody?.error?.message
-      || responseBody?.message
-      || (typeof responseBody?.error === 'string' ? responseBody.error : '')
-    if (responseMessage) return toUserFacingError({ message: sanitizeImportFailureReason(responseMessage) }, fallback)
-  }
-  return toUserFacingError({ message: sanitizeImportFailureReason(error?.message) }, fallback)
-}
-
-function setImportFailure(fileName, error) {
-  importFailure.value = {
-    fileName: normalizeImportFailureFilename(fileName),
-    message: resolveImportFailureMessage(error),
-  }
-}
-
-function triggerImport() {
-  if (listWriteLocked.value) return
-  importFileInput.value?.click()
-}
-
-async function onImportFile(e) {
-  if (listWriteLocked.value) {
-    if (e.target) e.target.value = ''
-    return
-  }
-  const file = e.target.files?.[0]
-  if (!file) return
-  e.target.value = ''
-  clearImportFailure()
-  if (!/\.zip$/i.test(file.name || '')) {
-    setImportFailure(file.name, new Error('请选择 .zip 格式的项目包'))
-    return
-  }
-  importing.value = true
-  try {
-    const data = await dramaAPI.importDrama(file)
-    importFailure.value = null
-    ElMessage.success(`导入成功：${data?.title || '项目'}`) 
-    loadList()
-  } catch (error) {
-    setImportFailure(file.name, error)
-  } finally {
-    importing.value = false
-  }
-}
-
-async function moveToTrash(d) {
-  if (listWriteLocked.value) return
-  try {
-    await ElMessageBox.confirm(
-      `项目「${(d.title || '未命名').slice(0, 20)}${(d.title && d.title.length > 20) ? '…' : ''}」将移入回收站。项目内容和关联素材会完整保留，可随时恢复。`,
-      '移入回收站',
-      { type: 'warning', confirmButtonText: '移入回收站', cancelButtonText: '取消' }
-    )
-  } catch {
-    return
-  }
-  try {
-    await dramaAPI.moveToTrash(d.id)
-    ElMessage.success('项目已移入回收站')
-    loadList()
-    if (showTrashDialog.value) loadTrash()
-  } catch (e) {
-    if (isUserFacingAbort(e) || e === 'cancel') return
-    ElMessage.error(toUserFacingError(e, '移入回收站失败'))
-  }
+function clearProjectFilters() {
+  projectSearch.value = ''
+  projectStatusFilter.value = 'all'
 }
 
 onMounted(async () => {
@@ -983,8 +494,6 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   window.removeEventListener('beforeunload', handleBeforeUnload)
   projectListMounted = false
-  if (projectReloadTimer) clearTimeout(projectReloadTimer)
-  listAbortController?.abort()
 })
 </script>
 
@@ -1019,139 +528,9 @@ onBeforeUnmount(() => {
 .projects-wrap {
   min-height: 200px;
 }
-.trash-policy {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  margin-bottom: 18px;
-  padding: 12px 14px;
-  border-left: 3px solid #2dd4bf;
-  background: rgba(20, 184, 166, 0.08);
-}
-.trash-policy-icon {
-  margin-top: 2px;
-  flex: 0 0 auto;
-  color: #5eead4;
-  font-size: 20px;
-}
-.trash-policy strong {
-  display: block;
-  color: #f4f4f5;
-  font-size: 0.92rem;
-  line-height: 1.4;
-}
-.trash-policy p {
-  margin: 4px 0 0;
-  color: #a1a1aa;
-  font-size: 0.84rem;
-  line-height: 1.55;
-}
-.trash-dialog-content {
-  min-height: 180px;
-}
-.trash-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  border-top: 1px solid #303038;
-}
-.trash-list-item {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 20px;
-  min-height: 108px;
-  padding: 16px 2px;
-  border-bottom: 1px solid #303038;
-}
-.trash-item-main {
-  min-width: 0;
-}
-.trash-item-title {
-  margin: 0 0 6px;
-  overflow: hidden;
-  color: #f4f4f5;
-  font-size: 0.98rem;
-  line-height: 1.4;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.trash-item-meta,
-.trash-item-retention {
-  margin: 0;
-  color: #a1a1aa;
-  font-size: 0.8rem;
-  line-height: 1.55;
-}
-.trash-item-retention {
-  color: #5eead4;
-}
-.trash-restore-button {
-  min-width: 92px;
-}
-.trash-empty {
-  min-height: 150px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  color: #71717a;
-}
-.trash-empty .el-icon {
-  font-size: 28px;
-}
-.trash-empty p,
-.trash-error,
-.trash-live-status {
-  margin: 0;
-}
-.trash-error {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 12px;
-  border-left: 3px solid #f87171;
-  background: rgba(239, 68, 68, 0.08);
-  color: #fca5a5;
-}
-.trash-error p {
-  margin: 0;
-}
-.trash-live-status {
-  min-height: 20px;
-  margin-top: 12px;
-  color: #a1a1aa;
-  font-size: 0.8rem;
-}
-.trash-pagination {
-  margin-top: 14px;
-  justify-content: center;
-}
-
-/* ===== 亮色模式适配 ===== */
 html.light .film-list {
   background: #f7f8fa;
   color: #20242c;
-}
-html.light .trash-policy {
-  background: #ecfdf5;
-  border-left-color: #0f766e;
-}
-html.light .trash-policy-icon,
-html.light .trash-item-retention { color: #0f766e; }
-html.light .trash-policy strong,
-html.light .trash-item-title { color: #20242c; }
-html.light .trash-policy p,
-html.light .trash-item-meta,
-html.light .trash-live-status { color: #5b6470; }
-html.light .trash-list,
-html.light .trash-list-item { border-color: #e1e5eb; }
-html.light .trash-empty { color: #6b7280; }
-html.light .trash-error {
-  background: #fef2f2;
-  color: #b91c1c;
 }
 html.light .badge-status--draft {
   background: rgba(107, 114, 128, 0.1);

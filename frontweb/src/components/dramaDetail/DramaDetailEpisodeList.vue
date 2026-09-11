@@ -122,6 +122,9 @@ defineExpose({
 </script>
 
 <style scoped>
+#episode-list {
+  scroll-margin-top: 120px;
+}
 /* 分区卡片外观与页内其他卡片保持一致 */
 .section.card {
   background: rgba(24, 24, 27, 0.75);

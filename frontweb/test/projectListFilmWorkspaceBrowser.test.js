@@ -110,7 +110,7 @@ async function expandPipelineDetails(page) {
   await page.getByRole('heading', { name: '全流程生成', exact: true }).waitFor({ timeout: 15000 })
   const startButton = page.getByRole('button', { name: '仅生成文本框架', exact: true })
   if (await startButton.isVisible()) return
-  await page.getByRole('button', { name: '展开', exact: true }).click()
+  await page.getByRole('button', { name: '展开全流程详情', exact: true }).click()
   await startButton.waitFor({ state: 'visible', timeout: 15000 })
 }
 
@@ -198,7 +198,7 @@ test('制作页全流程可暂停后再停止，并真正请求取消任务', { 
   assert.equal(await page.getByRole('button', { name: '暂停', exact: true }).count(), 0)
 
   await page.getByRole('button', { name: '停止', exact: true }).click()
-  await page.getByText(/本地全流程已停止/).waitFor({ timeout: 20000 })
+  await page.getByText('本地全流程已停止；已提交的供应商任务和计费可能继续，请稍后刷新任务状态').waitFor({ timeout: 20000 })
   assert.equal(cancelCalls.length > 0, true, '停止必须向任务取消接口发出请求')
   assert.equal(cancelCalls.some((body) => body?.reason === '用户停止全流程'), true, '取消请求必须带上停止原因')
 

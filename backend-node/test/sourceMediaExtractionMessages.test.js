@@ -9,10 +9,16 @@ const {
   MAX_SOURCE_UPLOAD_BYTES,
 } = require('../src/services/sourceMediaExtractionService');
 
-const SERVICE_SOURCE = fs.readFileSync(
-  path.join(__dirname, '../src/services/sourceMediaExtractionService.js'),
-  'utf8'
-);
+const SERVICE_SOURCE = [
+  'sourceMediaExtractionService.js',
+  'sourceMediaExtractionDetect.js',
+  'sourceMediaExtractionErrors.js',
+  'sourceMediaExtractionValidation.js',
+  'sourceMediaExtractionRuntime.js',
+  'sourceMediaExtractionOcr.js',
+  'sourceMediaExtractionPdf.js',
+  'sourceMediaExtractionTranscribe.js',
+].map((name) => fs.readFileSync(path.join(__dirname, '../src/services', name), 'utf8')).join('\n');
 
 describe('sourceMediaExtraction user-visible messages', () => {
   it('keeps leftover English extraction errors out of the service source', () => {

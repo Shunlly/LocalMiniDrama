@@ -22,6 +22,7 @@ const sora = require('../src/services/videoGateway/openAiSoraAdapter');
 const aiConfigService = require('../src/services/aiConfigService');
 
 const VIDEO_CLIENT_SRC = fs.readFileSync(path.join(__dirname, '../src/services/videoClient.js'), 'utf8');
+const VIDEO_CLIENT_POLL_SRC = fs.readFileSync(path.join(__dirname, '../src/services/videoClientPoll.js'), 'utf8');
 const VIDEO_DISPATCH_SRC = fs.readFileSync(path.join(__dirname, '../src/services/videoGateway/protocolDispatch.js'), 'utf8');
 const VIDEO_POLL_SRC = fs.readFileSync(path.join(__dirname, '../src/services/videoGateway/pollDispatch.js'), 'utf8');
 const GATEWAY_DIR = path.join(__dirname, '../src/services/videoGateway');
@@ -133,11 +134,11 @@ describe('videoGateway 客户端拆分', () => {
 
   it('即梦同步协议的轮询短路仍留在 videoClient', () => {
     const marker = 'async function pollVideoTaskInternal';
-    const start = VIDEO_CLIENT_SRC.indexOf(marker);
+    const start = VIDEO_CLIENT_POLL_SRC.indexOf(marker);
     assert.notEqual(start, -1);
-    const pollSrc = VIDEO_CLIENT_SRC.slice(start);
+    const pollSrc = VIDEO_CLIENT_POLL_SRC.slice(start);
     assert.match(pollSrc, /if \(protocol === 'jimeng_ai_api'\)/);
-    assert.match(pollSrc, /Jimeng AI API 为同步返回视频地址，不应进入轮询/);
+    assert.match(pollSrc, /即梦视频为同步返回视频地址，不应进入轮询/);
     assert.match(pollSrc, /\[poll\] 开始轮询/);
     assert.match(pollSrc, /buildVideoPollRequest/);
     assert.match(pollSrc, /interpretVideoPollResponse/);
@@ -153,6 +154,7 @@ describe('videoGateway 客户端拆分', () => {
     const files = fs.readdirSync(GATEWAY_DIR).filter((name) => name.endsWith('.js')).sort();
     assert.deepEqual(files, [
       'agnesVideoAdapter.js',
+      'config.js',
       'dashscopeVideoAdapter.js',
       'geminiVideoAdapter.js',
       'helpers.js',
@@ -163,18 +165,22 @@ describe('videoGateway 客户端拆分', () => {
       'openAiSoraAdapter.js',
       'pollControl.js',
       'pollDispatch.js',
+      'pollParse.js',
       'protocolDispatch.js',
       'providerRuntime.js',
+      'requestAssembly.js',
       'requestError.js',
       'seedanceCertifiedAssets.js',
+      'staticPath.js',
       'veo3VideoAdapter.js',
+      'videoApiAssembly.js',
       'viduVideoAdapter.js',
       'volcengineVideoAdapter.js',
       'xaiVideoAdapter.js',
     ]);
     assert.ok(!files.includes('soraVideoAdapter.js'));
     assert.doesNotMatch(VIDEO_CLIENT_SRC, /async function callSoraVideoApi/);
-    assert.match(VIDEO_CLIENT_SRC, /require\('\.\/videoGateway\/openAiSoraAdapter'\)/);
+    assert.match(VIDEO_CLIENT_SRC + VIDEO_CLIENT_POLL_SRC, /require\('\.\/videoGateway\/openAiSoraAdapter'\)/);
     assert.match(VIDEO_DISPATCH_SRC, /require\('\.\/openAiSoraAdapter'\)/);
   });
 

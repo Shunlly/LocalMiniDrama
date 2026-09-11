@@ -287,11 +287,12 @@ defineExpose({ refImageInput, refImageUploadStatusRef })
 <style scoped>
 .input-panel {
   width: 380px;
+  max-width: 100%;
   flex-shrink: 0;
-  background: #fff;
+  background: var(--bg-card);
   border-radius: 12px;
   padding: 20px;
-  box-shadow: 0 2px 8px rgba(0,0,0,.06);
+  box-shadow: var(--shadow);
 }
 
 .mode-tabs {
@@ -308,12 +309,12 @@ defineExpose({ refImageInput, refImageUploadStatusRef })
   min-height: 40px;
   margin: -6px 0 16px;
   padding: 9px 10px;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--border-color);
   border-radius: 6px;
   display: flex;
   align-items: center;
   gap: 8px;
-  color: #4b5563;
+  color: var(--text-muted);
   font-size: 13px;
 }
 
@@ -343,7 +344,7 @@ defineExpose({ refImageInput, refImageUploadStatusRef })
 .form-label {
   font-size: 13px;
   font-weight: 500;
-  color: #374151;
+  color: var(--text-primary);
   margin-bottom: 6px;
 }
 
@@ -385,7 +386,7 @@ defineExpose({ refImageInput, refImageUploadStatusRef })
 }
 
 .ref-image-zone {
-  border: 2px dashed #d1d5db;
+  border: 2px dashed var(--border-muted);
   border-radius: 8px;
   padding: 0;
   text-align: center;
@@ -447,7 +448,7 @@ defineExpose({ refImageInput, refImageUploadStatusRef })
 
 .upload-icon {
   font-size: 28px;
-  color: #9ca3af;
+  color: var(--text-faint);
 }
 
 .upload-icon.is-error,
@@ -457,7 +458,7 @@ defineExpose({ refImageInput, refImageUploadStatusRef })
 
 .upload-tip {
   font-size: 12px;
-  color: #9ca3af;
+  color: var(--text-faint);
   max-width: 100%;
   overflow-wrap: anywhere;
 }
@@ -466,12 +467,12 @@ defineExpose({ refImageInput, refImageUploadStatusRef })
   min-height: 40px;
   margin: -8px 0 16px;
   padding: 8px 10px;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--border-color);
   border-radius: 6px;
   display: flex;
   align-items: center;
   gap: 8px;
-  color: #4b5563;
+  color: var(--text-muted);
   font-size: 12px;
 }
 
@@ -535,5 +536,11 @@ defineExpose({ refImageInput, refImageUploadStatusRef })
   color: #b45309;
   font-size: 12px;
   line-height: 1.5;
+}
+
+@media (max-width: 900px) {
+  .input-panel {
+    width: 100%;
+  }
 }
 </style>

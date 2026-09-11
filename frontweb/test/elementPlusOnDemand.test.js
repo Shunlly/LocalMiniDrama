@@ -16,6 +16,8 @@ import {
   normalizeVideoDownloadFilenamePart,
 } from '../src/utils/filmCreateDelivery.js'
 import { clipSecondsForStoryboardEstimate } from '../src/utils/filmCreateEstimates.js'
+import { readFilmListSources } from './helpers/filmListSources.js'
+import { readMediaLibrarySources } from './helpers/mediaLibrarySources.js'
 
 const mainSource = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8')
 const routerSource = readFileSync(new URL('../src/router/index.js', import.meta.url), 'utf8')
@@ -26,8 +28,8 @@ const deliveryPanelSource = readFileSync(
   new URL('../src/components/filmCreate/FilmCreateDeliveryPanel.vue', import.meta.url),
   'utf8',
 )
-const filmListSource = readFileSync(new URL('../src/views/FilmList.vue', import.meta.url), 'utf8')
-const mediaLibrarySource = readFileSync(new URL('../src/views/MediaLibrary.vue', import.meta.url), 'utf8')
+const filmListSource = readFilmListSources().ui
+const mediaLibrarySource = readMediaLibrarySources()
 
 test('entry loads Element Plus config provider and dialogs on demand', () => {
   assert.equal(typeof ElMessage.error, 'function')

@@ -9,6 +9,7 @@ export const DRAMA_DETAIL_RESOURCE_DIALOG_MODEL_KEYS = [
   'editSceneVisible', 'editSceneForm',
   'editPropVisible', 'editPropForm',
   'importVisible', 'importKw', 'importPage', 'importPageSize',
+  'previewUrl',
 ]
 
 /**

@@ -1,9 +1,10 @@
 <template>
   <section class="section card" aria-labelledby="video-settings-title">
     <h2 id="video-settings-title" class="section-title">视频配置</h2>
-    <p class="section-lead">这些选项只在合成整集时生效，不会改已生成的分镜视频。</p>
+    <p class="section-lead">分辨率会用于新生成的分镜视频。字幕、对白烧录和水印只在合成整集时生效，不会改已经生成的分镜视频。</p>
     <p
       v-if="panelState.settingsLockedReason"
+      id="video-settings-lock-reason"
       class="video-settings-lock"
       role="status"
       data-testid="video-settings-lock-reason"
@@ -52,7 +53,7 @@
           <el-switch
             :model-value="subtitle"
             aria-label="成片字幕"
-            aria-describedby="video-subtitle-hint"
+            :aria-describedby="subtitleDescribedBy"
             inline-prompt
             active-text="开"
             inactive-text="关"
@@ -69,7 +70,7 @@
           <el-switch
             :model-value="burnDialogue"
             aria-label="对白烧录"
-            aria-describedby="video-burn-dialogue-hint"
+            :aria-describedby="burnDialogueDescribedBy"
             inline-prompt
             active-text="开"
             inactive-text="关"
@@ -127,7 +128,7 @@
         </p>
       </el-form-item>
     </el-form>
-    <p class="config-tip">分镜图、分镜视频和旁白语音使用的模型，以「<button type="button" class="ai-config-text-button" @click="emit('open-ai-config')">AI 配置</button>」中设为默认的为准。这里的成片选项只影响合成整集。</p>
+    <p class="config-tip">分镜图、分镜视频和旁白语音使用的模型，以「<button type="button" class="ai-config-text-button" @click="emit('open-ai-config')">AI 配置</button>」中设为默认的为准。分辨率也会用于新生成的分镜视频；字幕、对白烧录和水印只影响合成整集。</p>
   </section>
 </template>
 
@@ -149,7 +150,11 @@ function describeVideoSettingsPanel(input = {}) {
   const disabled = Boolean(input.disabled)
   const disabledReason = String(input.disabledReason || '').trim()
   const supported = resolution === '480p' || resolution === '720p' || resolution === '1080p'
-  const settingsLockedReason = disabledReason || (disabled ? '当前不能修改视频配置。' : '')
+  const technicalEnglish = /network error|http\s*error|failed to fetch|fetch failed|internal server error|econnrefused|err_network|status code|axioserror/i
+  const chineseReason = disabledReason && !(technicalEnglish.test(disabledReason) || !/[\u4e00-\u9fff]/.test(disabledReason))
+    ? disabledReason
+    : ''
+  const settingsLockedReason = chineseReason || ((disabled || disabledReason) ? '当前不能修改视频配置。' : '')
   let watermarkWarning = ''
   let watermarkHint = '关闭时，成片右下角不会叠加文字水印。'
   if (watermark && !watermarkText) {
@@ -199,13 +204,19 @@ const emit = defineEmits([
 ])
 
 const panelState = computed(() => describeVideoSettingsPanel(props))
-const resolutionDescribedBy = computed(() => (
+function withLockDescribedBy(extra) {
+  const lockId = panelState.value.settingsLockedReason ? 'video-settings-lock-reason' : ''
+  return [lockId, extra].filter(Boolean).join(' ')
+}
+const resolutionDescribedBy = computed(() => withLockDescribedBy(
   panelState.value.resolutionWarning
     ? 'video-resolution-warning video-resolution-hint'
-    : 'video-resolution-hint'
+    : 'video-resolution-hint',
 ))
-const watermarkDescribedBy = computed(() => (
-  panelState.value.watermarkWarning ? 'video-watermark-warning' : 'video-watermark-hint'
+const subtitleDescribedBy = computed(() => withLockDescribedBy('video-subtitle-hint'))
+const burnDialogueDescribedBy = computed(() => withLockDescribedBy('video-burn-dialogue-hint'))
+const watermarkDescribedBy = computed(() => withLockDescribedBy(
+  panelState.value.watermarkWarning ? 'video-watermark-warning' : 'video-watermark-hint',
 ))
 </script>
 

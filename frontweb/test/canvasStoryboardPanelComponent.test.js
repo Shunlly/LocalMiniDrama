@@ -63,6 +63,10 @@ const References = await loadCompiledSfc(
     ['@/composables/useCanvasReferenceDisplay', new URL('../src/composables/useCanvasReferenceDisplay.js', import.meta.url).href],
   ]),
 )
+const Form = await loadCompiledSfc(
+  new URL('./CanvasStoryboardPanelForm.vue', panelDir),
+  'storyboard-panel-form',
+)
 const Frames = await loadCompiledSfc(
   new URL('./CanvasStoryboardPanelFrames.vue', panelDir),
   'storyboard-panel-frames',
@@ -77,7 +81,16 @@ const Actions = await loadCompiledSfc(
 )
 
 const renderer = createHostRenderer()
+const ElFormStub = defineComponent({
+  name: 'ElFormStub',
+  setup(_props, { slots }) {
+    return () => h('form', {}, slots.default?.())
+  },
+})
+
 const extraStubs = {
+  'el-form': ElFormStub,
+  ElForm: ElFormStub,
   'el-form-item': ElFormItemStub,
   ElFormItem: ElFormItemStub,
 }
@@ -86,11 +99,30 @@ function controlLabel(name) {
   return `分镜1${name}`
 }
 
+function inputByAria(root, label) {
+  return findByType(root, 'input').find((node) => node.props?.['aria-label'] === label)
+}
+
+function formFixture(overrides = {}) {
+  return {
+    title: '开场',
+    shot_type: '特写',
+    duration: 5,
+    action: '推门',
+    dialogue: '你好',
+    image_prompt: '雨夜',
+    video_prompt: '推进',
+    universal_segment_text: '',
+    video_reference_image_id: '',
+    ...overrides,
+  }
+}
+
 function mountChild(component, props) {
   return mountHarness(renderer, () => h(component, props), { components: extraStubs })
 }
 
-test('父面板接线到工具条/关联/参考图/首尾帧/操作栏子组件', () => {
+test('父面板接线到表单/工具条/关联/参考图/首尾帧/操作栏子组件', () => {
   for (const name of CANVAS_STORYBOARD_PANEL_FILES.slice(1)) {
     const tag = name.replace(/\.vue$/, '')
     assert.match(parentSource, new RegExp(`import ${tag} from '\\./${tag}\\.vue'`))
@@ -99,6 +131,9 @@ test('父面板接线到工具条/关联/参考图/首尾帧/操作栏子组件'
   assert.doesNotMatch(parentSource, /class="reference-row"/)
   assert.doesNotMatch(parentSource, /class="panel-actions"/)
   assert.doesNotMatch(parentSource, /class="frame-preview-row"/)
+  assert.doesNotMatch(parentSource, /class="meta-row"/)
+  assert.doesNotMatch(parentSource, /class="text-row-2"/)
+  assert.doesNotMatch(parentSource, /class="panel-form compact-form"/)
 })
 
 test('本面板不含 AI 分镜按钮；工具条仍保留完整无障碍名', () => {
@@ -293,6 +328,78 @@ test('关联选择器使用分镜编号作为无障碍名前缀', () => {
     assert.ok(buttonByAriaLabel(harness.root, '分镜1添加角色'))
     assert.ok(buttonByAriaLabel(harness.root, '分镜1添加场景'))
     assert.ok(buttonByAriaLabel(harness.root, '分镜1添加道具'))
+  } finally {
+    harness.app.unmount()
+  }
+})
+
+test('经典表单显示标题景别时长和提示词，标题失焦会保存元数据', async () => {
+  const events = []
+  const harness = mountChild(Form, {
+    form: formFixture(),
+    isUniversal: false,
+    gridImages: [],
+    storyboardControlLabel: controlLabel,
+    saveMeta: () => events.push('saveMeta'),
+  })
+  try {
+    const text = textContent(harness.root)
+    assert.match(text, /标题/)
+    assert.match(text, /景别/)
+    assert.match(text, /时长/)
+    assert.match(text, /动作/)
+    assert.match(text, /对白/)
+    assert.match(text, /生图词/)
+    assert.match(text, /视频词/)
+    assert.doesNotMatch(text, /全能词/)
+    assert.doesNotMatch(text, /AI 分镜/)
+    assert.equal(inputByAria(harness.root, '分镜1标题')?.props.placeholder, '分镜标题')
+    assert.equal(inputByAria(harness.root, '分镜1景别')?.props.placeholder, '特写')
+    assert.equal(inputByAria(harness.root, '分镜1动作')?.props.placeholder, '画面动作')
+    assert.equal(inputByAria(harness.root, '分镜1对白')?.props.placeholder, '角色对白')
+    assert.equal(inputByAria(harness.root, '分镜1生图词')?.props.placeholder, '图片提示词')
+    assert.equal(inputByAria(harness.root, '分镜1视频词')?.props.placeholder, '视频提示词')
+    const duration = inputByAria(harness.root, '分镜1时长')
+    assert.ok(duration)
+    assert.equal(duration.props.min, 1)
+    assert.equal(duration.props.max, 120)
+    assert.equal(findByType(harness.root, 'select').length, 0)
+    inputByAria(harness.root, '分镜1标题').props.onBlur({ stopPropagation() {} })
+    await nextTick()
+    assert.deepEqual(events, ['saveMeta'])
+  } finally {
+    harness.app.unmount()
+  }
+})
+
+test('全能表单改显示全能词，有宫格时露出视频参考图选择', () => {
+  const harness = mountChild(Form, {
+    form: formFixture({ universal_segment_text: '片段', video_prompt: '推进' }),
+    isUniversal: true,
+    gridImages: [
+      { id: 8, frame_type: 'nine_grid' },
+      { id: 9, frame_type: 'quad_grid' },
+    ],
+    storyboardControlLabel: controlLabel,
+    saveMeta: () => {},
+  })
+  try {
+    const text = textContent(harness.root)
+    assert.match(text, /全能词/)
+    assert.match(text, /视频词/)
+    assert.match(text, /宫格/)
+    assert.match(text, /九宫格 #8/)
+    assert.match(text, /四宫格 #9/)
+    assert.doesNotMatch(text, /动作/)
+    assert.doesNotMatch(text, /对白/)
+    assert.doesNotMatch(text, /生图词/)
+    assert.doesNotMatch(text, /AI 分镜/)
+    assert.equal(inputByAria(harness.root, '分镜1全能词')?.props.placeholder, '全能模式片段描述')
+    assert.equal(inputByAria(harness.root, '分镜1视频词')?.props.placeholder, '生视频提示词')
+    const select = findByType(harness.root, 'select')[0]
+    assert.ok(select)
+    assert.equal(select.props['aria-label'], '分镜1视频参考图')
+    assert.equal(select.props.placeholder, '视频使用主图/首帧')
   } finally {
     harness.app.unmount()
   }

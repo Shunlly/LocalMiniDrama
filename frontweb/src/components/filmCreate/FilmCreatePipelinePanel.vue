@@ -19,20 +19,38 @@
       <div class="pipeline-compact-actions">
         <span v-if="compactAction" class="pipeline-compact-gate">
           <ActionGate
-            :reason="compactDisabledReason"
+            :reason="compactActionDisabledReason"
             :label="compactAction.label"
           >
             <button
               type="button"
               class="pipeline-compact-action"
               data-testid="film-pipeline-action"
-              :disabled="starting || stopping"
-              :title="compactDisabledReason || undefined"
+              :disabled="starting || stopping || Boolean(compactActionDisabledReason)"
+              :title="compactActionDisabledReason || undefined"
               :aria-label="compactActionAriaLabel"
-              @click="runCompactAction"
+              @click="runCompactAction(compactAction)"
             >
               <span>{{ compactAction.label }}</span>
               <el-icon><ArrowRight /></el-icon>
+            </button>
+          </ActionGate>
+        </span>
+        <span v-if="compactSecondaryAction" class="pipeline-compact-gate">
+          <ActionGate
+            :reason="compactDisabledReason"
+            :label="compactSecondaryAction.label"
+          >
+            <button
+              type="button"
+              class="pipeline-compact-action is-secondary"
+              data-testid="film-pipeline-secondary-action"
+              :disabled="starting || stopping || Boolean(compactDisabledReason)"
+              :title="compactDisabledReason || undefined"
+              :aria-label="compactSecondaryActionAriaLabel"
+              @click="runCompactAction(compactSecondaryAction)"
+            >
+              <span>{{ compactSecondaryAction.label }}</span>
             </button>
           </ActionGate>
         </span>
@@ -139,110 +157,26 @@
         </details>
       </div>
 
-      <div class="pipeline-actions">
-        <div class="pipeline-mode-action">
-          <span class="pipeline-mode-label is-production">完整成片</span>
-          <ActionGate label="一键生成成片" :reason="productionReason">
-            <el-button
-              type="primary"
-              :loading="starting || (running && !paused && !stopping)"
-              :disabled="Boolean(productionReason) || starting"
-              :title="productionButtonTitle || undefined"
-              :aria-label="productionButtonAriaLabel"
-              @click="$emit('start-one-click')"
-            >
-              一键生成成片
-            </el-button>
-          </ActionGate>
-        </div>
-        <div class="pipeline-mode-action">
-          <span class="pipeline-mode-label is-draft">草稿预演</span>
-          <ActionGate label="仅生成文本框架" :reason="draftReason">
-            <el-button
-              :loading="starting || (running && !paused && !stopping)"
-              :disabled="Boolean(draftReason) || starting"
-              :title="draftButtonTitle || undefined"
-              :aria-label="draftButtonAriaLabel"
-              @click="$emit('start-text-framework')"
-            >
-              仅生成文本框架
-            </el-button>
-          </ActionGate>
-        </div>
-        <el-button
-          v-if="showReadinessAction"
-          link
-          type="primary"
-          class="pipeline-config-action"
-          @click="$emit('open-ai-config', productionReadinessServiceType)"
-        >前往 AI 配置</el-button>
-        <el-button
-          v-if="showReadinessRetry"
-          plain
-          type="primary"
-          class="pipeline-config-action"
-          @click="$emit('retry-readiness')"
-        >重试检查</el-button>
-        <template v-if="running">
-          <ActionGate v-if="!stopRequired && !paused" label="暂停" :reason="pauseDisabledReason">
-            <el-button type="warning" :disabled="Boolean(pauseDisabledReason)" :title="pauseDisabledReason || undefined" @click="$emit('pause')">暂停</el-button>
-          </ActionGate>
-          <ActionGate v-else-if="!stopRequired" label="继续" :reason="resumeDisabledReason">
-            <el-button type="success" :disabled="Boolean(resumeDisabledReason)" :title="resumeDisabledReason || undefined" @click="$emit('resume')">继续</el-button>
-          </ActionGate>
-          <ActionGate :label="stopRequired ? '重试停止' : '停止'" :reason="cancelDisabledReason">
-            <el-button
-              type="danger"
-              plain
-              :loading="stopping"
-              :disabled="Boolean(cancelDisabledReason)"
-              :title="cancelDisabledReason || (stopping ? '正在停止全流程，请稍候' : undefined)"
-              @click="$emit('cancel')"
-            >
-              {{ stopRequired ? '重试停止' : '停止' }}
-            </el-button>
-          </ActionGate>
-        </template>
-      </div>
+      <FilmCreatePipelineActions
+        v-bind="actionPanelProps"
+        @start-one-click="$emit('start-one-click')"
+        @start-text-framework="$emit('start-text-framework')"
+        @open-ai-config="$emit('open-ai-config', $event)"
+        @retry-readiness="$emit('retry-readiness')"
+        @pause="$emit('pause')"
+        @resume="$emit('resume')"
+        @cancel="$emit('cancel')"
+      />
     </div>
 
     <div v-if="running || errorLog.length > 0" class="pipeline-status" aria-live="polite">
-      <div v-if="progressStatusText || currentStep" class="pipeline-current-step">
-        <span v-if="stepIndex > 0" class="pipeline-step-badge">{{ stepIndex }}/{{ stepTotal }}</span>
-        {{ progressStatusText || cleanCurrentStep }}
-      </div>
-      <div v-if="countdown > 0" class="pipeline-countdown">
-        <div class="pipeline-countdown-ring" aria-hidden="true">
-          <span class="pipeline-countdown-num">{{ countdown }}</span>
-          <span class="pipeline-countdown-unit">秒</span>
-        </div>
-        <div class="pipeline-countdown-body">
-          <p class="pipeline-countdown-msg">{{ countdownMessage }}</p>
-          <div class="pipeline-countdown-actions">
-            <el-button size="small" type="success" @click="$emit('skip-countdown')">立即开始下一阶段</el-button>
-            <ActionGate v-if="!paused" label="暂停倒计时" :reason="pauseDisabledReason">
-              <el-button size="small" type="warning" :disabled="Boolean(pauseDisabledReason)" :title="pauseDisabledReason || undefined" @click="$emit('pause')">暂停倒计时</el-button>
-            </ActionGate>
-            <span v-else class="pipeline-countdown-paused">已暂停，点击“继续”恢复</span>
-          </div>
-        </div>
-      </div>
-      <div v-if="activeTaskLabels.length > 0" class="pipeline-active-tasks" aria-label="执行中的任务">
-        <span v-for="label in activeTaskLabels" :key="label" class="pipeline-task-chip">
-          <span class="pipeline-task-dot" />{{ label }}
-        </span>
-      </div>
-      <div v-if="displayErrorLog.length > 0" class="pipeline-error-log" role="alert">
-        <div class="pipeline-error-title">执行过程中的错误</div>
-        <div v-for="(entry, index) in displayErrorLog" :key="index" class="pipeline-error-line">
-          [{{ entry.step }}] {{ entry.message }}
-        </div>
-        <ActionGate v-if="!running" label="重试全流程" :reason="retryDisabledReason">
-          <el-button type="primary" :disabled="Boolean(retryDisabledReason) || starting" :title="retryDisabledReason || (starting ? '正在启动全流程，请稍候' : undefined)" @click="$emit('start-one-click')">
-            重试全流程
-          </el-button>
-        </ActionGate>
-      </div>
+      <FilmCreatePipelineSteps v-bind="stepsPanelProps" />
+      <FilmCreatePipelineStatus
+        v-bind="statusPanelProps"
+        @skip-countdown="$emit('skip-countdown')"
+        @pause="$emit('pause')"
+        @start-one-click="$emit('start-one-click')"
+      />
     </div>
     <div v-else-if="hasEpisode === false" class="pipeline-empty" role="status" data-testid="film-pipeline-empty">
       <p>{{ emptyGuidanceText }}</p>
@@ -262,100 +196,11 @@ import { computed, ref } from 'vue'
 import { ArrowDown, ArrowRight, ArrowUp, Setting, VideoPlay } from '@element-plus/icons-vue'
 import StylePickerButton from '@/components/StylePickerButton.vue'
 import ActionGate from '@/components/filmCreate/ActionGate.vue'
+import FilmCreatePipelineActions from './FilmCreatePipelineActions.vue'
+import FilmCreatePipelineSteps from './FilmCreatePipelineSteps.vue'
+import FilmCreatePipelineStatus from './FilmCreatePipelineStatus.vue'
 import { useDisclosureState } from '@/composables/useDisclosureState'
-import { getPipelineCompactAction, getPipelineControlReasons, isPipelineLocallyStopped } from '@/utils/filmPipelineAction'
-
-/** 把暂停/继续/停止禁用原因收成中文，并描述进行中状态与空状态下一步。 */
-function toPipelineDisabledReason(value, fallback = '当前不可用') {
-  const text = String(value || '').trim()
-  if (!text) return ''
-  const technicalEnglish = /network error|http\s*error|failed to fetch|fetch failed|internal server error|econnrefused|err_network|status code|axioserror/i
-  if (technicalEnglish.test(text) || !/[\u4e00-\u9fff]/.test(text)) {
-    return String(fallback || '当前不可用')
-  }
-  return text
-}
-
-function describePipelineErrorLog(errorLog = []) {
-  return (Array.isArray(errorLog) ? errorLog : []).map((entry) => ({
-    time: entry?.time,
-    step: entry?.step,
-    message: toPipelineDisabledReason(entry?.message, '操作失败，请稍后重试') || '操作失败，请稍后重试',
-  }))
-}
-
-function describePipelinePanelUx(input = {}) {
-  const running = Boolean(input.running)
-  const paused = Boolean(input.paused)
-  const stopping = Boolean(input.stopping)
-  const stopRequired = Boolean(input.stopRequired)
-  const starting = Boolean(input.starting)
-  const controlReasons = input.controlReasons || getPipelineControlReasons({
-    running,
-    paused,
-    stopping,
-    stopRequired,
-    productionReason: input.productionReason,
-  })
-  const pauseDisabledReason = running && !stopRequired && !paused
-    ? toPipelineDisabledReason(controlReasons.pause, '当前不能暂停全流程')
-    : ''
-  const resumeDisabledReason = running && !stopRequired && paused
-    ? toPipelineDisabledReason(controlReasons.resume, '当前不能继续全流程')
-    : ''
-  const cancelDisabledReason = running
-    ? toPipelineDisabledReason(controlReasons.cancel, '当前不能停止全流程')
-    : ''
-  const compactDisabledReason = stopping
-    ? toPipelineDisabledReason(controlReasons.cancel || '正在停止全流程，请稍候', '正在停止全流程，请稍候')
-    : (starting ? '正在确认完整成片的运行条件' : '')
-  const productionBusy = starting || (running && !paused && !stopping)
-  const productionButtonTitle = String(input.productionReason || '').trim()
-    || (productionBusy ? (starting ? '正在确认完整成片的运行条件' : '正在生成完整成片，请稍候') : '')
-  const draftButtonTitle = String(input.draftReason || '').trim()
-    || (productionBusy ? (starting ? '正在确认完整成片的运行条件' : '正在生成文本框架，请稍候') : '')
-  function actionAriaLabel(actionLabel, { loading, loadingLabel, disabledReason } = {}) {
-    if (loading) return String(loadingLabel || `正在${actionLabel}`).trim()
-    const reason = String(disabledReason || '').trim()
-    if (reason) return `${actionLabel}不可用：${reason}`
-    return String(actionLabel || '').trim()
-  }
-  const productionButtonAriaLabel = actionAriaLabel('一键生成成片', {
-    loading: productionBusy,
-    loadingLabel: starting ? '正在确认完整成片的运行条件' : '正在生成完整成片',
-    disabledReason: input.productionReason,
-  })
-  const draftButtonAriaLabel = actionAriaLabel('仅生成文本框架', {
-    loading: productionBusy,
-    loadingLabel: starting ? '正在确认完整成片的运行条件' : '正在生成文本框架',
-    disabledReason: input.draftReason,
-  })
-  const cleanCurrentStep = String(input.currentStep || '').replace(/^\[步骤 \d+\/\d+\] /, '')
-  let progressKicker = ''
-  if (stopRequired) progressKicker = '停止受阻'
-  else if (running) progressKicker = paused ? '已暂停' : '进行中'
-  else if (starting) progressKicker = '进行中'
-  let progressStatusText = ''
-  if (running) {
-    progressStatusText = cleanCurrentStep || (paused ? '全流程生成已暂停' : '正在执行全流程生成')
-  }
-  const isEmpty = input.hasEpisode === false
-  return {
-    pauseDisabledReason,
-    resumeDisabledReason,
-    cancelDisabledReason,
-    compactDisabledReason,
-    productionButtonTitle,
-    draftButtonTitle,
-    productionButtonAriaLabel,
-    draftButtonAriaLabel,
-    progressKicker,
-    progressStatusText,
-    emptyNextStep: isEmpty ? '添加一集后再保存剧本或启动生成' : '',
-    emptyGuidanceText: isEmpty ? '还没有剧集。下一步：添加一集后再保存剧本或启动生成。' : '',
-    emptyActionLabel: isEmpty ? '添加一集' : '',
-  }
-}
+import { createFilmCreatePipelinePanelBindings } from '@/components/filmCreate/filmCreatePipelinePanelBindings'
 
 const props = defineProps({
   aspectRatio: { type: String, default: '16:9' },
@@ -406,135 +251,33 @@ const emit = defineEmits([
   'add-episode',
 ])
 
-const activeTaskLabels = computed(() => Array.from(props.activeTasks || []))
-const cleanCurrentStep = computed(() => props.currentStep.replace(/^\[步骤 \d+\/\d+\] /, ''))
-const productionReason = computed(() => toPipelineDisabledReason(
-  props.productionDisabledReason || props.disabledReason,
-  '完整成片暂不可生成',
-))
-const draftReason = computed(() => toPipelineDisabledReason(
-  props.draftDisabledReason || props.disabledReason,
-  '草稿预演暂不可生成',
-))
-const hasPipelineError = computed(() => props.errorLog.length > 0)
-const displayErrorLog = computed(() => describePipelineErrorLog(props.errorLog))
-const locallyStopped = computed(() => isPipelineLocallyStopped({
-  running: props.running,
-  stopping: props.stopping,
-  stopRequired: props.stopRequired,
-  hasError: hasPipelineError.value,
-  currentStep: props.currentStep,
-}))
-const controlReasons = computed(() => getPipelineControlReasons({
-  running: props.running,
-  paused: props.paused,
-  stopping: props.stopping,
-  stopRequired: props.stopRequired,
-  productionReason: productionReason.value,
-}))
-const panelUx = computed(() => describePipelinePanelUx({
-  running: props.running,
-  paused: props.paused,
-  stopping: props.stopping,
-  stopRequired: props.stopRequired,
-  starting: props.starting,
-  currentStep: props.currentStep,
-  hasEpisode: props.hasEpisode,
-  productionReason: productionReason.value,
-  draftReason: draftReason.value,
-  controlReasons: controlReasons.value,
-}))
-const pauseDisabledReason = computed(() => panelUx.value.pauseDisabledReason)
-const resumeDisabledReason = computed(() => panelUx.value.resumeDisabledReason)
-const cancelDisabledReason = computed(() => panelUx.value.cancelDisabledReason)
-const compactDisabledReason = computed(() => panelUx.value.compactDisabledReason)
-const productionButtonTitle = computed(() => panelUx.value.productionButtonTitle || undefined)
-const draftButtonTitle = computed(() => panelUx.value.draftButtonTitle || undefined)
-const productionButtonAriaLabel = computed(() => panelUx.value.productionButtonAriaLabel)
-const draftButtonAriaLabel = computed(() => panelUx.value.draftButtonAriaLabel)
-const progressStatusText = computed(() => panelUx.value.progressStatusText)
-const emptyGuidanceText = computed(() => panelUx.value.emptyGuidanceText)
-const emptyActionLabel = computed(() => panelUx.value.emptyActionLabel)
-const emptyActionAriaLabel = computed(() => panelUx.value.emptyActionLabel)
-const retryDisabledReason = computed(() => toPipelineDisabledReason(controlReasons.value.retry, '当前不能重试全流程'))
-const focusReason = computed(() => props.running ? '' : productionReason.value)
-const longFocusReason = computed(() => focusReason.value.length > 56)
-const focusState = computed(() => {
-  if (props.starting) return 'checking'
-  if (props.stopRequired) return 'error'
-  if (props.running) return props.paused ? 'paused' : 'running'
-  if (locallyStopped.value) return 'stopped'
-  if (hasPipelineError.value) return 'error'
-  if (!draftReason.value && props.productionReadinessState === 'checking') return 'checking'
-  if (!draftReason.value && props.productionReadinessState === 'error') return 'error'
-  return focusReason.value ? 'blocked' : 'ready'
-})
-const focusKicker = computed(() => {
-  if (panelUx.value.progressKicker) return panelUx.value.progressKicker
-  if (locallyStopped.value) return '已停止'
-  if (hasPipelineError.value) return '执行失败'
-  if (!draftReason.value && props.productionReadinessState === 'checking') return '能力检查'
-  if (!draftReason.value && props.productionReadinessState === 'error') return '检查失败'
-  return focusReason.value ? '当前阻断' : '当前任务'
-})
-const focusTitle = computed(() => {
-  if (props.starting) return '正在确认完整成片的运行条件'
-  if (props.stopRequired) return '全流程停止未完成'
-  if (props.running) {
-    return cleanCurrentStep.value || (props.paused ? '全流程生成已暂停' : '正在执行全流程生成')
-  }
-  if (locallyStopped.value) return cleanCurrentStep.value || '全流程已停止'
-  if (hasPipelineError.value) return '全流程生成未完成'
-  if (!draftReason.value && props.productionReadinessState === 'checking') return '正在检查完整成片能力'
-  if (!draftReason.value && props.productionReadinessState === 'error') return '完整成片能力检查失败'
-  return focusReason.value ? '完整成片暂不可生成' : '完整成片已可生成'
-})
-const focusNextStep = computed(() => {
-  if (props.starting) return '确认服务能力与本次调用范围'
-  if (props.stopRequired) return '重试停止剩余远端任务'
-  if (props.running) return props.paused ? '继续当前生成流程' : '等待当前阶段完成'
-  if (locallyStopped.value) return '可重新开始完整成片'
-  if (hasPipelineError.value) return '查看错误后重试全流程'
-  if (props.hasEpisode === false) return '添加一集后再保存剧本或启动生成'
-  if (draftReason.value) return draftReason.value
-  if (props.productionReadinessState === 'checking') return '等待检查完成'
-  if (props.productionReadinessState === 'error') return '重试检查，确认本地服务与配置状态'
-  if (props.productionReadinessState === 'missing') return '前往 AI 配置补齐完整成片能力'
-  return '一键生成完整成片'
-})
-const showReadinessAction = computed(() => (
-  !props.running
-  && !draftReason.value
-  && props.productionReadinessState === 'missing'
-))
-const showReadinessRetry = computed(() => (
-  !props.running
-  && !draftReason.value
-  && props.productionReadinessState === 'error'
-))
-const compactAction = computed(() => getPipelineCompactAction({
-  readinessState: props.productionReadinessState,
-  serviceType: props.productionReadinessServiceType,
-  running: props.running,
-  paused: props.paused,
-  hasEpisode: props.hasEpisode,
-  draftReason: draftReason.value,
-  productionReason: productionReason.value,
-  hasError: hasPipelineError.value,
-}))
-const compactActionAriaLabel = computed(() => {
-  const action = compactAction.value
-  if (!action) return ''
-  const reason = compactDisabledReason.value
-  return reason ? `${action.label}不可用：${reason}` : action.label
-})
+const {
+  compactDisabledReason,
+  emptyGuidanceText,
+  emptyActionLabel,
+  emptyActionAriaLabel,
+  focusReason,
+  longFocusReason,
+  focusState,
+  focusKicker,
+  focusTitle,
+  focusNextStep,
+  compactAction,
+  compactSecondaryAction,
+  compactActionDisabledReason,
+  compactActionAriaLabel,
+  compactSecondaryActionAriaLabel,
+  actionPanelProps,
+  stepsPanelProps,
+  statusPanelProps,
+} = createFilmCreatePipelinePanelBindings(props)
 
-function runCompactAction() {
+function runCompactAction(action) {
   if (props.starting || props.stopping) return
-  const action = compactAction.value
-  if (!action) return
-  if (action.event === 'open-ai-config') emit(action.event, action.payload, { source: 'compact-action' })
-  else emit(action.event)
+  const next = action && typeof action.event === 'string' ? action : compactAction.value
+  if (!next) return
+  if (next.event === 'open-ai-config') emit(next.event, next.payload, { source: 'compact-action' })
+  else emit(next.event)
 }
 
 function focusSummary() {
@@ -651,6 +394,17 @@ function updateSetting(name, value) {
   background: var(--el-color-primary-dark-2);
 }
 
+.pipeline-compact-action.is-secondary {
+  border-color: var(--el-border-color);
+  background: var(--el-fill-color-blank);
+  color: var(--el-text-color-regular);
+}
+.pipeline-compact-action.is-secondary:hover {
+  border-color: var(--el-color-primary);
+  background: var(--el-fill-color-blank);
+  color: var(--el-color-primary);
+}
+
 .pipeline-toggle:hover {
   border-color: var(--el-color-primary);
   color: var(--el-color-primary);
@@ -667,7 +421,6 @@ function updateSetting(name, value) {
 }
 
 .pipeline-toolbar,
-.pipeline-actions,
 .pipeline-utility-actions,
 .pipeline-heading {
   display: flex;
@@ -694,13 +447,6 @@ function updateSetting(name, value) {
   font-size: inherit;
   font-weight: inherit;
   letter-spacing: 0;
-}
-
-.pipeline-actions {
-  justify-content: flex-end;
-  gap: 8px;
-  flex-wrap: wrap;
-  margin-left: auto;
 }
 
 .pipeline-utility-actions {
@@ -812,32 +558,6 @@ function updateSetting(name, value) {
   overflow-y: auto;
 }
 
-.pipeline-config-action {
-  align-self: center;
-}
-
-.pipeline-mode-action {
-  display: inline-grid;
-  gap: 4px;
-  justify-items: stretch;
-}
-
-.pipeline-mode-label {
-  color: var(--el-text-color-secondary);
-  font-size: 10px;
-  font-weight: 600;
-  line-height: 1;
-  text-align: center;
-}
-
-.pipeline-mode-label.is-production {
-  color: var(--el-color-danger);
-}
-
-.pipeline-mode-label.is-draft {
-  color: var(--el-color-info);
-}
-
 .pipeline-settings {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -869,150 +589,24 @@ function updateSetting(name, value) {
   font-size: 13px;
 }
 
-.pipeline-current-step {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 6px;
-  color: var(--el-text-color-primary);
-  font-weight: 500;
-}
-
-.pipeline-step-badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 44px;
-  padding: 1px 7px;
-  border-radius: 10px;
-  background: var(--el-color-primary);
-  color: #fff;
-  font-size: 11px;
-  font-weight: 600;
-  white-space: nowrap;
-}
-
-.pipeline-active-tasks {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-bottom: 8px;
-}
-
-.pipeline-task-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 2px 10px 2px 6px;
-  border: 1px solid var(--el-color-primary-light-7);
-  border-radius: 12px;
-  background: var(--el-color-primary-light-9);
-  color: var(--el-color-primary);
-  font-size: 12px;
-  white-space: nowrap;
-}
-
-.pipeline-task-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--el-color-primary);
-  animation: pipeline-dot-pulse 1.2s ease-in-out infinite;
-}
-
-@keyframes pipeline-dot-pulse {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.4; transform: scale(0.75); }
-}
-
-.pipeline-error-log {
-  max-height: 200px;
-  margin-top: 8px;
-  padding: 12px;
-  overflow-y: auto;
-  border: 1px solid var(--el-color-danger-light-5);
-  border-radius: 6px;
-  background: var(--el-color-danger-light-9);
-  color: var(--el-color-danger);
-}
-
-.pipeline-error-title {
-  margin-bottom: 8px;
-  font-weight: 600;
-}
-
-.pipeline-error-line {
-  margin-bottom: 4px;
-  word-break: break-word;
-}
-
 .pipeline-empty {
   display: grid;
-  gap: 8px;
+  gap: 12px;
   justify-items: start;
   margin: 12px 0 0;
-  color: var(--el-text-color-secondary);
+  color: var(--film-empty-copy, var(--el-text-color-secondary));
   font-size: 13px;
   line-height: 1.6;
 }
 
-.pipeline-error-log :deep(.el-button) {
-  margin-top: 8px;
+.pipeline-empty p {
+  margin: 0;
+  max-width: 36em;
 }
 
-.pipeline-countdown {
-  display: flex;
-  align-items: flex-start;
-  gap: 16px;
-  margin: 10px 0 8px;
-  padding: 12px 14px;
-  border: 1px solid var(--el-color-success-light-5);
-  border-radius: 6px;
-  background: var(--el-color-success-light-9);
+.pipeline-empty :deep(.el-button:focus-visible) {
+  outline: 2px solid #818cf8;
+  outline-offset: 2px;
 }
 
-.pipeline-countdown-ring {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  min-width: 54px;
-  height: 54px;
-  border: 2px solid var(--el-color-success-light-3);
-  border-radius: 50%;
-  color: var(--el-color-success);
-}
-
-.pipeline-countdown-num {
-  font-size: 22px;
-  font-weight: 700;
-  line-height: 1;
-}
-
-.pipeline-countdown-unit {
-  font-size: 11px;
-}
-
-.pipeline-countdown-body {
-  flex: 1;
-  min-width: 0;
-}
-
-.pipeline-countdown-msg {
-  margin: 0 0 8px;
-  color: var(--el-text-color-primary);
-  line-height: 1.5;
-}
-
-.pipeline-countdown-actions {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.pipeline-countdown-paused {
-  color: var(--el-color-warning);
-  font-size: 12px;
-}
 </style>

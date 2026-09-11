@@ -7,8 +7,13 @@ import { compileScript, parse } from '@vue/compiler-sfc'
 import { createRenderer, defineComponent, h, nextTick, ref, watch } from 'vue'
 
 const componentUrl = new URL('../src/components/GlobalMediaPickerDialog.vue', import.meta.url)
-const source = readFileSync(componentUrl, 'utf8')
-const { descriptor, errors } = parse(source, { filename: componentUrl.pathname })
+const parentSource = readFileSync(componentUrl, 'utf8')
+const cardSource = readFileSync(new URL('../src/components/globalMediaPicker/GlobalMediaPickerCard.vue', import.meta.url), 'utf8')
+const emptySource = readFileSync(new URL('../src/components/globalMediaPicker/GlobalMediaPickerEmpty.vue', import.meta.url), 'utf8')
+const footerSource = readFileSync(new URL('../src/components/globalMediaPicker/GlobalMediaPickerFooter.vue', import.meta.url), 'utf8')
+const presentationSource = readFileSync(new URL('../src/components/globalMediaPicker/globalMediaPickerPresentation.js', import.meta.url), 'utf8')
+const source = [parentSource, cardSource, emptySource, footerSource, presentationSource].join('\n')
+const { descriptor, errors } = parse(parentSource, { filename: componentUrl.pathname })
 assert.deepEqual(errors, [])
 
 function dataModule(code) {
@@ -53,6 +58,23 @@ const mediaLibraryStubUrl = dataModule(`
   }
 `)
 
+function compileLocalVue(rel, id) {
+  const url = new URL(rel, import.meta.url)
+  const localSource = readFileSync(url, 'utf8')
+  const parsed = parse(localSource, { filename: url.pathname })
+  assert.deepEqual(parsed.errors, [])
+  let compiled = compileScript(parsed.descriptor, { id, inlineTemplate: true }).content
+  compiled = compiled
+    .replaceAll("from 'vue'", `from '${vueUrl}'`)
+    .replaceAll('from "vue"', `from '${vueUrl}'`)
+  return dataModule(compiled)
+}
+
+const cardModuleUrl = compileLocalVue('../src/components/globalMediaPicker/GlobalMediaPickerCard.vue', 'gmp-card-race')
+const emptyModuleUrl = compileLocalVue('../src/components/globalMediaPicker/GlobalMediaPickerEmpty.vue', 'gmp-empty-race')
+const footerModuleUrl = compileLocalVue('../src/components/globalMediaPicker/GlobalMediaPickerFooter.vue', 'gmp-footer-race')
+const presentationModuleUrl = new URL('../src/components/globalMediaPicker/globalMediaPickerPresentation.js', import.meta.url).href
+
 let compiledSource = compileScript(descriptor, {
   id: 'global-media-picker-dialog-request-race',
   inlineTemplate: true,
@@ -62,6 +84,10 @@ for (const [specifier, resolved] of [
   ['vue', vueUrl],
   ['@/api/assets', assetsApiStubUrl],
   ['@/utils/mediaLibrary', mediaLibraryStubUrl],
+  ['./globalMediaPicker/GlobalMediaPickerCard.vue', cardModuleUrl],
+  ['./globalMediaPicker/GlobalMediaPickerEmpty.vue', emptyModuleUrl],
+  ['./globalMediaPicker/GlobalMediaPickerFooter.vue', footerModuleUrl],
+  ['./globalMediaPicker/globalMediaPickerPresentation.js', presentationModuleUrl],
 ]) {
   compiledSource = compiledSource
     .replaceAll(`from '${specifier}'`, `from '${resolved}'`)

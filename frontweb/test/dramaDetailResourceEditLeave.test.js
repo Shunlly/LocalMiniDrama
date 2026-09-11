@@ -5,34 +5,19 @@ import { readFileSync } from 'node:fs'
 import { parse } from '@vue/compiler-sfc'
 
 import { DRAMA_DETAIL_RESOURCE_DIALOG_FILES, readDramaDetailResourceDialogSources } from './helpers/dramaDetailResourceDialogSources.js'
+import { isResourceEditDirty, snapshotResourceEdit } from '../src/components/dramaDetail/dramaDetailResourceEditorLeave.js'
 
 const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8')
-const dramaDetailSource = read('../src/views/DramaDetail.vue')
+const dramaDetailPageSource = read('../src/views/DramaDetail.vue')
+const leaveSource = read('../src/components/dramaDetail/dramaDetailResourceEditorLeave.js')
+const editorsSource = read('../src/components/dramaDetail/dramaDetailProductionEditors.js')
+const imagesSource = read('../src/components/dramaDetail/dramaDetailResourceImages.js')
+const autosaveSource = read('../src/components/dramaDetail/dramaDetailInfoAutosave.js')
+const listsSource = read('../src/components/dramaDetail/dramaDetailResourceLists.js')
+const dramaDetailSource = [dramaDetailPageSource, leaveSource, editorsSource, imagesSource, autosaveSource, listsSource].join('\n')
 const dramaDetailHeaderSource = read('../src/components/dramaDetail/DramaDetailHeader.vue')
 const dramaDetailDialogsSource = readDramaDetailResourceDialogSources(read)
 const imageEditorSource = read('../src/components/dramaDetail/DramaDetailResourceImageEditor.vue')
-
-function readTopLevelFunction(source, name) {
-  const marker = `function ${name}(`
-  const start = source.indexOf(marker)
-  assert.notEqual(start, -1, `missing ${name}`)
-  const brace = source.indexOf('{', start)
-  let depth = 0
-  for (let index = brace; index < source.length; index += 1) {
-    const char = source[index]
-    if (char === '{') depth += 1
-    else if (char === '}') {
-      depth -= 1
-      if (depth === 0) return source.slice(start, index + 1)
-    }
-  }
-  assert.fail(`unclosed ${name}`)
-}
-
-function loadDramaDetailHelpers(names) {
-  const body = names.map((name) => readTopLevelFunction(dramaDetailSource, name)).join('\n')
-  return new Function(`${body}; return { ${names.join(', ')} }`)()
-}
 
 test('角色场景道具编辑弹窗未保存关闭和离开都要中文确认', () => {
   const editors = [
@@ -85,7 +70,7 @@ test('角色场景道具编辑弹窗未保存关闭和离开都要中文确认',
     )
   }
   assert.match(dramaDetailHeaderSource, /<header class="header">/)
-  assert.match(dramaDetailSource, /@go-list="goList"/)
+  assert.match(dramaDetailPageSource, /@go-list="goList"/)
   for (const visible of [
     'editDramaCharVisible',
     'editDramaSceneVisible',
@@ -103,16 +88,15 @@ test('角色场景道具编辑弹窗未保存关闭和离开都要中文确认',
   assert.match(dramaDetailSource, /await characterLibraryAPI\.update\(editCharForm\.value\.id/)
   assert.match(dramaDetailSource, /editDramaCharVisible\.value = false/)
   assert.match(dramaDetailSource, /editCharVisible\.value = false/)
-  assert.match(dramaDetailSource, /<DramaDetailResourceDialogs v-bind="resourceDialogsBindings"/)
-  assert.match(dramaDetailSource, /from '@\/utils\/elementPlusFeedback\.js'/)
-  assert.doesNotMatch(dramaDetailSource, /from 'element-plus'/)
+  assert.match(dramaDetailPageSource, /<DramaDetailResourceDialogs v-bind="resourceDialogsBindings"/)
+  assert.match(dramaDetailPageSource, /from '@\/utils\/elementPlusFeedback\.js'/)
+  assert.doesNotMatch(dramaDetailPageSource, /from 'element-plus'/)
+  assert.match(leaveSource, /当前角色、场景或道具尚未保存，关闭后本次修改会丢失。/)
+  assert.match(editorsSource, /await characterAPI\.update\(editDramaCharForm\.value\.id/)
+  assert.match(imagesSource, /export function assetImageUrl\(/)
 })
 
 test('资源编辑脏检查只看未保存字段，图片单独变更不算脏', () => {
-  const { snapshotResourceEdit, isResourceEditDirty } = loadDramaDetailHelpers([
-    'snapshotResourceEdit',
-    'isResourceEditDirty',
-  ])
   const keys = ['name', 'description']
   const baseline = snapshotResourceEdit({ name: '阿宁', description: '主角' }, keys)
 

@@ -244,7 +244,7 @@ describe('旁白后处理用户可见错误', () => {
 describe('后处理源码不再拼接英文堆栈给用户', () => {
   it('成片与旁白后处理去掉 e.message 插值', () => {
     const files = [
-      'mergedEpisodePostProcess.js',
+      'mergedEpisodePostProcess.js', 'mergedEpisodePostProcessFfmpeg.js',
       'narrationVideoPostProcess.js',
     ];
     const forbidden = [
@@ -261,9 +261,10 @@ describe('后处理源码不再拼接英文堆栈给用户', () => {
         assert.equal(source.includes(phrase), false, `${name} 仍包含：${phrase}`);
       }
       assert.match(source, /userFacingPostProcessError/);
-      assert.match(source, /未找到 ffmpeg，请确认已安装 ffmpeg 后重试/);
     }
-    const narrationSource = fs.readFileSync(path.join(__dirname, '../src/services/narrationVideoPostProcess.js'), 'utf8');
+    const ffmpegSource = fs.readFileSync(path.join(__dirname, '../src/services/mergedEpisodePostProcessFfmpeg.js'), 'utf8');
+    assert.match(ffmpegSource, /未找到 ffmpeg，请确认已安装 ffmpeg 后重试/);
+        const narrationSource = fs.readFileSync(path.join(__dirname, '../src/services/narrationVideoPostProcess.js'), 'utf8');
     assert.match(narrationSource, /当前没有可烧录的旁白/);
     assert.equal(narrationSource.includes("'NO_NARRATION'"), false);
   });

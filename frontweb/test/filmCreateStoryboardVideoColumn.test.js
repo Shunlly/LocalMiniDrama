@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs'
 
 import { compileScript, parse } from '@vue/compiler-sfc'
 
-import { remainingExtractNamedFunction } from './helpers/remainingSourceBetween.js'
+import { describeSbVideoGridReference as describeGridRaw } from '../src/components/filmCreate/filmCreateStoryboardVideoColumnCopy.js'
 
 const columnSource = readFileSync(
   new URL('../src/components/filmCreate/FilmCreateStoryboardVideoColumn.vue', import.meta.url),
@@ -14,10 +14,14 @@ const columnCss = readFileSync(
   new URL('../src/components/filmCreate/FilmCreateStoryboardVideoColumn.css', import.meta.url),
   'utf8',
 )
+const copySource = readFileSync(
+  new URL('../src/components/filmCreate/filmCreateStoryboardVideoColumnCopy.js', import.meta.url),
+  'utf8',
+)
 
-const describeSbVideoGridReference = new Function(
-  `'use strict'; ${remainingExtractNamedFunction(columnSource, 'describeSbVideoGridReference')}; return describeSbVideoGridReference;`,
-)()
+function describeSbVideoGridReference(input = {}) {
+  return describeGridRaw({ gridMode: 'quad_grid', ...input })
+}
 
 const DRAMA_ID = 11
 const EPISODE_ID = 22
@@ -63,6 +67,7 @@ test('制作页把宫格参考回调接到分镜视频列', () => {
   assert.match(panelSource, /:get-sb-grid-images="getSbGridImages"/)
   assert.match(panelSource, /:get-sb-video-reference-grid="getSbVideoReferenceGrid"/)
   assert.match(panelSource, /:on-open-video-params="onOpenVideoParamsDialog"/)
+  assert.match(panelSource, /:grid-mode="gridMode"/)
   assert.match(workspaceBindingsSource, /storyboardPanel: \{[\s\S]*getSbGridImages/)
   assert.match(workspaceBindingsSource, /storyboardPanel: \{[\s\S]*getSbVideoReferenceGrid/)
 })
@@ -87,7 +92,8 @@ test('宫格参考相关 props 可选且默认空，不破坏现有分镜面板�
   assert.match(columnSource, /onOpenSbPromptDialog:\s*\{\s*type:\s*Function,\s*required:\s*true\s*\}/)
 })
 
-test('视频列始终展示宫格参考状态和无障碍中文标签', () => {
+test('四宫格/九宫格才展示宫格参考状态，并标明可选', () => {
+  assert.match(columnSource, /v-if="gridRefState.visible"/)
   assert.match(columnSource, /class="sb-video-grid-ref"/)
   assert.match(columnSource, /role="status"/)
   assert.match(columnSource, /:aria-label="gridRefState\.ariaLabel"/)
@@ -96,10 +102,10 @@ test('视频列始终展示宫格参考状态和无障碍中文标签', () => {
   assert.match(columnSource, /v-if="gridRefState\.canOpenParams"/)
   assert.match(columnSource, /:aria-label="gridRefState\.actionAriaLabel"/)
   assert.match(columnSource, /@click="onOpenGridRefParams"/)
-  assert.match(columnSource, /已选宫格参考/)
-  assert.match(columnSource, /未选宫格参考/)
-  assert.match(columnSource, /请到「视频参数」中选择宫格参考图/)
-  assert.match(columnSource, /请先生成宫格图，再到「视频参数」中选择/)
+  assert.match(copySource, /已选宫格参考（可选）/)
+  assert.match(copySource, /未选宫格参考（可选）/)
+  assert.match(copySource, /可选：可到「视频参数」中选择宫格参考图/)
+  assert.match(copySource, /可选：可先生成宫格图，再到「视频参数」中选择/)
   assert.match(columnCss, /\.sb-video-grid-ref\s*\{/)
   const ariaLabels = [...columnSource.matchAll(/(?:^|\s)(?:aria-label|:aria-label)\s*=\s*(["'`])([\s\S]*?)\1/g)]
     .map((match) => match[2])
@@ -131,17 +137,17 @@ test('未传入取值器时，按分镜自身的宫格参考图 id 显示状态'
   })
 
   assert.equal(empty.hasSelected, false)
-  assert.equal(empty.statusText, '未选宫格参考')
-  assert.equal(empty.hintText, '请到「视频参数」中选择宫格参考图')
+  assert.equal(empty.statusText, '未选宫格参考（可选）')
+  assert.equal(empty.hintText, '可选：可到「视频参数」中选择宫格参考图')
   assert.equal(empty.canOpenParams, false)
   assert.equal(empty.actionText, '')
-  assert.equal(empty.ariaLabel, '分镜3未选宫格参考')
+  assert.equal(empty.ariaLabel, '分镜3未选宫格参考（可选）')
   assert.match(empty.actionAriaLabel, /打开分镜3视频参数选择宫格参考图/)
 
   assert.equal(selected.hasSelected, true)
-  assert.equal(selected.statusText, '已选宫格参考')
+  assert.equal(selected.statusText, '已选宫格参考（可选）')
   assert.equal(selected.hintText, `宫格整图 #${GRID_IMAGE_ID}`)
-  assert.equal(selected.ariaLabel, '分镜3已选宫格参考')
+  assert.equal(selected.ariaLabel, '分镜3已选宫格参考（可选）')
   assert.notEqual(selected.statusText, empty.statusText)
   assert.equal(otherBoard.hasSelected, true)
   assert.equal(otherBoard.hintText, `宫格整图 #${OTHER_GRID_IMAGE_ID}`)
@@ -180,7 +186,7 @@ test('取值器返回的宫格图优先于分镜字段，且不会把项目/剧�
   })
 
   assert.equal(selectedGrid.hasSelected, true)
-  assert.equal(selectedGrid.statusText, '已选宫格参考')
+  assert.equal(selectedGrid.statusText, '已选宫格参考（可选）')
   assert.equal(selectedGrid.hintText, `九宫格整图 #${OTHER_GRID_IMAGE_ID}`)
   assert.equal(selectedGrid.canOpenParams, true)
   assert.equal(selectedGrid.actionText, '更换')
@@ -188,8 +194,8 @@ test('取值器返回的宫格图优先于分镜字段，且不会把项目/剧�
   assert.deepEqual(calls, [['grid', STORYBOARD_ID], ['selected', STORYBOARD_ID]])
 
   assert.equal(staleId.hasSelected, false)
-  assert.equal(staleId.statusText, '未选宫格参考')
-  assert.equal(staleId.hintText, '请到「视频参数」中选择宫格参考图')
+  assert.equal(staleId.statusText, '未选宫格参考（可选）')
+  assert.equal(staleId.hintText, '可选：可到「视频参数」中选择宫格参考图')
   assert.notEqual(staleId.statusText, selectedGrid.statusText)
 })
 
@@ -224,14 +230,14 @@ test('有宫格图但未选时提示去视频参数；没有宫格图时说明�
   })
 
   assert.equal(hasImages.hasSelected, false)
-  assert.equal(hasImages.hintText, '请到「视频参数」中选择宫格参考图')
+  assert.equal(hasImages.hintText, '可选：可到「视频参数」中选择宫格参考图')
   assert.equal(hasImages.canOpenParams, true)
   assert.equal(hasImages.actionText, '去选择')
   assert.equal(hasImages.actionAriaLabel, '打开分镜3视频参数选择宫格参考图')
 
   assert.equal(noImages.hasSelected, false)
-  assert.equal(noImages.hintText, '请先生成宫格图，再到「视频参数」中选择')
-  assert.equal(noImages.ariaLabel, '分镜8未选宫格参考')
+  assert.equal(noImages.hintText, '可选：可先生成宫格图，再到「视频参数」中选择')
+  assert.equal(noImages.ariaLabel, '分镜8未选宫格参考（可选）')
   assert.notEqual(noImages.hintText, hasImages.hintText)
 
   assert.equal(fallbackVerified.hasSelected, true)
@@ -254,4 +260,33 @@ test('打开视频参数入口只在回调是函数时可用，并传入当前�
   assert.match(columnSource, /if \(typeof props\.onOpenVideoParams === 'function'\)/)
   assert.match(columnSource, /props\.onOpenVideoParams\(props\.sb\)/)
   assert.doesNotMatch(columnSource, /onOpenVideoParamsDialog/)
+})
+
+
+test('序列图单张模式隐藏宫格参考状态，不出现未选宫格文案', () => {
+  const hidden = describeSbVideoGridReference({
+    sb: baseSb(),
+    gridMode: 'single',
+    getSbGridImages: () => [],
+  })
+  const quad = describeSbVideoGridReference({
+    sb: baseSb(),
+    gridMode: 'quad_grid',
+    getSbGridImages: () => [],
+  })
+  const nine = describeSbVideoGridReference({
+    sb: baseSb(),
+    gridMode: 'nine_grid',
+    getSbGridImages: () => [],
+  })
+  assert.equal(hidden.visible, false)
+  assert.equal(hidden.statusText, '')
+  assert.equal(hidden.hintText, '')
+  assert.doesNotMatch(hidden.statusText, /未选宫格参考/)
+  assert.doesNotMatch(hidden.hintText, /请先生成宫格图/)
+  assert.equal(quad.visible, true)
+  assert.equal(quad.optional, true)
+  assert.equal(nine.visible, true)
+  assert.match(quad.statusText, /可选/)
+  assert.match(columnSource, /gridMode:\s*\{\s*type:\s*String,\s*default:\s*'single'\s*\}/)
 })

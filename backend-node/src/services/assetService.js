@@ -1,238 +1,39 @@
+// 只读查询、行装配与项目作用域校验见 assetServiceQuery.js / assetServiceAssembly.js
+// 路径规范化见 assetServicePaths.js，引用检查见 assetServiceReferences.js
+
 const fs = require('fs');
-const path = require('path');
-const { loadConfig } = require('../config');
-const uploadService = require('./uploadService');
-const storageLayout = require('./storageLayout');
 const networkMediaService = require('./networkMediaService');
 const networkCleanupTimers = new WeakMap();
 const dramaWriteGuard = require('./dramaWriteGuard');
 const {
-  normalizeFreeCanvasAssetReferences,
-  normalizeFreeCanvasMediaReference,
-} = require('./freeCanvasValidation');
-
-const ASSET_SELECT = `
-  SELECT
-    a.*,
-    d.title AS source_drama_title
-`;
-
-const ASSET_FROM = `
-  FROM assets a
-  LEFT JOIN dramas d ON d.id = a.drama_id AND d.deleted_at IS NULL
-`;
-
-function list(db, query) {
-  if (query.drama_id && !dramaWriteGuard.canReadDrama(db, Number(query.drama_id))) {
-    return { items: [], total: 0, page: 1, pageSize: Math.min(100, Math.max(1, parseInt(query.page_size, 10) || 20)) };
-  }
-  let sql = 'WHERE a.deleted_at IS NULL';
-  const params = [];
-  if (query.drama_id) {
-    sql += ' AND a.drama_id = ?';
-    params.push(query.drama_id);
-  }
-  if (query.type) {
-    sql += ' AND a.type = ?';
-    params.push(query.type);
-  }
-  const keyword = String(query.keyword ?? '').trim();
-  if (keyword) {
-    sql += ' AND a.name LIKE ?';
-    params.push(`%${keyword}%`);
-  }
-  const page = Math.max(1, parseInt(query.page, 10) || 1);
-  const pageSize = Math.min(100, Math.max(1, parseInt(query.page_size, 10) || 20));
-  const offset = (page - 1) * pageSize;
-  const rows = db.prepare(
-    ASSET_SELECT + ' ' + ASSET_FROM + ' ' + sql + ' ORDER BY a.created_at DESC, a.id DESC'
-  ).all(...params);
-  const visible = rows.filter((row) => dramaWriteGuard.canReadResource(db, 'assets', row.id));
-  return {
-    items: visible.slice(offset, offset + pageSize).map(rowToItem),
-    total: visible.length,
-    page,
-    pageSize,
-  };
-}
-
-function rowToItem(r) {
-  const sourceMetadata = parseNetworkSourceMetadata(r.category);
-  return {
-    id: r.id,
-    drama_id: r.drama_id,
-    name: r.name,
-    type: r.type,
-    category: sourceMetadata ? 'network' : r.category,
-    url: r.url,
-    local_path: r.local_path,
-    file_size: r.file_size,
-    mime_type: r.mime_type,
-    width: r.width,
-    height: r.height,
-    duration: r.duration,
-    image_gen_id: r.image_gen_id,
-    video_gen_id: r.video_gen_id,
-    source_drama_title: r.source_drama_title || null,
-    ...(sourceMetadata ? {
-      source_provider: sourceMetadata.source_provider,
-      source_url: sourceMetadata.source_url,
-      author: sourceMetadata.author,
-      license: sourceMetadata.license,
-      license_url: sourceMetadata.license_url,
-      source_metadata: sourceMetadata,
-    } : {}),
-    created_at: r.created_at,
-    updated_at: r.updated_at,
-  };
-}
-
-function parseNetworkSourceMetadata(value) {
-  if (typeof value !== 'string' || !value.startsWith('{')) return null;
-  try {
-    const parsed = JSON.parse(value);
-    if (parsed?.kind === 'openverse') return parseOpenverseSourceMetadata(parsed);
-    if (
-      parsed?.kind !== 'wikimedia_commons'
-      || parsed.source_provider !== 'Wikimedia Commons'
-      || typeof parsed.source_url !== 'string'
-      || typeof parsed.commons_title !== 'string'
-    ) return null;
-    const source = new URL(parsed.source_url);
-    if (source.protocol !== 'https:' || source.origin !== 'https://commons.wikimedia.org') return null;
-    return parsed;
-  } catch (_) {
-    return null;
-  }
-}
-
-function parseOpenverseSourceMetadata(parsed) {
-  if (parsed.source_provider !== 'Openverse') return null;
-  if (!networkMediaService.isOpenverseId(parsed.openverse_id)) return null;
-  if (typeof parsed.source_url !== 'string' || typeof parsed.license !== 'string') return null;
-  const source = new URL(parsed.source_url);
-  if (source.protocol !== 'https:' || source.origin !== 'https://openverse.org' || source.username || source.password) {
-    return null;
-  }
-  return parsed;
-}
-
-function encodeNetworkSourceMetadata(item) {
-  if (item?.kind === 'openverse' || item?.source === 'openverse') {
-    return JSON.stringify({
-      kind: 'openverse',
-      source_provider: 'Openverse',
-      source_url: item.source_url,
-      author: item.author,
-      license: item.license,
-      license_url: item.license_url || '',
-      landing_page: item.landing_page || '',
-      openverse_id: item.openverse_id,
-      source_site: item.source_site || '',
-      indexed_on: item.indexed_on || '',
-      resolved_download_url: item.resolved_download_url || '',
-      content_sha256: item.content_sha256 || '',
-    });
-  }
-  return JSON.stringify({
-    kind: 'wikimedia_commons',
-    source_provider: 'Wikimedia Commons',
-    source_url: item.source_url,
-    author: item.author,
-    license: item.license,
-    license_url: item.license_url || '',
-    commons_title: item.commons_title,
-    commons_page_id: item.commons_page_id || null,
-    commons_revision_timestamp: item.commons_revision_timestamp || '',
-    commons_sha1: item.commons_sha1 || '',
-    resolved_download_url: item.resolved_download_url || '',
-    content_sha256: item.content_sha256 || '',
-  });
-}
-
-function findNetworkAssetBySource(db, dramaId, source) {
-  const sourceUrl = typeof source === 'string' ? source : source?.source_url;
-  const openverseId = typeof source === 'object' && source
-    ? String(source.openverse_id || '').trim().toLowerCase()
-    : '';
-  const rows = dramaId == null
-    ? db.prepare('SELECT id, category FROM assets WHERE drama_id IS NULL AND deleted_at IS NULL').all()
-    : db.prepare('SELECT id, category FROM assets WHERE drama_id = ? AND deleted_at IS NULL').all(dramaId);
-  const match = rows.find((row) => {
-    const meta = parseNetworkSourceMetadata(row.category);
-    if (!meta) return false;
-    if (openverseId && meta.kind === 'openverse' && String(meta.openverse_id || '').toLowerCase() === openverseId) {
-      return true;
-    }
-    return Boolean(sourceUrl) && meta.source_url === sourceUrl;
-  });
-  return match ? getById(db, match.id) : null;
-}
-
-function isUnchangedNetworkSource(previous, next) {
-  if ((previous.kind || 'wikimedia_commons') === 'wikimedia_commons') {
-    return previous.commons_revision_timestamp === next.commons_revision_timestamp
-      && previous.commons_sha1 === next.commons_sha1
-      && previous.content_sha256 === next.content_sha256;
-  }
-  if (previous.kind === 'openverse') {
-    return String(previous.openverse_id || '').toLowerCase() === String(next.openverse_id || '').toLowerCase()
-      && previous.content_sha256 === next.content_sha256;
-  }
-  return previous.content_sha256 === next.content_sha256 && previous.source_url === next.source_url;
-}
-
-function getById(db, id) {
-  if (!dramaWriteGuard.canReadResource(db, 'assets', id)) return null;
-  const r = db.prepare(
-    ASSET_SELECT + ' ' + ASSET_FROM + ' WHERE a.id = ? AND a.deleted_at IS NULL'
-  ).get(Number(id));
-  return r ? rowToItem(r) : null;
-}
-
-function badRequest(message) {
-  const error = new Error(message);
-  error.code = 'BAD_REQUEST';
-  return error;
-}
+  parseNetworkSourceMetadata,
+  encodeNetworkSourceMetadata,
+  isUnchangedNetworkSource,
+} = require('./assetServiceAssembly');
+const {
+  list,
+  getById,
+  findNetworkAssetBySource,
+  resolveDramaScope,
+  assetBadRequest: badRequest,
+} = require('./assetServiceQuery');
+const {
+  normalizeLocalReference,
+  localPathReferenceKey,
+  configuredStorageRoot,
+  controlledUploadReference,
+  resolveControlledUploadPath,
+  assertProjectPathScope,
+} = require('./assetServicePaths');
+const {
+  storyboardReferencesForAsset,
+  freeCanvasReferencesForAsset,
+  sameControlledFile,
+  assetInUseError,
+} = require('./assetServiceReferences');
 
 function isPlainObject(value) {
   return value != null && typeof value === 'object' && !Array.isArray(value);
-}
-
-function resolveDramaScope(db, value, options = {}) {
-  if (value === undefined || value === null) return null;
-  const normalized = options.strictDramaId
-    ? value
-    : (typeof value === 'string' && /^\d+$/.test(value) ? Number(value) : value);
-  if (!Number.isSafeInteger(normalized) || normalized <= 0) {
-    throw badRequest('项目 ID 必须是正整数');
-  }
-  dramaWriteGuard.assertDramaWritable(db, normalized);
-  let drama;
-  try {
-    drama = db.prepare(
-      'SELECT id, title, created_at, metadata, trash_state FROM dramas WHERE id = ? AND deleted_at IS NULL'
-    ).get(normalized);
-  } catch (error) {
-    if (!/no such column: trash_state/i.test(error?.message || '')) throw error;
-    drama = db.prepare(
-      'SELECT id, title, created_at, metadata, NULL AS trash_state FROM dramas WHERE id = ? AND deleted_at IS NULL'
-    ).get(normalized);
-  }
-  if (!drama) throw badRequest('项目不存在');
-  return drama;
-}
-
-function normalizeLocalReference(value, field) {
-  if (value === undefined || value === null || value === '') return null;
-  if (typeof value !== 'string') throw badRequest(`${field === 'local_path' ? '本地路径' : field === 'url' ? '媒体地址' : '媒体路径'} 必须为安全的本地媒体引用`);
-  try {
-    const relative = value.startsWith('/static/') ? value.slice('/static/'.length) : value;
-    return uploadService.normalizeStorageRelativeReference(relative);
-  } catch (_) {
-    throw badRequest(`${field === 'local_path' ? '本地路径' : field === 'url' ? '媒体地址' : '媒体路径'} 必须为安全的本地媒体引用`);
-  }
 }
 
 function isLoopbackHostname(hostname) {
@@ -265,26 +66,6 @@ function normalizeAssetUrlReference(value, localPath) {
     return local;
   }
   throw badRequest('远程素材地址需要完整的域名解析和私网校验，当前同步接口拒绝持久化');
-}
-
-function isAllowedProjectPath(drama, localPath) {
-  if (!localPath) return true;
-  if (localPath === 'library' || localPath.startsWith('library/')) return true;
-  if (!drama) return localPath === 'uploads' || localPath.startsWith('uploads/');
-  const currentPrefix = storageLayout.buildProjectRelativeDir(drama);
-  const legacyPrefix = `dramas/${Number(drama.id)}`;
-  return localPath === currentPrefix
-    || localPath.startsWith(`${currentPrefix}/`)
-    || localPath === legacyPrefix
-    || localPath.startsWith(`${legacyPrefix}/`);
-}
-
-function assertProjectPathScope(drama, localPath, field) {
-  if (!localPath) return localPath;
-  if (!isAllowedProjectPath(drama, localPath)) {
-    throw badRequest(`${field} 不属于当前项目或公共素材库`);
-  }
-  return localPath;
 }
 
 function normalizeAssetMedia(db, drama, req) {
@@ -391,214 +172,6 @@ function update(db, log, id, req) {
       .run(...params);
     return getById(db, row.id);
   });
-}
-
-function normalizeLocalPath(localPath) {
-  if (typeof localPath !== 'string') return null;
-  const raw = localPath.trim();
-  if (!raw) return null;
-  const relative = raw.startsWith('/static/') ? raw.slice('/static/'.length) : raw;
-  try {
-    return uploadService.normalizeStorageRelativeReference(relative);
-  } catch (_) {
-    return null;
-  }
-}
-
-function localPathReferenceKey(localPath) {
-  const normalized = normalizeLocalPath(localPath);
-  return process.platform === 'win32' && normalized ? normalized.toLowerCase() : normalized;
-}
-
-function physicalPathKey(filePath) {
-  if (typeof filePath !== 'string' || !filePath) return null;
-  const resolved = path.resolve(filePath);
-  return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
-}
-
-function isWithinRoot(rootPath, candidatePath) {
-  const relative = path.relative(rootPath, candidatePath);
-  return relative !== '' && relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
-}
-
-function configuredStorageRoot(options = {}) {
-  if (options.storageRoot) return path.resolve(options.storageRoot);
-  const cfg = loadConfig();
-  const rawStorage = cfg?.storage?.local_path || './data/storage';
-  return path.isAbsolute(rawStorage) ? rawStorage : path.join(process.cwd(), rawStorage);
-}
-
-function controlledUploadReference(localPath) {
-  const normalized = normalizeLocalPath(localPath);
-  if (!normalized) return null;
-  const segments = normalized.split('/');
-  if (segments.length < 2 || segments[segments.length - 2] !== 'uploads') return null;
-  return normalized;
-}
-
-function resolveControlledUploadPath(storageRoot, localPath) {
-  const normalized = controlledUploadReference(localPath);
-  if (!normalized) return null;
-  const segments = normalized.split('/');
-
-  const root = path.resolve(storageRoot);
-  const candidate = path.resolve(root, ...segments);
-  if (!isWithinRoot(root, candidate)) return null;
-  try {
-    const realRoot = fs.realpathSync.native(root);
-    const realCandidate = fs.realpathSync.native(candidate);
-    if (!isWithinRoot(realRoot, realCandidate)) return null;
-    const candidateStat = fs.statSync(candidate);
-    const realCandidateStat = fs.statSync(realCandidate);
-    if (
-      !candidateStat.isFile()
-      || candidateStat.dev !== realCandidateStat.dev
-      || candidateStat.ino !== realCandidateStat.ino
-    ) {
-      return null;
-    }
-    return {
-      absolutePath: candidate,
-      normalizedPath: normalized,
-      realPath: realCandidate,
-      identity: `${candidateStat.dev}:${candidateStat.ino}`,
-    };
-  } catch (error) {
-    if (error?.code === 'ENOENT') return null;
-    throw error;
-  }
-}
-
-function storyboardReferencesForAsset(db, asset) {
-  const assetId = Number(asset?.id);
-  const assetPathKey = localPathReferenceKey(asset?.local_path);
-  const rows = db.prepare(
-    `SELECT id, reference_images
-       FROM storyboards
-      WHERE deleted_at IS NULL
-        AND reference_images IS NOT NULL
-        AND TRIM(reference_images) <> ''`
-  ).all();
-  const storyboardIds = [];
-  for (const row of rows) {
-    let references;
-    try { references = JSON.parse(row.reference_images); } catch (_) { continue; }
-    if (!Array.isArray(references)) continue;
-    const matched = references.some((reference) => {
-      if (typeof reference === 'string') {
-        return assetPathKey && localPathReferenceKey(reference) === assetPathKey;
-      }
-      if (!reference || typeof reference !== 'object' || Array.isArray(reference)) return false;
-      if (Number(reference.asset_id) === assetId) return true;
-      return assetPathKey
-        && localPathReferenceKey(reference.local_path || reference.image_url || reference.url) === assetPathKey;
-    });
-    if (matched) storyboardIds.push(Number(row.id));
-  }
-  return storyboardIds;
-}
-
-function nodeAssetIdMatches(node, dramaId, assetId) {
-  for (const field of ['assetId', 'asset_ref']) {
-    if (node[field] === undefined) continue;
-    try {
-      const reference = normalizeFreeCanvasAssetReferences({ [field]: node[field] }, dramaId);
-      if (reference.resolvedId === assetId) return true;
-    } catch (error) {
-      if (error?.code !== 'BAD_REQUEST') throw error;
-    }
-  }
-  return false;
-}
-
-function freeCanvasReferencesForAsset(db, asset) {
-  const assetId = Number(asset?.id);
-  const assetPath = normalizeLocalPath(asset?.local_path);
-  const assetPathKey = localPathReferenceKey(assetPath);
-  const isLegacyGlobalUpload = Number(asset?.drama_id) === 0
-    && (assetPath === 'uploads' || assetPath?.startsWith('uploads/'));
-  const isGlobalAsset = asset?.drama_id == null || isLegacyGlobalUpload;
-  const ownerDramaId = Number(asset?.drama_id);
-  const rows = db.prepare(
-    `SELECT id, metadata
-       FROM dramas
-      WHERE deleted_at IS NULL
-        AND metadata IS NOT NULL
-      ORDER BY id`
-  ).all();
-  const dramaIds = [];
-
-  for (const row of rows) {
-    const dramaId = Number(row.id);
-    if (!isGlobalAsset && dramaId !== ownerDramaId) continue;
-
-    let metadata;
-    try {
-      metadata = JSON.parse(row.metadata);
-    } catch (_) {
-      continue;
-    }
-    if (!isPlainObject(metadata)) continue;
-    if (!Object.prototype.hasOwnProperty.call(metadata, 'free_canvas')) continue;
-    const canvas = metadata.free_canvas;
-    if (!isPlainObject(canvas) || !Array.isArray(canvas.nodes)) continue;
-
-    let matched = false;
-    for (const node of canvas.nodes) {
-      if (!isPlainObject(node)) continue;
-      if (nodeAssetIdMatches(node, dramaId, assetId)) {
-        matched = true;
-        break;
-      }
-
-      if (!assetPathKey) continue;
-      const mediaFields = ['storageKey'];
-      if (['image', 'video'].includes(node.type)) mediaFields.unshift('content');
-      for (const field of mediaFields) {
-        if (node[field] === undefined) continue;
-        let candidate;
-        try {
-          candidate = normalizeFreeCanvasMediaReference(db, dramaId, node[field], {
-            allowLegacyGlobalUploads: isGlobalAsset,
-          });
-        } catch (error) {
-          if (error?.code !== 'BAD_REQUEST') throw error;
-          continue;
-        }
-        if (localPathReferenceKey(candidate) === assetPathKey) {
-          matched = true;
-          break;
-        }
-      }
-      if (matched) break;
-    }
-    if (matched) dramaIds.push(dramaId);
-  }
-  return dramaIds;
-}
-
-function sameControlledFile(left, right) {
-  if (!left || !right) return false;
-  return localPathReferenceKey(left.normalizedPath) === localPathReferenceKey(right.normalizedPath)
-    && physicalPathKey(left.realPath) === physicalPathKey(right.realPath)
-    && left.identity === right.identity;
-}
-
-function assetInUseError(storyboardIds, freeCanvasDramaIds = []) {
-  const referenceCount = storyboardIds.length + freeCanvasDramaIds.length;
-  const error = freeCanvasDramaIds.length
-    ? new Error(`素材正在被 ${referenceCount} 处引用，请先移除引用后再删除`)
-    : new Error(`素材正在被 ${storyboardIds.length} 个分镜引用，请先从分镜中移除后再删除`);
-  error.code = 'ASSET_IN_USE';
-  error.statusCode = 409;
-  error.details = {
-    reference_count: referenceCount,
-    storyboard_ids: storyboardIds.slice(0, 20),
-  };
-  if (freeCanvasDramaIds.length) {
-    error.details.free_canvas_drama_ids = freeCanvasDramaIds.slice(0, 20);
-  }
-  return error;
 }
 
 function deleteById(db, log, id, options = {}) {

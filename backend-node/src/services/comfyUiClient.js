@@ -4,157 +4,36 @@ const path = require('path');
 const uploadService = require('./uploadService');
 const { requireCompleteProviderNetworkPolicy } = require('./providerNetworkPolicy');
 const { redirectRequestOptions, secureHttpFetch, validateHttpRequestTarget } = require('./secureHttpFetch');
-const { isSensitiveFieldKey } = require('./sensitiveFieldPolicy');
 const {
-  isTrustedChineseUserError,
-  toUserFacingGatewayError,
-  toUserFacingProcessError,
-} = require('./providerErrorSanitizer');
+  ComfyUiError,
+  comfyFallbackMessage,
+  createAbortError,
+  readProviderError,
+  sanitizeProviderText,
+  trustedChineseDetail,
+} = require('./comfyUiErrors');
+const {
+  buildHeaders,
+  buildWorkflow,
+  collectSecrets,
+  extensionForMime,
+  joinUrl,
+  mimeForFilename,
+  normalizeBaseUrl,
+  numericSetting,
+  parseDataUrl,
+  parseSettings,
+  replaceWorkflowPlaceholders,
+  resolveHistoryEndpoint,
+} = require('./comfyUiProtocol');
+const { waitForComfyUiCompletion } = require('./comfyUiPollControl');
+
+// ComfyUI 图片客户端：请求编排与公开 API。协议解析、错误装配、轮询控制已拆出；本模块不新增真实接入。
 
 const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
 const DEFAULT_REQUEST_TIMEOUT_MS = 30 * 1000;
 const DEFAULT_POLL_INTERVAL_MS = 1000;
 const DEFAULT_MAX_IMAGE_BYTES = 50 * 1024 * 1024;
-
-class ComfyUiError extends Error {
-  constructor(message, code, details = {}) {
-    super(message);
-    this.name = 'ComfyUiError';
-    this.code = code || 'COMFYUI_ERROR';
-    if (details.status != null) this.status = details.status;
-    if (details.promptId) this.promptId = details.promptId;
-  }
-}
-
-function parseSettings(config) {
-  const raw = config?.settings;
-  if (!raw) return {};
-  if (typeof raw === 'object' && !Array.isArray(raw)) {
-    const nested = raw.comfyui && typeof raw.comfyui === 'object' ? raw.comfyui : {};
-    return { ...raw, ...nested };
-  }
-  try {
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
-    const nested = parsed.comfyui && typeof parsed.comfyui === 'object' ? parsed.comfyui : {};
-    return { ...parsed, ...nested };
-  } catch (_) {
-    throw new ComfyUiError('ComfyUI 配置不是有效的 JSON', 'INVALID_SETTINGS');
-  }
-}
-
-function normalizeBaseUrl(value) {
-  const text = String(value || '').trim().replace(/\/+$/, '');
-  if (!text) throw new ComfyUiError('ComfyUI 接口地址未配置', 'INVALID_CONFIG');
-  let parsed;
-  try {
-    parsed = new URL(text);
-  } catch (_) {
-    throw new ComfyUiError('ComfyUI 接口地址无效', 'INVALID_CONFIG');
-  }
-  if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password) {
-    throw new ComfyUiError('ComfyUI 接口地址必须是无内嵌凭据的 HTTP(S) 地址', 'INVALID_CONFIG');
-  }
-  return text;
-}
-
-function joinUrl(baseUrl, endpoint) {
-  const suffix = String(endpoint || '').trim() || '/';
-  return `${baseUrl}/${suffix.replace(/^\/+/, '')}`;
-}
-
-function numericSetting(value, fallback, minimum = 1) {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed >= minimum ? parsed : fallback;
-}
-
-function normalizeHeaderValue(value) {
-  return value == null ? '' : String(value).trim();
-}
-
-function normalizeCustomHeaders(settings) {
-  const headers = {};
-  for (const [key, value] of Object.entries(settings?.headers || {})) {
-    const normalizedValue = normalizeHeaderValue(value);
-    if (normalizedValue) headers[key] = normalizedValue;
-  }
-  return headers;
-}
-
-function collectSecrets(config, settings) {
-  const secrets = [];
-  const apiKey = normalizeHeaderValue(config?.api_key);
-  if (apiKey) secrets.push(apiKey);
-  for (const [key, value] of Object.entries(normalizeCustomHeaders(settings))) {
-    if (isSensitiveFieldKey(key)) secrets.push(value);
-  }
-  return [...new Set(secrets)];
-}
-
-function sanitizeProviderText(value, secrets = []) {
-  let text = String(value || '').replace(/[\u0000-\u001f\u007f]+/g, ' ').trim();
-  for (const secret of secrets) {
-    text = text.split(secret).join('********');
-  }
-  text = text
-    .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]+/gi, 'Bearer ********')
-    .replace(/((?:api[-_]?key|access[-_]?token|token|secret|authorization)["'\s:=]+)[^\s,"'}]+/gi, '$1********')
-    .replace(/https?:\/\/[^\s"']+/gi, (rawUrl) => {
-      try {
-        const parsed = new URL(rawUrl);
-        return `${parsed.protocol}//${parsed.host}${parsed.pathname}`;
-      } catch (_) {
-        return '[redacted-url]';
-      }
-    });
-  return text.slice(0, 300);
-}
-
-function trustedChineseDetail(value, secrets = []) {
-  const text = sanitizeProviderText(value, secrets);
-  return isTrustedChineseUserError(text) ? text : '';
-}
-
-function comfyFallbackMessage(error, fallback, secrets = []) {
-  const trusted = trustedChineseDetail(error?.message || error, secrets);
-  if (trusted) return trusted;
-  const mapped = toUserFacingProcessError(error, fallback);
-  return isTrustedChineseUserError(mapped) ? mapped : fallback;
-}
-
-function comfyProviderFailure(response, operation, detail, context) {
-  const trusted = trustedChineseDetail(detail, context.secrets);
-  const mapped = toUserFacingGatewayError(
-    Object.assign(new Error('provider error'), { status: response.status }),
-    { provider: 'ComfyUI', operation }
-  );
-  const message = trusted || mapped;
-  return new ComfyUiError(message, 'COMFYUI_PROVIDER', {
-    status: response.status,
-    promptId: context.promptId,
-  });
-}
-
-function buildHeaders(config, settings, json = false) {
-  const headers = {};
-  for (const [key, value] of Object.entries(normalizeCustomHeaders(settings))) {
-    if (!json && key.toLowerCase() === 'content-type') continue;
-    headers[key] = value;
-  }
-  const apiKey = normalizeHeaderValue(config?.api_key);
-  if (apiKey && !headers.Authorization && !headers.authorization) {
-    headers.Authorization = `Bearer ${apiKey}`;
-  }
-  if (json) headers['Content-Type'] = 'application/json';
-  return headers;
-}
-
-function createAbortError(code, promptId) {
-  if (code === 'COMFYUI_CANCELLED') {
-    return new ComfyUiError('ComfyUI 任务已取消', code, { promptId });
-  }
-  return new ComfyUiError('ComfyUI 任务超时', 'COMFYUI_TIMEOUT', { promptId });
-}
 
 async function fetchWithLimits(url, options, context) {
   const controller = new AbortController();
@@ -232,24 +111,6 @@ async function fetchWithLimits(url, options, context) {
   }
 }
 
-async function readProviderError(response, operation, context) {
-  let raw = '';
-  try {
-    raw = await response.text();
-  } catch (_) {}
-  let detail = raw;
-  try {
-    const parsed = JSON.parse(raw);
-    detail = parsed?.error?.message
-      || parsed?.message
-      || parsed?.error
-      || parsed?.node_errors
-      || '';
-    if (typeof detail !== 'string') detail = JSON.stringify(detail);
-  } catch (_) {}
-  return comfyProviderFailure(response, operation, detail, context);
-}
-
 async function requestJson(baseUrl, endpoint, options, operation, context) {
   const response = await fetchWithLimits(joinUrl(baseUrl, endpoint), options, context);
   if (!response.ok) throw await readProviderError(response, operation, context);
@@ -261,43 +122,6 @@ async function requestJson(baseUrl, endpoint, options, operation, context) {
       promptId: context.promptId,
     });
   }
-}
-
-function parseDataUrl(value) {
-  const match = String(value || '').match(/^data:([^;,]+)?(;base64)?,([\s\S]*)$/i);
-  if (!match) return null;
-  const mimeType = match[1] || 'application/octet-stream';
-  try {
-    const buffer = match[2]
-      ? Buffer.from(match[3].replace(/\s/g, ''), 'base64')
-      : Buffer.from(decodeURIComponent(match[3]));
-    return { buffer, mimeType, filename: `reference.${extensionForMime(mimeType)}` };
-  } catch (_) {
-    throw new ComfyUiError('ComfyUI 参考图内嵌地址无效', 'INVALID_REFERENCE');
-  }
-}
-
-function extensionForMime(mimeType) {
-  const normalized = String(mimeType || '').split(';')[0].toLowerCase();
-  return {
-    'image/jpeg': 'jpg',
-    'image/png': 'png',
-    'image/webp': 'webp',
-    'image/gif': 'gif',
-    'image/bmp': 'bmp',
-  }[normalized] || 'png';
-}
-
-function mimeForFilename(filename) {
-  const ext = path.extname(String(filename || '')).toLowerCase();
-  return {
-    '.jpg': 'image/jpeg',
-    '.jpeg': 'image/jpeg',
-    '.png': 'image/png',
-    '.webp': 'image/webp',
-    '.gif': 'image/gif',
-    '.bmp': 'image/bmp',
-  }[ext] || 'application/octet-stream';
 }
 
 function resolveLocalReference(value, storageLocalPath, maxBytes) {
@@ -396,184 +220,16 @@ async function uploadReference(baseUrl, config, settings, value, index, opts, co
   return subfolder ? `${subfolder}/${name}` : String(name);
 }
 
-function getWorkflowTemplate(config, settings) {
-  let template = settings.workflow ?? settings.workflow_json ?? settings.workflow_template ?? config?.workflow;
-  if (typeof template === 'string') {
-    try {
-      template = JSON.parse(template);
-    } catch (_) {
-      throw new ComfyUiError('ComfyUI 工作流模板不是有效的 JSON', 'INVALID_WORKFLOW');
-    }
-  }
-  if (!template || typeof template !== 'object' || Array.isArray(template)) {
-    throw new ComfyUiError('ComfyUI 工作流模板未配置', 'INVALID_WORKFLOW');
-  }
-  return template;
-}
-
-function tokenMatches(value) {
-  const text = String(value);
-  const exact = text.match(/^\s*(?:\{\{\s*([A-Za-z0-9_.-]+)\s*\}\}|\$\{\s*([A-Za-z0-9_.-]+)\s*\}|__([A-Za-z0-9_.-]+)__)\s*$/);
-  return exact ? (exact[1] || exact[2] || exact[3]) : null;
-}
-
-function replaceWorkflowPlaceholders(template, replacements) {
-  const values = new Map(Object.entries(replacements || {}).map(([key, value]) => [String(key).toLowerCase(), value]));
-  const unresolved = new Set();
-  const lookup = (name) => {
-    const key = String(name).toLowerCase();
-    if (values.has(key)) return values.get(key);
-    if (/^(?:reference|input)_image_?\d+$/.test(key)) return '';
-    unresolved.add(name);
-    return undefined;
-  };
-  const visit = (value) => {
-    if (Array.isArray(value)) return value.map(visit);
-    if (value && typeof value === 'object') {
-      return Object.fromEntries(Object.entries(value).map(([key, child]) => [key, visit(child)]));
-    }
-    if (typeof value !== 'string') return value;
-    const exactName = tokenMatches(value);
-    if (exactName) {
-      const exactValue = lookup(exactName);
-      return exactValue === undefined ? value : exactValue;
-    }
-    return value.replace(
-      /\{\{\s*([A-Za-z0-9_.-]+)\s*\}\}|\$\{\s*([A-Za-z0-9_.-]+)\s*\}|__([A-Za-z0-9_.-]+)__/g,
-      (match, curly, dollar, underscored) => {
-        const replacement = lookup(curly || dollar || underscored);
-        if (replacement === undefined) return match;
-        return Array.isArray(replacement) || (replacement && typeof replacement === 'object')
-          ? JSON.stringify(replacement)
-          : String(replacement);
-      }
-    );
-  };
-  const workflow = visit(template);
-  if (unresolved.size > 0) {
-    throw new ComfyUiError(`ComfyUI 工作流存在未定义占位符：${Array.from(unresolved).join(', ')}`, 'INVALID_WORKFLOW');
-  }
-  return workflow;
-}
-
-function parseSize(size) {
-  const match = String(size || '').match(/(\d+)\s*[xX*×]\s*(\d+)/);
-  if (!match) return { width: 1024, height: 1024 };
-  return { width: Number(match[1]), height: Number(match[2]) };
-}
-
-function buildWorkflow(config, settings, opts, uploadedReferences) {
-  const template = getWorkflowTemplate(config, settings);
-  const { width, height } = parseSize(opts.size);
-  const configuredSeed = opts.seed ?? settings.seed;
-  const parsedSeed = Number(configuredSeed);
-  const seed = configuredSeed == null || configuredSeed === '' || !Number.isFinite(parsedSeed)
-    ? crypto.randomBytes(6).readUIntBE(0, 6)
-    : parsedSeed;
-  const customValues = {
-    ...(settings.variables && typeof settings.variables === 'object' ? settings.variables : {}),
-    ...(opts.workflow_variables && typeof opts.workflow_variables === 'object' ? opts.workflow_variables : {}),
-  };
-  const replacements = {
-    ...customValues,
-    prompt: String(opts.prompt || ''),
-    negative_prompt: String(opts.negative_prompt || ''),
-    model: String(opts.model || config.default_model || ''),
-    width,
-    height,
-    size: String(opts.size || `${width}x${height}`),
-    seed,
-    batch_size: Number(opts.batch_size || 1),
-    quality: String(opts.quality || ''),
-    reference_image: uploadedReferences[0] || '',
-    input_image: uploadedReferences[0] || '',
-    reference_images: uploadedReferences,
-  };
-  uploadedReferences.forEach((reference, index) => {
-    replacements[`reference_image_${index + 1}`] = reference;
-    replacements[`input_image_${index + 1}`] = reference;
-  });
-  return replaceWorkflowPlaceholders(template, replacements);
-}
-
-function getHistoryEntry(history, promptId) {
-  if (!history || typeof history !== 'object') return null;
-  return history[promptId] || (history.prompt_id === promptId ? history : null);
-}
-
-function historyErrorMessage(entry) {
-  const status = entry?.status;
-  const statusText = String(status?.status_str || status?.status || '').toLowerCase();
-  if (!/error|failed/.test(statusText)) return '';
-  const messages = Array.isArray(status?.messages) ? status.messages : [];
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const item = messages[index];
-    const payload = Array.isArray(item) ? item[1] : item;
-    const message = payload?.exception_message || payload?.message || payload?.error;
-    if (message) return String(message);
-  }
-  return '工作流执行失败';
-}
-
-function extractOutputs(entry, settings) {
-  const outputs = entry?.outputs;
-  if (!outputs || typeof outputs !== 'object') return [];
-  const configuredNodes = settings.output_node_ids || (settings.output_node_id != null ? [settings.output_node_id] : null);
-  const nodeIds = configuredNodes
-    ? configuredNodes.map(String)
-    : Object.keys(outputs).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
-  const items = [];
-  for (const nodeId of nodeIds) {
-    const nodeOutput = outputs[nodeId];
-    for (const image of nodeOutput?.images || []) {
-      if (image?.filename) items.push(image);
-    }
-  }
-  return items;
-}
-
 async function waitForCompletion(baseUrl, config, settings, promptId, context) {
-  const endpointTemplate = config.query_endpoint || settings.history_endpoint || '/history/{promptId}';
-  const endpoint = endpointTemplate
-    .replace(/\{promptId\}/g, encodeURIComponent(promptId))
-    .replace(/\{taskId\}/g, encodeURIComponent(promptId));
-  while (true) {
-    if (context.signal?.aborted) throw createAbortError('COMFYUI_CANCELLED', promptId);
-    if (Date.now() >= context.deadline) throw createAbortError('COMFYUI_TIMEOUT', promptId);
-    context.promptId = promptId;
-    const history = await requestJson(baseUrl, endpoint, {
+  const endpoint = resolveHistoryEndpoint(config, settings, promptId);
+  return waitForComfyUiCompletion({
+    promptId,
+    context,
+    settings,
+    queryHistory: () => requestJson(baseUrl, endpoint, {
       method: 'GET',
       headers: buildHeaders(config, settings, false),
-    }, '历史查询', context);
-    const entry = getHistoryEntry(history, promptId);
-    if (entry) {
-      const providerError = historyErrorMessage(entry);
-      if (providerError) {
-        const safe = trustedChineseDetail(providerError, context.secrets);
-        throw new ComfyUiError(safe ? `ComfyUI 工作流执行失败：${safe}` : 'ComfyUI 工作流执行失败', 'COMFYUI_EXECUTION', { promptId });
-      }
-      const images = extractOutputs(entry, settings);
-      if (images.length > 0) return images;
-      if (entry?.status?.completed === true) {
-        throw new ComfyUiError('ComfyUI 工作流已完成但没有图片输出', 'COMFYUI_NO_OUTPUT', { promptId });
-      }
-    }
-    await abortableDelay(context.pollIntervalMs, context.signal, promptId);
-  }
-}
-
-function abortableDelay(ms, signal, promptId) {
-  return new Promise((resolve, reject) => {
-    if (signal?.aborted) return reject(createAbortError('COMFYUI_CANCELLED', promptId));
-    const timer = setTimeout(() => {
-      signal?.removeEventListener('abort', onAbort);
-      resolve();
-    }, ms);
-    const onAbort = () => {
-      clearTimeout(timer);
-      reject(createAbortError('COMFYUI_CANCELLED', promptId));
-    };
-    signal?.addEventListener('abort', onAbort, { once: true });
+    }, '历史查询', context),
   });
 }
 

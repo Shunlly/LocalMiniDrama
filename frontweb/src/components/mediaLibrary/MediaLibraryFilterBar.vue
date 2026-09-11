@@ -20,7 +20,7 @@
 
 <script setup>
 
-// 仅展示本地筛选栏；筛选状态和加载仍留在素材中心页。
+// 仅展示本地筛选栏；筛选状态仍留在素材中心页，加载函数由页面注入。
 import { Search } from '@element-plus/icons-vue'
 
 const mediaType = defineModel('mediaType', { type: String, required: true })

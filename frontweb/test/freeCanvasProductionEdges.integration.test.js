@@ -8,6 +8,7 @@ import { remainingExtractNamedFunction } from './helpers/remainingSourceBetween.
 const canvasSource = [
   readFileSync(new URL('../src/views/DramaCanvas.vue', import.meta.url), 'utf8'),
   readFileSync(new URL('../src/views/DramaCanvas.css', import.meta.url), 'utf8'),
+  readFileSync(new URL('../src/components/dramaCanvas/dramaCanvasRouteFocus.js', import.meta.url), 'utf8'),
   readFileSync(new URL('../src/composables/useDramaCanvasFreeCanvas.js', import.meta.url), 'utf8'),
 ].join('\n')
 

@@ -3,12 +3,19 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { effectScope, ref } from 'vue'
 import { createFilmCreateWorkspaceBindingSources } from '../src/components/filmCreate/filmCreateWorkspaceBindings.js'
+import { createFilmCreateCloseoutBindings } from '../src/components/filmCreate/filmCreateCloseoutBindings.js'
 import {
   FILM_CREATE_OUTPUT_SECTION_MODEL_KEYS,
   FILM_CREATE_PIPELINE_PANEL_MODEL_KEYS,
   createFilmCreateSurfaceBindingSources,
   createFilmCreateSurfaceBindings,
 } from '../src/components/filmCreate/filmCreateSurfaceBindings.js'
+import {
+  FILM_CREATE_QUICK_NAV_MODEL_KEYS,
+  FILM_CREATE_WORKSPACE_LAYER_MODEL_KEYS,
+  createFilmCreateShellBindingSources,
+  createFilmCreateShellBindings,
+} from '../src/components/filmCreate/filmCreateShellBindings.js'
 
 import { requestCoreJson } from '../src/utils/coreJsonRequest.js'
 import {
@@ -154,8 +161,12 @@ test('script estimate and concurrent runner keep pipeline semantics', async () =
 test('制作页把工作台绑定源交给独立装配函数', () => {
   const filmCreateSource = readFileSync(new URL('../src/views/FilmCreate.vue', import.meta.url), 'utf8')
   const workspaceBindingsSource = readFileSync(new URL('../src/components/filmCreate/filmCreateWorkspaceBindings.js', import.meta.url), 'utf8')
-  assert.match(filmCreateSource, /createFilmCreateWorkspaceBindingSources\(/)
-  assert.match(filmCreateSource, /useFilmCreateWorkspaceBootstrap\(\{/)
+  const closeoutBindingsSource = readFileSync(new URL('../src/components/filmCreate/filmCreateCloseoutBindings.js', import.meta.url), 'utf8')
+  assert.match(filmCreateSource, /createFilmCreateCloseoutBindings\(/)
+  assert.doesNotMatch(filmCreateSource, /createFilmCreateWorkspaceBindingSources\(/)
+  assert.doesNotMatch(filmCreateSource, /useFilmCreateWorkspaceBootstrap\(/)
+  assert.match(closeoutBindingsSource, /createFilmCreateWorkspaceBindingSources\(ctx\)/)
+  assert.match(closeoutBindingsSource, /useFilmCreateWorkspaceBootstrap\(\{/)
   assert.match(filmCreateSource, /v-bind="resourcePanelBindings"/)
   assert.match(filmCreateSource, /v-bind="storyboardPanelBindings"/)
   assert.doesNotMatch(filmCreateSource, /resourcePanel: \{/)
@@ -300,3 +311,235 @@ test('页头/流水线/交付区绑定源只映射已有状态，不改 episodeI
     scope.stop()
   }
 })
+
+test('制作页把侧栏、加载面、依赖警告和弹窗层显式 props 交给独立绑定源', () => {
+  const filmCreateSource = readFileSync(new URL('../src/views/FilmCreate.vue', import.meta.url), 'utf8')
+  const shellBindingsSource = readFileSync(new URL('../src/components/filmCreate/filmCreateShellBindings.js', import.meta.url), 'utf8')
+  assert.match(filmCreateSource, /createFilmCreateShellBindingSources\(/)
+  assert.match(filmCreateSource, /createFilmCreateShellBindings\(\{/)
+  assert.match(filmCreateSource, /v-bind="quickNavBindings"/)
+  assert.match(filmCreateSource, /v-bind="projectLoadStateBindings"/)
+  assert.match(filmCreateSource, /v-bind="projectDependencyWarningBindings"/)
+  assert.match(filmCreateSource, /v-bind="workspaceDialogsLayerBindings"/)
+  assert.match(filmCreateSource, /ref="projectLoadFailureRef"/)
+  assert.match(filmCreateSource, /ref="aiConfigContentRef"/)
+  assert.doesNotMatch(filmCreateSource, /:nav-collapsed="navCollapsed"/)
+  assert.doesNotMatch(filmCreateSource, /v-model:storyboard-menu-expanded="storyboardMenuExpanded"/)
+  assert.doesNotMatch(filmCreateSource, /:media-error="storyboardMediaLoadError"/)
+  assert.doesNotMatch(filmCreateSource, /v-model:max-chapters="novelMaxChapters"/)
+  assert.doesNotMatch(filmCreateSource, /v-model="showAiConfigDialog"/)
+  assert.match(shellBindingsSource, /export function createFilmCreateShellBindingSources/)
+  assert.match(shellBindingsSource, /quickNav: \{[\s\S]*storyboardMenuExpanded[\s\S]*onToggleNav: toggleNav/)
+  assert.match(shellBindingsSource, /projectLoadState: \{[\s\S]*onRetry: retryFilmProjectLoad[\s\S]*onGoList: goList/)
+  assert.match(shellBindingsSource, /projectDependencyWarning: \{[\s\S]*mediaError: storyboardMediaLoadError[\s\S]*onRetry: retryProjectDependencies/)
+  assert.match(shellBindingsSource, /workspaceDialogsLayer: \{[\s\S]*maxChapters: novelMaxChapters[\s\S]*modelValue: showAiConfigDialog/)
+  assert.match(shellBindingsSource, /previewImageUrl: computed\(\(\) => unref\(previewImageUrl\) \|\| ''\)/)
+  assert.doesNotMatch(shellBindingsSource, /const currentEpisodeId = ref/)
+  assert.doesNotMatch(shellBindingsSource, /propItems/)
+  assert.doesNotMatch(shellBindingsSource, /allowNavigationAfterDraftFlush/)
+})
+
+test('侧栏/加载面/警告/弹窗层绑定源只映射已有状态，不改 episodeId 和 propItems', () => {
+  const currentEpisodeId = ref(22)
+  const selectedEpisodeId = ref(33)
+  const dramaId = ref(11)
+  const props = ref([{ id: 3 }])
+  const storyboardMenuExpanded = ref(false)
+  const showAiConfigDialog = ref(false)
+  const showNovelImport = ref(false)
+  const novelMaxChapters = ref(10)
+  const showGlobalMediaPicker = ref(false)
+  const previewImageUrl = ref('')
+  const pipelineStopping = ref(true)
+  const productionPipelineActionDisabledReason = ref('当前集还没有剧本，请先编写或导入剧本')
+  const store = { drama: { episodes: [{ id: 11 }] } }
+  const scope = effectScope()
+  try {
+    const bags = scope.run(() => createFilmCreateShellBindingSources({
+      store,
+      props,
+      currentEpisodeId,
+      selectedEpisodeId,
+      dramaId,
+      storyboardMenuExpanded,
+      showAiConfigDialog,
+      showNovelImport,
+      novelMaxChapters,
+      showGlobalMediaPicker,
+      previewImageUrl,
+      pipelineStopping,
+      productionPipelineActionDisabledReason,
+      toggleNav() {},
+      scrollToAnchor() {},
+      cancelActiveTask() {},
+      retryFilmProjectLoad() {},
+      goList() {},
+      retryProjectDependencies() {},
+    }))
+    assert.equal(bags.quickNav.storyboardMenuExpanded, storyboardMenuExpanded)
+    assert.equal(bags.workspaceDialogsLayer.modelValue, showAiConfigDialog)
+    assert.equal(bags.workspaceDialogsLayer.visible, showNovelImport)
+    assert.equal(bags.workspaceDialogsLayer.maxChapters, novelMaxChapters)
+    assert.equal(bags.quickNav.pipelineStopping, pipelineStopping)
+    assert.equal('currentEpisodeId' in bags.quickNav, false)
+    assert.equal('selectedEpisodeId' in bags.quickNav, false)
+    assert.equal('dramaId' in bags.quickNav, false)
+    assert.equal('propItems' in bags.quickNav, false)
+    assert.equal('currentEpisodeId' in bags.projectLoadState, false)
+    assert.equal('currentEpisodeId' in bags.projectDependencyWarning, false)
+    assert.equal('currentEpisodeId' in bags.workspaceDialogsLayer, false)
+    assert.equal('propItems' in bags.workspaceDialogsLayer, false)
+    assert.equal('productionDisabledReason' in bags.quickNav, false)
+    assert.equal(bags.workspaceDialogsLayer.previewImageUrl.value, '')
+    assert.equal(currentEpisodeId.value, 22)
+    assert.equal(selectedEpisodeId.value, 33)
+    assert.equal(props.value[0].id, 3)
+
+    const bindings = createFilmCreateShellBindings(bags)
+    assert.equal(FILM_CREATE_QUICK_NAV_MODEL_KEYS.includes('currentEpisodeId'), false)
+    assert.equal(FILM_CREATE_QUICK_NAV_MODEL_KEYS.includes('dramaId'), false)
+    assert.equal(FILM_CREATE_WORKSPACE_LAYER_MODEL_KEYS.includes('currentEpisodeId'), false)
+    assert.equal(FILM_CREATE_WORKSPACE_LAYER_MODEL_KEYS.includes('dramaId'), false)
+    assert.equal(Object.prototype.hasOwnProperty.call(bindings.quickNavBindings.value, 'onUpdate:currentEpisodeId'), false)
+    assert.equal(Object.prototype.hasOwnProperty.call(bindings.projectLoadStateBindings.value, 'onUpdate:state'), false)
+    assert.equal(Object.prototype.hasOwnProperty.call(bindings.workspaceDialogsLayerBindings.value, 'onUpdate:currentEpisodeId'), false)
+    assert.equal(bindings.quickNavBindings.value.pipelineStopping, true)
+    bindings.quickNavBindings.value['onUpdate:storyboardMenuExpanded'](true)
+    bindings.workspaceDialogsLayerBindings.value['onUpdate:modelValue'](true)
+    bindings.workspaceDialogsLayerBindings.value['onUpdate:maxChapters'](8)
+    assert.equal(storyboardMenuExpanded.value, true)
+    assert.equal(showAiConfigDialog.value, true)
+    assert.equal(novelMaxChapters.value, 8)
+    assert.equal(currentEpisodeId.value, 22)
+    assert.equal(selectedEpisodeId.value, 33)
+    assert.equal(dramaId.value, 11)
+    assert.equal(props.value[0].id, 3)
+    assert.equal(productionPipelineActionDisabledReason.value, '当前集还没有剧本，请先编写或导入剧本')
+  } finally {
+    scope.stop()
+  }
+})
+
+test('制作页把工作台闭合接线交给独立装配函数', () => {
+  const filmCreateSource = readFileSync(new URL('../src/views/FilmCreate.vue', import.meta.url), 'utf8')
+  const closeoutBindingsSource = readFileSync(new URL('../src/components/filmCreate/filmCreateCloseoutBindings.js', import.meta.url), 'utf8')
+  const workspaceBindingsSource = readFileSync(new URL('../src/components/filmCreate/filmCreateWorkspaceBindings.js', import.meta.url), 'utf8')
+  assert.match(filmCreateSource, /createFilmCreateCloseoutBindings\(/)
+  assert.match(filmCreateSource, /v-bind="scriptWorkbenchBindings"/)
+  assert.match(filmCreateSource, /v-bind="resourcePanelBindings"/)
+  assert.match(filmCreateSource, /v-bind="storyboardPanelBindings"/)
+  assert.doesNotMatch(filmCreateSource, /v-model:story-input="storyInput"/)
+  assert.doesNotMatch(filmCreateSource, /@generate-story="onGenerateStory"/)
+  assert.doesNotMatch(filmCreateSource, /@return-to-creation="returnToScriptCreation"/)
+  assert.doesNotMatch(filmCreateSource, /:character-generation-disabled-reason="characterGenerationDisabledReason"/)
+  assert.doesNotMatch(filmCreateSource, /:batch-action-disabled-reason="batchActionDisabledReason"/)
+  assert.match(filmCreateSource, /useFilmCreateActionDisabledReasons\(/)
+  assert.match(filmCreateSource, /onBeforeRouteLeave\(allowNavigationAfterDraftFlush\)/)
+  assert.match(filmCreateSource, /createFilmCreateShellBindingSources\(/)
+  assert.doesNotMatch(closeoutBindingsSource, /allowNavigationAfterDraftFlush/)
+  assert.doesNotMatch(closeoutBindingsSource, /useFilmCreateActionDisabledReasons/)
+  assert.doesNotMatch(closeoutBindingsSource, /const currentEpisodeId = ref/)
+  assert.match(closeoutBindingsSource, /export function createFilmCreateCloseoutBindings/)
+  assert.match(closeoutBindingsSource, /createFilmCreateWorkspaceBindingSources\(ctx\)/)
+  assert.match(closeoutBindingsSource, /route: ctx\.route/)
+  assert.match(closeoutBindingsSource, /handleBeforeUnload: ctx\.handleBeforeUnload/)
+  assert.match(workspaceBindingsSource, /scriptWorkbench: \{[\s\S]*storyInput[\s\S]*onGenerateStory[\s\S]*returnToScriptCreation/)
+  assert.match(workspaceBindingsSource, /resourcePanel: \{[\s\S]*characterGenerationDisabledReason/)
+  assert.match(workspaceBindingsSource, /storyboardPanel: \{[\s\S]*batchActionDisabledReason/)
+})
+
+test('工作台闭合接线只映射已有状态，不改 episodeId 和空剧本门闩', () => {
+  const currentEpisodeId = ref(22)
+  const dramaId = ref(11)
+  const props = ref([{ id: 3 }])
+  const storyInput = ref('已有梗概')
+  const characterGenerationDisabledReason = ref('当前集还没有剧本，请先编写或导入剧本')
+  const batchActionDisabledReason = ref('当前集还没有剧本，请先编写或导入剧本')
+  const showNovelImport = ref(false)
+  const store = { drama: { episodes: [{ id: 11 }] } }
+  const calls = []
+  function onGenerateStory() { calls.push('generate-story') }
+  function returnToScriptCreation() { calls.push('return-to-creation') }
+  function saveProjectSettings() {}
+  const router = { push() {} }
+  const route = { params: { id: '11' } }
+  const scope = effectScope()
+  try {
+    const bindings = scope.run(() => createFilmCreateCloseoutBindings({
+      store,
+      props,
+      currentEpisodeId,
+      dramaId,
+      storyInput,
+      characterGenerationDisabledReason,
+      batchActionDisabledReason,
+      onGenerateStory,
+      returnToScriptCreation,
+      saveProjectSettings,
+      showNovelImport,
+      router,
+      route,
+      handleBeforeUnload() {},
+      applyRouteToStore() {},
+      loadPipelineConcurrency() {},
+      refreshVideoGenerationCapability() {},
+      refreshProductionReadiness() {},
+      invalidateProjectLoads() {},
+      projectLifecycle: { dispose() {} },
+      scriptDraftController: { dispose() {} },
+    }))
+    assert.equal(bindings.scriptWorkbenchBindings.value.storyInput, '已有梗概')
+    assert.equal(typeof bindings.scriptWorkbenchBindings.value['onUpdate:storyInput'], 'function')
+    assert.equal(bindings.scriptWorkbenchBindings.value.onGenerateStory, onGenerateStory)
+    assert.equal(bindings.scriptWorkbenchBindings.value.onReturnToCreation, returnToScriptCreation)
+    assert.equal(bindings.resourcePanelBindings.value.characterGenerationDisabledReason, '当前集还没有剧本，请先编写或导入剧本')
+    assert.equal(bindings.storyboardPanelBindings.value.batchActionDisabledReason, '当前集还没有剧本，请先编写或导入剧本')
+    assert.equal('currentEpisodeId' in bindings.resourcePanelBindings.value, false)
+    assert.equal(Object.prototype.hasOwnProperty.call(bindings.scriptWorkbenchBindings.value, 'onUpdate:currentEpisodeId'), false)
+    bindings.scriptWorkbenchBindings.value['onUpdate:storyInput']('新的梗概')
+    bindings.scriptWorkbenchBindings.value.onGenerateStory()
+    bindings.scriptWorkbenchBindings.value.onReturnToCreation()
+    assert.equal(storyInput.value, '新的梗概')
+    assert.deepEqual(calls, ['generate-story', 'return-to-creation'])
+    assert.equal(currentEpisodeId.value, 22)
+    assert.equal(dramaId.value, 11)
+    assert.equal(props.value[0].id, 3)
+    assert.notEqual(currentEpisodeId.value, dramaId.value)
+    assert.equal(characterGenerationDisabledReason.value, '当前集还没有剧本，请先编写或导入剧本')
+    assert.equal(batchActionDisabledReason.value, '当前集还没有剧本，请先编写或导入剧本')
+  } finally {
+    scope.stop()
+  }
+})
+
+test('制作页把分镜预备、剧本动作、分镜动作和流水线接线交给独立模块', () => {
+  const filmCreateSource = readFileSync(new URL('../src/views/FilmCreate.vue', import.meta.url), 'utf8')
+  const prepSource = readFileSync(new URL('../src/composables/filmCreate/useFilmCreateStoryboardPrep.js', import.meta.url), 'utf8')
+  const scriptActionsSource = readFileSync(new URL('../src/composables/filmCreate/useFilmCreateScriptActions.js', import.meta.url), 'utf8')
+  const storyboardActionsSource = readFileSync(new URL('../src/composables/filmCreate/useFilmCreateStoryboardActions.js', import.meta.url), 'utf8')
+  const pipelineActionsSource = readFileSync(new URL('../src/composables/filmCreate/useFilmCreatePipelineActions.js', import.meta.url), 'utf8')
+  assert.match(filmCreateSource, /createFilmCreateCloseoutBindings\(/)
+  assert.match(filmCreateSource, /useFilmCreateActionDisabledReasons\(/)
+  assert.match(filmCreateSource, /onBeforeRouteLeave\(allowNavigationAfterDraftFlush\)/)
+  assert.match(filmCreateSource, /useFilmCreateStoryboardPrep\(/)
+  assert.match(filmCreateSource, /useFilmCreateScriptActions\(/)
+  assert.match(filmCreateSource, /useFilmCreateStoryboardActions\(/)
+  assert.match(filmCreateSource, /useFilmCreatePipelineActions\(/)
+  assert.match(filmCreateSource, /useFilmCreateActionDisabledReasons\(\{[\s\S]*scriptContent/)
+  assert.match(filmCreateSource, /useFilmCreatePipelineActions\(\{[\s\S]*composeActionDisabledReason/)
+  assert.doesNotMatch(filmCreateSource, /useFilmCreateStoryboardImageGeneration\(/)
+  assert.doesNotMatch(filmCreateSource, /useFilmCreateStoryboardCrud\(/)
+  assert.doesNotMatch(filmCreateSource, /useFilmCreatePipelineStages\(/)
+  assert.doesNotMatch(filmCreateSource, /useFilmCreateScriptWorkspace\(/)
+  assert.doesNotMatch(filmCreateSource, /useFilmCreateAiConfigDialogState\(\)[\s\S]{0,80}loadList/)
+  assert.match(prepSource, /export function useFilmCreateStoryboardPrep/)
+  assert.match(prepSource, /useFilmCreateStoryboardImageGeneration/)
+  assert.match(scriptActionsSource, /saveScriptToBackend: persistence.saveScriptToBackend/)
+  assert.match(storyboardActionsSource, /polishUniversalSegmentsAfterGeneration: universal.polishUniversalSegmentsAfterGeneration/)
+  assert.match(pipelineActionsSource, /getFinalizeMergeOptions: compose.getFinalizeMergeOptions/)
+  assert.doesNotMatch(prepSource, /loadList|openTest/)
+  assert.doesNotMatch(scriptActionsSource, /loadList|openTest/)
+  assert.doesNotMatch(storyboardActionsSource, /loadList|openTest/)
+  assert.doesNotMatch(pipelineActionsSource, /loadList|openTest/)
+})
+

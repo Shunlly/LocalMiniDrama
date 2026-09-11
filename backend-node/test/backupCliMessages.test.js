@@ -48,8 +48,11 @@ test('备份 CLI 三码已入中文码表，英文 publicMessage 不会打给用
 });
 
 test('备份错误码表覆盖抛出码，文案为简体中文且不含 claim/lease', () => {
+  const backupModules = fs.readdirSync(SERVICE_ROOT)
+    .filter((name) => name.startsWith('dataBackup') && name.endsWith('.js'))
+    .sort();
   const sources = {
-    'dataBackupService.js': fs.readFileSync(path.join(SERVICE_ROOT, 'dataBackupService.js'), 'utf8'),
+    ...Object.fromEntries(backupModules.map((name) => [name, fs.readFileSync(path.join(SERVICE_ROOT, name), 'utf8')])),
     'backupSettingsService.js': fs.readFileSync(path.join(SERVICE_ROOT, 'backupSettingsService.js'), 'utf8'),
     'backup-data.js': readScript('backup-data.js'),
     'restore-data.js': readScript('restore-data.js'),

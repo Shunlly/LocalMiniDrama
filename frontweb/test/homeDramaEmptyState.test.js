@@ -12,6 +12,8 @@ const filmListLibrarySource = readFilmListLibrarySource()
 const dramaDetailSource = read('../src/views/DramaDetail.vue')
 const dramaDetailHeaderSource = read('../src/components/dramaDetail/DramaDetailHeader.vue')
 const dramaDetailDialogsSource = read('../src/components/dramaDetail/DramaDetailResourceDialogs.vue')
+const dramaDetailResourceLibrarySource = read('../src/components/dramaDetail/DramaDetailResourceLibrary.vue')
+const dramaDetailUiSource = [dramaDetailSource, dramaDetailResourceLibrarySource, dramaDetailDialogsSource, read('../src/components/dramaDetail/DramaDetailEpisodeList.vue')].join('\n')
 const readinessPanelSource = read('../src/components/ProjectReadinessPanel.vue')
 const CHINESE_RE = /[\u4e00-\u9fff]/
 
@@ -55,7 +57,9 @@ test('首页空项目和下一步入口是中文，且空态按钮可点', () =>
   assert.match(filmListSource, /class="action-btn action-btn-import"[\s\S]*:disabled="listWriteLocked" aria-label="导入项目包" :title="listWriteLocked \? listWriteLockReason : undefined"/)
   assert.match(filmListSource, /class="example-btn"[\s\S]*:disabled="listWriteLocked"\s*:title="listWriteLocked \? listWriteLockReason : undefined"/)
   assert.match(filmListSource, /前往素材中心/)
+  assert.match(filmListSource, /class="action-btn-material" aria-label="打开素材中心"/)
   assert.match(filmListSource, /查看回收站/)
+  assert.match(filmListSource, /class="action-btn-trash" aria-label="打开项目回收站"/)
   assert.match(filmListSource, /没有匹配的项目/)
   assert.match(filmListSource, /换一个关键词或状态，或清除筛选后查看全部项目。/)
   assert.match(filmListSource, /@click="clearProjectFilters"/)
@@ -77,11 +81,11 @@ test('剧详情空状态的素材处理下一步保持可点，文案为中文',
     aiConfigs: [],
   })
   const resolvedNoText = resolveEpisodeEmptyState(noText.episodeEmptyState)
-  assert.equal(resolvedNoText.primaryAction.label, '前往素材处理')
+  assert.equal(resolvedNoText.primaryAction.label, '新增空白集')
   assert.equal(resolvedNoText.primaryDisabledReason, '')
-  assert.equal(resolvedNoText.unblockAction.target, 'ai-config')
-  assert.match(resolvedNoText.unblockAction.label, /文本模型/)
-  assert.match(resolvedNoText.note, /文本模型/)
+  assert.equal(resolvedNoText.unblockAction.target, 'source-workflow')
+  assert.equal(resolvedNoText.unblockAction.label, '前往素材处理')
+  assert.equal(resolvedNoText.note, '')
   assert.match(resolvedNoText.title, CHINESE_RE)
   assert.match(resolvedNoText.description, CHINESE_RE)
 
@@ -93,10 +97,10 @@ test('剧详情空状态的素材处理下一步保持可点，文案为中文',
     ],
   })
   const resolvedNoSource = resolveEpisodeEmptyState(noSource.episodeEmptyState)
-  assert.equal(resolvedNoSource.primaryAction.label, '前往素材处理')
+  assert.equal(resolvedNoSource.primaryAction.label, '新增空白集')
   assert.equal(resolvedNoSource.primaryDisabledReason, '')
-  assert.equal(resolvedNoSource.unblockAction, null)
-  assert.match(resolvedNoSource.note, /故事素材/)
+  assert.equal(resolvedNoSource.unblockAction.target, 'source-workflow')
+  assert.equal(resolvedNoSource.note, '')
 
   const readyToGenerate = buildProjectReadiness({
     drama: { episodes: [] },
@@ -106,12 +110,12 @@ test('剧详情空状态的素材处理下一步保持可点，文案为中文',
     ],
   })
   const resolvedReady = resolveEpisodeEmptyState(readyToGenerate.episodeEmptyState)
-  assert.equal(resolvedReady.primaryAction.label, '前往素材处理')
+  assert.equal(resolvedReady.primaryAction.label, '新增空白集')
   assert.equal(resolvedReady.primaryDisabledReason, '')
   assert.equal(resolvedReady.note, '')
 
   assert.match(
-    dramaDetailSource,
+    dramaDetailUiSource,
     /:disabled="Boolean\(episodeEmptyState\.primaryDisabledReason\)"[\s\S]*episodeEmptyState\.primaryAction\.label/,
   )
   assert.match(dramaDetailSource, /label: pending \? '正在检查\.\.\.' : '重试就绪检查'/)
@@ -127,15 +131,15 @@ test('无剧集时资源空状态会新增一集，而不是点页头或只滚�
   assert.doesNotMatch(helper, /ElMessage\.warning/)
 
   assert.match(
-    dramaDetailSource,
+    dramaDetailUiSource,
     /本剧暂无制作角色[\s\S]*@click="goCreateOrAddEpisode">\{\{ currentEpisodeId \? '进入制作页提取角色' : '先去新增一集' \}\}/,
   )
   assert.match(
-    dramaDetailSource,
+    dramaDetailUiSource,
     /本剧暂无制作场景[\s\S]*@click="goCreateOrAddEpisode">\{\{ currentEpisodeId \? '进入制作页提取场景' : '先去新增一集' \}\}/,
   )
   assert.match(
-    dramaDetailSource,
+    dramaDetailUiSource,
     /本剧暂无制作道具[\s\S]*@click="goCreateOrAddEpisode">\{\{ currentEpisodeId \? '进入制作页提取道具' : '先去新增一集' \}\}/,
   )
   assert.match(

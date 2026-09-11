@@ -111,6 +111,7 @@ function makeFourGigabyteEntryDeclaration() {
 function withObservedAdmZip(run) {
   const admZipPath = require.resolve('adm-zip');
   const servicePath = require.resolve('../src/services/dramaImportService');
+  const parsePath = require.resolve('../src/services/dramaImportParse');
   const RealAdmZip = require(admZipPath);
   const admZipModule = require.cache[admZipPath];
   const originalExport = admZipModule.exports;
@@ -138,10 +139,12 @@ function withObservedAdmZip(run) {
 
   admZipModule.exports = ObservedAdmZip;
   delete require.cache[servicePath];
+  delete require.cache[parsePath];
   try {
     return run(require(servicePath), observation);
   } finally {
     delete require.cache[servicePath];
+    delete require.cache[parsePath];
     admZipModule.exports = originalExport;
   }
 }

@@ -4,6 +4,7 @@
     class="canvas-add-node"
     :class="'kind-' + data.assetType"
     :aria-label="data.label || defaultLabel"
+    :title="data.label || defaultLabel"
     @click.stop="onClick"
   >
     <span class="add-icon">+</span>

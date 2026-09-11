@@ -85,9 +85,11 @@ test('episode empty state exposes blocker CTA when text config or source is miss
     sourceCount: 0,
     aiConfigs: [],
   })
-  assert.equal(noText.episodeEmptyState.primaryAction.id, 'start_episode_generation')
-  assert.match(noText.episodeEmptyState.primaryDisabledReason, /文本模型/)
-  assert.equal(noText.episodeEmptyState.unblockAction.target, 'ai-config')
+  assert.equal(noText.episodeEmptyState.primaryAction.id, 'create_blank_episode')
+  assert.equal(noText.episodeEmptyState.primaryAction.target, 'add-episode')
+  assert.equal(noText.episodeEmptyState.primaryAction.label, '新增空白集')
+  assert.equal(noText.episodeEmptyState.primaryDisabledReason, '')
+  assert.equal(noText.episodeEmptyState.unblockAction.target, 'source-workflow')
 
   const noSource = buildProjectReadiness({
     drama: { episodes: [] },
@@ -96,11 +98,12 @@ test('episode empty state exposes blocker CTA when text config or source is miss
       { service_type: 'text', is_active: true, is_default: true, default_model: 'qwen', credential_set: true },
     ],
   })
-  assert.match(noSource.episodeEmptyState.primaryDisabledReason, /故事素材/)
+  assert.equal(noSource.episodeEmptyState.primaryDisabledReason, '')
+  assert.equal(noSource.episodeEmptyState.primaryAction.id, 'create_blank_episode')
   assert.equal(noSource.episodeEmptyState.unblockAction.target, 'source-workflow')
 
   const explicit = buildEpisodeEmptyState(noSource)
-  assert.equal(explicit.primaryAction.label, '从素材生成剧集')
+  assert.equal(explicit.primaryAction.label, '新增空白集')
 })
 
 test('project readiness requires tts, spoken audio and a composed episode before delivery', () => {

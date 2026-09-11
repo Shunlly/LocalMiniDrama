@@ -8,9 +8,12 @@ const sourceRoot = fileURLToPath(new URL('../src/', import.meta.url))
 const skipFiles = new Set([
   'AIConfigContent.vue',
   'Sd2AssetManagement.vue',
+  'Sd2AssetGroupList.vue',
+  'Sd2AssetList.vue',
+  'Sd2AssetFilter.vue',
+  'Sd2AssetDialogs.vue',
   'PromptEditor.vue',
   'SceneModelMap.vue',
-  'EpisodeBatchImportDialog.vue',
 ])
 
 function read(rel) {
@@ -139,6 +142,12 @@ const dialogSources = [
   { name: 'FilmCreateStoryboardFreeReferencePreview.vue', source: storyboardFreeReferencePreviewSource },
   { name: 'FilmCreateScriptWorkbench.vue', source: scriptWorkbenchSource },
   { name: 'GlobalMediaPickerDialog.vue', source: read('../src/components/GlobalMediaPickerDialog.vue') },
+  { name: 'GlobalMediaPickerCard.vue', source: read('../src/components/globalMediaPicker/GlobalMediaPickerCard.vue') },
+  { name: 'GlobalMediaPickerEmpty.vue', source: read('../src/components/globalMediaPicker/GlobalMediaPickerEmpty.vue') },
+  { name: 'GlobalMediaPickerFooter.vue', source: read('../src/components/globalMediaPicker/GlobalMediaPickerFooter.vue') },
+  { name: 'EpisodeBatchImportDialog.vue', source: read('../src/components/EpisodeBatchImportDialog.vue') },
+  { name: 'EpisodeBatchImportPreviewPanel.vue', source: read('../src/components/episodeBatchImport/EpisodeBatchImportPreviewPanel.vue') },
+  { name: 'EpisodeBatchImportFooter.vue', source: read('../src/components/episodeBatchImport/EpisodeBatchImportFooter.vue') },
   { name: 'ImagePreviewDialog.vue', source: imagePreviewSource },
 ]
 
@@ -231,4 +240,56 @@ test('全能片段编辑器是带名称的文本框，焦点环全局可见', ()
   assert.match(omniEditorSource, /aria-label="插入参考图"/)
   assert.match(themeSource, /button:focus-visible/)
   assert.match(themeSource, /\[role="button"\]:focus-visible/)
+  assert.match(themeSource, /\[role="dialog"\]:focus-visible/)
+  assert.match(themeSource, /\.el-dialog:focus-visible/)
+})
+
+test('批量导入和素材选择弹窗保留取消、Esc、空态和可访问名称', () => {
+  const episodeSource = [
+    read('../src/components/EpisodeBatchImportDialog.vue'),
+    read('../src/components/episodeBatchImport/EpisodeBatchImportPreviewPanel.vue'),
+    read('../src/components/episodeBatchImport/EpisodeBatchImportFooter.vue'),
+  ].join('\n')
+  const pickerSource = [
+    read('../src/components/GlobalMediaPickerDialog.vue'),
+    read('../src/components/globalMediaPicker/GlobalMediaPickerCard.vue'),
+    read('../src/components/globalMediaPicker/GlobalMediaPickerEmpty.vue'),
+    read('../src/components/globalMediaPicker/GlobalMediaPickerFooter.vue'),
+  ].join('\n')
+  assert.match(episodeSource, /:close-on-press-escape="true"/)
+  assert.match(episodeSource, /:close-on-click-modal="false"/)
+  assert.match(episodeSource, /:before-close="requestClose"/)
+  assert.match(episodeSource, /aria-label="选择 TXT 剧本文件"/)
+  assert.match(episodeSource, /aria-hidden="true"/)
+  assert.match(episodeSource, /class="hidden-file-input"/)
+  assert.match(episodeSource, /还没有可导入的集数预览/)
+  assert.match(episodeSource, />返回导入设置</)
+  assert.match(episodeSource, /:aria-label="closeDisabledReason \|\| '取消'"/)
+  assert.match(pickerSource, /:close-on-press-escape="true"/)
+  assert.match(pickerSource, /role="status" aria-live="polite"/)
+  assert.match(pickerSource, /aria-label="搜索素材名称"/)
+  assert.match(pickerSource, /aria-label="素材类型"/)
+  assert.match(pickerSource, /素材中心还是空的/)
+  assert.match(pickerSource, /当前筛选下没有素材/)
+  assert.match(pickerSource, />取消</)
+  assert.match(pickerSource, /选择素材不可用/)
+  assert.match(accessibleDialogSource, /function hasRetainedFocus\(\)/)
+  assert.match(accessibleDialogSource, /applyInitialFocus\(true\)/)
+  assert.match(accessibleDialogSource, /function applyDialogAccessibleName\(\)/)
+  assert.match(accessibleDialogSource, /labelled\.setAttribute\('aria-labelledby', titleEl\.id\)/)
+  assert.match(accessibleDialogSource, /closeOnPressEscape:\s*\{\s*type:\s*Boolean,\s*default:\s*true/)
+  assert.match(accessibleDialogSource, /:close-on-press-escape="closeOnPressEscape"/)
+  assert.match(accessibleDialogSource, /\.accessible-dialog\.el-dialog:focus-visible/)
+})
+
+test('共享壳层没有微信入口，404 回项目列表，旧素材地址转到素材中心', () => {
+  const appSource = read('../src/App.vue')
+  const routerSource = read('../src/router/index.js')
+  const notFoundSource = read('../src/views/NotFound.vue')
+  assert.doesNotMatch(appSource, /微信我/)
+  assert.doesNotMatch(appSource, /WeChat/i)
+  assert.match(notFoundSource, />返回项目列表<\/el-button>/)
+  assert.match(notFoundSource, /aria-label="返回项目列表"/)
+  assert.match(notFoundSource, /router\.replace\(\{ name: 'list' \}\)/)
+  assert.match(routerSource, /path: '\/media'[\s\S]*redirect: '\/media-library'/)
 })

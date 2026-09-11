@@ -77,6 +77,13 @@ test('拆出的资源弹窗 SFC 都能编译', () => {
   assert.match(parent, /<DramaDetailSceneEditDialogs/)
   assert.match(parent, /<DramaDetailPropEditDialogs/)
   assert.match(parent, /从素材库导入/)
+  assert.match(parent, /<ImagePreviewDialog/)
+  assert.match(parent, /title="资源图片预览"/)
+  assert.match(parent, /if \(!visible\) previewUrl = null/)
+  const page = read('../src/views/DramaDetail.vue')
+  assert.match(page, /<DramaDetailResourceDialogs v-bind="resourceDialogsBindings"/)
+  assert.doesNotMatch(page, /<ImagePreviewDialog/)
+  assert.match(read('../src/components/dramaDetail/dramaDetailResourceDialogBindings.js'), /'previewUrl'/)
 })
 
 test('图片操作条无图时禁用预览并给出暂无图片', async () => {

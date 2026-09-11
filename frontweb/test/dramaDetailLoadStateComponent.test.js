@@ -17,6 +17,7 @@ import {
 
 const loadSource = readFileSync(new URL('../src/components/dramaDetail/DramaDetailLoadState.vue', import.meta.url), 'utf8')
 const pageSource = readFileSync(new URL('../src/views/DramaDetail.vue', import.meta.url), 'utf8')
+const loadAndNavSource = readFileSync(new URL('../src/components/dramaDetail/dramaDetailLoadAndNav.js', import.meta.url), 'utf8')
 const loadUrl = new URL('../src/components/dramaDetail/DramaDetailLoadState.vue', import.meta.url)
 const iconStubUrl = compileIconStub(['ArrowLeft', 'Loading', 'Refresh', 'WarningFilled'])
 const DramaDetailLoadState = await loadCompiledSfc(
@@ -52,7 +53,8 @@ test('DramaDetail 把加载/失败态交给独立组件并保留重试与返回�
   assert.match(pageSource, /ref="dramaLoadFailureRef"/)
   assert.match(pageSource, /@retry="retryDramaLoad"/)
   assert.match(pageSource, /@go-list="goList"/)
-  assert.match(pageSource, /dramaLoadFailureRef\.value\?\.focus\(\)/)
+  assert.match(pageSource, /createDramaDetailLoadAndNav\(/)
+  assert.match(loadAndNavSource, /dramaLoadFailureRef\.value\?\.focus\(\)/)
   assert.match(loadSource, /role="alert"/)
   assert.match(loadSource, /正在加载项目/)
   assert.match(loadSource, /返回项目列表/)

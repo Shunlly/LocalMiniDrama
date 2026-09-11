@@ -5,8 +5,12 @@ import { readFileSync } from 'node:fs'
 const sourceWorkflow = [
   new URL('../src/components/SourceIntakeWorkflowPanel.vue', import.meta.url),
   new URL('../src/components/sourceIntake/SourceIntakeCompletionBanner.vue', import.meta.url),
+  new URL('../src/components/sourceIntake/sourceIntakeWorkspaceBindings.js', import.meta.url),
 ].map((file) => readFileSync(file, 'utf8')).join('\n')
-const dramaDetail = readFileSync(new URL('../src/views/DramaDetail.vue', import.meta.url), 'utf8')
+const dramaDetail = [
+  readFileSync(new URL('../src/views/DramaDetail.vue', import.meta.url), 'utf8'),
+  readFileSync(new URL('../src/components/dramaDetail/DramaDetailEpisodeList.vue', import.meta.url), 'utf8'),
+].join('\n')
 const mediaLibrary = [
   readFileSync(new URL('../src/views/MediaLibrary.vue', import.meta.url), 'utf8'),
   readFileSync(new URL('../src/components/mediaLibrary/MediaLibraryHeader.vue', import.meta.url), 'utf8'),
@@ -37,6 +41,6 @@ test('material center exposes named filters and a visible project-import command
   assert.match(mediaLibrary, /<el-radio-group[^>]*aria-label="素材类型筛选"/)
   assert.match(
     mediaLibrary,
-    /type="primary"[\s\S]*?plain[\s\S]*?aria-label="选择项目后导入网页 URL"/,
+    /type="primary"[\s\S]*?plain[\s\S]*?aria-label="选择目标项目后导入网页 URL"/,
   )
 })

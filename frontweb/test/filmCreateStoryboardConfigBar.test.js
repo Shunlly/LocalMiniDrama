@@ -87,6 +87,7 @@ test('宫格、首尾帧、批量操作和无障碍标签都留在配置条', ()
   assert.match(configBarSource, /id="anchor-storyboard-images"/)
   assert.match(configBarSource, /role="alert"/)
   assert.match(configBarSource, /前往 AI 配置/)
+  assert.match(configBarSource, /aria-label="前往 AI 配置"/)
   assert.match(configBarSource, /连贯帧模式（自动衔接相邻视频帧）/)
 
   assert.doesNotMatch(panelSource, /aria-label="分镜数量（生成设置）"/)

@@ -82,7 +82,7 @@ function attachDramaListFallbackCover(db, drama) {
 }
 
 function attachEpisodeStoryboards(db, ep) {
-  const { dedupeStoryboardRowsByNumber } = require('./episodeStoryboardService');
+  const { dedupeStoryboardRowsByNumber } = require('./episodeStoryboardOrdering');
   const storyboards = dedupeStoryboardRowsByNumber(
     db.prepare(
       'SELECT * FROM storyboards WHERE episode_id = ? AND deleted_at IS NULL ORDER BY storyboard_number ASC, id ASC'

@@ -24,9 +24,11 @@
               </div>
             </div>
           </div>
-          <div v-if="!propLibraryLoading && propLibraryList.length === 0" class="library-empty">
+          <div v-if="!propLibraryLoading && propLibraryList.length === 0" class="library-empty" role="status">
             <p>暂无本剧道具库记录，可将本剧道具「加入本剧库」后在此查看</p>
-            <el-button type="primary" @click="returnToPropPanel">去道具面板</el-button>
+            <div class="library-empty-actions">
+              <el-button type="primary" @click="returnToPropPanel">去道具面板</el-button>
+            </div>
           </div>
         </div>
         <div class="library-pagination">
@@ -53,9 +55,11 @@
               </div>
             </div>
           </div>
-          <div v-if="!dramaAllPropLoading && dramaAllPropList.length === 0" class="library-empty">
+          <div v-if="!dramaAllPropLoading && dramaAllPropList.length === 0" class="library-empty" role="status">
             <p>本剧暂无制作道具，请先在道具面板创建</p>
-            <el-button type="primary" @click="returnToPropPanel">创建道具</el-button>
+            <div class="library-empty-actions">
+              <el-button type="primary" @click="returnToPropPanel">创建道具</el-button>
+            </div>
           </div>
         </div>
         <div class="library-pagination">

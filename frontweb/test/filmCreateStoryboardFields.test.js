@@ -25,6 +25,8 @@ assert.notEqual(EPISODE_ID, STORYBOARD_ID)
 assert.notEqual(STORYBOARD_ID, OTHER_STORYBOARD_ID)
 
 const filmCreateSource = readFileSync(new URL('../src/views/FilmCreate.vue', import.meta.url), 'utf8')
+const storyboardPrepSource = readFileSync(new URL('../src/composables/filmCreate/useFilmCreateStoryboardPrep.js', import.meta.url), 'utf8')
+const storyboardActionsSource = readFileSync(new URL('../src/composables/filmCreate/useFilmCreateStoryboardActions.js', import.meta.url), 'utf8')
 
 function assertNoProjectIdKeys(fields) {
   const forbidden = [DRAMA_ID, EPISODE_ID, String(DRAMA_ID), String(EPISODE_ID)]
@@ -163,18 +165,26 @@ test('制作页只解构字段袋并继续传给既有 composable', () => {
   assert.doesNotMatch(filmCreateSource, /const sbCharacterIds = ref\(\{\}\)/)
   assert.match(
     filmCreateSource,
-    /useFilmCreateUniversalSegment\(\{[\s\S]*sbTitle,[\s\S]*sbLocation,[\s\S]*sbTime,[\s\S]*sbAction,[\s\S]*sbDialogue,[\s\S]*sbNarration,[\s\S]*sbResult,[\s\S]*sbAtmosphere,[\s\S]*sbShotType,[\s\S]*sbMovement,[\s\S]*sbLayoutDescription/,
+    /useFilmCreateStoryboardActions\(\{[\s\S]*sbTitle,[\s\S]*sbLocation,[\s\S]*sbTime,[\s\S]*sbDialogue,[\s\S]*sbAction,[\s\S]*sbResult,[\s\S]*sbAtmosphere,[\s\S]*sbShotType,[\s\S]*sbMovement,[\s\S]*sbLayoutDescription/,
   )
   assert.match(
     filmCreateSource,
-    /useFilmCreateStoryboardStateSync\(\{[\s\S]*sbCharacterIds,[\s\S]*sbTitle,[\s\S]*sbUniversalSegmentText,[\s\S]*sbVideoReferenceImageId/,
+    /useFilmCreateStoryboardPrep\(\{[\s\S]*sbCharacterIds,[\s\S]*sbTitle,[\s\S]*sbVideoReferenceImageId/,
   )
   assert.match(
     filmCreateSource,
-    /useFilmCreateStoryboardVideoFields\(\{[\s\S]*sbNarration,[\s\S]*sbCreationMode,[\s\S]*sbUniversalSegmentText,[\s\S]*sbDuration/,
+    /useFilmCreateStoryboardPrep\(\{[\s\S]*sbNarration,[\s\S]*sbCreationMode,[\s\S]*sbUniversalSegmentText,[\s\S]*sbDuration/,
   )
   assert.match(
     filmCreateSource,
-    /useFilmCreateStoryboardPrompts\(\{[\s\S]*sbTitle,[\s\S]*sbLocation,[\s\S]*sbTime,[\s\S]*sbDuration,[\s\S]*sbAction,[\s\S]*sbDialogue,[\s\S]*sbNarration,[\s\S]*sbAtmosphere,[\s\S]*sbResult,[\s\S]*sbAngle,[\s\S]*sbAngleH,[\s\S]*sbAngleV,[\s\S]*sbAngleS,[\s\S]*sbMovement,[\s\S]*sbLighting,[\s\S]*sbDof,[\s\S]*sbShotType,[\s\S]*sbLayoutDescription,[\s\S]*sbCreationMode,[\s\S]*sbUniversalSegmentText,[\s\S]*sbVideoReferenceImageId/,
+    /useFilmCreateStoryboardActions\(\{[\s\S]*sbTitle,[\s\S]*sbLocation,[\s\S]*sbTime,[\s\S]*sbDuration,[\s\S]*sbDialogue,[\s\S]*sbAction,[\s\S]*sbResult,[\s\S]*sbAtmosphere,[\s\S]*sbShotType,[\s\S]*sbMovement,[\s\S]*sbLayoutDescription/,
   )
+  assert.match(
+    filmCreateSource,
+    /useFilmCreateStoryboardActions\(\{[\s\S]*sbAngleH,[\s\S]*sbAngleV,[\s\S]*sbAngleS,[\s\S]*sbLighting,[\s\S]*sbDof,[\s\S]*sbCreationMode,[\s\S]*sbVideoReferenceImageId/,
+  )
+  assert.match(storyboardPrepSource, /useFilmCreateStoryboardStateSync\(ctx\)/)
+  assert.match(storyboardPrepSource, /useFilmCreateStoryboardVideoFields\(ctx\)/)
+  assert.match(storyboardActionsSource, /useFilmCreateUniversalSegment\(ctx\)/)
+  assert.match(storyboardActionsSource, /useFilmCreateStoryboardPrompts\(\{/)
 })

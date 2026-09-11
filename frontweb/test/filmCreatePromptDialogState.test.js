@@ -14,6 +14,7 @@ assert.notEqual(STORYBOARD_ID, EPISODE_ID)
 const filmCreateSource = readFileSync(new URL('../src/views/FilmCreate.vue', import.meta.url), 'utf8')
 const workspaceBindingsSource = readFileSync(new URL('../src/components/filmCreate/filmCreateWorkspaceBindings.js', import.meta.url), 'utf8')
 const storyboardDialogsSource = readFileSync(new URL('../src/components/filmCreate/FilmCreateStoryboardDialogs.vue', import.meta.url), 'utf8')
+const storyboardActionsSource = readFileSync(new URL('../src/composables/filmCreate/useFilmCreateStoryboardActions.js', import.meta.url), 'utf8')
 
 test('提示词弹窗初始关闭，当前目标不是项目或剧集 id', () => {
   const state = useFilmCreatePromptDialogState()
@@ -46,6 +47,7 @@ test('制作页把提示词弹窗状态交给 composable，并继续传给分镜
   assert.match(storyboardDialogsSource, /v-model:show-sb-prompt-dialog="showSbPromptDialog"/)
   assert.match(
     filmCreateSource,
-    /useFilmCreateStoryboardPrompts\(\{[\s\S]*sbPromptTarget,[\s\S]*showSbPromptDialog/,
+    /useFilmCreateStoryboardActions\(\{[\s\S]*sbPromptTarget,[\s\S]*showSbPromptDialog/,
   )
+  assert.match(storyboardActionsSource, /useFilmCreateStoryboardPrompts\(\{/)
 })

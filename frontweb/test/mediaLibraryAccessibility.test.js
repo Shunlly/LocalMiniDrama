@@ -17,7 +17,7 @@ const source = readMediaLibrarySources()
 const userErrorSource = readFileSync(new URL('../src/utils/mediaLibraryUserError.js', import.meta.url), 'utf8')
 
 function mediaCardTemplate() {
-  const match = source.match(/<article[\s\S]*?v-for="item in mediaItems"[\s\S]*?<\/article>/)
+  const match = source.match(/<article[\s\S]*?class="media-card"[\s\S]*?<\/article>/)
   assert.ok(match, 'media items should render as non-interactive article containers')
   return match[0]
 }
@@ -169,19 +169,21 @@ test('the initial empty state has one clearly named primary upload action', () =
   assert.match(actions, /@click="triggerUpload"/)
   assert.doesNotMatch(actions, /goNewProject|goHome/)
   assert.match(source, /:type="mediaItems\.length === 0 && !loading \? 'default' : 'primary'"/)
-  assert.match(source, /class="empty-secondary-action"[\s\S]*aria-label="选择项目后导入网页 URL"[\s\S]*@click="goSourceImport"/)
+  assert.match(source, /class="empty-secondary-action"[\s\S]*aria-label="选择目标项目后导入网页 URL"[\s\S]*@click="goSourceImport"/)
 })
 
 test('URL import is named as a project-level flow and keeps its existing navigation', () => {
   const entry = urlImportEntryTemplate()
 
-  assert.match(entry, /网页 URL 导入会在选择项目后完成/)
+  assert.match(entry, /先在本页选择目标项目/)
   assert.match(entry, /本页不直接粘贴 URL/)
-  assert.match(entry, /aria-label="选择项目后导入网页 URL"/)
-  assert.match(entry, /@click="goSourceImport"\s*>进入项目选择后导入网页 URL<\/el-button>/)
-  assert.match(
+  assert.match(entry, /aria-label="选择目标项目后导入网页 URL"/)
+  assert.match(entry, /@click="goSourceImport"\s*>选择目标项目后导入网页 URL<\/el-button>/)
+  assert.match(source, /createMediaLibrarySourceImport\(/)
+  assert.match(source, /<MediaLibrarySourceImportDialog/)
+  assert.doesNotMatch(
     source,
-    /function goSourceImport\(\) \{[\s\S]*?openWorkspaceNavItem\(router, 'list', \{ query: \{ intent: 'source-import' \} \}\)[\s\S]*?\n\}/,
+    /function goSourceImport\(\) \{[\s\S]*?openWorkspaceNavItem\(router, 'list', \{ query: \{ intent: 'source-import' \} \}\)/,
   )
   assert.match(
     source,
@@ -213,7 +215,9 @@ test('上传失败保留可见反馈，网络空结果不会伪装成成功列�
 })
 
 test('顶栏上传按钮与筛选空态都提供明确的上传名称', () => {
-  assert.equal((source.match(/aria-label="上传图片或视频到素材中心"/g) || []).length >= 2, true)
+  assert.equal((source.match(/aria-label="上传图片或视频到素材中心"/g) || []).length >= 4, true)
+  assert.match(source, /立即上传[\s\S]*aria-label="上传图片或视频到素材中心"|aria-label="上传图片或视频到素材中心"[\s\S]*立即上传/)
+  assert.match(source, /aria-label="返回项目首页"[\s\S]*返回项目首页/)
 })
 
 

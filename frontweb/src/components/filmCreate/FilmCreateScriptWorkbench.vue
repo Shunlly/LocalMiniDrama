@@ -68,7 +68,7 @@
               <p>可以点「添加一集」开始手写剧本，或在上方输入故事梗概后生成剧本。</p>
               <div class="film-episode-empty-actions">
                 <el-button type="primary" aria-label="添加一集" @click="emit('add-episode')">添加一集</el-button>
-                <el-button aria-label="返回剧集管理" @click="emit('go-to-drama')">返回剧集管理</el-button>
+                <el-button aria-label="返回剧集" @click="emit('go-to-drama')">返回剧集</el-button>
               </div>
             </div>
             <template v-else>
@@ -169,7 +169,7 @@
             <el-button type="primary" plain aria-label="切换到创作剧本以编辑" @click="scriptWorkbenchMode = 'create'">切换到创作剧本以编辑</el-button>
           </div>
         </div>
-        <div v-else class="script-select-empty">
+        <div v-else class="script-select-empty" role="status">
           <p>尚未选择剧本，可从剧本库导入，或回到创作页手写</p>
           <div class="script-select-empty-actions">
             <el-button
@@ -208,11 +208,11 @@
         <span class="select-script-title">{{ d.title || '未命名' }}</span>
         <span class="select-script-desc">{{ (d.description || '暂无简介').slice(0, 200) }}{{ (d.description && d.description.length > 200) ? '…' : '' }}</span>
       </button>
-      <div v-if="!selectScriptLoading && selectScriptDramas.length === 0" class="select-script-empty">
+      <div v-if="!selectScriptLoading && selectScriptDramas.length === 0" class="select-script-empty" role="status">
         <p>剧本库为空，可直接在当前项目创作剧本</p>
         <el-button type="primary" aria-label="开始创作剧本" @click="emit('return-to-creation')">开始创作剧本</el-button>
       </div>
-      <div v-else-if="!selectScriptLoading && selectableScriptDramas.length === 0" class="select-script-empty">
+      <div v-else-if="!selectScriptLoading && selectableScriptDramas.length === 0" class="select-script-empty" role="status">
         <p>没有可导入的其他剧本</p>
         <el-button type="primary" aria-label="返回创作剧本" @click="emit('return-to-creation')">返回创作剧本</el-button>
       </div>
@@ -346,12 +346,13 @@ html.light .section-desc { color: #6b7280; }
 .row { display: flex; flex-wrap: wrap; align-items: center; }
 .gap { gap: 12px; }
 .empty-tip {
-  color: #5a5a66;
+  color: var(--film-empty-copy, #a1a1aa);
   font-size: 0.9rem;
+  line-height: 1.55;
   padding: 16px 0;
 }
 html.light .empty-tip {
-  color: #9ca3af;
+  color: var(--film-empty-copy, #64748b);
 }
 .script-workbench-unified {
   margin-bottom: 0;
@@ -501,11 +502,21 @@ html.light .select-script-title {
   font-weight: 600;
   color: var(--text-primary);
 }
+.film-episode-empty p {
+  margin: 0;
+}
 .film-episode-empty-actions {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 8px;
-  margin-top: 10px;
+  margin-top: 12px;
+}
+.film-episode-empty-actions :deep(.el-button:focus-visible),
+.script-select-empty-actions :deep(.el-button:focus-visible),
+.select-script-empty :deep(.el-button:focus-visible) {
+  outline: 2px solid #818cf8;
+  outline-offset: 2px;
 }
 .script-save-status {
   align-self: center;

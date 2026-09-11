@@ -55,9 +55,11 @@
               </div>
             </div>
           </div>
-          <div v-if="!charLibraryLoading && charLibraryList.length === 0" class="library-empty">
+          <div v-if="!charLibraryLoading && charLibraryList.length === 0" class="library-empty" role="status">
             <p>暂无本剧角色库记录，可将本剧角色「加入本剧库」后在此查看</p>
-            <el-button type="primary" @click="returnToCharacterPanel">去角色面板</el-button>
+            <div class="library-empty-actions">
+              <el-button type="primary" @click="returnToCharacterPanel">去角色面板</el-button>
+            </div>
           </div>
         </div>
         <div class="library-pagination">
@@ -96,9 +98,11 @@
               </div>
             </div>
           </div>
-          <div v-if="!dramaAllCharLoading && dramaAllCharList.length === 0" class="library-empty">
+          <div v-if="!dramaAllCharLoading && dramaAllCharList.length === 0" class="library-empty" role="status">
             <p>本剧暂无制作角色</p>
-            <el-button type="primary" @click="returnToCharacterPanel">创建角色</el-button>
+            <div class="library-empty-actions">
+              <el-button type="primary" @click="returnToCharacterPanel">创建角色</el-button>
+            </div>
           </div>
         </div>
         <div class="library-pagination">

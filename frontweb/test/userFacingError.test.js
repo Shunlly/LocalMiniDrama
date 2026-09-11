@@ -90,26 +90,37 @@ test('制作资源生成失败不直出 e.message 且不静默取消', () => {
 })
 
 test('剧集详情页用户错误走统一中文转义', () => {
-  const source = readFileSync(new URL('../src/views/DramaDetail.vue', import.meta.url), 'utf8')
-  assert.match(source, /import \{ toUserFacingError \} from '@\/utils\/userFacingError'/)
-  assert.match(source, /function dramaDetailUserError\(error, fallback = '操作失败，请稍后重试', serviceLabel = '项目服务'\) \{\s*return toUserFacingError\(error, fallback, \{ serviceLabel \}\)/)
-  assert.doesNotMatch(source, /if \(raw && !TECHNICAL_ENGLISH_RE\.test\(raw\)/)
+  const page = readFileSync(new URL('../src/views/DramaDetail.vue', import.meta.url), 'utf8')
+  const helper = readFileSync(new URL('../src/components/dramaDetail/dramaDetailResourceEdit.js', import.meta.url), 'utf8')
+  assert.match(page, /import \{ dramaDetailUserError, characterRoleLabel, propTypeLabel \} from '@\/components\/dramaDetail\/dramaDetailResourceEdit\.js'/)
+  assert.match(helper, /import \{ toUserFacingError \} from '@\/utils\/userFacingError'/)
+  assert.match(helper, /function dramaDetailUserError\(error, fallback = '操作失败，请稍后重试', serviceLabel = '项目服务'\) \{\s*return toUserFacingError\(error, fallback, \{ serviceLabel \}\)/)
+  assert.doesNotMatch(page, /if \(raw && !TECHNICAL_ENGLISH_RE\.test\(raw\)/)
+  assert.doesNotMatch(helper, /if \(raw && !TECHNICAL_ENGLISH_RE\.test\(raw\)/)
 })
 
 
 test('流水线/批量生成失败不再直出 e.message', () => {
-  const files = [
+  const pipelineFiles = [
     '../src/composables/filmCreate/useFilmCreatePipelineStages.js',
+    '../src/composables/filmCreate/useFilmCreatePipelineOneClick.js',
+    '../src/composables/filmCreate/useFilmCreatePipelineRepair.js',
+  ]
+  const files = [
+    ...pipelineFiles,
     '../src/composables/filmCreate/useFilmCreateBatchGeneration.js',
   ]
   for (const rel of files) {
     const source = readFileSync(new URL(rel, import.meta.url), 'utf8')
-    assert.match(source, /toUserFacingError/)
+    if (!rel.endsWith('useFilmCreatePipelineStages.js')) {
+      assert.match(source, /toUserFacingError/)
+    }
     assert.doesNotMatch(source, /addPipelineError\([^\n]*e\.message/)
     assert.doesNotMatch(source, /batch(?:Image|Video)Errors\.value\.push\(`[^`]*\$\{e\.message/)
   }
 
-  const pipelineSource = readFileSync(new URL(files[0], import.meta.url), 'utf8')
+  const pipelineSource = pipelineFiles.map((rel) => readFileSync(new URL(rel, import.meta.url), 'utf8')).join('\n')
+
   assert.match(pipelineSource, /import \{ isUserFacingAbort, toUserFacingError \} from '@\/utils\/userFacingError'/)
   assert.match(pipelineSource, /if \(isUserFacingAbort\(e\)\) throw e/)
   assert.match(pipelineSource, /addPipelineError\('提取角色', toUserFacingError\(e, '提取角色失败'\)\)/)
@@ -120,7 +131,7 @@ test('流水线/批量生成失败不再直出 e.message', () => {
   assert.doesNotMatch(pipelineSource, /e\.message \|\| String\(e\)/)
   assert.doesNotMatch(pipelineSource, /addPipelineError\('润色全能分镜', `镜#[^`]*\$\{msg\}`\)/)
 
-  const batchSource = readFileSync(new URL(files[1], import.meta.url), 'utf8')
+  const batchSource = readFileSync(new URL(files[files.length - 1], import.meta.url), 'utf8')
   assert.match(batchSource, /if \(isUserFacingAbort\(e\)\) continue/)
   assert.match(batchSource, /toUserFacingError\(pollRes\.error, '生成失败'\)/)
   assert.match(batchSource, /toUserFacingError\(pollRes\.error, '生成超时，请稍后重试'\)/)

@@ -9,6 +9,7 @@ const net = require('net');
 const {
   sanitizeProviderException,
   isTrustedChineseUserError,
+  createProviderHttpError,
 } = require('./providerErrorSanitizer');
 
 const JSON_REQUEST_MAX_BYTES = 128 * 1024 * 1024;

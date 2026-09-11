@@ -9,7 +9,7 @@
             plain
             aria-label="编辑剧本"
             :disabled="Boolean(actionReasons.editScript)"
-            :title="actionReasons.editScript || undefined"
+            :title="actionReasons.editScript || '编辑剧本'"
             @click="emit('edit-script')"
           >
             <el-icon><Document /></el-icon>
@@ -21,20 +21,20 @@
             size="small"
             aria-label="新建分镜"
             :disabled="Boolean(actionReasons.createStoryboard)"
-            :title="actionReasons.createStoryboard || undefined"
+            :title="actionReasons.createStoryboard || '新建分镜'"
             @click="emit('create', 'storyboard')"
           >
             <el-icon><Plus /></el-icon>
             分镜
           </el-button>
         </CanvasActionGate>
-        <el-button size="small" aria-label="新建剧集" @click="emit('create', 'episode')">
+        <el-button size="small" aria-label="新建剧集" title="新建剧集" @click="emit('create', 'episode')">
           <el-icon><Tickets /></el-icon>
           剧集
         </el-button>
         <CanvasActionGate :reason="actionReasons.createAsset" label="新建素材" description-id="canvas-reason-create-asset">
           <el-dropdown trigger="click" :disabled="Boolean(actionReasons.createAsset)" @command="emit('create', $event)">
-            <el-button size="small" aria-label="新建素材" :disabled="Boolean(actionReasons.createAsset)" :title="actionReasons.createAsset || undefined">
+            <el-button size="small" aria-label="新建素材" :disabled="Boolean(actionReasons.createAsset)" :title="actionReasons.createAsset || '新建素材'">
               <el-icon><Box /></el-icon>
               素材
               <el-icon class="dropdown-arrow"><ArrowDown /></el-icon>
@@ -77,7 +77,7 @@
             aria-label="AI 生成分镜"
             :loading="episodeGenerating"
             :disabled="Boolean(actionReasons.generateStoryboards)"
-            :title="actionReasons.generateStoryboards || undefined"
+            :title="actionReasons.generateStoryboards || 'AI 生成分镜'"
             @click="emit('generate-storyboards')"
           >
             <el-icon><MagicStick /></el-icon>
@@ -90,7 +90,7 @@
             aria-label="批量生成图片"
             :loading="episodeGenerating"
             :disabled="Boolean(actionReasons.batchImages)"
-            :title="actionReasons.batchImages || undefined"
+            :title="actionReasons.batchImages || '批量生成图片'"
             @click="emit('batch-images')"
           >
             <el-icon><Picture /></el-icon>
@@ -108,7 +108,7 @@
             aria-label="批量生成视频"
             :loading="episodeGenerating"
             :disabled="Boolean(actionReasons.batchVideos)"
-            :title="actionReasons.batchVideos || undefined"
+            :title="actionReasons.batchVideos || '批量生成视频'"
             @click="emit('batch-videos')"
           >
             <el-icon><VideoPlay /></el-icon>
@@ -123,12 +123,16 @@
             size="small"
             :type="isFreeMode ? 'default' : 'primary'"
             :aria-pressed="!isFreeMode"
+            aria-label="剧集画布"
+            title="剧集画布"
             @click="emit('set-mode', 'production')"
           >制作</el-button>
           <el-button
             size="small"
             :type="isFreeMode ? 'primary' : 'default'"
             :aria-pressed="isFreeMode"
+            aria-label="自由画布"
+            title="自由画布不跑本集生成"
             @click="emit('set-mode', 'free')"
           >自由</el-button>
         </div>
@@ -150,12 +154,12 @@
             </el-button>
           </el-tooltip>
         </CanvasActionGate>
-        <el-button size="small" type="primary" plain @click="emit('list-mode')">
+        <el-button size="small" type="primary" plain aria-label="返回列表模式" title="返回列表模式" @click="emit('list-mode')">
           <el-icon><List /></el-icon>
           列表模式
         </el-button>
         <el-tooltip :content="isDark ? '切换到浅色主题' : '切换到暗色主题'" placement="bottom">
-          <el-button size="small" class="theme-button" :aria-label="isDark ? '浅色主题' : '暗色主题'" @click="emit('toggle-theme')">
+          <el-button size="small" class="theme-button" :aria-label="isDark ? '浅色主题' : '暗色主题'" :title="isDark ? '浅色主题' : '暗色主题'" @click="emit('toggle-theme')">
             <el-icon><Sunny v-if="isDark" /><Moon v-else /></el-icon>
           </el-button>
         </el-tooltip>

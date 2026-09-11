@@ -3,13 +3,22 @@ import assert from 'node:assert/strict'
 import { existsSync, readFileSync } from 'node:fs'
 
 import { useFilmCreateWorkspaceNav } from '../src/composables/filmCreate/useFilmCreateWorkspaceNav.js'
+import { readFilmListSources } from './helpers/filmListSources.js'
+import { readDramaDetailPageLogicSources } from './helpers/dramaDetailPageSources.js'
 import { ref } from 'vue'
 
 const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8')
 const routeUtilsUrl = new URL('../src/utils/projectListRoute.js', import.meta.url)
-const filmCreateSourceForCanvas = read('../src/views/FilmCreate.vue')
-const dramaDetailSourceForCanvas = read('../src/views/DramaDetail.vue')
-const dramaCanvasSourceForReturn = read('../src/views/DramaCanvas.vue')
+const filmCreateSourceForCanvas = [
+  read('../src/views/FilmCreate.vue'),
+  read('../src/composables/filmCreate/useFilmCreatePageDisplay.js'),
+].join('\n')
+const dramaDetailSourceForCanvas = readDramaDetailPageLogicSources(read)
+const dramaCanvasSourceForReturn = [
+  read('../src/views/DramaCanvas.vue'),
+  read('../src/composables/useDramaCanvasPageBindings.js'),
+  read('../src/composables/useDramaCanvasDisplayState.js'),
+].join('\n')
 
 async function loadProjectListRouteUtils() {
   assert.ok(existsSync(routeUtilsUrl), 'project list route helpers must exist')
@@ -135,9 +144,9 @@ test('project route instance keys normalize route names and rotate only for posi
 })
 
 test('project list and project workspaces wire safe return navigation through the route', () => {
-  const filmListSource = read('../src/views/FilmList.vue')
-  const filmCreateSource = read('../src/views/FilmCreate.vue')
-  const dramaDetailSource = read('../src/views/DramaDetail.vue')
+  const filmListSource = readFilmListSources().ui
+  const filmCreateSource = filmCreateSourceForCanvas
+  const dramaDetailSource = readDramaDetailPageLogicSources(read)
   const routerSource = read('../src/router/index.js')
 
   assert.match(filmListSource, /import \{[^}]*mergeProjectListFilters[^}]*normalizeProjectListFilters[^}]*normalizeProjectListReturnTo[^}]*\} from '@\/utils\/projectListRoute'/)
@@ -151,7 +160,7 @@ test('project list and project workspaces wire safe return navigation through th
     /router\.push\(newProjectDestination\(drama, sourceImportIntent\.value, projectListReturnTo\.value\)\)/,
   )
 
-  assert.match(filmCreateSource, /normalizeProjectListReturnTo\(route\.query\.returnTo\)/)
+  assert.match(filmCreateSource, /normalizeProjectListReturnTo\(route\?\.query\?\.returnTo\)/)
   const pushes = []
   const { goList } = useFilmCreateWorkspaceNav({
     router: { push(target) { pushes.push(target) } },
@@ -198,7 +207,7 @@ test('entering production resolves an episode, keeps return context, and focuses
 })
 
 test('project list backup entry carries a safe returnTo through shared navigation dispatch', () => {
-  const filmListSource = read('../src/views/FilmList.vue')
+  const filmListSource = readFilmListSources().ui
   const viewsSource = read('../src/router/views.js')
   const navigationSource = read('../src/router/navigation.js')
 

@@ -3,27 +3,33 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
 import { remainingImportBetween, remainingImportedFunctionSource } from './helpers/remainingSourceBetween.js'
+import { readSourceIntakeWorkflowSources } from './helpers/sourceIntakeWorkflowSources.js'
+import { readFilmListSources } from './helpers/filmListSources.js'
+import { readDramaCanvasRuntimeSource } from './helpers/dramaCanvasPageSource.js'
 import { scrollAndFocusSection } from '../src/utils/sectionFocus.js'
 import { useFilmCreateWorkspaceNav } from '../src/composables/filmCreate/useFilmCreateWorkspaceNav.js'
 import { useFilmCreateMediaPreview } from '../src/composables/filmCreate/useFilmCreateMediaPreview.js'
+import { readMediaLibrarySources } from './helpers/mediaLibrarySources.js'
+
+import { readDramaDetailPageLogicSources } from './helpers/dramaDetailPageSources.js'
 
 const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8')
 
 const routerSource = read('../src/router/index.js').replace(/\r\n?/g, '\n')
 const aiConfigSource = read('../src/views/AiConfig.vue')
-const dramaDetailSource = read('../src/views/DramaDetail.vue')
+const dramaDetailSource = readDramaDetailPageLogicSources(read)
 const dramaDetailHeaderSource = read('../src/components/dramaDetail/DramaDetailHeader.vue')
-const sourceIntakeSource = read('../src/components/SourceIntakeWorkflowPanel.vue') + '\n' + read('../src/components/sourceIntake/SourceIntakeCompletionBanner.vue')
+const sourceIntakeSource = readSourceIntakeWorkflowSources()
 const readinessSource = read('../src/components/ProjectReadinessPanel.vue')
-const filmListSource = read('../src/views/FilmList.vue')
-const freeCreateSource = read('../src/views/FreeCreate.vue') + '\n' + read('../src/components/freeCreate/FreeCreateHeader.vue') + '\n' + read('../src/components/freeCreate/FreeCreateInputPanel.vue') + '\n' + read('../src/components/freeCreate/FreeCreateResultPanel.vue')
-const canvasSource = read('../src/views/DramaCanvas.vue') + '\n' + read('../src/composables/useDramaCanvasFreeCanvas.js') + '\n' + read('../src/composables/useDramaCanvasPersist.js') + '\n' + read('../src/composables/useDramaCanvasProjectLoad.js') + '\n' + read('../src/composables/useDramaCanvasWorkflow.js')
+const filmListSource = readFilmListSources().ui
+const freeCreateSource = read('../src/views/FreeCreate.vue') + '\n' + read('../src/components/freeCreate/FreeCreateHeader.vue') + '\n' + read('../src/components/freeCreate/FreeCreateInputPanel.vue') + '\n' + read('../src/components/freeCreate/FreeCreateResultPanel.vue') + '\n' + read('../src/composables/useFreeCreateWorkspace.js') + '\n' + read('../src/utils/freeCreate.js')
+const canvasSource = readDramaCanvasRuntimeSource()
 const filmCreateSource = read('../src/views/FilmCreate.vue')
 const filmCreateStyleSource = read('../src/views/FilmCreate.css')
 const storyboardPanelSource = read('../src/components/filmCreate/FilmCreateStoryboardPanel.vue') + '\n' + read('../src/components/filmCreate/FilmCreateStoryboardPanel.css')
 const storyboardConfigBarSource = read('../src/components/filmCreate/FilmCreateStoryboardConfigBar.vue')
-const filmCreatePipelineSource = read('../src/components/filmCreate/FilmCreatePipelinePanel.vue')
-const mediaLibrarySource = read('../src/views/MediaLibrary.vue')
+const filmCreatePipelineSource = read('../src/components/filmCreate/FilmCreatePipelinePanel.vue') + '\n' + read('../src/components/filmCreate/filmCreatePipelinePanelBindings.js')
+const mediaLibrarySource = readMediaLibrarySources()
 
 function extractUniqueCompletionSummaryRule(sourceText) {
   const styleStart = sourceText.indexOf('<style')
@@ -126,7 +132,8 @@ test('source intake accepts PDF/image/audio/video uploads and keeps Chinese extr
     assert.match(sourceIntakeSource, new RegExp(`['"]${extension.replace('.', '\\.') }['"]`), extension)
   }
 
-  assert.match(sourceIntakeSource, /:accept="SOURCE_FILE_ACCEPT"/)
+  assert.match(sourceIntakeSource, /:source-file-accept="SOURCE_FILE_ACCEPT"/)
+  assert.match(sourceIntakeSource, /:accept="sourceFileAccept"/)
   assert.match(sourceIntakeSource, /本地素材文件/)
   assert.match(sourceIntakeSource, /支持文本、PDF、图片、音频和视频，单文件最大 20MB/)
   assert.match(sourceIntakeSource, /SOURCE_INTAKE_MEDIA_HELP/)

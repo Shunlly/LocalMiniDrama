@@ -13,18 +13,22 @@ import {
   AI_SERVICE_COVERAGE_DEFINITIONS,
   buildAiServiceCoverage,
 } from '../src/utils/aiConfigCoverage.js'
+import { readAiConfigFormDialogTreeSource } from './helpers/aiConfigFormDialogSources.js'
 
 function readSource(url) {
   return readFileSync(url, 'utf8').replace(/\r\n?/g, '\n')
 }
 
 const vueSource = readSource(new URL('../src/components/AIConfigContent.vue', import.meta.url))
-const formDialogSource = readSource(new URL('../src/components/aiConfig/AiConfigFormDialog.vue', import.meta.url))
+const formDialogSource = readAiConfigFormDialogTreeSource()
 const overlaySource = `${vueSource}\n${formDialogSource}`
 const connectionDialogSource = readSource(new URL('../src/components/aiConfig/AiConfigConnectionTestDialog.vue', import.meta.url))
 const labelsSource = readSource(new URL('../src/utils/aiConfigLabels.js', import.meta.url))
 const connectionTestSource = readSource(new URL('../src/utils/aiConfigConnectionTest.js', import.meta.url))
 const coverageCardsSource = readSource(new URL('../src/components/aiConfig/AiConfigCoverageCards.vue', import.meta.url))
+const coverageHeaderSource = readSource(new URL('../src/components/aiConfig/AiConfigCoverageHeader.vue', import.meta.url))
+const coveragePanelSource = readSource(new URL('../src/components/aiConfig/AiConfigCoveragePanel.vue', import.meta.url))
+const configsPanelSource = readSource(new URL('../src/components/aiConfig/AiConfigConfigsPanel.vue', import.meta.url))
 const pageSource = readSource(new URL('../src/views/AiConfig.vue', import.meta.url))
 const coverageSource = readSource(new URL('../src/utils/aiConfigCoverage.js', import.meta.url))
 
@@ -143,11 +147,12 @@ test('AI config form exposes OCR and transcription in Chinese without raw servic
 test('coverage panel keeps five production cards and adds an optional extraction section', () => {
   assert.match(vueSource, /const orderedCoverageServices = computed\(\(\) => sortAiServiceCoverage\(serviceCoverage\.value\.services\)\)/)
   assert.match(vueSource, /orderedExtractionCoverageServices/)
-  assert.match(vueSource, /<AiConfigCoverageCards/)
+  assert.match(vueSource, /<AiConfigCoveragePanel/)
+  assert.match(coveragePanelSource, /<AiConfigCoverageCards/)
   assert.match(coverageCardsSource, /<h3 id="ai-extraction-coverage-title">素材抽取<\/h3>/)
   assert.match(coverageCardsSource, /缺省不会把正式制作标成未就绪/)
-  assert.match(vueSource, /上方统计只看五类正式制作服务/)
-  assert.match(vueSource, /图片识别和语音转写属于扩展能力，不计入上方五类基础生成服务/)
+  assert.match(coverageHeaderSource, /上方统计只看五类正式制作服务/)
+  assert.match(configsPanelSource, /图片识别和语音转写属于扩展能力，不计入上方五类基础生成服务/)
   assert.match(coverageSource, /extractionServices/)
   const coreBlock = coverageSource.slice(
     coverageSource.indexOf('AI_SERVICE_COVERAGE_DEFINITIONS'),

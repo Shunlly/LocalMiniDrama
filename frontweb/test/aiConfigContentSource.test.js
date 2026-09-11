@@ -22,19 +22,36 @@ import {
   getConfigWorkspaceKeyTarget,
   shouldApplyConfigWorkspaceRequest,
 } from '../src/utils/aiConfigWorkspace.js'
+import { readAiConfigFormDialogTreeSource } from './helpers/aiConfigFormDialogSources.js'
+import { formatJimeng2AssetCreatedAt } from '../src/components/aiConfig/aiConfigFormatters.js'
 
 function readSource(url) {
   return readFileSync(url, 'utf8').replace(/\r\n?/g, '\n')
 }
 
 const vueSource = readSource(new URL('../src/components/AIConfigContent.vue', import.meta.url))
-const formDialogSource = readSource(new URL('../src/components/aiConfig/AiConfigFormDialog.vue', import.meta.url))
+const formDialogSource = readAiConfigFormDialogTreeSource()
 const oneKeyDialogSource = readSource(new URL('../src/components/aiConfig/AiConfigOneKeyDialogs.vue', import.meta.url))
 const bulkKeyDialogSource = readSource(new URL('../src/components/aiConfig/AiConfigBulkKeyDialog.vue', import.meta.url))
 const connectionDialogSource = readSource(new URL('../src/components/aiConfig/AiConfigConnectionTestDialog.vue', import.meta.url))
 const jimeng2AssetsDialogSource = readSource(new URL('../src/components/aiConfig/AiConfigJimeng2AssetsDialog.vue', import.meta.url))
 const dependencyErrorBarSource = readSource(new URL('../src/components/aiConfig/AiConfigDependencyErrorBar.vue', import.meta.url))
 const listToolbarSource = readSource(new URL('../src/components/aiConfig/AiConfigListToolbar.vue', import.meta.url))
+const listTableSource = readSource(new URL('../src/components/aiConfig/AiConfigListTable.vue', import.meta.url))
+const workspaceSwitchSource = readSource(new URL('../src/components/aiConfig/AiConfigWorkspaceSwitch.vue', import.meta.url))
+const coverageHeaderSource = readSource(new URL('../src/components/aiConfig/AiConfigCoverageHeader.vue', import.meta.url))
+const coveragePanelSource = readSource(new URL('../src/components/aiConfig/AiConfigCoveragePanel.vue', import.meta.url))
+const configsPanelSource = readSource(new URL('../src/components/aiConfig/AiConfigConfigsPanel.vue', import.meta.url))
+const generationSettingsPaneSource = readSource(new URL('../src/components/aiConfig/AiConfigGenerationSettingsPane.vue', import.meta.url))
+const formDerivedSource = readSource(new URL('../src/composables/useAiConfigFormDerived.js', import.meta.url))
+const formRulesSource = readSource(new URL('../src/composables/useAiConfigFormRules.js', import.meta.url))
+const writeLockSource = readSource(new URL('../src/composables/useAiConfigWriteLock.js', import.meta.url))
+const emptyCopySource = readSource(new URL('../src/composables/useAiConfigEmptyCopy.js', import.meta.url))
+const formActionsSource = readSource(new URL('../src/composables/useAiConfigFormActions.js', import.meta.url))
+const sessionStatusSource = readSource(new URL('../src/composables/useAiConfigSessionStatus.js', import.meta.url))
+const pageRequestsSource = readSource(new URL('../src/composables/useAiConfigPageRequests.js', import.meta.url))
+const pageChromeSource = readSource(new URL('../src/composables/useAiConfigPageChrome.js', import.meta.url))
+const requestOptionsSource = readSource(new URL('../src/utils/aiConfigRequestOptions.js', import.meta.url))
 const overlaySource = [
   vueSource,
   formDialogSource,
@@ -44,6 +61,17 @@ const overlaySource = [
   jimeng2AssetsDialogSource,
   dependencyErrorBarSource,
   listToolbarSource,
+  listTableSource,
+  workspaceSwitchSource,
+  coverageHeaderSource,
+  coveragePanelSource,
+  configsPanelSource,
+  generationSettingsPaneSource,
+  formActionsSource,
+  sessionStatusSource,
+  pageRequestsSource,
+  pageChromeSource,
+  requestOptionsSource,
 ].join('\n')
 const generationSettingsSource = readSource(new URL('../src/composables/useAiConfigGenerationSettings.js', import.meta.url))
 const oneKeySource = readSource(new URL('../src/composables/useAiConfigOneKeyPresets.js', import.meta.url))
@@ -61,6 +89,7 @@ const modelListSource = readSource(new URL('../src/components/aiConfig/AiConfigM
 const presetHelpSource = readSource(new URL('../src/components/aiConfig/AiConfigPresetHelpCollapse.vue', import.meta.url))
 const pageSource = readSource(new URL('../src/views/AiConfig.vue', import.meta.url))
 const detailSource = readSource(new URL('../src/views/DramaDetail.vue', import.meta.url))
+const detailNavSource = readSource(new URL('../src/components/dramaDetail/dramaDetailLoadAndNav.js', import.meta.url))
 const viteSource = readSource(new URL('../vite.config.js', import.meta.url))
 
 const DRAMA_ID = 11
@@ -153,19 +182,60 @@ function createMemoryStorage() {
 }
 
 test('AIConfigContent wires coverage, model list and preset help components without extracting loadList', () => {
-  assert.match(vueSource, /import AiConfigCoverageCards from '@\/components\/aiConfig\/AiConfigCoverageCards\.vue'/)
+  assert.match(vueSource, /import AiConfigWorkspaceSwitch from '@\/components\/aiConfig\/AiConfigWorkspaceSwitch\.vue'/)
+  assert.match(vueSource, /import AiConfigCoveragePanel from '@\/components\/aiConfig\/AiConfigCoveragePanel\.vue'/)
+  assert.match(vueSource, /import AiConfigConfigsPanel from '@\/components\/aiConfig\/AiConfigConfigsPanel\.vue'/)
+  assert.match(coveragePanelSource, /import AiConfigCoverageHeader from '@\/components\/aiConfig\/AiConfigCoverageHeader\.vue'/)
+  assert.match(coveragePanelSource, /import AiConfigCoverageCards from '@\/components\/aiConfig\/AiConfigCoverageCards\.vue'/)
   assert.match(vueSource, /import AiConfigFormDialog from '@\/components\/aiConfig\/AiConfigFormDialog\.vue'/)
   assert.match(overlaySource, /import AiConfigModelListSection from '@\/components\/aiConfig\/AiConfigModelListSection\.vue'/)
   assert.match(overlaySource, /import AiConfigPresetHelpCollapse from '@\/components\/aiConfig\/AiConfigPresetHelpCollapse\.vue'/)
-  assert.match(vueSource, /<AiConfigCoverageCards/)
+  assert.match(vueSource, /<AiConfigWorkspaceSwitch/)
+  assert.match(vueSource, /<AiConfigCoveragePanel/)
+  assert.match(coveragePanelSource, /<AiConfigCoverageHeader/)
+  assert.match(coveragePanelSource, /<AiConfigCoverageCards/)
   assert.match(vueSource, /<AiConfigFormDialog/)
+  assert.match(configsPanelSource, /import AiConfigListTable from '@\/components\/aiConfig\/AiConfigListTable\.vue'/)
+  assert.match(vueSource, /<AiConfigConfigsPanel/)
+  assert.match(configsPanelSource, /<AiConfigListTable/)
+  assert.match(vueSource, /:open-test="openTest"/)
   assert.match(overlaySource, /<AiConfigModelListSection/)
   assert.match(overlaySource, /<AiConfigPresetHelpCollapse/)
   assert.match(vueSource, /async function loadList\(\)/)
   assert.match(vueSource, /async function openTest\(row\)/)
+  assert.doesNotMatch(listTableSource, /async function loadList\(/)
+  assert.doesNotMatch(listTableSource, /async function openTest\(/)
+  assert.doesNotMatch(listTableSource, /useAiConfigList/)
+  assert.doesNotMatch(workspaceSwitchSource, /async function loadList\(/)
+  assert.doesNotMatch(workspaceSwitchSource, /async function openTest\(/)
+  assert.doesNotMatch(workspaceSwitchSource, /useAiConfigList/)
+  assert.doesNotMatch(coverageHeaderSource, /async function loadList\(/)
+  assert.doesNotMatch(coverageHeaderSource, /async function openTest\(/)
+  assert.doesNotMatch(coverageHeaderSource, /useAiConfigList/)
+  assert.doesNotMatch(listTableSource, /function formatJimeng2AssetCreatedAt/)
   assert.match(vueSource, /useAiConfigGenerationSettings\(/)
+  assert.match(vueSource, /<AiConfigGenerationSettingsPane/)
+  assert.match(vueSource, /useAiConfigFormDerived\(/)
+  assert.match(vueSource, /useAiConfigFormRules\(/)
+  assert.match(vueSource, /useAiConfigWriteLock\(/)
+  assert.match(vueSource, /useAiConfigEmptyCopy\(/)
+  assert.match(vueSource, /useAiConfigFormActions\(/)
+  assert.match(vueSource, /useAiConfigSessionStatus\(/)
+  assert.match(vueSource, /useAiConfigPageRequests\(/)
+  assert.match(vueSource, /useAiConfigPageChrome\(/)
+  assert.doesNotMatch(vueSource, /function handleConfigDialogClosed\(/)
+  assert.doesNotMatch(vueSource, /function clearServiceFilter\(/)
+  assert.doesNotMatch(vueSource, /function isConfigRowSelectable\(/)
+  assert.match(pageChromeSource, /function handleConfigDialogClosed\(/)
+  assert.match(pageChromeSource, /function clearServiceFilter\(/)
+  assert.match(pageChromeSource, /function isConfigRowSelectable\(/)
   assert.doesNotMatch(overlaySource, /async function loadGenerationSettings\(\)/)
   assert.doesNotMatch(vueSource, /async function saveGenerationSettings\(\)/)
+  for (const extracted of [coveragePanelSource, configsPanelSource, generationSettingsPaneSource, formDerivedSource, formRulesSource, writeLockSource, emptyCopySource, formActionsSource, sessionStatusSource, pageRequestsSource, pageChromeSource, requestOptionsSource]) {
+    assert.doesNotMatch(extracted, /async function loadList\(/)
+    assert.doesNotMatch(extracted, /async function openTest\(/)
+    assert.doesNotMatch(extracted, /useAiConfigList/)
+  }
   assert.match(vueSource, /useAiConfigDiscoverModels\(/)
   assert.doesNotMatch(vueSource, /async function discoverModelsFromService\(\)/)
   assert.match(discoverModelsSource, /async function discoverModelsFromService\(\)/)
@@ -196,7 +266,10 @@ test('AI config dialog stays grouped into basic, provider, model, and policy sec
 test('service coverage panel exposes summary cards and per-service action links', () => {
   assert.match(vueSource, /coverageSummaryCards/)
   assert.match(vueSource, /const orderedCoverageServices = computed\(\(\) => sortAiServiceCoverage\(serviceCoverage\.value\.services\)\)/)
-  assert.match(vueSource, /<AiConfigCoverageCards/)
+  assert.match(vueSource, /<AiConfigCoveragePanel/)
+  assert.match(coveragePanelSource, /<AiConfigCoverageHeader/)
+  assert.match(coveragePanelSource, /<AiConfigCoverageCards/)
+  assert.match(coveragePanelSource, /v-if="!configListPendingEmpty && !configListFailedEmpty"/)
   assert.match(vueSource, /@select="onCoverageSelect"/)
   assert.match(vueSource, /@action="onCoverageAction"/)
   assert.match(coverageCardsSource, /v-for="item in orderedCoverageServices"/)
@@ -212,8 +285,8 @@ test('service coverage panel exposes summary cards and per-service action links'
 })
 
 test('coverage copy defines usable readiness and names missing credentials', () => {
-  assert.match(vueSource, /类可用/)
-  assert.match(vueSource, /默认配置还需凭据、模型或工作流完整/)
+  assert.match(coverageHeaderSource, /类可用/)
+  assert.match(coverageHeaderSource, /默认配置还需凭据、模型或工作流完整/)
   assert.match(coverageCardSource, /\{\{ coverageStateLabel\(item\) \}\}/)
   assert.equal(coverageStateLabel({ ready: true }), '可用')
   assert.equal(coverageStateLabel({ issue: 'missing_credentials' }), '缺少凭据')
@@ -224,25 +297,27 @@ test('coverage copy defines usable readiness and names missing credentials', () 
 test('AI config mutations emit one reliable change notification only after real successes', async () => {
   assert.match(vueSource, /import \{[\s\S]*runAiConfigCreateBatch,[\s\S]*\} from '@\/utils\/aiConfigMutations\.js'/)
   assert.match(vueSource, /const emit = defineEmits\(\['configuration-changed'\]\)/)
-  assert.equal((vueSource.match(/emit\('configuration-changed'\)/g) || []).length, 1)
-  assert.match(vueSource, /function notifyConfigurationChanged\(\) \{\s*emit\('configuration-changed'\)\s*\}/)
-  assert.equal((vueSource.match(/^[ \t]*notifyConfigurationChanged\(\)$/gm) || []).length, 2)
+  assert.equal((vueSource.match(/emit\('configuration-changed'\)/g) || []).length, 0)
+  assert.equal((formActionsSource.match(/emit\('configuration-changed'\)/g) || []).length, 1)
+  assert.match(formActionsSource, /function notifyConfigurationChanged\(\) \{\s*emit\('configuration-changed'\)\s*\}/)
+  assert.equal((vueSource.match(/^[ \t]*notifyConfigurationChanged\(\)$/gm) || []).length, 1)
+  assert.equal((formActionsSource.match(/^[ \t]*notifyConfigurationChanged\(\)$/gm) || []).length, 1)
   assert.equal((oneKeySource.match(/^[ \t]*notifyConfigurationChanged\(\)$/gm) || []).length, 1)
   assert.equal((importExportSource.match(/^[ \t]*notifyConfigurationChanged\(\)$/gm) || []).length, 1)
   assert.equal((listMutationsSource.match(/^[ \t]*notifyConfigurationChanged\(\)$/gm) || []).length, 3)
 
-  assert.match(vueSource, /await aiAPI\.update[\s\S]*await aiAPI\.create[\s\S]*notifyConfigurationChanged\(\)/)
+  assert.match(formActionsSource, /await aiAPI\.update[\s\S]*await aiAPI\.create[\s\S]*notifyConfigurationChanged\(\)/)
   assert.match(
-    vueSource,
+    formActionsSource,
     /confirmAiConfigMutationResult\(mutationResult, payload, previous \|\| \{\}\)[\s\S]*confirmAiConfigMutationInList\(serverConfirmation, list\.value\)/,
   )
-  assert.match(vueSource, /服务端返回的配置快照与本次提交不一致/)
+  assert.match(formActionsSource, /服务端返回的配置快照与本次提交不一致/)
   assert.match(
-    vueSource,
+    formActionsSource,
     /const listConfirmed = await loadList\(\)\s*const listMatches = listConfirmed && confirmAiConfigMutationInList\(serverConfirmation, list\.value\)/,
   )
   assert.match(
-    vueSource,
+    formActionsSource,
     /notifyConfigurationChanged\(\)\s*configDialogSaved\.value = true[\s\S]*dialogVisible\.value = false/,
   )
 
@@ -281,7 +356,8 @@ test('AI config mutations emit one reliable change notification only after real 
 
   assert.match(importExportSource, /if \(listConfirmed && \(result\.success === 0 \|\| createdVisible\)\)/)
   assert.match(importExportSource, /配置已导入但列表未确认，请勿重复导入。请点击“重试”刷新列表。/)
-  assert.match(vueSource, /async function retryConfigDependencies\(\) \{\s*await Promise\.all\(\[loadVendorLock\(\), loadList\(\)\]\)\s*\}/)
+  assert.match(pageRequestsSource, /async function retryConfigDependencies\(\) \{\s*await Promise\.all\(\[loadVendorLock\(\), loadList\(\)\]\)\s*\}/)
+  assert.match(vueSource, /useAiConfigPageRequests\(/)
   assert.doesNotMatch(
     vueSource,
     /async function retryConfigDependencies\(\) \{[\s\S]{0,80}(?:importConfigs|runAiConfigCreateBatch|aiAPI\.create)/,
@@ -351,10 +427,10 @@ test('AI config mutations emit one reliable change notification only after real 
 })
 
 test('every successful configuration mutation invalidates persisted connection semantics', () => {
-  assert.match(vueSource, /async function initializeConnectionStatusStore\(\)[\s\S]*resolveAiConfigConnectionStatusScope/)
+  assert.match(sessionStatusSource, /async function initializeConnectionStatusStore\(\)[\s\S]*resolveAiConfigConnectionStatusScope/)
   assert.match(viteSource, /['"]\/health['"]:\s*\{[\s\S]*?target: backendProxyTarget/)
   assert.match(
-    vueSource,
+    sessionStatusSource,
     /function invalidateConnectionTestResults\(\) \{\s*connectionStatusStore\.invalidateAll\(\)\s*sessionTestStatusById\.value = \{\}/,
   )
   assert.match(
@@ -362,7 +438,7 @@ test('every successful configuration mutation invalidates persisted connection s
     /async function handleSd2AssetSaved\(\) \{\s*invalidateConnectionTestResults\(\)\s*notifyConfigurationChanged\(\)\s*await loadList\(\)/,
   )
   assert.match(
-    vueSource,
+    formActionsSource,
     /const listMatches = listConfirmed && confirmAiConfigMutationInList\(serverConfirmation, list\.value\)\s*invalidateConnectionTestResults\(\)/,
   )
   assert.match(
@@ -482,13 +558,13 @@ test('coverage grid stays readable on desktop and identity columns retain toolti
   assert.match(coverageCardSource, /\.coverage-action-link\s*\{[\s\S]*?min-height:\s*32px;/)
   assert.match(coverageCardSource, /\.coverage-config-detail\s*\{[\s\S]*?overflow-wrap:\s*anywhere;/)
   assert.match(coverageCardsSource, /@media \(max-width: 1120px\) \{[\s\S]*?\.coverage-grid\s*\{[\s\S]*?repeat\(2, minmax\(0, 1fr\)\)/)
-  assert.match(vueSource, /<el-table-column prop="name"[^>]*min-width="220"[^>]*show-overflow-tooltip/)
-  assert.match(vueSource, /<el-table-column prop="provider"[^>]*min-width="180"[^>]*show-overflow-tooltip/)
+  assert.match(listTableSource, /<el-table-column prop="name"[^>]*min-width="220"[^>]*show-overflow-tooltip/)
+  assert.match(listTableSource, /<el-table-column prop="provider"[^>]*min-width="180"[^>]*show-overflow-tooltip/)
 })
 
 test('project readiness service links are consumed as an AI configuration filter', async () => {
-  assert.match(detailSource, /service_type:\s*action\.serviceType\s*\|\|\s*''/)
-  assert.match(detailSource, /returnTo:\s*route\.fullPath/)
+  assert.match(detailNavSource, /service_type:\s*action\.serviceType\s*\|\|\s*''/)
+  assert.match(detailNavSource, /returnTo:\s*route\.fullPath/)
   assert.match(pageSource, /<AIConfigContent\s+ref="aiConfigContentRef"\s+:initial-service-type="initialServiceType"\s*\/>/)
   assert.match(pageSource, /route\.query\.service_type/)
   assert.match(vueSource, /activeServiceFilter\s*=\s*ref\(normalizeInitialServiceType\(props\.initialServiceType\)\)/)
@@ -539,7 +615,7 @@ test('AI config dialog confirms before discarding unsaved provider or model chan
   assert.match(vueSource, /const configFormDirty = computed/)
   assert.match(vueSource, /configFormFingerprint\(\) !== configFormBaseline\.value/)
   assert.match(vueSource, /当前 AI 配置尚未保存/)
-  assert.match(vueSource, /configDialogSaved\.value = true[\s\S]*dialogVisible\.value = false/)
+  assert.match(formActionsSource, /configDialogSaved\.value = true[\s\S]*dialogVisible\.value = false/)
 })
 
 test('AI config list preserves prior data on load failure and blocks auto-open while status is unresolved', () => {
@@ -550,7 +626,8 @@ test('AI config list preserves prior data on load failure and blocks auto-open w
   assert.match(vueSource, /configLoadState\.value = 'error'/)
   assert.match(vueSource, /configLoadState\.value = 'ready'\n    return true/)
   assert.match(vueSource, /configLoadState\.value = 'error'\n    return false/)
-  assert.match(vueSource, /const canAutoOpenMissingService = computed\(\(\) => \(\s*configLoadState\.value === 'ready' && vendorLockResolved\.value/s)
+  assert.match(vueSource, /canAutoOpenMissingService,/)
+  assert.match(writeLockSource, /const canAutoOpenMissingService = computed\(\(\) => \(\s*configLoadState\.value === 'ready' && vendorLockResolved\.value/)
   assert.match(vueSource, /shouldAutoOpenRequestedService/)
   assert.doesNotMatch(vueSource, /async function loadList\(\)[\s\S]*catch \([^)]+\) \{\s*list\.value = \[\]/)
 
@@ -618,13 +695,13 @@ test('AI config import keeps a successful server import unconfirmed until list r
 test('coverage repair actions open and focus the concrete missing configuration field', async () => {
   assert.match(overlaySource, /:ref="bindApiKeyInputRef"[\s\S]*v-model="form\.api_key"/)
   assert.match(vueSource, /function setModelListInputRef\(element\)/)
-  assert.match(vueSource, /model: modelListInputRef/)
+  assert.match(formActionsSource, /model: modelListInputRef/)
   assert.match(modelListSource, /:ref="setModelListInputRef"[\s\S]*v-model="form\.modelText"/)
   assert.match(overlaySource, /:ref="bindWorkflowInputRef"[\s\S]*v-model="form\.comfy_workflow_json"/)
-  assert.match(vueSource, /async function openEdit\(row, \{ repairIssue = '' \} = \{\}\)[\s\S]*applyAiConfigRepairTarget\(repairIssue/)
-  assert.match(vueSource, /credentials: apiKeyInputRef/)
-  assert.match(vueSource, /model: modelListInputRef/)
-  assert.match(vueSource, /workflow: workflowInputRef/)
+  assert.match(formActionsSource, /async function openEdit\(row, \{ repairIssue = '' \} = \{\}\)[\s\S]*applyAiConfigRepairTarget\(repairIssue/)
+  assert.match(formActionsSource, /credentials: apiKeyInputRef/)
+  assert.match(formActionsSource, /model: modelListInputRef/)
+  assert.match(formActionsSource, /workflow: workflowInputRef/)
 
   const focused = []
   await applyAiConfigRepairTarget('missing_credentials', {
@@ -655,35 +732,41 @@ test('coverage repair actions open and focus the concrete missing configuration 
 })
 
 test('AI configuration separates service status from provider management', () => {
-  assert.match(vueSource, /role="tablist" aria-label="AI 配置工作区"/)
-  assert.match(vueSource, /data-testid="ai-config-mode-coverage"/)
-  assert.match(vueSource, /data-testid="ai-config-mode-configs"/)
-  assert.match(vueSource, /:aria-selected="configWorkspaceView === 'coverage'"/)
-  assert.match(vueSource, /:aria-selected="configWorkspaceView === 'configs'"/)
-  assert.match(vueSource, /v-show="configWorkspaceView === 'coverage'"/)
-  assert.match(vueSource, /v-show="configWorkspaceView === 'configs'"/)
+  assert.match(workspaceSwitchSource, /role="tablist" aria-label="AI 配置工作区"/)
+  assert.match(workspaceSwitchSource, /data-testid="ai-config-mode-coverage"/)
+  assert.match(workspaceSwitchSource, /data-testid="ai-config-mode-configs"/)
+  assert.match(workspaceSwitchSource, /:aria-selected="configWorkspaceView === 'coverage'"/)
+  assert.match(workspaceSwitchSource, /:aria-selected="configWorkspaceView === 'configs'"/)
+  assert.match(vueSource, /<AiConfigWorkspaceSwitch/)
+  assert.match(coveragePanelSource, /v-show="configWorkspaceView === 'coverage'"/)
+  assert.match(configsPanelSource, /v-show="configWorkspaceView === 'configs'"/)
+  assert.match(coveragePanelSource, /tabindex="-1"/)
+  assert.match(configsPanelSource, /tabindex="-1"/)
   assert.match(
     vueSource,
     /const configWorkspaceView = ref\(\s*normalizeInitialServiceType\(props\.initialServiceType\) \? 'configs' : 'coverage',?\s*\)/,
   )
-  assert.match(vueSource, /selectConfigWorkspaceView\('configs'/)
+  assert.match(workspaceSwitchSource, /selectConfigWorkspaceView\('configs'/)
+  assert.match(vueSource, /:select-config-workspace-view="selectConfigWorkspaceView"/)
 })
 
 test('AI configuration workspace modes expose a visible keyboard focus state', async () => {
-  assert.match(vueSource, /:tabindex="configWorkspaceView === 'coverage' \? 0 : -1"/)
-  assert.match(vueSource, /:tabindex="configWorkspaceView === 'configs' \? 0 : -1"/)
-  assert.match(vueSource, /@keydown="onConfigWorkspaceKeydown\('coverage', \$event\)"/)
-  assert.match(vueSource, /@keydown="onConfigWorkspaceKeydown\('configs', \$event\)"/)
+  assert.match(workspaceSwitchSource, /:tabindex="configWorkspaceView === 'coverage' \? 0 : -1"/)
+  assert.match(workspaceSwitchSource, /:tabindex="configWorkspaceView === 'configs' \? 0 : -1"/)
+  assert.match(workspaceSwitchSource, /@keydown="onConfigWorkspaceKeydown\('coverage', \$event\)"/)
+  assert.match(workspaceSwitchSource, /@keydown="onConfigWorkspaceKeydown\('configs', \$event\)"/)
   assert.match(vueSource, /useAiConfigWorkspaceView\(/)
   assert.match(vueSource, /const coverageWorkspaceModeRef = ref\(null\)/)
   assert.match(vueSource, /const configsWorkspaceModeRef = ref\(null\)/)
+  assert.match(vueSource, /v-model:coverage-workspace-mode-ref="coverageWorkspaceModeRef"/)
+  assert.match(vueSource, /v-model:configs-workspace-mode-ref="configsWorkspaceModeRef"/)
   assert.match(workspaceViewSource, /getConfigWorkspaceKeyTarget\(currentView, event\.key\)/)
   assert.match(vueSource, /shouldApplyConfigWorkspaceRequest\(/)
   assert.match(vueSource, /focusServiceConfigs,/)
   assert.match(vueSource, /@select="onCoverageSelect"/)
   assert.match(coverageCardSource, /\$emit\('select', item\)/)
   assert.match(
-    vueSource,
+    workspaceSwitchSource,
     /\.config-workspace-mode:focus-visible\s*\{[\s\S]*?outline:\s*2px solid var\(--accent-text\);[\s\S]*?outline-offset:\s*2px;/,
   )
 
@@ -712,8 +795,8 @@ test('AI 配置在 760px 和 520px 下重排且不会被固定双列撑宽', () 
   assert.match(vueSource, /@media \(max-width: 760px\) \{[\s\S]*?\.ai-config-content,[\s\S]*?max-width: 100%;[\s\S]*?min-width: 0;/)
   assert.match(coverageCardsSource, /@media \(max-width: 760px\) \{[\s\S]*?\.coverage-grid,[\s\S]*?grid-template-columns: minmax\(0, 1fr\);/)
   assert.match(overlaySource, /@media \(max-width: 760px\) \{[\s\S]*?\.content-actions,[\s\S]*?flex-direction: column;/)
-  assert.match(vueSource, /@media \(max-width: 760px\) \{[\s\S]*?\.config-workspace-mode \{[\s\S]*?min-width: 0;/)
-  assert.match(vueSource, /@media \(max-width: 520px\) \{[\s\S]*?\.config-workspace-switch \{[\s\S]*?grid-template-columns: minmax\(0, 1fr\);/)
+  assert.match(workspaceSwitchSource, /@media \(max-width: 760px\) \{[\s\S]*?\.config-workspace-mode \{[\s\S]*?min-width: 0;/)
+  assert.match(workspaceSwitchSource, /@media \(max-width: 520px\) \{[\s\S]*?\.config-workspace-switch \{[\s\S]*?grid-template-columns: minmax\(0, 1fr\);/)
   assert.match(overlaySource, /@media \(max-width: 760px\) \{[\s\S]*?:deep\(\.el-form-item__content\),[\s\S]*?max-width: 100%;/)
   assert.match(pageSource, /@media \(max-width: 760px\) \{[\s\S]*?\.ai-config \{[\s\S]*?overflow-x: clip;/)
   assert.match(pageSource, /@media \(max-width: 760px\) \{[\s\S]*?\.main \{[\s\S]*?width: calc\(100% - 24px\);[\s\S]*?overflow-x: hidden;/)
@@ -739,7 +822,7 @@ test('AI 配置保存、导入和连接测试失败不再直出 e.message', () =
   assert.match(connectionTestSource, /toUserFacingError\(error, '暂时无法完成连接测试，请稍后重试。'/)
   assert.match(vueSource, /isUserFacingAbort\(e, controller\.signal\)/)
   assert.match(generationSettingsSource, /runWithOwnedRequestErrorToast\(\(\) => generationSettingsAPI\.update/)
-  assert.match(vueSource, /runWithOwnedRequestErrorToast\(async \(\) => \([\s\S]*await aiAPI\.update[\s\S]*await aiAPI\.create/)
+  assert.match(formActionsSource, /runWithOwnedRequestErrorToast\(async \(\) => \([\s\S]*await aiAPI\.update[\s\S]*await aiAPI\.create/)
   assert.doesNotMatch(vueSource, /ElMessage\.error\('保存失败：'/)
   assert.doesNotMatch(vueSource, /ElMessage\.error\('导入失败：' \+ \(e\.message/)
   assert.doesNotMatch(vueSource, /ElMessage\.error\(e\??\.message/)
@@ -763,16 +846,16 @@ test('AI 配置厂商和模型选择保留中文空状态、无障碍名称，�
   assert.ok(defaultModelTags.some((tag) => tag.includes('allow-create') && tag.includes('暂无模型，可直接输入或先填写模型列表')))
   assert.ok(defaultModelTags.some((tag) => !tag.includes('allow-create') && tag.includes('暂无可用模型')))
   assert.match(providerOptionsSource, /请先选择厂商，或直接输入模型名。/)
-  assert.match(vueSource, /describeProviderModelEmptyHint\(/)
+  assert.match(formDerivedSource, /describeProviderModelEmptyHint\(/)
   assert.match(providerOptionsSource, /当前厂商没有预设模型，可直接输入模型名。/)
-  assert.match(vueSource, /:aria-label="configActionLabel\('测试', row\)"/)
-  assert.match(vueSource, /:aria-label="configActionLabel\('删除', row\)"/)
+  assert.match(overlaySource, /:aria-label="configActionLabel\('测试', row\)"/)
+  assert.match(overlaySource, /:aria-label="configActionLabel\('删除', row\)"/)
   assert.match(overlaySource, /aria-label="保存配置"/)
   assert.match(overlaySource, /@click="submit">保存<\/el-button>/)
   assert.match(submitPayloadSource, /title: '保存确认'/)
   assert.match(submitPayloadSource, /confirmButtonText: '确认保存'/)
-  assert.match(vueSource, /copy.title/)
-  assert.match(vueSource, /if \(!await confirmReplaceDefaultConfig\(\)\) return\s*if \(configWriteLocked\.value\) return/)
+  assert.match(formActionsSource, /copy.title/)
+  assert.match(formActionsSource, /if \(!await confirmReplaceDefaultConfig\(\)\) return\s*if \(configWriteLocked\.value\) return/)
   assert.match(listMutationsSource, /确定删除配置「\$\{name\}」？此操作不可恢复。/)
   assert.match(listMutationsSource, /catch \(error\) \{\s*if \(isUserFacingAbort\(error\)\) return\s*ElMessage\.error\(toUserFacingError\(error, '删除失败'\)/)
   assert.match(listMutationsSource, /if \(!success && failed\) ElMessage\.error\(`删除失败，\$\{failed\} 条未能删除`\)/)
@@ -793,22 +876,8 @@ test('即梦素材库弹窗去掉接口路径，列名和时间改为中文', ()
   assert.match(jimeng2AssetsDialogSource, /formatJimeng2AssetCreatedAt\(row\.created_at\) \|\| '未知时间'/)
   assert.doesNotMatch(jimeng2AssetsDialogSource, /<el-table-column prop="created_at" label="创建时间"[^/]*\/>/)
 
-  const start = vueSource.indexOf('function formatJimeng2AssetCreatedAt(value) {')
-  assert.notEqual(start, -1, 'formatJimeng2AssetCreatedAt must stay in AIConfigContent.vue')
-  let depth = 0
-  let end = -1
-  for (let i = vueSource.indexOf('{', start); i < vueSource.length; i += 1) {
-    if (vueSource[i] === '{') depth += 1
-    else if (vueSource[i] === '}') {
-      depth -= 1
-      if (depth === 0) {
-        end = i + 1
-        break
-      }
-    }
-  }
-  assert.notEqual(end, -1)
-  const formatJimeng2AssetCreatedAt = new Function(`${vueSource.slice(start, end)}; return formatJimeng2AssetCreatedAt;`)()
+  assert.match(vueSource, /import \{ formatJimeng2AssetCreatedAt \} from '@\/components\/aiConfig\/aiConfigFormatters\.js'/)
+  assert.match(vueSource, /:format-jimeng2-asset-created-at="formatJimeng2AssetCreatedAt"/)
   const formatted = formatJimeng2AssetCreatedAt('2026-08-29T00:00:00Z')
   assert.match(formatted, /2026/)
   assert.doesNotMatch(formatted, /T00:00:00Z/)
@@ -826,7 +895,8 @@ test('AI 配置页 GET 帮助、429 说明和一键配置空密钥禁用改为�
   assert.match(overlaySource, /素材登记接口/)
   assert.match(overlaySource, /对外访问地址/)
   assert.doesNotMatch(vueSource, /429 错误/)
-  assert.match(vueSource, /接口限流（请求过于频繁）/)
+  assert.doesNotMatch(generationSettingsPaneSource, /429 错误/)
+  assert.match(generationSettingsPaneSource, /接口限流（请求过于频繁）/)
   assert.match(vueSource, /async function loadList\(\)/)
   assert.match(vueSource, /async function openTest\(row\)/)
   assert.match(vueSource, /<AiConfigFormDialog/)
@@ -834,9 +904,11 @@ test('AI 配置页 GET 帮助、429 说明和一键配置空密钥禁用改为�
   assert.match(vueSource, /<AiConfigBulkKeyDialog/)
   assert.match(vueSource, /<AiConfigConnectionTestDialog/)
   assert.match(vueSource, /<AiConfigJimeng2AssetsDialog/)
+  assert.match(vueSource, /<AiConfigConfigsPanel/)
+  assert.match(configsPanelSource, /<AiConfigListTable/)
   assert.doesNotMatch(vueSource, /useAiConfigList/)
   assert.doesNotMatch(vueSource, /from '@\/composables\/useAiConfigList/)
-  for (const overlay of [formDialogSource, oneKeyDialogSource, bulkKeyDialogSource, connectionDialogSource, jimeng2AssetsDialogSource]) {
+  for (const overlay of [formDialogSource, oneKeyDialogSource, bulkKeyDialogSource, connectionDialogSource, jimeng2AssetsDialogSource, listToolbarSource, listTableSource, dependencyErrorBarSource, workspaceSwitchSource, coverageHeaderSource, coveragePanelSource, configsPanelSource, generationSettingsPaneSource, formDerivedSource, formRulesSource, writeLockSource, emptyCopySource, formActionsSource, sessionStatusSource, pageRequestsSource, pageChromeSource, requestOptionsSource]) {
     assert.doesNotMatch(overlay, /async function loadList\(/)
     assert.doesNotMatch(overlay, /async function openTest\(/)
     assert.doesNotMatch(overlay, /useAiConfigList/)

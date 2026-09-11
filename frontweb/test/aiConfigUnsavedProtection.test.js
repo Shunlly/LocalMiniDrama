@@ -10,6 +10,7 @@ const contentSource = readFileSync(new URL('../src/components/AIConfigContent.vu
 const pageSource = readFileSync(new URL('../src/views/AiConfig.vue', import.meta.url), 'utf8')
 const filmListSource = readFileSync(new URL('../src/views/FilmList.vue', import.meta.url), 'utf8')
 const filmCreateSource = readFileSync(new URL('../src/views/FilmCreate.vue', import.meta.url), 'utf8')
+const shellBindingsSource = readFileSync(new URL('../src/components/filmCreate/filmCreateShellBindings.js', import.meta.url), 'utf8')
 const aiConfigDialogSource = readFileSync(new URL('../src/components/filmCreate/FilmCreateAiConfigDialog.vue', import.meta.url), 'utf8')
 const promptEditorSource = readFileSync(new URL('../src/components/PromptEditor.vue', import.meta.url), 'utf8')
 const sceneModelMapSource = readFileSync(new URL('../src/components/SceneModelMap.vue', import.meta.url), 'utf8')
@@ -98,7 +99,8 @@ test('production AI config dialog uses the same guard for chrome and custom back
   assert.equal(event.returnValue, '')
   assert.equal(await guards.allowNavigationAfterDraftFlush(), false)
 
-  assert.match(filmCreateSource, /:before-close="confirmAiConfigWorkspaceClose"/)
-  assert.match(filmCreateSource, /@back="requestAiConfigWorkspaceClose"/)
+  assert.match(filmCreateSource, /v-bind="workspaceDialogsLayerBindings"/)
+  assert.match(shellBindingsSource, /beforeClose: confirmAiConfigWorkspaceClose/)
+  assert.match(shellBindingsSource, /onBack: requestAiConfigWorkspaceClose/)
   assert.match(aiConfigDialogSource, /<AIConfigContent\s+ref="contentRef"/)
 })

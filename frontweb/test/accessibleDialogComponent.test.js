@@ -336,6 +336,8 @@ test('520px 视口下弹窗外壳和内容都受视口宽度约束', () => {
 test('弹窗默认禁止点遮罩关闭', () => {
   assert.match(componentSource, /closeOnClickModal:\s*\{\s*type:\s*Boolean,\s*default:\s*false/)
   assert.match(componentSource, /:close-on-click-modal="closeOnClickModal"/)
+  assert.match(componentSource, /closeOnPressEscape:\s*\{\s*type:\s*Boolean,\s*default:\s*true/)
+  assert.match(componentSource, /:close-on-press-escape="closeOnPressEscape"/)
 })
 test('Element Plus 未暴露 $el 时按 data-id 注册真实弹窗节点', async () => {
   globalThis.__accessibleDialogCalls = []
@@ -437,6 +439,77 @@ test('opened 时若没有可聚焦控件则把焦点放到对话框本身', asyn
     dialog.props.onTriggerClosed()
     assert.equal(globalThis.document.activeElement, opener)
     assert.notEqual(globalThis.document.activeElement, focusTrapContainer)
+  } finally {
+    harness.app.unmount()
+    delete globalThis.__accessibleDialogCalls
+    delete globalThis.__accessibleDialogFocusResult
+    delete globalThis.__accessibleDialogContentRef
+    delete globalThis.document
+  }
+})
+
+test('opened 时若焦点被关闭按钮抢走则重新聚焦内容', async () => {
+  globalThis.__accessibleDialogCalls = []
+  globalThis.__accessibleDialogFocusTarget = managedFocusTarget
+  globalThis.__accessibleDialogFocusResult = true
+  const opener = { id: 'launch-button' }
+  const closeButton = { id: 'header-close', className: 'el-dialog__headerbtn', parentElement: null }
+  globalThis.document = { activeElement: opener }
+  const harness = await mountDialog()
+  try {
+    const [dialog] = findAll(harness.root, 'dialog-stub')
+    dialog.props.onTriggerOpen()
+    dialog.props.onTriggerOpenAutoFocus()
+    await nextTick()
+    await nextTick()
+    assert.equal(globalThis.document.activeElement, managedFocusTarget)
+    globalThis.document.activeElement = closeButton
+    dialog.props.onTriggerOpened()
+    assert.equal(globalThis.document.activeElement, managedFocusTarget)
+    assert.equal(globalThis.__accessibleDialogCalls.filter(([name]) => name === 'focus').length, 2)
+  } finally {
+    harness.app.unmount()
+    delete globalThis.__accessibleDialogCalls
+    delete globalThis.__accessibleDialogFocusTarget
+    delete globalThis.__accessibleDialogFocusResult
+    delete globalThis.document
+  }
+})
+
+test('opened 时用可见标题补齐 aria-labelledby，并去掉重复 aria-label', async () => {
+  globalThis.__accessibleDialogCalls = []
+  globalThis.__accessibleDialogFocusResult = false
+  const titleEl = {
+    id: '',
+    className: 'el-dialog__title',
+    textContent: '新建项目',
+    setAttribute(name, value) { this[name] = value },
+  }
+  const labelled = {
+    nodeType: 1,
+    attrs: { 'aria-label': '新建项目' },
+    closest() { return this },
+    querySelector(selector) { return selector === '.el-dialog__title' ? titleEl : null },
+    setAttribute(name, value) { this.attrs = { ...this.attrs, [name]: value } },
+    getAttribute(name) { return this.attrs?.[name] },
+    removeAttribute(name) {
+      const next = { ...this.attrs }
+      delete next[name]
+      this.attrs = next
+    },
+    hasAttribute() { return false },
+    focus() { globalThis.document.activeElement = this },
+  }
+  globalThis.__accessibleDialogContentRef = { $el: labelled }
+  globalThis.document = { activeElement: { id: 'launch-button' } }
+  const harness = await mountDialog()
+  try {
+    const [dialog] = findAll(harness.root, 'dialog-stub')
+    dialog.props.onTriggerOpen()
+    dialog.props.onTriggerOpened()
+    assert.ok(titleEl.id)
+    assert.equal(labelled.attrs['aria-labelledby'], titleEl.id)
+    assert.equal(Object.prototype.hasOwnProperty.call(labelled.attrs, 'aria-label'), false)
   } finally {
     harness.app.unmount()
     delete globalThis.__accessibleDialogCalls

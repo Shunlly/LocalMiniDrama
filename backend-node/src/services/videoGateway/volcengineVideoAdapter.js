@@ -14,6 +14,7 @@ const {
   logVideoPostRequest,
 } = require('./helpers');
 const { resolveVolcOmniImageAsync, loadStorageFile } = require('./mediaRefs');
+const { relativePathAfterStatic } = require('./staticPath');
 
 /**
  * 火山 Seedance 系列：按模型版本归一化时长（秒）。
@@ -105,8 +106,7 @@ async function callVolcengineOmniVideoApi(config, log, opts) {
       if (!u) continue;
       if (/localhost|127\.0\.0\.1/i.test(u) && storage_local_path && (files_base_url || '').match(/localhost|127\.0\.0\.1/i)) {
         const baseUrl = (files_base_url || '').replace(/\/$/, '');
-        const afterStatic = u.split('/static/')[1] || (baseUrl ? u.replace(baseUrl + '/', '').replace(baseUrl, '') : null);
-        const relPath = afterStatic ? afterStatic.replace(/^\//, '') : null;
+        const relPath = relativePathAfterStatic(u, baseUrl) || null;
         if (relPath) {
           const filePath = uploadService.resolveStorageReference(storage_local_path, relPath).absolutePath;
           try {
@@ -151,8 +151,7 @@ async function callVolcengineOmniVideoApi(config, log, opts) {
       // 复用图片的本地文件转 base64 逻辑
       if (/localhost|127\.0\.0\.1/i.test(voiceUrl) && storage_local_path && (files_base_url || '').match(/localhost|127\.0\.0\.1/i)) {
         const baseUrl = (files_base_url || '').replace(/\/$/, '');
-        const afterStatic = voiceUrl.split('/static/')[1] || (baseUrl ? voiceUrl.replace(baseUrl + '/', '').replace(baseUrl, '') : null);
-        const relPath = afterStatic ? afterStatic.replace(/^\//, '') : null;
+        const relPath = relativePathAfterStatic(voiceUrl, baseUrl) || null;
         if (relPath) {
           const filePath = uploadService.resolveStorageReference(storage_local_path, relPath).absolutePath;
           try {

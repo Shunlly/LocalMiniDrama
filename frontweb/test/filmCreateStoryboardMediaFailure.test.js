@@ -73,9 +73,7 @@ test.after(() => {
 test('制作页仍把媒体失败横幅和关联重绘闸接到中文入口', () => {
   const warningSource = readFileSync(new URL('../src/components/filmCreate/FilmCreateProjectDependencyWarning.vue', import.meta.url), 'utf8')
   assert.match(filmCreateSource, /<FilmCreateProjectDependencyWarning/)
-  assert.match(filmCreateSource, /:media-error="storyboardMediaLoadError"/)
-  assert.match(filmCreateSource, /:dependency-warning="projectDependencyWarning"/)
-  assert.match(filmCreateSource, /@retry="retryProjectDependencies"/)
+  assert.match(filmCreateSource, /v-bind="projectDependencyWarningBindings"/)
   assert.match(warningSource, /重试加载素材/)
   assert.match(
     resourcePanelSource,
@@ -182,6 +180,7 @@ test('付费入口在媒体失败时 fail closed，异步预检后会再检查�
     const reasons = useFilmCreateActionDisabledReasons({
       dramaId: ref(DRAMA_ID),
       currentEpisodeId: ref(EPISODE_ID),
+      scriptContent: ref('示例剧本'),
       charactersGenerating: ref(false),
       propsExtracting: ref(false),
       scenesExtracting: ref(false),

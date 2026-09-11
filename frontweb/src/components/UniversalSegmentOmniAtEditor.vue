@@ -21,38 +21,19 @@
       @compositionend="onCompositionEnd"
     />
     <teleport to="body">
-      <div
+      <OmniAtMentionMenu
         v-show="menuOpen"
-        class="omni-at-menu"
-        :style="menuStyle"
         role="listbox"
         aria-label="插入参考图"
-        @mousedown.prevent
-      >
-        <div v-if="!slots.length" class="omni-at-menu-empty">当前没有可用的参考图（请为场景 / 角色 / 道具选择带图素材）</div>
-        <button
-          v-for="(s, i) in slots"
-          :key="s.index"
-          type="button"
-          class="omni-at-menu-item"
-          :class="{ 'omni-at-menu-item--active': menuActiveIndex === i }"
-          role="option"
-          :aria-selected="menuActiveIndex === i"
-          @click="onPickSlot(s.index)"
-          @mouseenter="menuActiveIndex = i"
-        >
-          <span class="omni-at-menu-thumb-wrap">
-            <img v-if="s.thumbUrl" :src="s.thumbUrl" class="omni-at-menu-thumb" alt="" />
-            <span v-else class="omni-at-menu-thumb-ph">{{ (s.name || '?')[0] }}</span>
-          </span>
-          <span class="omni-at-menu-meta">
-            <span class="omni-at-menu-tag" :class="'omni-at-menu-tag--' + s.kind">{{ kindLabel(s.kind) }}</span>
-            <span class="omni-at-menu-name">{{ s.name }}</span>
-            <span class="omni-at-menu-at">{{ menuPrimaryAt(s) }}</span>
-            <span class="omni-at-menu-at-sub">提交 {{ canonicalAt(s.index) }}</span>
-          </span>
-        </button>
-      </div>
+        :menu-style="menuStyle"
+        :slots="slots"
+        :menu-active-index="menuActiveIndex"
+        :kind-label="kindLabel"
+        :menu-primary-at="menuPrimaryAt"
+        :canonical-at="canonicalAt"
+        @pick="onPickSlot"
+        @hover="onHoverIndex"
+      />
     </teleport>
     <div class="omni-at-footer">
       <el-tooltip :content="copyDisabledReason || '复制为 @图片N 格式（与提交视频一致）'" placement="top">
@@ -85,6 +66,26 @@ import {
   omniSlotKindLabel,
   toCanonicalOmniText,
 } from '@/utils/universalSegmentOmniAt.js'
+import OmniAtMentionMenu from './omniAt/OmniAtMentionMenu.vue'
+import {
+  applyPlainTextToOmniEditor,
+  getCanonicalSelection,
+  getCaretCanonicalOffset,
+  OMNI_AT_CHIP_CLASS,
+  refreshOmniChipLabels,
+  serializeOmniEditor,
+  serializeOmniSelection,
+  setCaretCanonicalOffset,
+  updateOmniChipDisplay,
+} from './omniAt/omniAtEditorDom.js'
+import {
+  computeMenuPosition,
+  describeCopyDisabledReason,
+  insertCanonicalTokenAtAt,
+  nextMenuActiveIndex,
+  replaceSerializedRange,
+  shouldOpenAtMenu,
+} from './omniAt/omniAtEditorUx.js'
 
 const props = defineProps({
   modelValue: { type: String, default: '' },
@@ -112,8 +113,6 @@ let replaceChipEl = null
 
 let skipNextModelWatch = false
 
-const CHIP_CLASS = 'omni-at-chip'
-
 function kindLabel(kind) {
   return omniSlotKindLabel(kind)
 }
@@ -137,151 +136,11 @@ function bindChip(span) {
 }
 
 function applyPlainTextToEditor(el, text) {
-  if (!el) return
-  const raw = toCanonicalOmniText(text, props.slots)
-  el.innerHTML = ''
-  if (!raw) return
-  const re = /@图片(\d+)/g
-  let last = 0
-  let m
-  while ((m = re.exec(raw)) !== null) {
-    const canon = canonicalAt(m[1])
-    if (!canon) continue
-    if (m.index > last) el.appendChild(document.createTextNode(raw.slice(last, m.index)))
-    const span = document.createElement('span')
-    span.className = CHIP_CLASS
-    span.contentEditable = 'false'
-    span.dataset.n = String(Number(m[1]))
-    const disp = makeDisplayAtToken(m[1])
-    span.textContent = disp
-    span.setAttribute('role', 'button')
-    span.setAttribute('tabindex', '0')
-    span.setAttribute('aria-label', `${disp}（提交为 ${canon}），点击可更换`)
-    bindChip(span)
-    el.appendChild(span)
-    last = m.index + m[0].length
-  }
-  if (last < raw.length) el.appendChild(document.createTextNode(raw.slice(last)))
+  applyPlainTextToOmniEditor(el, text, props.slots, { bindChip })
 }
 
-/** 规范串：仅含 @图片N，供 v-model / 存库 / 提交视频 / 复制 */
 function serializeEditor(el) {
-  if (!el) return ''
-  let out = ''
-  function walk(node) {
-    if (node.nodeType === Node.TEXT_NODE) {
-      out += node.nodeValue || ''
-      return
-    }
-    if (node.nodeType === Node.ELEMENT_NODE) {
-      if (node.classList?.contains(CHIP_CLASS)) {
-        out += canonicalAt(node.dataset?.n)
-        return
-      }
-      for (const c of node.childNodes) walk(c)
-    }
-  }
-  walk(el)
-  return out.replace(/\u00a0/g, ' ')
-}
-
-function chipCanonicalLength(node) {
-  if (!node?.classList?.contains(CHIP_CLASS)) return 0
-  return canonicalAt(node.dataset?.n).length
-}
-
-function measureCanonicalPrefix(el, endContainer, endOffset) {
-  const r = el.ownerDocument.createRange()
-  r.selectNodeContents(el)
-  r.setEnd(endContainer, endOffset)
-  let len = 0
-  function measure(n) {
-    if (n.nodeType === Node.TEXT_NODE) len += (n.textContent || '').length
-    else if (n.nodeType === Node.ELEMENT_NODE) {
-      if (n.classList?.contains(CHIP_CLASS)) len += chipCanonicalLength(n)
-      else n.childNodes.forEach(measure)
-    }
-  }
-  r.cloneContents().childNodes.forEach(measure)
-  return len
-}
-
-/** 光标在「规范串」中的偏移（与 serializeEditor 一致） */
-function getCaretCanonicalOffset(el) {
-  const win = el?.ownerDocument?.defaultView || window
-  const sel = win.getSelection()
-  if (!sel || sel.rangeCount === 0 || !el) return 0
-  const range = sel.getRangeAt(0)
-  return measureCanonicalPrefix(el, range.endContainer, range.endOffset)
-}
-
-function getCanonicalSelection(el) {
-  const win = el?.ownerDocument?.defaultView || window
-  const sel = win.getSelection()
-  if (!sel || sel.rangeCount === 0 || !el) {
-    const off = getCaretCanonicalOffset(el)
-    return { start: off, end: off }
-  }
-  const range = sel.getRangeAt(0)
-  const a = measureCanonicalPrefix(el, range.startContainer, range.startOffset)
-  const b = measureCanonicalPrefix(el, range.endContainer, range.endOffset)
-  return { start: Math.min(a, b), end: Math.max(a, b) }
-}
-
-function serializeSelection(el) {
-  const win = el?.ownerDocument?.defaultView || window
-  const sel = win.getSelection()
-  if (!sel || sel.rangeCount === 0 || !el) return serializeEditor(el)
-  const range = sel.getRangeAt(0)
-  if (range.collapsed) return serializeEditor(el)
-  const holder = el.ownerDocument.createElement('div')
-  holder.appendChild(range.cloneContents())
-  return serializeEditor(holder)
-}
-
-function setCaretCanonicalOffset(el, target) {
-  if (!el || target < 0) return
-  const doc = el.ownerDocument
-  const sel = (doc.defaultView || window).getSelection()
-  const range = doc.createRange()
-  let seen = 0
-  let placed = false
-
-  function walk(node) {
-    if (placed) return
-    if (node.nodeType === Node.TEXT_NODE) {
-      const L = (node.nodeValue || '').length
-      if (seen + L >= target) {
-        range.setStart(node, Math.min(target - seen, L))
-        range.collapse(true)
-        placed = true
-        return
-      }
-      seen += L
-      return
-    }
-    if (node.nodeType === Node.ELEMENT_NODE && node.classList?.contains(CHIP_CLASS)) {
-      const L = chipCanonicalLength(node)
-      if (seen + L >= target) {
-        if (target <= seen) range.setStartBefore(node)
-        else range.setStartAfter(node)
-        range.collapse(true)
-        placed = true
-        return
-      }
-      seen += L
-      return
-    }
-    for (const c of node.childNodes) walk(c)
-  }
-
-  for (const c of el.childNodes) walk(c)
-  if (!placed) {
-    range.selectNodeContents(el)
-    range.collapse(false)
-  }
-  sel.removeAllRanges()
-  sel.addRange(range)
+  return serializeOmniEditor(el)
 }
 
 function applyCanonicalAndEmit(el, next, caret) {
@@ -296,22 +155,12 @@ function applyCanonicalAndEmit(el, next, caret) {
 }
 
 function positionMenuNearRect(rect) {
-  const pad = 4
-  const w = 280
-  const maxH = 320
-  let top = rect.bottom + pad + window.scrollY
-  let left = rect.left + window.scrollX
-  const vw = window.innerWidth
-  if (left + w > vw - 8) left = Math.max(8, vw - w - 8)
-  if (top + maxH > window.innerHeight + window.scrollY - 8) {
-    top = rect.top + window.scrollY - maxH - pad
-  }
-  menuStyle.value = {
-    top: `${top}px`,
-    left: `${left}px`,
-    minWidth: `${w}px`,
-    maxHeight: `${maxH}px`,
-  }
+  menuStyle.value = computeMenuPosition(rect, {
+    scrollY: window.scrollY,
+    scrollX: window.scrollX,
+    innerWidth: window.innerWidth,
+    innerHeight: window.innerHeight,
+  })
 }
 
 function positionMenuAtCaret() {
@@ -348,15 +197,11 @@ function openInsertMenu() {
 }
 
 function maybeOpenAtMenu() {
-  if (composing.value) return
   const el = editorRef.value
   if (!el) return
   const s = serializeEditor(el)
   const off = getCaretCanonicalOffset(el)
-  if (off < 1 || s[off - 1] !== '@') return
-  const before = s.slice(0, off)
-  if (/@图片\d+$/.test(before)) return
-  if (before.endsWith('@@')) return
+  if (!shouldOpenAtMenu(s, off, composing.value)) return
   insertAtOffset = off
   openInsertMenu()
 }
@@ -377,6 +222,10 @@ function onBlur(e) {
   emit('blur', e)
 }
 
+function onHoverIndex(index) {
+  menuActiveIndex.value = index
+}
+
 function onKeydown(e) {
   if (e.key === 'Escape' && menuOpen.value) {
     e.preventDefault()
@@ -389,7 +238,7 @@ function onKeydown(e) {
     e.preventDefault()
     if (!list.length) return
     const delta = e.key === 'ArrowDown' ? 1 : -1
-    menuActiveIndex.value = (menuActiveIndex.value + delta + list.length) % list.length
+    menuActiveIndex.value = nextMenuActiveIndex(menuActiveIndex.value, delta, list.length)
     return
   }
   if (e.key === 'Enter') {
@@ -401,7 +250,7 @@ function onKeydown(e) {
 
 function onCopyCanonicalSelection(e) {
   const el = editorRef.value
-  const text = serializeSelection(el)
+  const text = serializeOmniSelection(el)
   if (!e?.clipboardData) return
   e.clipboardData.setData('text/plain', text)
   e.preventDefault()
@@ -410,14 +259,14 @@ function onCopyCanonicalSelection(e) {
 function onCutCanonicalSelection(e) {
   const el = editorRef.value
   if (!el) return
-  const text = serializeSelection(el)
+  const text = serializeOmniSelection(el)
   if (e?.clipboardData) {
     e.clipboardData.setData('text/plain', text)
     e.preventDefault()
   }
   const { start, end } = getCanonicalSelection(el)
-  const s = serializeEditor(el)
-  applyCanonicalAndEmit(el, s.slice(0, start) + s.slice(end), start)
+  const replaced = replaceSerializedRange(serializeEditor(el), start, end, '')
+  applyCanonicalAndEmit(el, replaced.next, replaced.caret)
 }
 
 function onPaste(e) {
@@ -426,8 +275,8 @@ function onPaste(e) {
   if (!el) return
   const pasted = toCanonicalOmniText(e.clipboardData?.getData('text/plain') ?? '', props.slots)
   const { start, end } = getCanonicalSelection(el)
-  const s = serializeEditor(el)
-  applyCanonicalAndEmit(el, s.slice(0, start) + pasted + s.slice(end), start + pasted.length)
+  const replaced = replaceSerializedRange(serializeEditor(el), start, end, pasted)
+  applyCanonicalAndEmit(el, replaced.next, replaced.caret)
 }
 
 function onCompositionEnd() {
@@ -447,7 +296,7 @@ function onChipKeydown(e) {
 
 function onChipClick(e) {
   const chip = e.currentTarget
-  if (!(chip instanceof HTMLElement) || !chip.classList.contains(CHIP_CLASS)) return
+  if (!(chip instanceof HTMLElement) || !chip.classList.contains(OMNI_AT_CHIP_CLASS)) return
   e.preventDefault()
   e.stopPropagation()
   editorRef.value?.focus()
@@ -468,24 +317,23 @@ function onPickSlot(index) {
     return
   }
   if (menuMode === 'replace' && replaceChipEl) {
-    replaceChipEl.dataset.n = String(index)
-    const disp = makeDisplayAtToken(index)
-    replaceChipEl.textContent = disp
-    replaceChipEl.setAttribute('aria-label', `${disp}（提交为 ${token}），点击可更换`)
+    updateOmniChipDisplay(replaceChipEl, {
+      index,
+      display: makeDisplayAtToken(index),
+      canonical: token,
+    })
     const next = serializeEditor(el)
     skipNextModelWatch = true
     emit('update:modelValue', next)
     closeMenu()
     return
   }
-  const s = serializeEditor(el)
-  const at = Math.max(1, insertAtOffset)
-  if (s[at - 1] !== '@') {
+  const inserted = insertCanonicalTokenAtAt(serializeEditor(el), insertAtOffset, token)
+  if (!inserted) {
     closeMenu()
     return
   }
-  const newS = s.slice(0, at - 1) + token + s.slice(at)
-  applyCanonicalAndEmit(el, newS, at - 1 + token.length)
+  applyCanonicalAndEmit(el, inserted.next, inserted.caret)
   closeMenu()
 }
 
@@ -506,24 +354,15 @@ watch(
     if (hadFocus) {
       setCaretCanonicalOffset(el, next.length)
     }
-  }
+  },
 )
 
 watch(
   () => props.slots,
   () => {
-    const el = editorRef.value
-    if (!el) return
-    el.querySelectorAll(`.${CHIP_CLASS}`).forEach((chip) => {
-      if (!(chip instanceof HTMLElement)) return
-      const n = chip.dataset?.n
-      if (n == null) return
-      const disp = makeDisplayAtToken(n)
-      chip.textContent = disp
-      chip.setAttribute('aria-label', `${disp}（提交为 ${canonicalAt(n)}），点击可更换`)
-    })
+    refreshOmniChipLabels(editorRef.value, props.slots)
   },
-  { deep: true }
+  { deep: true },
 )
 
 function onDocClick(ev) {
@@ -534,11 +373,7 @@ function onDocClick(ev) {
   closeMenu()
 }
 
-const copyDisabledReason = computed(() => {
-  const text = toCanonicalOmniText(props.modelValue == null ? '' : String(props.modelValue), props.slots).trim()
-  if (!text) return '当前没有可复制的提示词'
-  return ''
-})
+const copyDisabledReason = computed(() => describeCopyDisabledReason(props.modelValue, props.slots))
 
 async function onCopyCanonical() {
   if (copyDisabledReason.value) return
@@ -546,7 +381,7 @@ async function onCopyCanonical() {
   const text = serializeEditor(el)
   try {
     await navigator.clipboard.writeText(text)
-    ElMessage.success('已复制（@图片N 格式，与提交一致）')
+    ElMessage.success('已复制（@图片N 格式，与提交视频一致）')
   } catch (_) {
     try {
       const ta = document.createElement('textarea')
@@ -644,6 +479,10 @@ html.light .omni-at-copy-btn {
   background: rgba(139, 92, 246, 0.38);
   border-color: #a78bfa;
 }
+:deep(.omni-at-chip:focus-visible) {
+  outline: 2px solid #a78bfa;
+  outline-offset: 1px;
+}
 html.light .omni-at-editor {
   color: #1f2937;
   background: var(--el-fill-color-blank, #fff);
@@ -660,162 +499,5 @@ html.light :deep(.omni-at-chip) {
 }
 html.light :deep(.omni-at-chip:hover) {
   background: rgba(124, 58, 237, 0.2);
-}
-</style>
-
-<style>
-.omni-at-menu {
-  position: absolute;
-  z-index: 5000;
-  overflow-y: auto;
-  padding: 8px;
-  border-radius: 8px;
-  background: #1e293b;
-  border: 1px solid rgba(248, 250, 252, 0.18);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
-}
-html.light .omni-at-menu {
-  background: #fff;
-  border-color: #e2e8f0;
-  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.12);
-}
-.omni-at-menu-empty {
-  font-size: 12px;
-  color: #94a3b8;
-  padding: 8px 6px;
-  max-width: 260px;
-  line-height: 1.45;
-}
-html.light .omni-at-menu-empty {
-  color: #64748b;
-}
-.omni-at-menu-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  margin: 0 0 6px;
-  padding: 6px 8px;
-  border: none;
-  border-radius: 6px;
-  background: transparent;
-  color: #f1f5f9;
-  cursor: pointer;
-  text-align: left;
-}
-.omni-at-menu-item:last-child {
-  margin-bottom: 0;
-}
-.omni-at-menu-item:hover,
-.omni-at-menu-item--active {
-  background: rgba(148, 163, 184, 0.15);
-}
-html.light .omni-at-menu-item {
-  color: #0f172a;
-}
-html.light .omni-at-menu-item:hover,
-html.light .omni-at-menu-item--active {
-  background: #f1f5f9;
-}
-.omni-at-menu-thumb-wrap {
-  flex-shrink: 0;
-  width: 44px;
-  height: 44px;
-  border-radius: 6px;
-  overflow: hidden;
-  background: #0f172a;
-  border: 1px solid rgba(148, 163, 184, 0.25);
-}
-html.light .omni-at-menu-thumb-wrap {
-  background: #f8fafc;
-  border-color: #e2e8f0;
-}
-.omni-at-menu-thumb {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-}
-.omni-at-menu-thumb-ph {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  height: 100%;
-  font-size: 16px;
-  font-weight: 600;
-  color: #64748b;
-}
-.omni-at-menu-meta {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-.omni-at-menu-tag {
-  font-size: 10px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.02em;
-  width: fit-content;
-  padding: 1px 5px;
-  border-radius: 3px;
-  background: rgba(148, 163, 184, 0.2);
-  color: #cbd5e1;
-}
-.omni-at-menu-tag--scene {
-  background: rgba(34, 197, 94, 0.2);
-  color: #86efac;
-}
-.omni-at-menu-tag--character {
-  background: rgba(59, 130, 246, 0.2);
-  color: #93c5fd;
-}
-.omni-at-menu-tag--prop {
-  background: rgba(245, 158, 11, 0.2);
-  color: #fcd34d;
-}
-html.light .omni-at-menu-tag {
-  color: #475569;
-  background: #e2e8f0;
-}
-html.light .omni-at-menu-tag--scene {
-  color: #166534;
-  background: #dcfce7;
-}
-html.light .omni-at-menu-tag--character {
-  color: #1e40af;
-  background: #dbeafe;
-}
-html.light .omni-at-menu-tag--prop {
-  color: #92400e;
-  background: #fef3c7;
-}
-.omni-at-menu-name {
-  font-size: 12px;
-  font-weight: 500;
-  color: #e2e8f0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-html.light .omni-at-menu-name {
-  color: #334155;
-}
-.omni-at-menu-at {
-  font-size: 11px;
-  font-family: ui-monospace, monospace;
-  color: #a78bfa;
-}
-.omni-at-menu-at-sub {
-  font-size: 10px;
-  font-family: ui-monospace, monospace;
-  color: #94a3b8;
-}
-html.light .omni-at-menu-at {
-  color: #6d28d9;
-}
-html.light .omni-at-menu-at-sub {
-  color: #64748b;
 }
 </style>

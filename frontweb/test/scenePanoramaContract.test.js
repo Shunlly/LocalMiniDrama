@@ -6,7 +6,10 @@ import { compileScript, parse } from '@vue/compiler-sfc'
 
 const apiSource = readFileSync(new URL('../src/api/scenes.js', import.meta.url), 'utf8')
 const componentUrl = new URL('../src/components/dramaCanvas/CanvasAssetPanel.vue', import.meta.url)
-const componentSource = readFileSync(componentUrl, 'utf8')
+const componentSource = [
+  readFileSync(componentUrl, 'utf8'),
+  readFileSync(new URL('../src/components/dramaCanvas/CanvasAssetPanelPanorama.vue', import.meta.url), 'utf8'),
+].join('\n')
 
 test('scene API exposes the dedicated panorama generation endpoint', () => {
   assert.match(apiSource, /generatePanorama\(sceneId, data = \{\}\)/)
@@ -14,7 +17,8 @@ test('scene API exposes the dedicated panorama generation endpoint', () => {
 })
 
 test('canvas scene asset panel compiles with panorama command, task feedback, and 2:1 preview', () => {
-  const { descriptor, errors } = parse(componentSource, { filename: componentUrl.pathname })
+  const panelSource = readFileSync(componentUrl, 'utf8')
+  const { descriptor, errors } = parse(panelSource, { filename: componentUrl.pathname })
   assert.deepEqual(errors, [])
   assert.doesNotThrow(() => compileScript(descriptor, {
     id: 'scene-panorama-contract',

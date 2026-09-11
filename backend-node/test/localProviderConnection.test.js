@@ -210,6 +210,8 @@ describe('local provider connection probes', () => {
     assert.doesNotMatch(observableOutput, new RegExp(secret));
     assert.doesNotMatch(observableOutput, new RegExp(forgedMessage.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
     assert.equal(captured.statusCode, 400);
-    assert.match(captured.body.error.message, /^连接测试失败: OpenAI 连接测试 失败/);
+    assert.match(captured.body.error.message, /^连接测试失败:/);
+    assert.doesNotMatch(captured.body.error.message, /Provider|返回错误，请检查配置/);
+
   });
 });

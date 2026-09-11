@@ -182,7 +182,7 @@ test('媒体预览失败给出中文提示，占位图不会打开预览', async
   assert.match(messages.map((item) => item[1]).join('|'), /[\u4e00-\u9fff]/)
 })
 
-test('成片设置在合成禁用或进行中时锁定并展示中文原因', () => {
+test('成片设置只在合成或相关任务进行中锁定，准备态仍可改配置', () => {
   assert.match(outputSection, /:disabled="videoSettingsLocked"/)
   assert.match(outputSection, /:disabled-reason="videoSettingsLockedReason"/)
   assert.match(outputSection, /describeOutputVideoSettingsLock\(props\)/)
@@ -220,10 +220,15 @@ test('成片设置在合成禁用或进行中时锁定并展示中文原因', ()
 
   assert.equal(idle, '')
   assert.equal(done, '')
-  assert.equal(missingEpisode, '请先创建或选择剧集')
+  assert.equal(missingEpisode, '')
   assert.equal(composing, '正在合成视频，请等待当前任务完成')
   assert.equal(composingWithReason, '正在合成视频，请等待当前任务完成')
-  assert.notEqual(otherProject, thisProject)
-  assert.match(otherProject, new RegExp(String(DRAMA_ID)))
-  assert.doesNotMatch(otherProject, new RegExp(String(EPISODE_ID)))
+  assert.equal(otherProject, '')
+  assert.equal(thisProject, '')
+  assert.equal(otherProject, thisProject)
+  const pipelineBusy = describeOutputVideoSettingsLock({
+    composeActionDisabledReason: '全流程任务正在执行，请先暂停或等待完成',
+    videoStatus: 'idle',
+  })
+  assert.equal(pipelineBusy, '全流程任务正在执行，请先暂停或等待完成')
 })

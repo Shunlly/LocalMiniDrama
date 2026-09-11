@@ -199,8 +199,8 @@
       </template>
       <template v-else-if="hasSbDraftImagePlaceholder(sb)">
         <div class="sb-draft-placeholder" role="status">
-          <strong>草稿占位</strong>
-          <span>尚未生成可预览的分镜图，可切换到正式模式或手动上传。</span>
+          <strong>{{ draftPlaceholderCopy.title }}</strong>
+          <span>{{ draftPlaceholderCopy.nextStep }}</span>
         </div>
         <ActionGate :reason="imageGenerateDisabledReason" label="生成分镜参考图">
           <el-button type="primary" size="small" class="sb-gen-btn" :loading="generatingSbImageIds.has(sb.id)" :disabled="Boolean(imageGenerateDisabledReason)" :title="generatingSbImageIds.has(sb.id) ? '正在生成分镜图，请稍候' : (imageGenerateDisabledReason || undefined)" @click="onGenerateSbImage(sb)">
@@ -353,7 +353,13 @@
 import { computed } from 'vue'
 import { ArrowDown, InfoFilled, MagicStick, QuestionFilled, Refresh, ZoomIn } from '@element-plus/icons-vue'
 import UniversalSegmentOmniAtEditor from '@/components/UniversalSegmentOmniAtEditor.vue'
-import { toUserFacingError } from '@/utils/userFacingError'
+import {
+  describeDraftImagePlaceholderCopy,
+  describeImageGenerateDisabledReason,
+  describeUpscaleDisabledReason,
+  describeUniversalSegmentActionDisabledReason,
+  describeStoryboardImageError,
+} from '@/components/filmCreate/filmCreateStoryboardImageColumnCopy.js'
 import ActionGate from '@/components/filmCreate/ActionGate.vue'
 
 defineOptions({ inheritAttrs: false })
@@ -414,28 +420,13 @@ const props = defineProps({
 const lastFrameUseFirstLayoutLock = defineModel('lastFrameUseFirstLayoutLock', { type: Boolean, default: false })
 const dragOverSbId = defineModel('dragOverSbId', { default: null })
 
-function describeImageGenerateDisabledReason(reason) {
-  return String(reason || '').trim()
-}
-
-function describeUpscaleDisabledReason(hasLocalImage) {
-  return hasLocalImage ? '' : '当前分镜没有可超分的本地图片'
-}
-
-function describeUniversalSegmentActionDisabledReason(hasSegment) {
-  return hasSegment ? '' : '请先生成全能提示词'
-}
-
-function describeStoryboardImageError(sb) {
-  return toUserFacingError(sb?.error_msg || sb?.errorMsg, '生成失败')
-}
-
 const imageGenerateDisabledReason = computed(() => describeImageGenerateDisabledReason(props.storyboardMediaActionReason))
 const upscaleDisabledReason = computed(() => describeUpscaleDisabledReason(Boolean(props.getSbLocalImage(props.sb))))
 const imageErrorText = computed(() => describeStoryboardImageError(props.sb))
 const universalSegmentActionDisabledReason = computed(() => (
   describeUniversalSegmentActionDisabledReason(Boolean(props.sbUniversalSegmentTrimmed(props.sb)))
 ))
+const draftPlaceholderCopy = describeDraftImagePlaceholderCopy()
 
 const sbFreeReferenceItems = computed(() => {
   const items = props.getSbFreeReferenceItems(props.sb)

@@ -53,12 +53,13 @@
     </button>
   </span>
   <el-tag v-if="sb.movement" size="small" effect="plain" type="info" class="sb-movement-tag">{{ getMovementLabel(sb.movement) }}</el-tag>
-  <el-button size="small" plain class="sb-ctrl-btn sb-ctrl-config-btn" @click="onOpenVideoParamsDialog(sb)">⚙ 分镜配置</el-button>
+  <el-button size="small" plain class="sb-ctrl-btn sb-ctrl-config-btn" :aria-label="`打开分镜${i + 1}视频参数`" :title="`打开分镜${i + 1}视频参数`" @click="onOpenVideoParamsDialog(sb)">⚙ 分镜配置</el-button>
   <el-button
     size="small"
     plain
     class="sb-ctrl-btn sb-ctrl-mode-btn"
     :title="isSbUniversalMode(sb.id) ? '切换为经典分镜（中间显示参考图）' : '切换为全能模式（中间为片段描述，经典字段保留）'"
+    :aria-label="isSbUniversalMode(sb.id) ? '切换为经典分镜（中间显示参考图）' : '切换为全能模式（中间为片段描述，经典字段保留）'"
     @click="onToggleSbUniversalMode(sb)"
   >
     {{ isSbUniversalMode(sb.id) ? '经典分镜' : '全能模式' }}

@@ -1,10 +1,11 @@
 const response = require('../response');
-const { sendCaughtRouteError, publicErrorMessage } = require('./serviceFailure');
+const { sendCaughtRouteError, logCaughtRouteError, publicErrorMessage } = require('./serviceFailure');
 const workflowService = require('../services/workflowService');
 const readinessService = require('../services/readinessService');
 const { canReadDrama } = require('../services/dramaWriteGuard');
 
-function badRequestOrInternal(res, err) {
+function failWorkflow(res, log, operation, err, extra = {}) {
+  logCaughtRouteError(log, operation, err, { fallback: '工作流操作失败', ...extra });
   if (err && err.code === 'BAD_REQUEST') return response.badRequest(res, publicErrorMessage(err, '工作流请求无效'));
   if (err && err.code === 'WORKFLOW_NOT_READY') {
     return response.error(res, 409, err.code, publicErrorMessage(err, '工作流尚未就绪'), err.details);
@@ -79,8 +80,7 @@ module.exports = function workflowRoutes(db, log) {
         const runs = listReadableWorkflowRuns(db, req.query || {});
         response.success(res, runs);
       } catch (err) {
-        log.error('workflows list', { error: err.message });
-        badRequestOrInternal(res, err);
+        failWorkflow(res, log, 'workflows list', err);
       }
     },
 
@@ -93,8 +93,7 @@ module.exports = function workflowRoutes(db, log) {
         if (!run) return response.notFound(res, '工作流任务不存在');
         response.success(res, run);
       } catch (err) {
-        log.error('workflows get', { error: err.message, run_id: req.params.run_id });
-        badRequestOrInternal(res, err);
+        failWorkflow(res, log, 'workflows get', err, { run_id: req.params.run_id });
       }
     },
 
@@ -103,8 +102,7 @@ module.exports = function workflowRoutes(db, log) {
         const readiness = readinessService.checkNovel2AnimeReadiness(db, req.body || {});
         response.success(res, readiness);
       } catch (err) {
-        log.error('workflows novel2anime readiness', { error: err.message });
-        badRequestOrInternal(res, err);
+        failWorkflow(res, log, 'workflows novel2anime readiness', err);
       }
     },
 
@@ -117,8 +115,7 @@ module.exports = function workflowRoutes(db, log) {
         const run = workflowService.startNovel2AnimeWorkflow(db, log, params);
         response.created(res, run);
       } catch (err) {
-        log.error('workflows novel2anime start', { error: err.message });
-        badRequestOrInternal(res, err);
+        failWorkflow(res, log, 'workflows novel2anime start', err);
       }
     },
 
@@ -131,8 +128,7 @@ module.exports = function workflowRoutes(db, log) {
         if (!run) return response.notFound(res, '工作流任务不存在');
         response.success(res, run);
       } catch (err) {
-        log.error('workflows retry', { error: err.message, run_id: req.params.run_id });
-        badRequestOrInternal(res, err);
+        failWorkflow(res, log, 'workflows retry', err, { run_id: req.params.run_id });
       }
     },
 
@@ -145,8 +141,7 @@ module.exports = function workflowRoutes(db, log) {
         if (!run) return response.notFound(res, '工作流任务不存在');
         response.success(res, run);
       } catch (err) {
-        log.error('workflows cancel', { error: err.message, run_id: req.params.run_id });
-        badRequestOrInternal(res, err);
+        failWorkflow(res, log, 'workflows cancel', err, { run_id: req.params.run_id });
       }
     },
 
@@ -159,8 +154,7 @@ module.exports = function workflowRoutes(db, log) {
         if (!run) return response.notFound(res, '工作流任务不存在');
         response.success(res, run);
       } catch (err) {
-        log.error('workflows pause', { error: err.message, run_id: req.params.run_id });
-        badRequestOrInternal(res, err);
+        failWorkflow(res, log, 'workflows pause', err, { run_id: req.params.run_id });
       }
     },
 
@@ -173,8 +167,7 @@ module.exports = function workflowRoutes(db, log) {
         if (!run) return response.notFound(res, '工作流任务不存在');
         response.success(res, run);
       } catch (err) {
-        log.error('workflows resume', { error: err.message, run_id: req.params.run_id });
-        badRequestOrInternal(res, err);
+        failWorkflow(res, log, 'workflows resume', err, { run_id: req.params.run_id });
       }
     },
   };

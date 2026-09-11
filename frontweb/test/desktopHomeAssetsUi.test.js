@@ -1,7 +1,10 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
+import { readSourceIntakeWorkflowSources } from './helpers/sourceIntakeWorkflowSources.js'
 import { readFilmListSources } from './helpers/filmListSources.js'
+import { readMediaLibrarySources } from './helpers/mediaLibrarySources.js'
+import { readBackupPageSource } from './helpers/backupPageSources.js'
 
 import {
   formatMediaSize,
@@ -11,16 +14,10 @@ import {
 } from '../src/utils/mediaLibrary.js'
 
 const filmListSource = readFilmListSources().ui
-const sourceIntakeWorkflowSource = readFileSync(new URL('../src/components/SourceIntakeWorkflowPanel.vue', import.meta.url), 'utf8')
-const mediaLibrarySource = [
-  readFileSync(new URL('../src/views/MediaLibrary.vue', import.meta.url), 'utf8'),
-  readFileSync(new URL('../src/components/mediaLibrary/MediaLibraryHeader.vue', import.meta.url), 'utf8'),
-  readFileSync(new URL('../src/components/mediaLibrary/MediaLibraryFilterBar.vue', import.meta.url), 'utf8'),
-  readFileSync(new URL('../src/components/mediaLibrary/MediaLibraryLocalGrid.vue', import.meta.url), 'utf8'),
-  readFileSync(new URL('../src/components/mediaLibrary/MediaLibraryNetworkPanel.vue', import.meta.url), 'utf8'),
-].join('\n')
+const sourceIntakeWorkflowSource = readSourceIntakeWorkflowSources()
+const mediaLibrarySource = readMediaLibrarySources()
 const filmCreateHeaderSource = readFileSync(new URL('../src/components/filmCreate/FilmCreateHeader.vue', import.meta.url), 'utf8')
-const backupSource = readFileSync(new URL('../src/views/Backup.vue', import.meta.url), 'utf8')
+const backupSource = readBackupPageSource()
 const appSource = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
 const routerSource = readFileSync(new URL('../src/router/index.js', import.meta.url), 'utf8')
 const themeSource = readFileSync(new URL('../src/styles/theme.css', import.meta.url), 'utf8')
@@ -59,6 +56,7 @@ test('desktop home exposes one material center entry and keeps semantic librarie
   assert.match(headerLibrarySource, /<el-dropdown-item command="scene"><el-icon><PictureFilled \/><\/el-icon>场景素材库<\/el-dropdown-item>/)
   assert.match(headerLibrarySource, /<el-dropdown-item command="prop"><el-icon><Box \/><\/el-icon>道具素材库<\/el-dropdown-item>/)
   assert.match(routerSource, /path: '\/media-library'[\s\S]*meta: \{ title: '素材中心',/)
+  assert.match(routerSource, /path: '\/media'[\s\S]*redirect: '\/media-library'/)
   assert.match(filmListSource, /function goMaterialCenter\(\) \{\s*openWorkspaceNavItem\(router, 'media-library'\)\s*\}/)
 })
 
@@ -146,7 +144,7 @@ test('material center frames upload and project-only flows with direct CTAs', ()
   assert.match(mediaLibrarySource, /没有匹配的素材/)
   assert.match(mediaLibrarySource, /@click="clearFilters">清除筛选/)
   assert.match(mediaLibrarySource, /<el-icon><Upload \/><\/el-icon>上传素材/)
-  assert.match(mediaLibrarySource, /选择项目后导入网页 URL/)
+  assert.match(mediaLibrarySource, /选择目标项目后导入网页 URL/)
   assert.match(mediaLibrarySource, /加入素材库/)
   assert.match(mediaLibrarySource, /uploadAPI\.uploadAsset\(file, \{ suppressErrorToast: true \}\)/)
   assert.doesNotMatch(mediaLibrarySource, /uploadAPI\.uploadImage\(file\)/)

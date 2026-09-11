@@ -37,6 +37,6 @@ USER 101
 
 EXPOSE 3013
 
-# 与 compose 一致：/healthz 由 Nginx 代理到 backend /ready。start-period 避免启动瞬间误判。
+# 与 compose 一致：/healthz 由 Nginx 代理到 backend /ready。nginx.conf 还必须有 location = /ready，避免备份页吃到 SPA HTML。start-period 避免启动瞬间误判。
 HEALTHCHECK --interval=10s --timeout=3s --start-period=10s --retries=12 \
   CMD wget -q -O - http://127.0.0.1:3013/healthz >/dev/null 2>&1 || exit 1

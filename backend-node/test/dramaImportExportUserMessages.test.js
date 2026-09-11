@@ -12,8 +12,27 @@ const skillRegistryService = require('../src/services/skillRegistryService');
 const dramaRoutes = require('../src/routes/drama');
 const { runImportImageValidatorCli } = require('../src/services/importImageValidator');
 
-const exportSrc = fs.readFileSync(path.join(__dirname, '../src/services/dramaExportService.js'), 'utf8');
-const importSrc = fs.readFileSync(path.join(__dirname, '../src/services/dramaImportService.js'), 'utf8');
+const exportSrc = [
+  'dramaExportService.js',
+  'dramaExportCollect.js',
+  'dramaExportArchive.js',
+  'dramaExportCollection.js',
+  'dramaExportErrors.js',
+].map((name) => fs.readFileSync(path.join(__dirname, '../src/services', name), 'utf8')).join('\n');
+const importSrc = [
+  'dramaImportService.js',
+  'dramaImportValidation.js',
+  'dramaImportMediaValidation.js',
+  'dramaImportManifest.js',
+  'dramaImportFreeCanvasManifest.js',
+  'dramaImportFreeCanvasManifestFields.js',
+  'dramaImportZip.js',
+  'dramaImportRestore.js',
+  'dramaImportParse.js',
+  'dramaImportMedia.js',
+  'dramaImportApply.js',
+  'dramaImportCanvas.js',
+].map((name) => fs.readFileSync(path.join(__dirname, '../src/services', name), 'utf8')).join('\n');
 const validatorSrc = fs.readFileSync(path.join(__dirname, '../src/services/importImageValidator.js'), 'utf8');
 const skillSrc = fs.readFileSync(path.join(__dirname, '../src/services/skillRegistryService.js'), 'utf8');
 

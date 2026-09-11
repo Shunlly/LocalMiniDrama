@@ -150,7 +150,7 @@ test('editing preserves an unavailable default model until a valid model is expl
   await dialog.getByText('当前默认模型已不在模型列表中，请显式选择有效模型后保存。').waitFor()
 
   await dialog.locator('[data-ai-config-field="name"]').fill('只修改名称的配置')
-  await dialog.getByRole('button', { name: '确定' }).click()
+  await dialog.getByRole('button', { name: '保存配置' }).click()
   await dialog.locator('.ai-config-validation-summary').getByText(
     '默认模型：请选择模型列表中的有效默认模型',
     { exact: true },
@@ -164,7 +164,7 @@ test('editing preserves an unavailable default model until a valid model is expl
     request.method() === 'PUT'
     && new URL(request.url()).pathname === `/api/v1/ai-configs/${staleDefaultConfig.id}`
   ))
-  await dialog.getByRole('button', { name: '确定' }).click()
+  await dialog.getByRole('button', { name: '保存配置' }).click()
   await updateRequest
 
   assert.equal(updateBodies.length, 1)

@@ -12,7 +12,9 @@ import {
 } from '../src/utils/aiConfigGenerationSettings.js'
 
 const source = readFileSync(new URL('../src/components/AIConfigContent.vue', import.meta.url), 'utf8')
+const paneSource = readFileSync(new URL('../src/components/aiConfig/AiConfigGenerationSettingsPane.vue', import.meta.url), 'utf8')
 const composableSource = readFileSync(new URL('../src/composables/useAiConfigGenerationSettings.js', import.meta.url), 'utf8')
+const settingsSurface = [source, paneSource].join('\n')
 
 function canceledError() {
   return Object.assign(new Error('aborted'), { name: 'AbortError', code: 'ERR_CANCELED' })
@@ -22,11 +24,12 @@ test('generation settings expose loading, persistent error, and retry states', a
   assert.match(composableSource, /loadGenerationSettingsPayload\(generationSettingsAPI/)
   assert.match(composableSource, /shouldIgnoreGenerationSettingsError\(error, controller\.signal\)/)
   assert.match(composableSource, /describeGenerationSettingsLoadError\(error, controller\.signal\)/)
+  assert.match(source, /<AiConfigGenerationSettingsPane/)
   assert.match(
-    source,
+    paneSource,
     /v-if="generationSettingsLoadState === 'error'"[\s\S]*role="alert"[\s\S]*generationSettingsLoadError[\s\S]*@click="loadGenerationSettings"/,
   )
-  assert.match(source, /v-else-if="generationSettingsLoadState === 'loading'"[\s\S]*正在读取生成设置/)
+  assert.match(paneSource, /v-else-if="generationSettingsLoadState === 'loading'"[\s\S]*正在读取生成设置/)
 
   const ok = await loadGenerationSettingsPayload({
     async get() {
@@ -60,8 +63,8 @@ test('generation settings save remains fail closed until a successful reload', (
     composableSource,
     /const generationSettingsWriteLocked = computed\(\(\) => generationSettingsLoadState\.value !== 'ready' \|\| genSettingSaving\.value\)/,
   )
-  assert.match(source, /:disabled="generationSettingsWriteLocked"[\s\S]*@click="saveGenerationSettings"/)
-  assert.match(source, /:title="generationSettingsWriteLocked \? generationSettingsWriteLockReason : undefined"/)
+  assert.match(settingsSurface, /:disabled="generationSettingsWriteLocked"[\s\S]*@click="saveGenerationSettings"/)
+  assert.match(settingsSurface, /:title="generationSettingsWriteLocked \? generationSettingsWriteLockReason : undefined"/)
   assert.match(composableSource, /generationSettingsWriteLockReason/)
   assert.match(composableSource, /validateGenerationConcurrency\(n, nv\)/)
   assert.match(composableSource, /generationSettingsWriteLocked\.value/)

@@ -39,7 +39,11 @@ test('流水线轮询超时和失败收成中文，成功返回空字符串', ()
 })
 
 test('制作页流水线仍调用抽出的轮询错误收口', () => {
-  const pipelineSource = readFileSync(new URL('../src/composables/filmCreate/useFilmCreatePipelineStages.js', import.meta.url), 'utf8')
+  const pipelineSource = [
+    '../src/composables/filmCreate/useFilmCreatePipelineStages.js',
+    '../src/composables/filmCreate/useFilmCreatePipelineOneClick.js',
+    '../src/composables/filmCreate/useFilmCreatePipelineRepair.js',
+  ].map((rel) => readFileSync(new URL(rel, import.meta.url), 'utf8')).join('\n')
   const helperSource = readFileSync(new URL('../src/composables/filmCreate/filmCreatePipelinePollError.js', import.meta.url), 'utf8')
   assert.match(pipelineSource, /import \{ toPipelinePollUserFacingError \} from '\.\/filmCreatePipelinePollError\.js'/)
   assert.match(pipelineSource, /toPipelinePollUserFacingError\(result, '提取角色失败', '提取角色超时，请稍后重试'\)/)

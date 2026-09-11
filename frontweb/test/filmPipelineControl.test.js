@@ -16,10 +16,16 @@ import { useFilmCreateTaskCancel } from '../src/composables/filmCreate/useFilmCr
 import { useFilmCreatePipelineStages } from '../src/composables/filmCreate/useFilmCreatePipelineStages.js'
 import { useFilmCreateNavigationGuards } from '../src/composables/filmCreate/useFilmCreateNavigationGuards.js'
 
-const pipelinePanelSource = readFileSync(
-  new URL('../src/components/filmCreate/FilmCreatePipelinePanel.vue', import.meta.url),
+const pipelinePanelSource = [
+  'FilmCreatePipelinePanel.vue',
+  'filmCreatePipelinePanelBindings.js',
+  'FilmCreatePipelineActions.vue',
+  'FilmCreatePipelineSteps.vue',
+  'FilmCreatePipelineStatus.vue',
+].map((name) => readFileSync(
+  new URL(`../src/components/filmCreate/${name}`, import.meta.url),
   'utf8',
-)
+)).join('\n')
 
 function refOf(value) {
   return { value }

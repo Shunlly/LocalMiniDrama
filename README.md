@@ -44,10 +44,12 @@
 包版本为 `1.3.3`。这是仓库 `package.json` 版本号，不是 GitHub Release / tag，也没有把发版合并到 `main`。当前从源码或 Docker 运行即可，不要按发版下载使用。当前分支和脏工作树不能当作发布完成。
 
 - 后端 `backend-node`：Express + SQLite（better-sqlite3），端口 **5679**，启动执行 `runMigrationsAndEnsure`
-- 前端 `frontweb`：Vite + Vue 3，端口 **3013**，开发时代理 `/api` 与 `/static`
+- 前端 `frontweb`：开发用 Vite，端口 **3013**，代理 `/api`、`/static`、`/ready` 与 `/health`
+- 生产也可先构建前端，由后端在 **5679** 托管 `frontweb/dist`（可用 `WEB_DIST_PATH` 覆盖）；Docker 生产前端则由 Nginx 提供静态页
 - 语言：纯 JavaScript，无 TypeScript
-- 测试、CI 与 Docker 生产镜像使用 Node.js 20.x；桌面依赖安装、原生重建和打包使用 Node.js 22.12.0（`desktop/.npmrc` 启用 `engine-strict`）
-- 日常 Docker：`docker compose up -d --build --wait`；容器级校验：根目录 `npm run verify:docker`
+- 根目录、后端、前端、Docker 与通用 PR/分支门禁用 Node.js 20.x（`.nvmrc` 为 `20`）；桌面依赖安装、原生重建、打包和 Windows 制品安全扫描用 Node.js 22.12.0（`desktop/.npmrc` 启用 `engine-strict`）
+- 日常 Docker：`docker compose up -d --build --wait`。Compose **不 bind-mount 应用源码**，改完代码必须重建镜像；容器级校验：根目录 `npm run verify:docker`
+- 生产 Nginx（`frontweb/nginx.conf`）必须有 `location = /ready`，精确代理到后端 `/ready`，并写在 SPA `location /` 之前。只代理 `/healthz` 不够：备份页会请求 `/ready`，吃到 HTML 会被当成未就绪
 - 生产 E2E 必须在干净工作树执行（证据要求 `working_tree_dirty=false`），不要凭历史 SHA 宣称当前工作树已通过
 - 未配置外部 API Key 也可以启动和开发界面；真正生成内容到「AI 配置」页填写。厂商预设填表不等于真实图片/视频/TTS 接入已跑通
 - 页面、API 与 CLI 的用户可见错误为简体中文
@@ -214,7 +216,9 @@ npm run dev
 cd frontweb && npm install && npm run dev
 ```
 
-浏览器打开 `http://127.0.0.1:3013`。Vite 把 `/api` 和 `/static` 代理到 `http://127.0.0.1:5679`。后端 CORS 只允许前端 `3013`（`http://localhost:3013` 与 `http://127.0.0.1:3013`）。
+浏览器打开 `http://127.0.0.1:3013`。开发用 Vite，把 `/api`、`/static`、`/ready` 和 `/health` 代理到 `http://127.0.0.1:5679`。后端 CORS 只允许前端 `3013`（`http://localhost:3013` 与 `http://127.0.0.1:3013`）。
+
+若要让后端直接托管生产前端：先在 `frontweb` 执行 `npm run build`，再启动后端，访问 `http://127.0.0.1:5679`。后端默认读取同级 `frontweb/dist`，也可用 `WEB_DIST_PATH` 覆盖；`dist` 不存在时打开 `/` 会提示先构建前端。这与 Docker 生产不同：Compose 前端由 Nginx 提供静态页。
 
 也可以双击根目录 **`run_dev.bat`** 或运行 **`run_dev.ps1`** 一键启动（启动器实际打开的也是 `127.0.0.1`）。启动器只会复用已验证的 LocalMiniDrama 前后端；`5679` 或 `3013` 被其他程序占用时会明确退出，不会终止陌生进程。新启动的服务会在通过就绪探针后才打开浏览器，60 秒内未就绪则失败并保留服务窗口供排错。Vite 默认只监听 `127.0.0.1`，确需局域网调试时必须显式设置 `VITE_DEV_SERVER_HOST`。
 
@@ -237,12 +241,13 @@ docker compose up -d --build --wait
 docker compose ps
 ```
 
-浏览器打开 `http://127.0.0.1:3013`。默认只绑定宿主机 `127.0.0.1`，数据默认写在 `backend-node/data/`。
+浏览器打开 `http://127.0.0.1:3013`。默认只绑定宿主机 `127.0.0.1`，数据默认写在 `backend-node/data/`。生产 Nginx 必须保留 `location = /ready` 精确代理，写在 SPA 回退之前；自定义反代也一样，否则备份恢复会被前端 HTML 误锁。
 
 | 探针 | 地址 | Compose 用途 |
 |------|------|------|
 | 前端页面 | `http://127.0.0.1:3013` | 页面入口 |
 | 前端 `/healthz` | `http://127.0.0.1:3013/healthz` | 健康检查；Nginx 代理后端 `/ready` |
+| 前端 `/ready` | `http://127.0.0.1:3013/ready` | 必须由 Nginx `location = /ready` 精确代理到后端；不能落到 SPA `index.html` |
 | 后端 `/ready` | `http://127.0.0.1:5679/ready` | 健康检查；可接业务才 200，失败信息为简体中文，`docker compose --wait` 等这个 |
 | 后端 `/health` | `http://127.0.0.1:5679/health` | 不是健康检查；只表示进程存活 |
 
@@ -285,6 +290,79 @@ npm --prefix frontweb run verify
 npm run verify
 ```
 
+当前没有正式 `v1.3.3` GitHub Release。Windows 安装包只是可选本地构建，不能当作已发版下载入口。若将来从官方 Release 取得 Setup / Portable，必须按下面核验；本地 `desktop/release/` 产物不是 GitHub 正式发布。
+
+### 未签名制品与下载核验
+
+Setup 与 Portable **未做 Authenticode 签名**，Windows 可能显示 `Unknown Publisher` 或 SmartScreen 警告。只能从 [Shunlly/LocalMiniDrama 官方 GitHub Release](https://github.com/Shunlly/LocalMiniDrama/releases) 下载；来源不明、SHA-256 不符、manifest 不符或 GitHub artifact attestation 不匹配时，均不得运行。正式 Release 正文会给出 `$tag` 和完整 `$expectedGitSha`；以下 Windows PowerShell 命令要求 Release tag、预期 Git SHA、`release-manifest.json.git_commit` 与下载的官方标签源码完全一致：
+
+```powershell
+$repo = 'Shunlly/LocalMiniDrama'
+$tag = '<official release tag>'
+$expectedGitSha = '<full Git SHA shown in the official Release>'
+$downloadDir = Join-Path $PWD "LocalMiniDrama-$tag"
+if (Test-Path -LiteralPath $downloadDir) { throw "Refusing to reuse existing directory: $downloadDir" }
+New-Item -ItemType Directory -Path $downloadDir | Out-Null
+gh release download $tag --repo $repo --dir $downloadDir
+if ($LASTEXITCODE -ne 0) { throw 'Official GitHub Release download failed' }
+$attestationArgs = @(
+  '--repo', $repo,
+  '--signer-workflow', "$repo/.github/workflows/release.yml",
+  '--source-ref', "refs/tags/$tag",
+  '--source-digest', $expectedGitSha,
+  '--deny-self-hosted-runners'
+)
+
+Push-Location $downloadDir
+$manifestPath = Join-Path $PWD 'release-manifest.json'
+gh attestation verify $manifestPath @attestationArgs
+if ($LASTEXITCODE -ne 0) { throw 'Release manifest attestation mismatch' }
+$manifest = Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json
+if ($manifest.tag -ne $tag -or $manifest.git_commit -ne $expectedGitSha) { throw 'Release manifest tag or git_commit mismatch' }
+$manifestArtifacts = @($manifest.artifacts)
+if ($manifestArtifacts.Count -eq 0) { throw 'Release manifest contains no artifacts' }
+$seenNames = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+$expectedChecksumRows = @()
+foreach ($artifact in $manifestArtifacts) {
+  $name = [string]$artifact.name
+  if ([string]::IsNullOrWhiteSpace($name) -or [IO.Path]::GetFileName($name) -ne $name -or -not $seenNames.Add($name)) { throw "Unsafe or duplicate manifest artifact name: $name" }
+  $expectedBytes = 0L
+  if (-not [long]::TryParse([string]$artifact.bytes, [Globalization.NumberStyles]::None, [Globalization.CultureInfo]::InvariantCulture, [ref]$expectedBytes) -or $expectedBytes -le 0) { throw "Invalid manifest byte count: $name" }
+  $expectedSha = [string]$artifact.sha256
+  if ($expectedSha -cnotmatch '^[a-f0-9]{64}$') { throw "Invalid manifest SHA-256: $name" }
+  $artifactPath = Join-Path $PWD $name
+  $file = Get-Item -LiteralPath $artifactPath -Force -ErrorAction Stop
+  if ($file.PSIsContainer -or ($file.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw "Unsafe release artifact: $name" }
+  if ($file.Length -ne $expectedBytes) { throw "Manifest byte count mismatch: $name" }
+  $actualSha = (Get-FileHash -Algorithm SHA256 -LiteralPath $artifactPath).Hash.ToLowerInvariant()
+  if ($actualSha -cne $expectedSha) { throw "Manifest SHA-256 mismatch: $name" }
+  $expectedChecksumRows += "$expectedSha  $name"
+}
+$expectedReleaseFiles = @($manifestArtifacts | ForEach-Object { [string]$_.name }) + @('release-manifest.json', 'SHA256SUMS')
+$actualReleaseFiles = @(Get-ChildItem -LiteralPath $PWD -File | ForEach-Object { $_.Name })
+if (Compare-Object ($expectedReleaseFiles | Sort-Object) ($actualReleaseFiles | Sort-Object)) { throw 'Downloaded Release file set does not match the attested manifest' }
+$manifestSha = (Get-FileHash -Algorithm SHA256 -LiteralPath $manifestPath).Hash.ToLowerInvariant()
+$expectedChecksumRows += "$manifestSha  release-manifest.json"
+$actualChecksumRows = @(Get-Content -LiteralPath 'SHA256SUMS')
+if ($actualChecksumRows.Count -ne $expectedChecksumRows.Count) { throw 'SHA256SUMS does not exactly match the attested manifest' }
+for ($index = 0; $index -lt $expectedChecksumRows.Count; $index += 1) {
+  if ($actualChecksumRows[$index] -cne $expectedChecksumRows[$index]) { throw 'SHA256SUMS does not exactly match the attested manifest' }
+}
+Pop-Location
+
+$sourceDir = Join-Path $downloadDir 'source'
+git clone --branch $tag --depth 1 "https://github.com/$repo.git" $sourceDir
+$sourceSha = (& git -C $sourceDir rev-parse HEAD).Trim()
+if ($sourceSha -ne $expectedGitSha) { throw 'Downloaded source does not match the expected Git SHA' }
+
+Get-ChildItem -LiteralPath $downloadDir -File |
+  Where-Object { $_.Name -match '\.(exe|zip)$' -or $_.Name -eq 'artifact-security.json' } |
+  ForEach-Object {
+    gh attestation verify $_.FullName @attestationArgs
+    if ($LASTEXITCODE -ne 0) { throw "Artifact attestation mismatch: $($_.Name)" }
+  }
+```
+
 📖 [详细开发 / Docker / 备份指南](docs/quickstart.md) · [AI 配置指南](docs/configuration.md)
 
 ---
@@ -323,8 +401,8 @@ LocalMiniDrama/
 | 层 | 技术 |
 |----|------|
 | 语言 | 纯 JavaScript（无 TypeScript） |
-| 前端 | Vue 3 · Vite · Element Plus · Pinia · @vue-flow/core · 开发端口 3013 |
-| 后端 | Node.js · Express · SQLite（better-sqlite3）· 端口 5679 · 启动时 `runMigrationsAndEnsure` |
+| 前端 | Vue 3 · Vite · Element Plus · Pinia · @vue-flow/core · 开发端口 3013；生产可由后端托管 `frontweb/dist`，或由 Docker Nginx 提供 |
+| 后端 | Node.js 20 · Express · SQLite（better-sqlite3）· 端口 5679 · 启动时 `runMigrationsAndEnsure` |
 | 桌面 | Electron 43.1.1 · electron-builder 26 · 安装/打包用 Node.js 22.12.0 |
 
 ---

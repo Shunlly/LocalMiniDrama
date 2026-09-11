@@ -5,6 +5,7 @@ const path = require('path');
 const uploadService = require('../uploadService');
 const { uploadLocalImageToProxy } = uploadService;
 const { summarizeProviderResponse, toUserFacingGatewayError } = require('../providerErrorSanitizer');
+const { requireCompleteProviderNetworkPolicy } = require('../providerNetworkPolicy');
 const { resolveVideoTimeoutMs } = require('./providerRuntime');
 const { normalizeProviderRequestError } = require('./requestError');
 const {
@@ -14,6 +15,7 @@ const {
   getModelFromConfig,
 } = require('./helpers');
 const { loadStorageImage, VIDEO_REFERENCE_MAX_BYTES } = require('./mediaRefs');
+const { relativePathAfterStatic } = require('./staticPath');
 
 function isJimengFreeApiSeedanceModel(model) {
   const m = String(model || '').toLowerCase();
@@ -46,8 +48,7 @@ async function resolveJimengApiImageBuffer(rawUrl, files_base_url, storage_local
   }
   if (/localhost|127\.0\.0\.1/i.test(raw) && storage_local_path) {
     const baseUrl = (files_base_url || '').replace(/\/$/, '');
-    const afterStatic = raw.split('/static/')[1] || (baseUrl ? raw.replace(baseUrl + '/', '').replace(baseUrl, '') : null);
-    const relPath = afterStatic ? afterStatic.replace(/^\//, '') : null;
+    const relPath = relativePathAfterStatic(raw, baseUrl) || null;
     if (relPath) {
       const filePath = uploadService.resolveStorageReference(storage_local_path, relPath).absolutePath;
       try {
@@ -105,6 +106,11 @@ async function callJimengAiApiVideo(config, log, opts) {
   if (/^bearer\s+/i.test(apiKey)) apiKey = apiKey.replace(/^bearer\s+/i, '').trim();
   if (!apiKey) {
     return { error: '即梦视频未配置会话密钥，请填入密钥字段，多个用逗号分隔' };
+  }
+  try {
+    requireCompleteProviderNetworkPolicy(opts.provider_network_policy, base);
+  } catch (error) {
+    return { error: toUserFacingGatewayError(error, { provider: '即梦', operation: 'video request' }) };
   }
 
   const model = getModelFromConfig(config, opts.model);
@@ -205,7 +211,7 @@ async function callJimengAiApiVideo(config, log, opts) {
 
   let res;
   try {
-    res = await fetchVideoWithTimeout(url, fetchOpts, longWaitMs);
+    res = await fetchVideoWithTimeout(url, fetchOpts, longWaitMs, opts.provider_network_policy);
   } catch (e) {
     const safeError = videoProviderException(e, 'JimengAI', 'video request', opts.signal);
     log.error('[JimengAI] 请求失败', { video_gen_id, error: safeError });

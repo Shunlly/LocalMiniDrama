@@ -83,20 +83,39 @@ test('every Provider dispatch model selector delegates to the shared fail-closed
   const serviceRoot = path.join(__dirname, '..', 'src', 'services');
   const files = [
     'aiClient.js',
-    'imageClient.js',
-    'videoClient.js',
+    'imageGateway/config.js',
+    'videoGateway/helpers.js',
     'videoService.js',
     'ttsService.js',
     'sourceMediaExtractionService.js',
+    'sourceMediaExtractionValidation.js',
     'providerSdkService.js',
+    'aiConfigModels.js',
   ];
 
   for (const file of files) {
-    const source = fs.readFileSync(path.join(serviceRoot, file), 'utf8');
+    const source = file === 'sourceMediaExtractionService.js'
+      ? [
+          fs.readFileSync(path.join(serviceRoot, 'sourceMediaExtractionService.js'), 'utf8'),
+          fs.readFileSync(path.join(serviceRoot, 'sourceMediaExtractionValidation.js'), 'utf8'),
+        ].join('\n')
+      : file === 'videoService.js'
+        ? [
+            fs.readFileSync(path.join(serviceRoot, 'videoService.js'), 'utf8'),
+            fs.readFileSync(path.join(serviceRoot, 'videoServiceReferences.js'), 'utf8'),
+          ].join('\n')
+      : fs.readFileSync(path.join(serviceRoot, file), 'utf8');
     assert.match(
       source,
       /resolveConfiguredModel\s*\(/,
       `${file} must resolve dispatch models through the shared fail-closed policy`,
     );
   }
+
+  const imageClientSrc = fs.readFileSync(path.join(serviceRoot, 'imageClient.js'), 'utf8');
+  const videoClientSrc = fs.readFileSync(path.join(serviceRoot, 'videoClient.js'), 'utf8');
+  assert.match(imageClientSrc, /getModelFromConfig/);
+  assert.match(videoClientSrc, /getModelFromConfig/);
+  assert.doesNotMatch(imageClientSrc, /fallback-model|gpt-3\.5-turbo|dall-e-3/);
+  assert.doesNotMatch(videoClientSrc, /function resolveConfiguredModel\s*\(/);
 });

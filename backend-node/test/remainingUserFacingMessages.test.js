@@ -239,6 +239,30 @@ const leftoverEnglish = [
   'invalid audio file',
   'persistImageFailure(db, row, err.message)',
   'persistVideoFailure(db, row, err.message)',
+  '图片 data URL',
+  '参考图 data URL',
+  'Jimeng AI API',
+  '只支持 zh 或 en',
+  'image 类型',
+  'drama_id 必须引用有效 ID',
+  'resource_id 必须引用有效 ID',
+  'wan2.2-kf2v-flash 需要',
+  'wan2.6-i2v-flash 需要',
+  'wanx2.1-vace-plus 需要',
+  'wan2.6-r2v-flash 需要',
+  '暂不支持该通义万象视频模型: ',
+  '添加 ${serviceType} 类型',
+  '不支持的实体类型：${entityType}',
+  '【原始错误：',
+  'AI 分析失败：${err.message}',
+  'return { ok: false, error: err.message }',
+  'Ollama 模型列表探测失败',
+  '生产 QA 失败：${error.message}',
+  '生产 QA 失败：${e.message}',
+  'ffprobe 输出无效：${error.message}',
+  'new Error(safeMessage)',
+  'error_message: error.message ||',
+  'GPT-4o、Gemini 1.5',
 ];
 
 function leftoverScanText(source, phrase) {
@@ -319,25 +343,91 @@ function createDb() {
 test('\u5269\u4f59\u7528\u6237\u9519\u8bef\u6e90\u7801\u4e0d\u518d\u5305\u542b\u5df2\u5217\u51fa\u7684\u82f1\u6587\u53e5\u5b50', () => {
   const files = [
     'services/uploadService.js',
+    'services/uploadValidation.js',
+    'services/uploadValidationNetwork.js',
+    'services/uploadValidationMedia.js',
+    'services/uploadPaths.js',
+    'services/uploadMetadata.js',
     'services/ttsService.js',
     'services/imageService.js',
+    'services/imageServiceQuery.js',
+    'services/imageServicePipeline.js',
+    'services/imageServicePipelineGrid.js',
+    'services/imageServicePipelineNormalize.js',
+    'services/imageServiceProcess.js',
+    'services/imageServiceReferences.js',
+    'services/imageServicePrompt.js',
+    'services/imageServiceAssembly.js',
     'services/videoService.js',
+    'services/videoServiceProviderTasks.js',
+    'services/videoServiceQuery.js',
+    'services/videoServiceAssembly.js',
+    'services/videoServiceReferences.js',
+    'services/videoServiceProcess.js',
+    'services/videoServiceProcessNormalize.js',
     'services/sourceIntakeService.js',
     'services/sceneService.js',
+    'services/sceneGeneration.js',
     'services/dramaWriteGuard.js',
     'services/videoMergeService.js',
+    'services/videoMergeExecution.js',
+    'services/videoMergeExecutionNormalize.js',
+    'services/videoMergeExecutionLifecycle.js',
+    'services/videoMergeExecutionWorker.js',
+    'services/videoMergeErrors.js',
+    'services/videoMergePlanning.js',
+    'services/videoMergeProcess.js',
     'services/providerErrorSanitizer.js',
     'services/aiClient.js',
+    'services/aiClientVision.js',
     'services/characterGenerationService.js',
     'services/secureHttpFetch.js',
     'services/readinessService.js',
     'services/dataBackupService.js',
+    'services/dataBackupErrors.js',
+    'services/dataBackupValidation.js',
+    'services/dataBackupManifest.js',
+    'services/dataBackupCollection.js',
+    'services/dataBackupRedaction.js',
+    'services/dataBackupZip.js',
+    'services/dataBackupMaintenance.js',
+    'services/dataBackupRestorePrep.js',
+    'services/dataBackupSnapshot.js',
+    'services/dataBackupRestoreCommit.js',
+    'services/dataBackupRestorePrepare.js',
+    'services/dataBackupPaths.js',
     'services/dramaImportService.js',
+    'services/dramaImportValidation.js',
+    'services/dramaImportMediaValidation.js',
+    'services/dramaImportManifest.js',
+    'services/dramaImportFreeCanvasManifest.js',
+    'services/dramaImportFreeCanvasManifestFields.js',
+    'services/dramaImportZip.js',
+    'services/dramaImportRestore.js',
+    'services/dramaImportParse.js',
+    'services/dramaImportMedia.js',
+    'services/dramaImportApply.js',
+    'services/dramaImportCanvas.js',
     'services/dramaExportService.js',
+    'services/dramaExportCollect.js',
+    'services/dramaExportArchive.js',
+    'services/dramaExportCollection.js',
+    'services/dramaExportErrors.js',
+    'services/dramaExportSanitize.js',
+    'services/dramaExportFreeCanvas.js',
     'services/importImageValidator.js',
     'services/skillRegistryService.js',
     'services/libraryDedup.js',
     'routes/storyboards.js',
+    'routes/storyboardsAssembly.js',
+    'routes/storyboardsQuery.js',
+    'routes/storyboardsMutations.js',
+    'routes/storyboardsMessages.js',
+    'routes/storyboardsValidation.js',
+    'routes/characters.js',
+    'routes/charactersQuery.js',
+    'routes/charactersMessages.js',
+    'routes/charactersAssembly.js',
     'routes/images.js',
     'routes/videos.js',
     'routes/videoMerges.js',
@@ -347,6 +437,7 @@ test('\u5269\u4f59\u7528\u6237\u9519\u8bef\u6e90\u7801\u4e0d\u518d\u5305\u542b\u
     'scripts/restore-data.js',
     'scripts/recover-maintenance.js',
     'services/characterLibraryService.js',
+    'services/characterLibraryGeneration.js',
     'services/sceneLibraryService.js',
     'services/propLibraryService.js',
     'services/propService.js',
@@ -355,11 +446,27 @@ test('\u5269\u4f59\u7528\u6237\u9519\u8bef\u6e90\u7801\u4e0d\u518d\u5305\u542b\u
     'services/modelArkAssetProxyService.js',
     'services/modelArkAssetConfigService.js',
     'services/aiConfigService.js',
+    'services/aiConfigVendorLock.js',
+    'services/aiConfigList.js',
+    'services/aiConfigProviderPrivacy.js',
+    'services/aiConfigModels.js',
+    'services/aiConfigConnection.js',
+    'services/aiConfigConnectionProbe.js',
+    'services/aiConfigConnectionDiscover.js',
     'services/freeCanvasValidation.js',
     'services/assetService.js',
+    'services/assetServicePaths.js',
+    'services/assetServiceReferences.js',
     'services/jimengMaterialHubService.js',
     'routes/settings.js',
     'services/episodeStoryboardService.js',
+    'services/episodeStoryboardOrdering.js',
+    'services/episodeStoryboardAssembly.js',
+    'services/episodeStoryboardGeneration.js',
+    'services/episodeStoryboardProcess.js',
+    'services/episodeStoryboardProcessGenerate.js',
+    'services/episodeStoryboardSave.js',
+    'services/episodeStoryboardSplit.js',
     'services/videoGateway/protocolDispatch.js',
     'services/comfyUiClient.js',
     'services/klingJwt.js',
@@ -367,12 +474,162 @@ test('\u5269\u4f59\u7528\u6237\u9519\u8bef\u6e90\u7801\u4e0d\u518d\u5305\u542b\u
     'services/videoGateway/openAiSoraAdapter.js',
     'services/videoGateway/minimaxVideoAdapter.js',
     'services/dramaService.js',
+    'services/dramaServiceWrites.js',
+    'services/dramaQueryService.js',
+    'services/dramaAssembly.js',
+    'services/dramaRecycle.js',
+    'services/dramaRecycleRecovery.js',
     'services/storyboardService.js',
+    'services/promptI18n.js',
+    'services/promptI18nCatalog.js',
+    'services/promptI18nResolve.js',
+    'services/promptI18nScene.js',
+    'services/promptI18nStoryboard.js',
+    'services/promptI18nStoryboardPrompts.js',
+    'services/promptI18nStoryboardSystem.js',
+    'services/promptI18nAssets.js',
+    'services/promptI18nAssetCharacters.js',
+    'services/promptI18nAssetScenes.js',
+    'services/promptI18nAssetProps.js',
+    'services/promptI18nAssetOmni.js',
     'services/workflowService.js',
+    'services/workflowLifecycle.js',
+    'services/workflowQueue.js',
+    'services/workflowStatus.js',
+    'services/workflowStepErrors.js',
+    'services/workflowExecuteSteps.js',
+    'services/workflowAssets.js',
+    'services/workflowTimeline.js',
     'services/videoGateway/agnesVideoAdapter.js',
     'services/tlsPolicy.js',
     'services/taskService.js',
+    'services/taskCancelState.js',
+    'services/taskAssembly.js',
+    'services/taskCancelExecution.js',
+    'services/taskCancelExecutionPrepare.js',
+    'services/taskCancelExecutionRemote.js',
+    'services/taskCancelScope.js',
+    'services/assetServiceAssembly.js',
+    'services/assetServiceQuery.js',
+    'services/characterLibraryAssembly.js',
+    'services/characterLibraryDedup.js',
+    'services/characterLibrarySd2.js',
+    'services/characterLibraryQuery.js',
+    'services/comfyUiErrors.js',
+    'services/comfyUiPollControl.js',
+    'services/comfyUiProtocol.js',
+    'services/framePromptAssembly.js',
+    'services/framePromptErrors.js',
+    'services/framePromptScope.js',
+    'services/framePromptService.js',
+    'services/networkMediaErrors.js',
+    'services/networkMediaNormalize.js',
+    'services/networkMediaAssembly.js',
+    'services/networkMediaService.js',
+    'services/providerSdkErrors.js',
+    'services/providerSdkModels.js',
+    'services/providerSdkProtocol.js',
+    'services/providerSdkProduction.js',
+    'services/providerSdkProductionTimeline.js',
+    'services/providerSdkProductionAssets.js',
+    'services/providerSdkProductionStoryboards.js',
+    'services/providerSdkProductionComposite.js',
+    'services/qaService.js',
+    'services/qaServiceCheckCollectors.js',
+    'services/qaServiceCheckRules.js',
+    'services/qaServiceAssembly.js',
+    'services/qaServiceChecks.js',
+    'services/qaServiceMessages.js',
+    'services/sourceIntakeServiceAssembly.js',
+    'services/sourceIntakeServiceQuery.js',
+    'services/sourceIntakeServiceStatus.js',
+    'services/sourceMediaExtractionDetect.js',
+    'services/sourceMediaExtractionErrors.js',
+    'services/sourceMediaExtractionService.js',
+    'services/sourceMediaExtractionRuntime.js',
+    'services/sourceMediaExtractionOcr.js',
+    'services/sourceMediaExtractionPdf.js',
+    'services/sourceMediaExtractionTranscribe.js',
+    'services/sourceMediaExtractionValidation.js',
     'routes/prop.js',
+    'services/imageClient.js',
+    'services/settingsService.js',
+    'services/videoClient.js',
+    'services/videoClientPoll.js',
+    'services/imageGateway/download.js',
+    'services/imageGateway/referenceUtils.js',
+    'services/imageGateway/config.js',
+    'services/imageGateway/createAndGenerateImage.js',
+    'services/imageGateway/dashScopeImageAdapter.js',
+    'services/imageGateway/geminiImageAdapter.js',
+    'services/imageGateway/klingImageAdapter.js',
+    'services/imageGateway/nanoBananaImageAdapter.js',
+    'services/imageGateway/openAiCompatibleImageApi.js',
+    'services/imageGateway/protocolDispatch.js',
+    'services/imageGateway/proxyCache.js',
+    'services/imageGateway/imageApiAssembly.js',
+    'services/imageGateway/requestAssembly.js',
+    'services/imageGateway/requestError.js',
+    'services/imageGateway/runtime.js',
+    'services/imageGateway/sizeAdapters.js',
+    'services/videoGateway/dashscopeVideoAdapter.js',
+    'services/videoGateway/geminiVideoAdapter.js',
+    'services/videoGateway/config.js',
+    'services/videoGateway/helpers.js',
+    'services/videoGateway/jimengVideoAdapter.js',
+    'services/videoGateway/mediaRefs.js',
+    'services/videoGateway/pollControl.js',
+    'services/videoGateway/pollDispatch.js',
+    'services/videoGateway/pollParse.js',
+    'services/videoGateway/requestAssembly.js',
+    'services/videoGateway/staticPath.js',
+    'services/videoGateway/videoApiAssembly.js',
+    'services/videoGateway/providerRuntime.js',
+    'services/videoGateway/requestError.js',
+    'services/videoGateway/seedanceCertifiedAssets.js',
+    'services/videoGateway/veo3VideoAdapter.js',
+    'services/videoGateway/viduVideoAdapter.js',
+    'services/videoGateway/volcengineVideoAdapter.js',
+    'services/videoGateway/xaiVideoAdapter.js',
+    'services/backgroundExtractionService.js',
+    'services/propExtractionService.js',
+    'services/storyGenerationService.js',
+    'services/mergedEpisodePostProcess.js',
+    'services/mergedEpisodePostProcessFfmpeg.js',
+    'services/narrationVideoPostProcess.js',
+    'services/providerNetworkPolicy.js',
+    'services/timelineService.js',
+    'services/novelImportService.js',
+    'services/angleService.js',
+    'services/mediaAspectRatioSpec.js',
+    'services/aiHttp.js',
+    'services/propImageGenerationService.js',
+    'services/characterContinuityService.js',
+    'services/tailFrameLinkService.js',
+    'services/storyboardFrameBinding.js',
+    'services/universalOmniMultiBeatFormat.js',
+    'services/universalSegmentDurationNormalize.js',
+    'services/universalSegmentPromptBundle.js',
+    'routes/assets.js',
+    'routes/characterLibrary.js',
+    'routes/promptOverrides.js',
+    'routes/propLibrary.js',
+    'routes/qaReports.js',
+    'routes/sceneLibrary.js',
+    'routes/storyboards_tail_link.js',
+    'routes/storySources.js',
+    'routes/stub.js',
+    'routes/timelines.js',
+    'routes/upload.js',
+    'routes/workflows.js',
+    'routes/audio.js',
+    'routes/drama.js',
+    'routes/index.js',
+    'routes/task.js',
+    'routes/sceneModelMap.js',
+    'services/backupPublicMessages.js',
+    'services/backupSettingsService.js',
+    'services/promptOverridesService.js',
   ];
   for (const name of files) {
     const sourcePath = name.startsWith('scripts/')
@@ -544,7 +801,10 @@ test('从图片提取描述时非法地址返回不含英文字段名的中文',
       return true;
     }
   );
-  const source = fs.readFileSync(path.join(__dirname, '../src/services/aiClient.js'), 'utf8');
+  const source = [
+    fs.readFileSync(path.join(__dirname, '../src/services/aiClient.js'), 'utf8'),
+    fs.readFileSync(path.join(__dirname, '../src/services/aiClientVision.js'), 'utf8'),
+  ].join('\n');
   const throws = source
     .split('\n')
     .filter((line) => /\bthrow\b/.test(line))
@@ -623,7 +883,20 @@ test('图片和视频幂等冲突返回不含英文字段名的中文', () => {
   assert.equal(isTrustedChineseUserError('自由画布导入视频生成状态不受支持'), true);
   const videoSource = fs.readFileSync(path.join(__dirname, '../src/services/videoService.js'), 'utf8');
   const imageSource = fs.readFileSync(path.join(__dirname, '../src/services/imageService.js'), 'utf8');
-  const importSource = fs.readFileSync(path.join(__dirname, '../src/services/dramaImportService.js'), 'utf8');
+  const importSource = [
+    'dramaImportService.js',
+    'dramaImportValidation.js',
+    'dramaImportMediaValidation.js',
+    'dramaImportManifest.js',
+    'dramaImportFreeCanvasManifest.js',
+    'dramaImportFreeCanvasManifestFields.js',
+    'dramaImportZip.js',
+    'dramaImportRestore.js',
+    'dramaImportParse.js',
+    'dramaImportMedia.js',
+    'dramaImportApply.js',
+    'dramaImportCanvas.js',
+  ].map((name) => fs.readFileSync(path.join(__dirname, '../src/services', name), 'utf8')).join('\n');
   assert.match(videoSource, /该幂等键属于其他项目或分镜/);
   assert.match(imageSource, /该幂等键属于其他项目或分镜/);
   assert.match(importSource, /项目文件格式不正确：缺少剧名/);
@@ -690,10 +963,14 @@ test('图片持久化失败不会把英文系统错误漏给用户', () => {
 });
 
 test('videoClient 用户错误不再是问号乱码', () => {
-  const source = fs.readFileSync(path.join(__dirname, '../src/services/videoClient.js'), 'utf8');
+  const source = [
+    fs.readFileSync(path.join(__dirname, '../src/services/videoClient.js'), 'utf8'),
+    fs.readFileSync(path.join(__dirname, '../src/services/videoGateway/videoApiAssembly.js'), 'utf8'),
+  ].join('\n');
+  const pollClientSource = fs.readFileSync(path.join(__dirname, '../src/services/videoClientPoll.js'), 'utf8');
   const pollSource = fs.readFileSync(path.join(__dirname, '../src/services/videoGateway/pollDispatch.js'), 'utf8');
   const pollControlSource = fs.readFileSync(path.join(__dirname, '../src/services/videoGateway/pollControl.js'), 'utf8');
-  const userFacing = [source, pollSource, pollControlSource].join('\n')
+  const userFacing = [source, pollClientSource, pollSource, pollControlSource].join('\n')
     .split('\n')
     .filter((line) => /throw new Error\(|return \{ error:/.test(line))
     .join('\n');
@@ -701,7 +978,7 @@ test('videoClient 用户错误不再是问号乱码', () => {
   assert.match(source, /请先在 AI 配置中添加并启用视频服务/);
   assert.match(pollSource, /Vidu 任务完成但未返回视频地址/);
   assert.match(pollSource, /Gemini 任务完成但未返回视频地址/);
-  assert.match(source, /视频生成超时，请稍后重试/);
+  assert.match(pollClientSource, /视频生成超时，请稍后重试/);
   assert.match(pollControlSource, /视频任务已取消/);
   assert.equal(source.includes('throw signal.reason'), false);
   assert.equal(pollControlSource.includes('throw signal.reason'), false);
@@ -804,11 +1081,13 @@ test('备份服务 publicMessage 对已映射错误码使用简体中文', () =>
   assert.doesNotMatch(mapped.publicMessage, /Stop the LocalMiniDrama/i);
   assert.equal(mapped.publicMessage, BACKUP_PUBLIC_MESSAGES.SERVICE_RUNNING);
 
-  const createDataBackupSource = fs.readFileSync(
-    path.join(__dirname, '../src/services/dataBackupService.js'),
-    'utf8',
-  );
-  assert.match(createDataBackupSource, /BACKUP_PUBLIC_MESSAGES\[code\]/);
+  const backupErrorSources = [
+    'dataBackupService.js',
+    'dataBackupErrors.js',
+    'dataBackupValidation.js',
+    'dataBackupManifest.js',
+  ].map((name) => fs.readFileSync(path.join(__dirname, '../src/services', name), 'utf8')).join('\n');
+  assert.match(backupErrorSources, /BACKUP_PUBLIC_MESSAGES\[code\]/);
   assert.equal(hasCjk(BACKUP_PUBLIC_MESSAGES.SERVICE_RUNNING), true);
   assert.equal(hasCjk(BACKUP_PUBLIC_MESSAGES.UNSAFE_ARCHIVE_PATH), true);
   assert.equal(BACKUP_PUBLIC_MESSAGES.SERVICE_RUNNING, require('../src/services/backupSettingsService').HTTP_BACKUP_MESSAGES.SERVICE_RUNNING);
@@ -848,9 +1127,9 @@ test('剩余路由缺参和空分镜优化返回简体中文用户错误', async
     'POST /api/v1/',
   ];
   const files = [
-    'routes/audio.js', 'routes/characters.js', 'routes/drama.js', 'routes/images.js',
+    'routes/audio.js', 'routes/characters.js', 'routes/charactersQuery.js', 'routes/charactersMessages.js', 'routes/charactersAssembly.js', 'routes/drama.js', 'routes/images.js',
     'routes/index.js', 'routes/prop.js', 'routes/sceneModelMap.js', 'routes/scenes.js',
-    'routes/storyboards.js', 'routes/task.js', 'routes/videoMerges.js', 'routes/videos.js',
+    'routes/storyboards.js', 'routes/storyboardsQuery.js', 'routes/storyboardsMutations.js', 'routes/task.js', 'routes/videoMerges.js', 'routes/videos.js',
     'routes/aiConfig.js',
   ];
   for (const name of files) {
@@ -952,4 +1231,214 @@ test('剩余路由缺参和空分镜优化返回简体中文用户错误', async
   const comfySource = fs.readFileSync(path.join(__dirname, '../src/services/comfyUiClient.js'), 'utf8');
   assert.match(comfySource, /ComfyUI 任务提交未返回任务编号/);
   assert.equal(comfySource.includes('未返回 prompt_id'), false);
+});
+
+test('非备份剩余用户错误去掉英文字段名、协议名和模型代号', async () => {
+  const dramaWriteGuard = require('../src/services/dramaWriteGuard');
+  const settingsService = require('../src/services/settingsService');
+  const imageClient = require('../src/services/imageClient');
+  const aiClient = require('../src/services/aiClient');
+  const dashscope = require('../src/services/videoGateway/dashscopeVideoAdapter');
+  const { prepareImageReferences } = require('../src/services/imageGateway/referenceUtils');
+  const referenceSource = fs.readFileSync(path.join(__dirname, '../src/services/imageGateway/referenceUtils.js'), 'utf8');
+  assert.match(referenceSource, /参考图内嵌地址无效或过大/);
+  assert.equal(referenceSource.includes('参考图 data URL'), false);
+
+  assert.notEqual(DRAMA_ID, OTHER_DRAMA_ID);
+  const db = createDb();
+  try {
+    assert.throws(
+      () => dramaWriteGuard.assertDramaReadable(db, 0),
+      (error) => error.code === 'BAD_REQUEST'
+        && error.message === '项目 ID 必须引用有效编号'
+        && !/drama_id|resource_id/.test(error.message)
+        && isTrustedChineseUserError(error.message)
+    );
+    assert.throws(
+      () => dramaWriteGuard.assertResourcesWritable(db, 'scenes', []),
+      (error) => error.code === 'BAD_REQUEST'
+        && error.message === '资源 ID 必须引用有效编号'
+        && !/resource_id|drama_id/.test(error.message)
+        && isTrustedChineseUserError(error.message)
+    );
+  } finally {
+    db.close();
+  }
+
+  const languageResult = settingsService.updateLanguage({ app: { language: 'zh' } }, silentLog, 'fr');
+  assert.equal(languageResult.ok, false);
+  assert.equal(languageResult.error, '只支持中文或英文');
+  assert.doesNotMatch(languageResult.error, /\bzh\b|\ben\b/);
+  assert.equal(isTrustedChineseUserError(languageResult.error), true);
+
+  const imageClientSource = [
+    fs.readFileSync(path.join(__dirname, '../src/services/imageClient.js'), 'utf8'),
+    fs.readFileSync(path.join(__dirname, '../src/services/imageGateway/imageApiAssembly.js'), 'utf8'),
+  ].join('\n');
+  assert.match(imageClientSource, /未配置图片模型，请在「AI 配置」中添加图片类型且已启用的配置/);
+  assert.equal(imageClientSource.includes('image 类型'), false);
+  assert.equal(isTrustedChineseUserError('未配置图片模型，请在「AI 配置」中添加图片类型且已启用的配置'), true);
+
+  const aiClientSource = fs.readFileSync(path.join(__dirname, '../src/services/aiClient.js'), 'utf8');
+  assert.match(aiClientSource, /添加\$\{serviceTypeLabel\(serviceType\)\}类型且已启用的配置/);
+  assert.equal(aiClientSource.includes('添加 ${serviceType} 类型'), false);
+  assert.equal(isTrustedChineseUserError('未配置文本模型，请在「AI 配置」中添加文本类型且已启用的配置'), true);
+  assert.equal(isTrustedChineseUserError('未配置文本模型，请在「AI 配置」中添加图片类型且已启用的配置'), true);
+  await assert.rejects(
+    () => aiClient.extractDescriptionFromImage({}, silentLog, 'unknown_kind', 'https://example.com/a.png', '林夏'),
+    (error) => error.message === '不支持该图片描述类型'
+      && !/unknown_kind|entityType/.test(error.message)
+      && isTrustedChineseUserError(error.message)
+  );
+
+  const videoClientSource = [
+    fs.readFileSync(path.join(__dirname, '../src/services/videoClient.js'), 'utf8'),
+    fs.readFileSync(path.join(__dirname, '../src/services/videoClientPoll.js'), 'utf8'),
+  ].join('\n');
+  assert.match(videoClientSource, /即梦视频为同步返回视频地址，不应进入轮询/);
+  assert.equal(videoClientSource.includes('Jimeng AI API'), false);
+  assert.equal(isTrustedChineseUserError('即梦视频为同步返回视频地址，不应进入轮询'), true);
+
+  const dash = await dashscope.callDashScopeVideoApi(
+    { base_url: 'https://dashscope.example', api_key: 'k' },
+    silentLog,
+    { model: 'wan2.2-kf2v-flash', prompt: '雨夜' }
+  );
+  assert.equal(dash.error, '当前通义万象视频模型需要首帧和尾帧图片');
+  assert.doesNotMatch(dash.error, /wan2\.2-kf2v-flash|first_frame_url|last_frame_url/);
+  assert.equal(isTrustedChineseUserError(dash.error), true);
+
+  const unsupported = await dashscope.callDashScopeVideoApi(
+    { base_url: 'https://dashscope.example', api_key: 'k' },
+    silentLog,
+    { model: 'unknown-wan-model', prompt: '雨夜' }
+  );
+  assert.equal(unsupported.error, '暂不支持当前选择的通义万象视频模型');
+  assert.doesNotMatch(unsupported.error, /unknown-wan-model/);
+  assert.equal(isTrustedChineseUserError(unsupported.error), true);
+
+  await assert.rejects(
+    () => prepareImageReferences(['data:image/png;base64,@@@'], {}, {}),
+    (error) => error.message === '参考图内嵌地址无效或过大。'
+      && !/data URL/.test(error.message)
+      && isTrustedChineseUserError(error.message)
+  );
+});
+
+test('从图提取描述不再把英文原始错误拼进用户文案', async () => {
+  const aiClient = require('../src/services/aiClient');
+  const characterLibraryGeneration = require('../src/services/characterLibraryGeneration');
+  const propService = require('../src/services/propService');
+  const { sendMappedServiceFailure } = require('../src/routes/serviceFailure');
+  const originalVision = aiClient.generateTextWithVision;
+  aiClient.generateTextWithVision = async () => {
+    throw new Error('This model does not support image inputs');
+  };
+  const db = createDb();
+  try {
+    db.prepare('UPDATE characters SET image_url = ? WHERE id = ?').run('https://cdn.example.com/linxia.png', CHARACTER_ID);
+    db.prepare('UPDATE scenes SET image_url = ? WHERE id = ?').run('https://cdn.example.com/scene.png', SCENE_ID);
+    const now = new Date().toISOString();
+    db.prepare(
+      `INSERT INTO props (id, drama_id, name, created_at, updated_at, deleted_at, image_url)
+       VALUES (7701, ?, '油纸伞', ?, ?, NULL, 'https://cdn.example.com/prop.png')`
+    ).run(DRAMA_ID, now, now);
+
+    const appearance = await characterLibraryGeneration.extractAppearanceFromImage(db, silentLog, {}, CHARACTER_ID);
+    assert.equal(appearance.ok, false);
+    assert.equal(isTrustedChineseUserError(appearance.error), true);
+    assert.doesNotMatch(appearance.error, /This model does not support|原始错误|GPT-4o|Gemini 1\.5/i);
+
+    const sceneOut = await sceneService.extractSceneFromImage(db, silentLog, {}, SCENE_ID);
+    assert.equal(sceneOut.ok, false);
+    assert.equal(isTrustedChineseUserError(sceneOut.error), true);
+    assert.doesNotMatch(sceneOut.error, /This model does not support|原始错误/i);
+
+    const propOut = await propService.extractPropFromImage(db, silentLog, {}, 7701);
+    assert.equal(propOut.ok, false);
+    assert.equal(isTrustedChineseUserError(propOut.error), true);
+    assert.doesNotMatch(propOut.error, /This model does not support|原始错误/i);
+
+    const res = mockResponse();
+    assert.equal(sendMappedServiceFailure(res, appearance), true);
+    assert.equal(res.statusCode, 400);
+    assert.equal(res.body.success, false);
+    assert.equal(res.body.error.message, appearance.error);
+  } finally {
+    aiClient.generateTextWithVision = originalVision;
+    db.close();
+  }
+});
+
+test('生成提示词失败不会把英文 err.message 回给前端', async () => {
+  const aiClient = require('../src/services/aiClient');
+  const propService = require('../src/services/propService');
+  const originalGenerate = aiClient.generateText;
+  aiClient.generateText = async () => {
+    throw new Error('model is overloaded, retry later');
+  };
+  const db = createDb();
+  try {
+    const now = new Date().toISOString();
+    db.prepare(
+      `INSERT INTO props (id, drama_id, name, created_at, updated_at, deleted_at)
+       VALUES (7702, ?, '油纸伞', ?, ?, NULL)`
+    ).run(DRAMA_ID, now, now);
+    const sceneOut = await sceneService.generateScenePromptOnly(db, silentLog, {}, SCENE_ID);
+    assert.equal(sceneOut.ok, false);
+    assert.equal(isTrustedChineseUserError(sceneOut.error), true);
+    assert.doesNotMatch(sceneOut.error, /overloaded|retry later/i);
+
+    const propOut = await propService.generatePropPromptOnly(db, silentLog, {}, 7702);
+    assert.equal(propOut.ok, false);
+    assert.equal(isTrustedChineseUserError(propOut.error), true);
+    assert.doesNotMatch(propOut.error, /overloaded|retry later/i);
+
+    const res = mockResponse();
+    await sceneRoutes(db, silentLog, {}).generatePrompt({ params: { scene_id: String(SCENE_ID) }, body: {} }, res);
+    assert.equal(res.body.success, false);
+    assert.equal(isTrustedChineseUserError(res.body.error.message), true);
+    assert.doesNotMatch(res.body.error.message, /overloaded|retry later/i);
+  } finally {
+    aiClient.generateText = originalGenerate;
+    db.close();
+  }
+});
+
+test('连接测试失败对用户是中文，日志是脱敏后的技术错误且不含密钥', async () => {
+  const aiConfigService = require('../src/services/aiConfigService');
+  const secret = 'sk-connection-user-secret-123456';
+  const original = aiConfigService.testConnection;
+  aiConfigService.testConnection = async () => {
+    throw new Error(`invalid api key ${secret}`);
+  };
+  const events = [];
+  const log = {
+    error(message, metadata) { events.push({ type: 'error', message, metadata }); },
+    operation(event) { events.push({ type: 'operation', event }); },
+  };
+  try {
+    const res = mockResponse();
+    await aiConfigRoutes({}, log, {}).testConnection({
+      body: {
+        provider: 'openai',
+        service_type: 'text',
+        base_url: 'https://provider.example.com/v1',
+        api_key: secret,
+      },
+    }, res);
+    assert.equal(res.body.success, false);
+    assert.equal(hasCjk(res.body.error.message), true);
+    assert.match(res.body.error.message, /连接测试失败/);
+    assert.doesNotMatch(res.body.error.message, /invalid api key|sk-connection-user-secret/i);
+    const serialized = JSON.stringify({ body: res.body, events });
+    assert.doesNotMatch(serialized, /sk-connection-user-secret-123456/);
+    const errorEvent = events.find((item) => item.message === 'AI config test connection failed');
+    assert.ok(errorEvent);
+    assert.match(errorEvent.metadata.error, /invalid api key/);
+    assert.doesNotMatch(errorEvent.metadata.error, /sk-connection-user-secret/);
+    assert.equal(errorEvent.metadata.userError, res.body.error.message);
+  } finally {
+    aiConfigService.testConnection = original;
+  }
 });

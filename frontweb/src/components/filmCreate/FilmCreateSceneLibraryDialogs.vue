@@ -24,9 +24,11 @@
               </div>
             </div>
           </div>
-          <div v-if="!sceneLibraryLoading && sceneLibraryList.length === 0" class="library-empty">
+          <div v-if="!sceneLibraryLoading && sceneLibraryList.length === 0" class="library-empty" role="status">
             <p>暂无本剧场景库记录，可将本剧场景「加入本剧库」后在此查看</p>
-            <el-button type="primary" @click="returnToScenePanel">去场景面板</el-button>
+            <div class="library-empty-actions">
+              <el-button type="primary" @click="returnToScenePanel">去场景面板</el-button>
+            </div>
           </div>
         </div>
         <div class="library-pagination">
@@ -53,9 +55,11 @@
               </div>
             </div>
           </div>
-          <div v-if="!dramaAllSceneLoading && dramaAllSceneList.length === 0" class="library-empty">
+          <div v-if="!dramaAllSceneLoading && dramaAllSceneList.length === 0" class="library-empty" role="status">
             <p>本剧暂无制作场景，请先在场景面板创建</p>
-            <el-button type="primary" @click="returnToScenePanel">创建场景</el-button>
+            <div class="library-empty-actions">
+              <el-button type="primary" @click="returnToScenePanel">创建场景</el-button>
+            </div>
           </div>
         </div>
         <div class="library-pagination">

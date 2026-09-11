@@ -9,6 +9,7 @@ import {
 } from '../src/utils/aiConfigSubmitPayload.js'
 
 const vueSource = readFileSync(new URL('../src/components/AIConfigContent.vue', import.meta.url), 'utf8')
+const formActionsSource = readFileSync(new URL('../src/composables/useAiConfigFormActions.js', import.meta.url), 'utf8')
 
 test('替换默认配置确认文案使用中文类型和未命名回退', () => {
   const existing = findExistingDefaultConfig([
@@ -60,8 +61,9 @@ test('保存载荷会补即梦占位模型，并打包 TTS/可灵/DeepSeek setti
 })
 
 test('页面保存仍先确认再提交，loadList/openTest 留在页面', () => {
-  assert.match(vueSource, /if \(!await confirmReplaceDefaultConfig\(\)\) return/)
-  assert.match(vueSource, /buildAiConfigSubmitPayload\(form\.value/)
+  assert.match(formActionsSource, /if \(!await confirmReplaceDefaultConfig\(\)\) return/)
+  assert.match(formActionsSource, /buildAiConfigSubmitPayload\(form\.value/)
+  assert.match(vueSource, /useAiConfigFormActions\(/)
   assert.match(vueSource, /async function loadList\(\)/)
   assert.match(vueSource, /async function openTest\(row\)/)
 })

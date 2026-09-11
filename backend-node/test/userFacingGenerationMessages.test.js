@@ -134,7 +134,7 @@ test('userFacingGeneration source 不再包含已列出的英文用户错误', (
   const files = [
     'backgroundExtractionService.js',
     'propExtractionService.js',
-    'mergedEpisodePostProcess.js',
+    'mergedEpisodePostProcess.js', 'mergedEpisodePostProcessFfmpeg.js',
     'narrationVideoPostProcess.js',
     'providerSdkService.js',
   ];
@@ -355,6 +355,9 @@ test('角色/场景/道具路由与 AI 客户端不再把英文超时或密钥�
 
   const files = [
     path.join(__dirname, '../src/routes/characters.js'),
+    path.join(__dirname, '../src/routes/charactersQuery.js'),
+    path.join(__dirname, '../src/routes/charactersMessages.js'),
+    path.join(__dirname, '../src/routes/charactersAssembly.js'),
     path.join(__dirname, '../src/routes/scenes.js'),
     path.join(__dirname, '../src/routes/prop.js'),
     path.join(__dirname, '../src/services/aiClient.js'),

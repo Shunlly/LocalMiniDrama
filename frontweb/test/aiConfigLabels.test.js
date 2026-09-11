@@ -10,10 +10,12 @@ import {
   jimeng2AssetStatusLabel,
   configActionLabel,
 } from '../src/utils/aiConfigLabels.js'
+import { readAiConfigFormDialogTreeSource } from './helpers/aiConfigFormDialogSources.js'
 
 const vueSource = readFileSync(new URL('../src/components/AIConfigContent.vue', import.meta.url), 'utf8')
-const formDialogSource = readFileSync(new URL('../src/components/aiConfig/AiConfigFormDialog.vue', import.meta.url), 'utf8')
-const overlaySource = `${vueSource}\n${formDialogSource}`
+const formDialogSource = readAiConfigFormDialogTreeSource()
+const listTableSource = readFileSync(new URL('../src/components/aiConfig/AiConfigListTable.vue', import.meta.url), 'utf8')
+const overlaySource = `${vueSource}\n${formDialogSource}\n${listTableSource}`
 
 test('AI 配置把英文技术字段和资产状态收成中文', () => {
   assert.equal(serviceTypeLabel('ocr'), '图片识别 OCR')
@@ -36,7 +38,7 @@ test('页面仍消费标签函数，不把 loadList/openTest 抽走', () => {
   assert.match(vueSource, /async function loadList\(\)/)
   assert.match(vueSource, /async function openTest\(row\)/)
   assert.match(overlaySource, /configFieldDisplayLabel\(item\.label\)/)
-  assert.match(vueSource, /:aria-label="configActionLabel\('测试', row\)"/)
+  assert.match(overlaySource, /:aria-label="configActionLabel\('测试', row\)"/)
   assert.doesNotMatch(vueSource, /function serviceTypeLabel\(/)
   assert.doesNotMatch(vueSource, /function jimeng2AssetTypeLabel\(/)
 })

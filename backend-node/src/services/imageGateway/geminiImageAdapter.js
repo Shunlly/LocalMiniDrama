@@ -85,7 +85,7 @@ async function callGeminiImageApi(db, config, log, opts) {
     let imageBuffer, mimeType;
     if (resolved.startsWith('data:')) {
       const m = resolved.match(/^data:([\w/]+);base64,(.+)$/);
-      if (!m) { log.warn('[Gemini图生] 参考图 data URL 格式异常，跳过', { image_gen_id, ref_index: i }); continue; }
+      if (!m) { log.warn('[Gemini图生] 参考图内嵌地址格式异常，跳过', { image_gen_id, ref_index: i }); continue; }
       mimeType = m[1];
       imageBuffer = Buffer.from(m[2], 'base64');
     } else {

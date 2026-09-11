@@ -3,21 +3,35 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
 import { parse } from '@vue/compiler-sfc'
+import { readSourceIntakeWorkflowSources } from './helpers/sourceIntakeWorkflowSources.js'
 
-const dramaDetailSource = readFileSync(new URL('../src/views/DramaDetail.vue', import.meta.url), 'utf8')
+import { readDramaDetailPageLogicSources } from './helpers/dramaDetailPageSources.js'
+
+const readDramaDetail = (path) => readFileSync(new URL(path, import.meta.url), 'utf8')
+const dramaDetailPageSource = readDramaDetail('../src/views/DramaDetail.vue')
+const dramaDetailReadinessSource = readDramaDetail('../src/components/dramaDetail/DramaDetailReadinessSection.vue')
+const dramaDetailResourceLibrarySource = readDramaDetail('../src/components/dramaDetail/DramaDetailResourceLibrary.vue')
+const dramaDetailEpisodeListSource = readDramaDetail('../src/components/dramaDetail/DramaDetailEpisodeList.vue')
+const dramaDetailSource = [
+  readDramaDetailPageLogicSources(readDramaDetail),
+  dramaDetailReadinessSource,
+  dramaDetailResourceLibrarySource,
+  dramaDetailEpisodeListSource,
+].join('\n')
 const dramaDetailHeaderSource = readFileSync(new URL('../src/components/dramaDetail/DramaDetailHeader.vue', import.meta.url), 'utf8')
 const dramaDetailInfoCardSource = readFileSync(new URL('../src/components/dramaDetail/DramaDetailInfoCard.vue', import.meta.url), 'utf8')
-const sourceWorkflowSource = readFileSync(new URL('../src/components/SourceIntakeWorkflowPanel.vue', import.meta.url), 'utf8')
+const sourceWorkflowPanelSource = readFileSync(new URL('../src/components/SourceIntakeWorkflowPanel.vue', import.meta.url), 'utf8')
+const sourceWorkflowSource = readSourceIntakeWorkflowSources()
 
 test('DramaDetail remains a valid SFC with explicit readiness dependency retry and autosave status UI', () => {
-  const parsed = parse(dramaDetailSource, { filename: 'DramaDetail.vue' })
+  const parsed = parse(dramaDetailPageSource, { filename: 'DramaDetail.vue' })
   assert.deepEqual(parsed.errors, [])
   assert.match(dramaDetailSource, /readinessDependencyState = ref\('idle'\)/)
   assert.match(dramaDetailSource, /readinessDependencyError = ref\(''\)/)
   assert.match(dramaDetailSource, /hasReadinessSnapshot = ref\(false\)/)
   assert.match(dramaDetailSource, /buildReadinessDependencyError\(configsResult, sourcesResult\)/)
   assert.match(dramaDetailSource, /target: 'readiness-dependencies'/)
-  assert.match(dramaDetailSource, /@click="retryReadinessDependencies"/)
+  assert.match(dramaDetailPageSource, /@retry="retryReadinessDependencies"/)
   assert.match(dramaDetailSource, /v-if="projectReadiness"/)
   assert.match(dramaDetailSource, /const infoSaveState = ref\('saved'\)/)
   assert.match(dramaDetailSource, /const infoSaveScheduled = ref\(false\)/)
@@ -32,18 +46,18 @@ test('DramaDetail remains a valid SFC with explicit readiness dependency retry a
 })
 
 test('Source intake workflow remains a valid SFC with poll failure status and recovery controls', () => {
-  const parsed = parse(sourceWorkflowSource, { filename: 'SourceIntakeWorkflowPanel.vue' })
+  const parsed = parse(sourceWorkflowPanelSource, { filename: 'SourceIntakeWorkflowPanel.vue' })
   assert.deepEqual(parsed.errors, [])
-  assert.match(sourceWorkflowSource, /workflowDataError = ref\(''\)/)
-  assert.match(sourceWorkflowSource, /pollState = ref\('idle'\)/)
-  assert.match(sourceWorkflowSource, /pollError = ref\(''\)/)
-  assert.match(sourceWorkflowSource, /class="workflow-status-banner workflow-status-banner--error"/)
-  assert.match(sourceWorkflowSource, /class="poll-status-banner"/)
+  assert.match(sourceWorkflowPanelSource, /workflowDataError = ref\(''\)/)
+  assert.match(sourceWorkflowPanelSource, /pollState = ref\('idle'\)/)
+  assert.match(sourceWorkflowPanelSource, /pollError = ref\(''\)/)
+  assert.match(sourceWorkflowPanelSource, /class="workflow-status-banner workflow-status-banner--error"/)
+  assert.match(sourceWorkflowPanelSource, /class="poll-status-banner"/)
   assert.match(sourceWorkflowSource, /async function resumePolling\(\)/)
   assert.match(sourceWorkflowSource, /pollState\.value = 'error'/)
   assert.match(sourceWorkflowSource, /pollError.value = toUserFacingError\(error, '处理状态刷新失败，自动轮询已暂停。'/)
   assert.match(sourceWorkflowSource, /workflowDataError.value = toUserFacingError\(e, '加载素材流程状态失败，请稍后重试。'/)
-  assert.match(sourceWorkflowSource, /@click="resumePolling"/)
+  assert.match(sourceWorkflowPanelSource, /@click="resumePolling"/)
 })
 
 test('剧集资源库失败与空搜索分开展示，无分集时进入制作会说明原因', () => {
@@ -83,7 +97,8 @@ test('DramaDetail 禁用操作和空封面提供可焦点的中文说明', () =>
 })
 
 test('剧集详情离开保护会拦截未导入的批量剧集，并走统一中文错误', () => {
-  assert.match(dramaDetailSource, /import \{ toUserFacingError \} from '@\/utils\/userFacingError'/)
+  assert.match(dramaDetailPageSource, /import \{ dramaDetailUserError, characterRoleLabel, propTypeLabel \} from '@\/components\/dramaDetail\/dramaDetailResourceEdit\.js'/)
+  assert.match(dramaDetailSource, /dramaDetailUserError\(/)
   assert.match(dramaDetailSource, /async function confirmBatchImportLeave\(\)/)
   assert.match(dramaDetailSource, /episodeBatchImportDialogRef\.value\?\.isImporting\?\.\(\)/)
   assert.match(dramaDetailSource, /ElMessage\.warning\('正在导入剧集，请完成后再离开。'\)/)

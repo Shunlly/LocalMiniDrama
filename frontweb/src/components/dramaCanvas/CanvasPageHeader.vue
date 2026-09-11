@@ -1,7 +1,7 @@
 <template>
   <header class="header">
     <div class="header-inner">
-      <button type="button" class="logo" aria-label="返回项目列表" @click="goProjectList">
+      <button type="button" class="logo" aria-label="返回项目列表" title="返回项目列表" @click="goProjectList">
         <span class="logo-main">本地短剧助手</span>
         <span class="logo-sub">画布模式</span>
       </button>
@@ -11,6 +11,7 @@
       <el-select
         :model-value="filterEpisodeId"
         aria-label="筛选画布集数"
+        title="筛选画布集数"
         @update:model-value="requestEpisodeFilterChange"
         class="episode-select"
         placeholder="全部集数"
@@ -41,6 +42,7 @@
         size="small"
         type="warning"
         aria-label="重试保存画布"
+        title="重试保存画布"
         @click="retryCanvasSave"
       >
         重试保存
@@ -51,6 +53,7 @@
         plain
         size="small"
         aria-label="取消批量生成"
+        title="取消批量生成"
         @click="cancelEpisodeGenerate"
       >
         取消
@@ -64,7 +67,7 @@
     >
       <span>{{ freeCanvasCompatibilityMessage }}</span>
       <div class="canvas-warning-actions">
-        <el-button link size="small" @click="goListMode">列表模式</el-button>
+        <el-button link size="small" aria-label="返回列表模式" title="返回列表模式" @click="goListMode">列表模式</el-button>
       </div>
     </div>
     <div

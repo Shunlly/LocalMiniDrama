@@ -1,7 +1,7 @@
 const taskService = require('../services/taskService');
 const dramaWriteGuard = require('../services/dramaWriteGuard');
 const response = require('../response');
-const { sendCaughtRouteError, publicErrorMessage } = require('./serviceFailure');
+const { sendCaughtRouteError, logCaughtRouteError, publicErrorMessage } = require('./serviceFailure');
 
 function sendBoundaryError(res, err) {
   if (err.code === 'TASK_SCOPE_CONFLICT') {
@@ -23,7 +23,7 @@ function getTaskStatus(db, log) {
       response.success(res, task);
     } catch (err) {
       if (sendBoundaryError(res, err)) return;
-      log.errorw('Get task failed', { error: err.message, task_id: req.params.task_id });
+      logCaughtRouteError(log, 'Get task failed', err, { task_id: req.params.task_id, fallback: '任务查询失败，请稍后重试' });
       return sendCaughtRouteError(res, err, '任务查询失败，请稍后重试');
     }
   };
@@ -41,7 +41,7 @@ function getResourceTasks(db, log) {
       response.success(res, tasks);
     } catch (err) {
       if (sendBoundaryError(res, err)) return;
-      log.errorw('Get resource tasks failed', { error: err.message });
+      logCaughtRouteError(log, 'Get resource tasks failed', err, { resource_id: resourceId, drama_id: req.query.drama_id, fallback: '任务查询失败，请稍后重试' });
       sendCaughtRouteError(res, err, '任务查询失败，请稍后重试');
     }
   };
@@ -69,14 +69,15 @@ function cancelTaskStatus(db, log) {
           res,
           statusCode,
           code,
-          result.error || '任务取消失败，任务仍在运行',
+          publicErrorMessage({ message: result.error }, '任务取消失败，任务仍在运行'),
           result.details
         );
       }
       response.success(res, result.task || { id: req.params.task_id });
     } catch (err) {
-      log.errorw('Cancel task failed', { error: err.message, task_id: req.params.task_id });
-      sendCaughtRouteError(res, err, '任务查询失败，请稍后重试');
+      if (sendBoundaryError(res, err)) return;
+      logCaughtRouteError(log, 'Cancel task failed', err, { task_id: req.params.task_id, fallback: '任务取消失败，请稍后重试' });
+      sendCaughtRouteError(res, err, '任务取消失败，请稍后重试');
     }
   };
 }

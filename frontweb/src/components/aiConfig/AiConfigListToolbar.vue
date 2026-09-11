@@ -71,7 +71,7 @@
         当前只看：<strong>{{ serviceTypeLabel(activeServiceFilter) }}</strong>
         <span class="filter-count">{{ filteredCount }} 条</span>
       </span>
-      <el-button link type="primary" @click="clearServiceFilter">查看全部配置</el-button>
+      <el-button link type="primary" aria-label="清除当前服务筛选，查看全部配置" @click="clearServiceFilter">查看全部配置</el-button>
     </div>
   </div>
 </template>

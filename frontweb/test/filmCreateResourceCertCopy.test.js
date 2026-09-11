@@ -14,6 +14,7 @@ const propBlock = readFileSync(new URL('../src/components/filmCreate/FilmCreateP
 const sceneBlock = readFileSync(new URL('../src/components/filmCreate/FilmCreateSceneBlock.vue', import.meta.url), 'utf8')
 const dialogs = readFilmCreateResourceDialogTree()
 const charactersSource = readFileSync(new URL('../src/composables/filmCreate/useCharacters.js', import.meta.url), 'utf8')
+const characterLibrarySource = readFileSync(new URL('../src/composables/filmCreate/useCharacterLibrary.js', import.meta.url), 'utf8')
 const resourceSurface = panel + '\n' + characterBlock + '\n' + propBlock + '\n' + sceneBlock
 
 const USER_VISIBLE_SOURCES = {
@@ -23,6 +24,7 @@ const USER_VISIBLE_SOURCES = {
   'FilmCreateSceneBlock.vue': sceneBlock,
   'FilmCreateResourceDialogs.vue': dialogs,
   'useCharacters.js': charactersSource,
+  'useCharacterLibrary.js': characterLibrarySource,
 }
 
 const SD2_CERT_COPY_RE = /SD2认证|SD2 认证详情/

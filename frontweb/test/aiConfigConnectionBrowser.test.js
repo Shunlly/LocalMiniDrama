@@ -74,7 +74,7 @@ test('AI 配置连接测试失败会展示错误并留下 error 操作日志', {
   await row.getByRole('button', { name: /^测试「/ }).click()
 
   const dialog = page.getByRole('dialog', { name: '测试连接', exact: true })
-  await dialog.getByText('连接测试失败：网关拒绝连接', { exact: true }).waitFor({ timeout: 30000 })
+  await dialog.getByRole('status').filter({ hasText: '连接测试失败：网关拒绝连接' }).waitFor({ timeout: 30000 })
   await dialog.getByRole('button', { name: '关闭', exact: true }).click()
 
   const phases = operationPhases(logs, 'ai_config_test')

@@ -1,7 +1,5 @@
 // 与 Go pkg/image + ImageGenerationService 对齐：调用图片生成 API，更新 image_generations 与角色头像
-const aiConfigService = require('./aiConfigService');
 const {
-  createSafeProviderLogger,
   sanitizeProviderException,
   sanitizeProviderResult,
 } = require('./providerErrorSanitizer');
@@ -17,7 +15,6 @@ const {
   isAgnesImageConfig,
 } = require('./imageGateway/sizeAdapters');
 const {
-  prepareImageReferences,
   getStoryboardReferenceLimits,
   canAddStoryboardCharacterRef,
   canAddStoryboardObjectRef,
@@ -40,7 +37,7 @@ const {
   getModelFromConfig,
 } = require('./imageGateway/config');
 const { dispatchImageProtocol } = require('./imageGateway/protocolDispatch');
-const { assembleImageProtocolRequest } = require('./imageGateway/requestAssembly');
+const { assembleImageApiCall } = require('./imageGateway/imageApiAssembly');
 const { createAndGenerateImage: createAndGenerateImageWithApi } = require('./imageGateway/createAndGenerateImage');
 
 function createAndGenerateImage(db, log, opts) {
@@ -57,86 +54,9 @@ function createAndGenerateImage(db, log, opts) {
  * @returns {Promise<{ image_url?: string, error?: string }>}
  */
 async function callImageApiInternal(db, log, opts) {
-  log = createSafeProviderLogger(log);
-  const {
-    prompt,
-    model: preferredModel,
-    size,
-    quality,
-    drama_id,
-    preferred_provider,
-    character_id,
-    image_type,
-    image_gen_id,
-    imageServiceType,
-    reference_image_urls,
-    files_base_url,
-    storage_local_path,
-    system_prompt,
-    user_negative_prompt,
-  } = opts;
-  const preferredProvider = preferred_provider ?? opts.preferredProvider;
-  const config = getDefaultImageConfig(db, preferredModel, preferredProvider, imageServiceType);
-  if (!config) {
-    throw new Error('未配置图片模型，请在「AI 配置」中添加 image 类型且已启用的配置');
-  }
-  const model = getModelFromConfig(config, preferredModel);
-  const provider = (config.provider || '').toLowerCase();
-  const providerNetworkPolicy = aiConfigService.getProviderNetworkOptions(config, {
-    lookup: opts.provider_dns_lookup,
-    signal: opts.signal,
-    fetchImpl: opts.fetch_impl || opts.fetchImpl,
-  });
-  const requestContext = imageRequestContext.getStore();
-  if (requestContext) {
-    requestContext.networkOptions = {
-      ...(requestContext.networkOptions || {}),
-      ...providerNetworkPolicy,
-    };
-  }
-  const safeReferenceImageUrls = await prepareImageReferences(reference_image_urls, opts, config);
-  const {
-    protocol,
-    effectivePrompt,
-    mergedNegativePrompt,
-    refLabelInjected,
-  } = assembleImageProtocolRequest({
-    config,
-    model,
-    prompt,
-    systemPrompt: system_prompt,
-    referenceUrls: safeReferenceImageUrls,
-    userNegativePrompt: user_negative_prompt,
-  });
-
-  log.info('[图生] callImageApi 路由', {
-    image_gen_id,
-    protocol,
-    api_protocol_raw: config.api_protocol || '(empty→auto)',
-    provider,
-    model,
-    size,
-    imageServiceType,
-    ref_count: safeReferenceImageUrls.length,
-    ref_label_injected: refLabelInjected,
-    prompt_length: String(effectivePrompt).length,
-  });
-
-  return dispatchImageProtocol(db, config, log, {
-    protocol,
-    prompt,
-    effectivePrompt,
-    model,
-    size,
-    quality,
-    image_gen_id,
-    safeReferenceImageUrls,
-    files_base_url,
-    storage_local_path,
-    mergedNegativePrompt,
-    providerNetworkPolicy,
-    opts,
-  });
+  const assembled = await assembleImageApiCall(db, log, opts);
+  assembled.log.info('[图生] callImageApi 路由', assembled.routeLog);
+  return dispatchImageProtocol(db, assembled.config, assembled.log, assembled.dispatchCtx);
 }
 
 async function callImageApi(db, log, opts = {}) {

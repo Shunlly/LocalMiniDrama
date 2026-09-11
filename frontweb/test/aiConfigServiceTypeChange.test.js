@@ -9,6 +9,7 @@ import {
 } from '../src/utils/aiConfigServiceTypeChange.js'
 
 const vueSource = readFileSync(new URL('../src/components/AIConfigContent.vue', import.meta.url), 'utf8')
+const formDerivedSource = readFileSync(new URL('../src/composables/useAiConfigFormDerived.js', import.meta.url), 'utf8')
 
 test('切到即梦2角色认证会填中文名称和素材网关，不会沿用文本厂商', () => {
   const form = {
@@ -60,8 +61,9 @@ test('追加模型去重，空默认模型会用预设值', () => {
 })
 
 test('页面仍走原事件，loadList/openTest 留在页面', () => {
-  assert.match(vueSource, /function onServiceTypeChange\(\)/)
-  assert.match(vueSource, /applyServiceTypeChange\(form\.value/)
+  assert.match(vueSource, /onServiceTypeChange,/)
+  assert.match(formDerivedSource, /function onServiceTypeChange\(\)/)
+  assert.match(formDerivedSource, /applyServiceTypeChange\(form\.value/)
   assert.match(vueSource, /async function loadList\(\)/)
   assert.match(vueSource, /async function openTest\(row\)/)
 })

@@ -11,6 +11,8 @@ const connectionDialogSource = readSource(new URL('../src/components/aiConfig/Ai
 const generationSettingsSource = readSource(new URL('../src/composables/useAiConfigGenerationSettings.js', import.meta.url))
 const connectionTestSource = readSource(new URL('../src/utils/aiConfigConnectionTest.js', import.meta.url))
 const vendorLockSource = readSource(new URL('../src/composables/useAiConfigVendorLock.js', import.meta.url))
+const pageRequestsSource = readSource(new URL('../src/composables/useAiConfigPageRequests.js', import.meta.url))
+const requestOptionsSource = readSource(new URL('../src/utils/aiConfigRequestOptions.js', import.meta.url))
 const requestError = readSource(new URL('../src/utils/requestError.js', import.meta.url))
 
 function sourceBetween(start, end) {
@@ -23,11 +25,11 @@ function sourceBetween(start, end) {
 
 test('AI 配置页在卸载和重新加载时取消过期请求', () => {
   assert.match(source, /from '@\/utils\/requestError'/)
-  assert.match(source, /function abortAiConfigPageRequests\(\)/)
+  assert.match(pageRequestsSource, /function abortAiConfigPageRequests\(\)/)
   assert.match(source, /onBeforeUnmount\(\(\) => \{\s*abortAiConfigPageRequests\(\)/)
   assert.match(source, /restoreTestedCoverageCardFocus\(\) \{\s*connectionTestAbortController\?\.abort\(\)/)
 
-  const listLoader = sourceBetween('async function loadList()', 'function resetForm')
+  const listLoader = sourceBetween('async function loadList()', 'async function openTest')
   const vendorStart = vendorLockSource.indexOf('async function loadVendorLock')
   const vendorEnd = vendorLockSource.indexOf('return {', vendorStart)
   assert.ok(vendorStart >= 0 && vendorEnd > vendorStart)
@@ -52,13 +54,13 @@ test('AI 配置页在卸载和重新加载时取消过期请求', () => {
   assert.match(generationLoader, /loadGenerationSettingsPayload/)
   assert.match(generationLoader, /shouldIgnoreGenerationSettingsError/)
   assert.match(generationLoader, /describeGenerationSettingsLoadError/)
-  assert.match(source, /function jsonRequestOptions\(signal/)
-  assert.match(source, /suppressErrorToast: true/)
+  assert.match(requestOptionsSource, /function jsonRequestOptions\(signal/)
+  assert.match(requestOptionsSource, /suppressErrorToast: true/)
 })
 
 test('连接测试失败可重试且取消不会记成失败', () => {
-  const connectionTest = sourceBetween('async function openTest', 'async function retryConfigDependencies')
-  assert.match(connectionTest, /function retryConnectionTest/)
+  const connectionTest = sourceBetween('async function openTest', 'const {')
+  assert.match(pageRequestsSource, /function retryConnectionTest/)
   assert.match(connectionDialogSource, /@click="retryConnectionTest"/)
   assert.match(source, /:retry-connection-test="retryConnectionTest"/)
   assert.match(connectionTest, /if \(isUserFacingAbort\(e, controller\.signal\) \|\| controller\.signal\.aborted\) \{[\s\S]*?return/)

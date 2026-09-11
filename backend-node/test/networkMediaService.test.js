@@ -829,3 +829,53 @@ test('\u9ed8\u8ba4\u5408\u5e76 Commons \u4e0e Openverse\uff0cCommons \u56de\u5f5
   assert.equal(commonsOnly.items[0].source, 'commons');
   assert.equal(commonsOnly.items[0].commons_sha1, PNG_SHA1);
 });
+
+test('networkMediaService 公开 API 保持不变且接到拆出模块', () => {
+  assert.deepEqual(Object.keys(networkMediaService).sort(), [
+    'ALLOWED_MIME_TYPES',
+    'COMMONS_API_URL',
+    'MAX_IMAGE_BYTES',
+    'MAX_THUMBNAIL_BYTES',
+    'MAX_VIDEO_BYTES',
+    'OPENVERSE_API_URL',
+    'OPENVERSE_ORIGIN',
+    'ORPHAN_CLEANUP_INTERVAL_MS',
+    'THUMBNAIL_PROXY_PATH',
+    'cleanupOrphans',
+    'commonsTitleFromSource',
+    'detectImportSource',
+    'isOpenverseId',
+    'prepareImport',
+    'proxyThumbnail',
+    'resetNetworkMediaCaches',
+    'resolveCommonsItem',
+    'resolveOpenverseItem',
+    'search',
+  ]);
+  const source = fs.readFileSync(path.join(__dirname, '../src/services/networkMediaService.js'), 'utf8');
+  assert.match(source, /require\('\.\/networkMediaErrors'\)/);
+  assert.match(source, /require\('\.\/networkMediaNormalize'\)/);
+  assert.match(source, /require\('\.\/networkMediaAssembly'\)/);
+  assert.equal(source.includes('function serviceError('), false);
+  assert.equal(source.includes('function parseSearchQuery('), false);
+  assert.equal(source.includes('function toPublicSearchItem('), false);
+  assert.equal(source.includes('function normalizeCommonsPage('), false);
+  assert.doesNotMatch(source, /pexels|unsplash|shutterstock|getty/i);
+});
+
+test('合并搜索时 Commons 失败会跳过该来源并保留 Openverse 结果', async () => {
+  networkMediaService.resetNetworkMediaCaches();
+  const mock = mockNetworkFetch();
+  const fetch = async (url, request, networkOptions) => {
+    if (String(url).startsWith(networkMediaService.COMMONS_API_URL)) {
+      throw new Error('connect ECONNREFUSED 127.0.0.1:443');
+    }
+    return mock.fetch(url, request, networkOptions);
+  };
+  const result = await networkMediaService.search({ keyword: 'safe', source: 'all', type: 'image' }, { fetch });
+  assert.equal(result.items.some((item) => item.source === 'openverse'), true);
+  assert.equal(result.items.some((item) => item.source === 'commons'), false);
+  assert.equal(result.source, 'Openverse');
+  assert.match(result.notice, /Wikimedia Commons 暂时不可用/);
+  assert.doesNotMatch(result.notice, /blocked|UNSAFE_MEDIA_REFERENCE|ECONNREFUSED|127\.0\.0\.1/);
+});

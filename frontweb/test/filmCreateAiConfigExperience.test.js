@@ -7,6 +7,8 @@ import { useAiConfigCoverage } from '../src/composables/useAiConfigCoverage.js'
 import { useFilmCreateAiConfigWorkspace } from '../src/composables/filmCreate/useFilmCreateAiConfigWorkspace.js'
 import { useFilmCreateProductionReadiness } from '../src/composables/filmCreate/useFilmCreateProductionReadiness.js'
 import { useFilmCreateProjectLoad } from '../src/composables/filmCreate/useFilmCreateProjectLoad.js'
+import { readAiConfigFormDialogTreeSource } from './helpers/aiConfigFormDialogSources.js'
+import { readAiConfigPresetHelpTreeSource } from './helpers/aiConfigPresetHelpSources.js'
 
 /**
  * 已抽出的 JS 模块用真实导入跑行为；仍留在 Vue/CSS 里的接线只做 source match，
@@ -17,12 +19,15 @@ function readSource(url) {
 }
 
 const filmCreateSource = readSource(new URL('../src/views/FilmCreate.vue', import.meta.url))
+const surfaceBindingsSource = readSource(new URL('../src/components/filmCreate/filmCreateSurfaceBindings.js', import.meta.url))
+const shellBindingsSource = readSource(new URL('../src/components/filmCreate/filmCreateShellBindings.js', import.meta.url))
 const filmListSource = readSource(new URL('../src/views/FilmList.vue', import.meta.url))
 const aiConfigSource = readSource(new URL('../src/components/AIConfigContent.vue', import.meta.url))
-const aiConfigFormDialogSource = readSource(new URL('../src/components/aiConfig/AiConfigFormDialog.vue', import.meta.url))
+const coverageComposableSource = readSource(new URL('../src/composables/useAiConfigCoverage.js', import.meta.url))
+const aiConfigFormDialogSource = readAiConfigFormDialogTreeSource()
 const aiConfigUiSource = [aiConfigSource, aiConfigFormDialogSource].join('\n')
 const coverageCardSource = readSource(new URL('../src/components/aiConfig/AiConfigCoverageCard.vue', import.meta.url))
-const presetHelpSource = readSource(new URL('../src/components/aiConfig/AiConfigPresetHelpCollapse.vue', import.meta.url))
+const presetHelpSource = readAiConfigPresetHelpTreeSource()
 const generationSettingsSource = readSource(new URL('../src/composables/useAiConfigGenerationSettings.js', import.meta.url))
 const importExportSource = readSource(new URL('../src/composables/useAiConfigImportExport.js', import.meta.url))
 const rowMutationsSource = readSource(new URL('../src/composables/useAiConfigRowMutations.js', import.meta.url))
@@ -302,9 +307,9 @@ test.afterEach(() => {
 })
 
 test('FilmCreate keeps AI readiness in the pipeline instead of the page-level dependency warning', async () => {
-  assert.match(filmCreateSource, /:production-readiness-reason="productionReadinessReason"/)
-  assert.match(filmCreateSource, /:production-readiness-state="productionReadinessState"/)
-  assert.match(filmCreateSource, /@retry-readiness="refreshProductionReadiness"/)
+  assert.match(filmCreateSource, /v-bind="pipelinePanelBindings"/)
+  assert.match(surfaceBindingsSource, /productionReadinessReason, productionReadinessState/)
+  assert.match(surfaceBindingsSource, /onRetryReadiness: refreshProductionReadiness/)
 
   const capabilityCalls = []
   const capabilityFails = createProjectLoad({
@@ -534,7 +539,8 @@ test('FilmCreate AI config dialog fixes its header and tabs around one content s
 
 test('FilmCreate generic AI config entry resets a prior service-specific filter', async () => {
   assert.doesNotMatch(filmCreateSource, /@click="showAiConfigDialog = true"/)
-  assert.match(filmCreateSource, /@open-ai-config="openAiConfig"/)
+  assert.match(filmCreateSource, /v-bind="headerBindings"/)
+  assert.match(surfaceBindingsSource, /onOpenAiConfig: openAiConfig/)
   assert.match(videoSettingsSource, /<button type="button" class="ai-config-text-button" @click="emit\('open-ai-config'\)">AI 配置<\/button>/)
 
   const scope = effectScope()
@@ -562,8 +568,9 @@ test('FilmCreate AI config returns to production and refreshes changed readiness
   assert.match(aiConfigDialogSource, /aria-label="返回制作"/)
   assert.match(aiConfigDialogSource, /<template #header="\{ titleId, titleClass \}">[\s\S]*<ArrowLeft \/>[\s\S]*返回制作[\s\S]*<\/template>/)
   assert.match(aiConfigDialogSource, /<strong :id="titleId" :class="\[titleClass, 'ai-config-dialog-title'\]">AI 配置<\/strong>/)
-  assert.match(filmCreateSource, /@back="requestAiConfigWorkspaceClose"/)
-  assert.match(filmCreateSource, /@configuration-changed="onAiConfigurationChanged"/)
+  assert.match(filmCreateSource, /v-bind="workspaceDialogsLayerBindings"/)
+  assert.match(shellBindingsSource, /onBack: requestAiConfigWorkspaceClose/)
+  assert.match(shellBindingsSource, /onConfigurationChanged: onAiConfigurationChanged/)
   assert.match(aiConfigDialogStateSource, /const aiConfigChanged = ref\(false\)/)
   assert.match(filmCreateSource, /aiConfigChanged,/)
 
@@ -629,9 +636,10 @@ test('pipeline-owned AI recovery restores focus to a stable exposed summary', as
     pipelinePanelSource,
     /\.pipeline-compact-copy:focus-visible\s*\{[\s\S]*outline:\s*2px solid var\(--el-color-primary\)[\s\S]*outline-offset:\s*2px/,
   )
-  assert.match(pipelinePanelSource, /emit\(action\.event, action\.payload, \{ source: 'compact-action' \}\)/)
+  assert.match(pipelinePanelSource, /emit\((?:action|next)\.event, (?:action|next)\.payload, \{ source: 'compact-action' \}\)/)
   assert.match(filmCreateSource, /<FilmCreatePipelinePanel\s+ref="pipelinePanelRef"/)
-  assert.match(filmCreateSource, /@open-ai-config="openAiConfigFromPipeline"/)
+  assert.match(filmCreateSource, /v-bind="pipelinePanelBindings"/)
+  assert.match(surfaceBindingsSource, /onOpenAiConfig: openAiConfigFromPipeline/)
   assert.match(aiConfigDialogStateSource, /const pipelinePanelRef = ref\(null\)/)
   assert.match(aiConfigDialogStateSource, /const aiConfigOpenedFromPipelineAction = ref\(false\)/)
   assert.match(filmCreateSource, /pipelinePanelRef,/)
@@ -663,8 +671,9 @@ test('AI coverage test actions are accessible secondary buttons with pending sta
   assert.match(coverageAction, /:disabled="isCoverageActionDisabled\(item, action\)"/)
   assert.match(coverageAction, /:aria-busy="isCoverageActionTesting\(item, action\)"/)
   assert.match(aiConfigSource, /const testingConfigId = ref\(null\)/)
-  assert.match(aiConfigSource, /function isCoverageActionTesting\(item, action\)/)
-  assert.match(aiConfigSource, /isCoverageActionTesting\(item, action\) \|\| testingConfigId\.value !== null/)
+  assert.match(aiConfigSource, /isCoverageActionTesting,/)
+  assert.match(coverageComposableSource, /function isCoverageActionTesting\(item, action\)/)
+  assert.match(coverageComposableSource, /isCoverageActionTesting\(item, action\) \|\| testingConfigId\.value !== null/)
   assert.match(aiConfigSource, /if \(testingConfigId\.value !== null && lastTestedConfig/)
   assert.match(aiConfigSource, /testingConfigId\.value = row\.id/)
   assert.match(aiConfigSource, /if \(testingConfigId\.value === row\.id\) testingConfigId\.value = null/)
@@ -700,15 +709,15 @@ test('AI 配置失败反馈走 toUserFacingError，不直出 e.message', () => {
 test('AI 配置帮助区覆盖新增厂商预设，并保留自定义入口', () => {
   assert.match(presetHelpSource, /选择预设只会自动填入公开 Base URL 和常见模型名/)
   assert.match(presetHelpSource, /不代表本应用已真实接入或跑通对应厂商/)
-  assert.match(presetHelpSource, /el-collapse-item name="openrouter-text"/)
-  assert.match(presetHelpSource, /el-collapse-item name="siliconflow-text"/)
-  assert.match(presetHelpSource, /el-collapse-item name="cn-cloud-text"/)
-  assert.match(presetHelpSource, /el-collapse-item name="ollama-text"/)
-  assert.match(presetHelpSource, /el-collapse-item name="comfyui-img"/)
-  assert.match(presetHelpSource, /el-collapse-item name="minimax-vid"/)
-  assert.match(presetHelpSource, /el-collapse-item name="runway-vid"/)
-  assert.match(presetHelpSource, /el-collapse-item name="luma-vid"/)
-  assert.match(presetHelpSource, /el-collapse-item name="siliconflow-tts"/)
+  assert.match(presetHelpSource, /name: "openrouter-text"/)
+  assert.match(presetHelpSource, /name: "siliconflow-text"/)
+  assert.match(presetHelpSource, /name: "cn-cloud-text"/)
+  assert.match(presetHelpSource, /name: "ollama-text"/)
+  assert.match(presetHelpSource, /name: "comfyui-img"/)
+  assert.match(presetHelpSource, /name: "minimax-vid"/)
+  assert.match(presetHelpSource, /name: "runway-vid"/)
+  assert.match(presetHelpSource, /name: "luma-vid"/)
+  assert.match(presetHelpSource, /name: "siliconflow-tts"/)
   assert.match(readFileSync(new URL('../src/utils/aiConfigProviderOptions.js', import.meta.url), 'utf8'), /id: CUSTOM_PROVIDER_SENTINEL, name: '✏️ 自定义（直接输入厂商名）'/)
   assert.match(aiConfigUiSource, /预设只用于填表，不代表对应厂商已在本应用中真实跑通生成/)
 })

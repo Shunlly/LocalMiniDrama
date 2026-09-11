@@ -5,6 +5,7 @@
     v-bind="$attrs"
     :model-value="modelValue"
     :close-on-click-modal="closeOnClickModal"
+    :close-on-press-escape="closeOnPressEscape"
     :data-accessible-dialog-id="instanceId"
     append-to="body"
     :append-to-body="true"
@@ -35,6 +36,8 @@ const props = defineProps({
   modelValue: { type: Boolean, default: false },
   // 默认禁止点遮罩关闭，避免表单弹窗被非语义点击丢掉。
   closeOnClickModal: { type: Boolean, default: false },
+  // 默认保留 Esc，交给 Element Plus 焦点陷阱退出，而不是锁死在弹窗里。
+  closeOnPressEscape: { type: Boolean, default: true },
 })
 
 const emit = defineEmits([
@@ -54,6 +57,7 @@ let pendingOpener = null
 let focusApplied = false
 let focusScheduled = false
 let focusScheduleVersion = 0
+let lastFocusedElement = null
 let disposed = false
 
 function currentActiveElement() {
@@ -82,11 +86,82 @@ function resolveDialogElement() {
 }
 
 function ensureRegistered() {
-  if (accessibilityToken) return accessibilityToken
+  if (accessibilityToken) {
+    applyDialogAccessibleName()
+    return accessibilityToken
+  }
   const element = resolveDialogElement()
   if (!element) return null
   accessibilityToken = dialogAccessibility.register(element, pendingOpener)
+  applyDialogAccessibleName()
   return accessibilityToken
+}
+
+function resolveLabelledDialogElement() {
+  const dialog = resolveDialogElement()
+  if (!dialog) return null
+  if (typeof dialog.closest === 'function') {
+    return dialog.closest('[role="dialog"]') || dialog
+  }
+  return dialog
+}
+
+function applyDialogAccessibleName() {
+  const labelled = resolveLabelledDialogElement()
+  if (!labelled || typeof labelled.querySelector !== 'function' || typeof labelled.setAttribute !== 'function') return
+  const titleEl = labelled.querySelector('.el-dialog__title')
+  if (!titleEl) return
+  if (!titleEl.id) {
+    const titleId = `${instanceId}-title`
+    if (typeof titleEl.setAttribute === 'function') titleEl.setAttribute('id', titleId)
+    else titleEl.id = titleId
+  }
+  labelled.setAttribute('aria-labelledby', titleEl.id)
+  const ariaLabel = typeof labelled.getAttribute === 'function' ? labelled.getAttribute('aria-label') : ''
+  const titleText = String(titleEl.textContent || '').replace(/\s+/g, ' ').trim()
+  if (ariaLabel && titleText && ariaLabel === titleText) {
+    labelled.removeAttribute?.('aria-label')
+  }
+}
+
+function classNameOf(element) {
+  const value = element?.className
+  if (typeof value === 'string') return value
+  if (typeof value?.baseVal === 'string') return value.baseVal
+  return ''
+}
+
+function isLikelyCloseControl(element) {
+  let current = element
+  while (current) {
+    const className = classNameOf(current)
+    if (className.includes('el-dialog__headerbtn') || className.includes('el-dialog__close')) {
+      return true
+    }
+    current = current.parentElement
+  }
+  return false
+}
+
+function markFocusApplied(element) {
+  lastFocusedElement = element || currentActiveElement()
+  focusApplied = true
+}
+
+function hasRetainedFocus() {
+  if (!focusApplied) return false
+  const active = currentActiveElement()
+  if (!active) return false
+  if (lastFocusedElement && active === lastFocusedElement && !isLikelyCloseControl(active)) {
+    return true
+  }
+  const dialog = resolveDialogElement()
+  if (!dialog) return false
+  if (active === dialog) return true
+  if (typeof dialog.contains === 'function' && dialog.contains(active)) {
+    return !isLikelyCloseControl(active)
+  }
+  return false
 }
 
 function focusDialogFallback() {
@@ -102,19 +177,26 @@ function focusDialogFallback() {
   } catch {
     dialog.focus()
   }
+  const active = currentActiveElement()
+  if (active && active !== dialog) return false
+  markFocusApplied(dialog)
   return true
 }
 
 function applyInitialFocus(allowDialogFallback = false) {
-  if (focusApplied || !props.modelValue) return
+  if (!props.modelValue || disposed) return false
+  if (hasRetainedFocus()) return true
   const token = ensureRegistered()
-  if (!token) return
+  if (!token) return false
   if (dialogAccessibility.focus(token)) {
-    focusApplied = true
-    return
+    const active = currentActiveElement()
+    if (!isLikelyCloseControl(active)) {
+      markFocusApplied(active)
+      return true
+    }
   }
-  if (!allowDialogFallback) return
-  if (focusDialogFallback()) focusApplied = true
+  if (!allowDialogFallback) return false
+  return focusDialogFallback()
 }
 
 function cancelScheduledFocus() {
@@ -161,7 +243,21 @@ function handleOpenAutoFocus(event, ...args) {
 }
 
 function handleOpened(...args) {
-  applyInitialFocus(true)
+  applyDialogAccessibleName()
+  if (!hasRetainedFocus()) {
+    focusApplied = false
+    lastFocusedElement = null
+    if (!applyInitialFocus(true)) {
+      nextTick(() => {
+        if (disposed || !props.modelValue || hasRetainedFocus()) return
+        focusApplied = false
+        applyInitialFocus(true)
+      })
+    }
+  }
+  nextTick(() => {
+    if (!disposed && props.modelValue) applyDialogAccessibleName()
+  })
   emit('opened', ...args)
 }
 
@@ -178,6 +274,7 @@ function handleClosed(...args) {
   cancelScheduledFocus()
   unregister()
   pendingOpener = null
+  lastFocusedElement = null
   focusApplied = false
   emit('closed', ...args)
 }
@@ -192,6 +289,7 @@ watch(
     if (wasVisible) return
     cancelScheduledFocus()
     pendingOpener = currentActiveElement()
+    lastFocusedElement = null
     focusApplied = false
   },
   { immediate: true, flush: 'sync' },
@@ -208,6 +306,11 @@ onBeforeUnmount(() => {
 .accessible-dialog.el-dialog {
   box-sizing: border-box;
   max-width: calc(100vw - 24px);
+}
+
+.accessible-dialog.el-dialog:focus-visible {
+  outline: 2px solid var(--el-color-primary, #818cf8);
+  outline-offset: 2px;
 }
 
 @media (max-width: 520px) {

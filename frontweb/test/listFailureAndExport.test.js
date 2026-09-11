@@ -7,17 +7,12 @@ import { mediaLibraryAccessState } from '../src/utils/mediaLibrary.js'
 import { sanitizeExportFilename, validateExportBlob, resolveExportFailureMessage } from '../src/utils/projectExport.js'
 import { readFilmListLibrarySource } from './helpers/filmListLibrarySource.js'
 import { readFilmListSources } from './helpers/filmListSources.js'
+import { readMediaLibrarySources } from './helpers/mediaLibrarySources.js'
 
 const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8')
 const filmListSource = readFilmListSources().ui
 const filmListLibrarySource = readFilmListLibrarySource()
-const mediaLibrarySource = [
-  read('../src/views/MediaLibrary.vue'),
-  read('../src/components/mediaLibrary/MediaLibraryHeader.vue'),
-  read('../src/components/mediaLibrary/MediaLibraryFilterBar.vue'),
-  read('../src/components/mediaLibrary/MediaLibraryLocalGrid.vue'),
-  read('../src/components/mediaLibrary/MediaLibraryNetworkPanel.vue'),
-].join('\n')
+const mediaLibrarySource = readMediaLibrarySources()
 const dramaApiSource = read('../src/api/drama.js')
 
 test('project list uses a persistent failure state without replacing it with an empty state', () => {
@@ -99,7 +94,7 @@ test('material center preserves stale data and blocks upload and deletion on loa
   )
   assert.match(
     mediaLibrarySource,
-    /:type="mediaItems\.length === 0 && !loading \? 'default' : 'primary'"[\s\S]*:loading="uploading"[\s\S]*:disabled="mediaWriteLocked"/,
+    /:type="mediaItems\.length === 0 && !loading \? 'default' : 'primary'"[\s\S]*:loading="uploading"[\s\S]*:disabled="mediaWriteLocked \|\| uploading"/,
   )
   assert.match(mediaLibrarySource, /:aria-label="actionLabel\('删除', item\)"[\s\S]*:disabled="mediaWriteLocked"/)
   assert.match(mediaLibrarySource, /async function deleteItem\(item\) \{\s*if \(mediaWriteLocked\.value\) return/)

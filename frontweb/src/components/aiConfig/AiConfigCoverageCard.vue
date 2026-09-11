@@ -11,6 +11,8 @@
     ]"
     tabindex="-1"
     :aria-label="`${item.label}，${coverageStateLabel(item)}，${coverageTestLabel(item.test)}`"
+    @keydown.enter.prevent="activateIfSelf($event, item)"
+    @keydown.space.prevent="activateIfSelf($event, item)"
   >
     <button
       type="button"
@@ -87,7 +89,12 @@ defineProps({
   setCoverageCardRef: { type: Function, required: true },
 })
 
-defineEmits(['select', 'action'])
+const emit = defineEmits(['select', 'action'])
+
+function activateIfSelf(event, item) {
+  if (event.target !== event.currentTarget) return
+  emit('select', item)
+}
 
 function coverageActionTitle(action, disabled) {
   if (!disabled) return undefined

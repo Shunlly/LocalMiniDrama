@@ -7,6 +7,7 @@ import { remainingImportedFunctionSource } from './helpers/remainingSourceBetwee
 import { readFilmListLibrarySource } from './helpers/filmListLibrarySource.js'
 
 import { readDramaDetailResourceDialogSources } from './helpers/dramaDetailResourceDialogSources.js'
+import { readDramaCanvasPageSource } from './helpers/dramaCanvasPageSource.js'
 
 const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8')
 
@@ -33,12 +34,12 @@ const resourcePanelSource = [
 ].join('\n')
 const dramaDetailSource = read('../src/views/DramaDetail.vue')
 const dramaDetailDialogsSource = readDramaDetailResourceDialogSources(read)
-const dramaDetailUiSource = dramaDetailSource + '\n' + dramaDetailDialogsSource
-const dramaCanvasSource = [
-  read('../src/views/DramaCanvas.vue'),
-  read('../src/components/dramaCanvas/CanvasPageHeader.vue'),
-  read('../src/components/dramaCanvas/CanvasProductionSidebar.vue'),
+const dramaDetailUiSource = [
+  dramaDetailSource,
+  dramaDetailDialogsSource,
+  read('../src/components/dramaDetail/DramaDetailResourceLibrary.vue'),
 ].join('\n')
+const dramaCanvasSource = readDramaCanvasPageSource()
 
 test('shared image preview uses an accessible Element Plus dialog', () => {
   assert.match(dialogSource, /<AccessibleDialog/)
@@ -86,7 +87,7 @@ test('FreeCreate keeps drag-and-drop while all image actions remain keyboard ope
 })
 
 test('FilmCreate and DramaDetail use the shared focus-managed preview for every thumbnail family', () => {
-  for (const source of [filmCreateSource, dramaDetailSource]) {
+  for (const source of [filmCreateSource, dramaDetailUiSource]) {
     assert.match(source, /import ImagePreviewDialog from '@\/components\/ImagePreviewDialog\.vue'/)
     assert.match(source, /<ImagePreviewDialog/)
     assert.doesNotMatch(source, /image-preview-overlay/)
@@ -94,9 +95,9 @@ test('FilmCreate and DramaDetail use the shared focus-managed preview for every 
   }
 
   assert.equal((dramaDetailUiSource.match(/type="button"\s+class="library-item-cover"/g) || []).length, 4)
-  assert.equal((dramaDetailSource.match(/type="button"\s+class="drama-res-cover"/g) || []).length, 3)
+  assert.equal((dramaDetailUiSource.match(/type="button"\s+class="drama-res-cover"/g) || []).length, 3)
   assert.equal((dramaDetailUiSource.match(/class="library-item-cover library-item-cover--empty"/g) || []).length, 4)
-  assert.equal((dramaDetailSource.match(/class="drama-res-cover drama-res-cover--empty"/g) || []).length, 3)
+  assert.equal((dramaDetailUiSource.match(/class="drama-res-cover drama-res-cover--empty"/g) || []).length, 3)
   assert.equal((dramaDetailUiSource.match(/type="button" class="lib-img-thumb"/g) || []).length, 1)
   assert.equal((dramaDetailUiSource.match(/<DramaDetailResourceImageEditor\b/g) || []).length, 6)
   assert.equal((resourceDialogsSource.match(/type="button" class="library-item-cover"/g) || []).length, 6)

@@ -97,6 +97,7 @@
       <span>{{ sbVideoGenerationDisabledReason(sb) }}</span>
     </div>
     <div
+      v-if="gridRefState.visible"
       class="sb-video-grid-ref"
       :class="{ 'is-selected': gridRefState.hasSelected }"
       role="status"
@@ -131,6 +132,7 @@
 import { computed } from 'vue'
 import { InfoFilled, Loading, VideoPlay, WarningFilled } from '@element-plus/icons-vue'
 import ActionGate from '@/components/filmCreate/ActionGate.vue'
+import { describeSbVideoGridReference } from '@/components/filmCreate/filmCreateStoryboardVideoColumnCopy.js'
 
 defineOptions({ inheritAttrs: false })
 
@@ -159,76 +161,13 @@ const props = defineProps({
   getSbGridImages: { type: Function, default: undefined },
   getSbVideoReferenceGrid: { type: Function, default: undefined },
   onOpenVideoParams: { type: Function, default: undefined },
+  gridMode: { type: String, default: 'single' },
 })
-
-/** 根据可选取值器和分镜字段，描述宫格参考图的可见状态 */
-function describeSbVideoGridReference({
-  sb,
-  storyboardIndex = 0,
-  getSbGridImages,
-  getSbVideoReferenceGrid,
-  onOpenVideoParams,
-} = {}) {
-  const storyboardNumber = sb?.storyboard_number || storyboardIndex + 1
-  const storyboardId = sb?.id
-  function samePositiveGridId(left, right) {
-    if (left == null || right == null || left === '' || right === '') return false
-    const a = Number(left)
-    const b = Number(right)
-    if (Number.isFinite(a) && Number.isFinite(b) && a > 0 && b > 0) return a === b
-    return String(left) === String(right)
-  }
-  const gridImages = typeof getSbGridImages === 'function'
-    ? getSbGridImages(storyboardId)
-    : null
-  const availableImages = Array.isArray(gridImages) ? gridImages : []
-  const knowsGridList = typeof getSbGridImages === 'function'
-
-  let selected = null
-  if (typeof getSbVideoReferenceGrid === 'function') {
-    selected = getSbVideoReferenceGrid(sb) || null
-  } else {
-    const selectedId = Number(sb?.video_reference_image_id)
-    if (Number.isFinite(selectedId) && selectedId > 0) {
-      if (knowsGridList) {
-        selected = availableImages.find((image) => samePositiveGridId(image?.id, selectedId)) || null
-      } else {
-        selected = { id: selectedId }
-      }
-    }
-  }
-
-  const selectedId = Number(selected?.id)
-  const hasSelected = Number.isFinite(selectedId) && selectedId > 0
-  const statusText = hasSelected ? '已选宫格参考' : '未选宫格参考'
-  let hintText = ''
-  if (hasSelected) {
-    if (selected.frame_type === 'nine_grid') hintText = `九宫格整图 #${selected.id}`
-    else if (selected.frame_type === 'quad_grid') hintText = `四宫格整图 #${selected.id}`
-    else hintText = `宫格整图 #${selected.id}`
-  } else if (knowsGridList && availableImages.length === 0) {
-    hintText = '请先生成宫格图，再到「视频参数」中选择'
-  } else {
-    hintText = '请到「视频参数」中选择宫格参考图'
-  }
-
-  const canOpenParams = typeof onOpenVideoParams === 'function'
-  return {
-    hasSelected,
-    statusText,
-    hintText,
-    canOpenParams,
-    actionText: canOpenParams ? (hasSelected ? '更换' : '去选择') : '',
-    ariaLabel: `分镜${storyboardNumber}${statusText}`,
-    actionAriaLabel: hasSelected
-      ? `打开分镜${storyboardNumber}视频参数更换宫格参考图`
-      : `打开分镜${storyboardNumber}视频参数选择宫格参考图`,
-  }
-}
 
 const gridRefState = computed(() => describeSbVideoGridReference({
   sb: props.sb,
   storyboardIndex: props.i,
+  gridMode: props.gridMode,
   getSbGridImages: props.getSbGridImages,
   getSbVideoReferenceGrid: props.getSbVideoReferenceGrid,
   onOpenVideoParams: props.onOpenVideoParams,

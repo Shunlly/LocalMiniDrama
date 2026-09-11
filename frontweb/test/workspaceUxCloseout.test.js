@@ -2,6 +2,8 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { readFilmListSources } from './helpers/filmListSources.js'
+import { readBackupPageSource } from './helpers/backupPageSources.js'
+import { readMediaLibrarySources } from './helpers/mediaLibrarySources.js'
 
 import { isRecoverableNotFoundBackPath } from '../src/utils/notFoundNavigation.js'
 import { requireValidDramaId } from '../src/utils/routeValidation.js'
@@ -22,14 +24,19 @@ const scopedSources = [
   { name: 'MediaLibraryFilterBar.vue', source: read('../src/components/mediaLibrary/MediaLibraryFilterBar.vue') },
   { name: 'MediaLibraryLocalGrid.vue', source: read('../src/components/mediaLibrary/MediaLibraryLocalGrid.vue') },
   { name: 'MediaLibraryNetworkPanel.vue', source: read('../src/components/mediaLibrary/MediaLibraryNetworkPanel.vue') },
+  { name: 'MediaLibraryEmptyState.vue', source: read('../src/components/mediaLibrary/MediaLibraryEmptyState.vue') },
+  { name: 'MediaLibraryPreviewDialogs.vue', source: read('../src/components/mediaLibrary/MediaLibraryPreviewDialogs.vue') },
   { name: 'Backup.vue', source: read('../src/views/Backup.vue') },
+  { name: 'BackupHeader.vue', source: read('../src/components/backup/BackupHeader.vue') },
+  { name: 'BackupList.vue', source: read('../src/components/backup/BackupList.vue') },
+  { name: 'BackupRestoreDialog.vue', source: read('../src/components/backup/BackupRestoreDialog.vue') },
   { name: 'NotFound.vue', source: read('../src/views/NotFound.vue') },
 ]
 const routerSource = read('../src/router/index.js')
 const viewsSource = read('../src/router/views.js')
 const filmListSource = scopedSources.find((item) => item.name === 'FilmList.vue').source
-const mediaLibrarySource = scopedSources.filter((item) => item.name.startsWith('MediaLibrary')).map((item) => item.source).join('\n')
-const backupSource = scopedSources.find((item) => item.name === 'Backup.vue').source
+const mediaLibrarySource = readMediaLibrarySources()
+const backupSource = readBackupPageSource()
 
 function templateOnly(source) {
   const start = source.indexOf('<template')
@@ -115,6 +122,7 @@ test('顶栏已去掉微信入口，设置深链接接到备份页', () => {
   assert.match(filmListSource, /<el-icon><Setting \/><\/el-icon>AI 配置/)
   assert.doesNotMatch(filmListSource, /<el-icon><Setting \/><\/el-icon>AI配置/)
   assert.match(routerSource, /path: '\/settings'[\s\S]*redirect: '\/backup'/)
+  assert.match(routerSource, /path: '\/media'[\s\S]*redirect: '\/media-library'/)
   assert.match(viewsSource, /id: 'backup', view: 'backup', label: '数据备份'/)
   assert.equal(isAllowedView('backup'), true)
   assert.equal(resolveWorkspaceNavItem('backup').name, 'backup')
@@ -126,7 +134,9 @@ test('项目列表和素材中心的主导航走注册表，未知路径进入�
   assert.match(filmListSource, /function goFreeCreate\(\) \{\s*openWorkspaceNavItem\(router, 'free-create'\)\s*\}/)
   assert.match(filmListSource, /openWorkspaceNavItem\(router, backupNavItem\.id, \{ query: \{ returnTo \} \}/)
   assert.match(mediaLibrarySource, /openWorkspaceNavItem\(router, 'list', \{ query: \{ new: '1' \} \}/)
-  assert.match(mediaLibrarySource, /openWorkspaceNavItem\(router, 'list', \{ query: \{ intent: 'source-import' \} \}/)
+  assert.match(mediaLibrarySource, /createMediaLibrarySourceImport\(/)
+  assert.match(mediaLibrarySource, /openWorkspaceNavItem\(router, 'list', \{ query: \{ new: '1', intent: 'source-import' \} \}/)
+  assert.doesNotMatch(mediaLibrarySource, /function goSourceImport\(\) \{[\s\S]*openWorkspaceNavItem\(router, 'list', \{ query: \{ intent: 'source-import' \} \}/)
   assert.match(routerSource, /if \(to\.name === 'not-found-catchall'\) \{\s*return resolveCatchallNotFoundLocation\(to\.fullPath, router\.options\.history\.state\?\.current\)/)
   assert.deepEqual(
     requireValidDramaId({ params: { id: 'abc' }, fullPath: '/drama/abc' }),

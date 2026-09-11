@@ -3,11 +3,12 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
 import { compileScript, parse } from '@vue/compiler-sfc'
+import { readDramaCanvasPageSource } from './helpers/dramaCanvasPageSource.js'
 import { createRenderer, defineComponent, h, nextTick, ref } from 'vue'
 
 const componentUrl = new URL('../src/components/dramaCanvas/CanvasEmptyState.vue', import.meta.url)
 const componentSource = readFileSync(componentUrl, 'utf8')
-const canvasSource = readFileSync(new URL('../src/views/DramaCanvas.vue', import.meta.url), 'utf8')
+const canvasSource = readDramaCanvasPageSource()
 const { descriptor } = parse(componentSource, { filename: componentUrl.pathname })
 let compiledSource = compileScript(descriptor, {
   id: 'canvas-empty-state-contract',

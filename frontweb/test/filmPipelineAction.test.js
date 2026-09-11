@@ -1,11 +1,19 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { getPipelineCompactAction, getPipelineControlReasons } from '../src/utils/filmPipelineAction.js'
+import { getPipelineCompactAction, getPipelineCompactSecondaryAction, getPipelineControlReasons } from '../src/utils/filmPipelineAction.js'
 
 test('pipeline compact command follows readiness and execution state', () => {
   assert.deepEqual(
     getPipelineCompactAction({ readinessState: 'missing', serviceType: 'video' }),
+    {
+      key: 'draft-preview',
+      label: '先跑草稿预演',
+      event: 'start-text-framework',
+    },
+  )
+  assert.deepEqual(
+    getPipelineCompactSecondaryAction({ readinessState: 'missing', serviceType: 'video' }),
     {
       key: 'configure',
       label: '配置缺失服务',
@@ -59,4 +67,18 @@ test('暂停和停止按钮在停止中给出可见的禁用原因', () => {
   assert.equal(getPipelineControlReasons({ running: true, paused: false }).pause, '')
   assert.equal(getPipelineControlReasons({ running: true, paused: true }).resume, '')
   assert.match(getPipelineControlReasons({ running: true, stopRequired: true }).pause, /停止未完成/)
+})
+
+test('未配齐生产能力时主按钮是草稿预演，配置缺失服务降为次按钮', () => {
+  const missing = { readinessState: 'missing', serviceType: 'tts' }
+  assert.equal(getPipelineCompactAction(missing).label, '先跑草稿预演')
+  assert.equal(getPipelineCompactAction(missing).event, 'start-text-framework')
+  assert.equal(getPipelineCompactSecondaryAction(missing).label, '配置缺失服务')
+  assert.equal(getPipelineCompactSecondaryAction(missing).event, 'open-ai-config')
+  assert.equal(getPipelineCompactSecondaryAction(missing).payload, 'tts')
+  assert.equal(getPipelineCompactSecondaryAction({ readinessState: 'ready' }), null)
+  assert.equal(getPipelineCompactAction({
+    readinessState: 'missing',
+    draftReason: '当前集还没有剧本，请先编写或导入剧本',
+  }).label, '先跑草稿预演')
 })

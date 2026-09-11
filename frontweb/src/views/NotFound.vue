@@ -21,7 +21,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { ArrowLeft, HomeFilled } from '@element-plus/icons-vue'
 import { useRoute, useRouter } from 'vue-router'
 import { resolveNotFoundFromPath, resolveNotFoundNavigation } from '@/utils/notFoundNavigation.js'
@@ -34,17 +34,24 @@ const navigation = computed(() => resolveNotFoundNavigation(router.options.histo
 const canGoBack = computed(() => navigation.value.type === 'back')
 const fromPath = computed(() => resolveNotFoundFromPath(route.query.from) || (route.name === 'not-found-catchall' ? resolveNotFoundFromPath(route.fullPath) : ''))
 
+function goHome() {
+  router.replace({ name: 'list' })
+}
+
 function goBack() {
   if (canGoBack.value) router.back()
-  else router.replace('/')
+  else goHome()
 }
 
-function goHome() {
-  router.replace('/')
-}
-
-onMounted(() => {
+function focusTitle() {
   titleRef.value?.focus({ preventScroll: true })
+}
+
+onMounted(focusTitle)
+
+watch(() => route.fullPath, (fullPath, previousFullPath) => {
+  if (!previousFullPath || fullPath === previousFullPath) return
+  nextTick(focusTitle)
 })
 </script>
 

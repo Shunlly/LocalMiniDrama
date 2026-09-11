@@ -22,25 +22,25 @@
       <div class="entry-item">
         <span class="entry-label">上传到素材中心</span>
         <p class="entry-description">把不超过 100MB 的图片和视频放进全局素材，后续项目可以直接复用。</p>
-        <el-button text class="entry-action" :disabled="mediaWriteLocked || uploading" :title="mediaUploadDisableReason || undefined" @click="triggerUpload">立即上传</el-button>
+        <el-button text class="entry-action" :disabled="mediaWriteLocked || uploading" :title="mediaUploadDisableReason || undefined" aria-label="上传图片或视频到素材中心" @click="triggerUpload">立即上传</el-button>
       </div>
       <div class="entry-item">
         <span class="entry-label">网页 URL 导入</span>
-        <p class="entry-description">网页 URL 导入会在选择项目后完成，本页不直接粘贴 URL。</p>
+        <p class="entry-description">先在本页选择目标项目，再进入该项目完成网页 URL 导入。本页不直接粘贴 URL。</p>
         <el-button
           type="primary"
           plain
           class="entry-action"
           :disabled="mediaAccessState.navigationLocked"
           :title="mediaAccessState.navigationLocked ? mediaNavigationLockReason : undefined"
-          aria-label="选择项目后导入网页 URL"
+          aria-label="选择目标项目后导入网页 URL"
           @click="goSourceImport"
-        >进入项目选择后导入网页 URL</el-button>
+        >选择目标项目后导入网页 URL</el-button>
       </div>
       <div class="entry-item">
         <span class="entry-label">角色 / 场景 / 道具入库</span>
         <p class="entry-description">在项目里点“加入素材库”后，会同步到首页里的分类素材入口。</p>
-        <el-button text class="entry-action" @click="goHome">返回项目首页</el-button>
+        <el-button text class="entry-action" aria-label="返回项目首页" @click="goHome">返回项目首页</el-button>
       </div>
     </section>
 
@@ -69,114 +69,41 @@
 
     <!-- 媒体网格 -->
     <div v-loading="loading" class="media-grid" :aria-busy="loading">
-      <article
+      <MediaLibraryCard
         v-for="item in mediaItems"
         :key="item.id"
-        class="media-card"
-        :class="{
-          selected: selectedIds.has(item.id),
-          'actions-visible': isActionLayerVisible(item.id),
-        }"
-        :aria-labelledby="`media-name-${item.id}`"
-        @mouseenter="showPointerActions(item.id)"
-        @mouseleave="hidePointerActions(item.id)"
-        @focusin="showKeyboardActions(item.id)"
-        @focusout="hideKeyboardActions(item.id, $event)"
-      >
-        <div class="media-thumb">
-          <video
-            v-if="item.type === 'video'"
-            :src="itemUrl(item)"
-            :aria-label="thumbnailAlt(item)"
-            class="thumb-video"
-            muted
-          />
-          <img v-else :src="itemUrl(item)" :alt="thumbnailAlt(item)" class="thumb-img" />
-          <label class="selection-control" :title="mediaWriteLocked ? mediaWriteLockReason : selectionLabel(item)">
-            <input
-              type="checkbox"
-              class="selection-input"
-              :checked="selectedIds.has(item.id)"
-              :disabled="mediaWriteLocked"
-              :title="mediaWriteLocked ? mediaWriteLockReason : selectionLabel(item)"
-              :aria-label="selectionLabel(item)"
-              @change="setItemSelected(item, $event.target.checked)"
-            />
-            <span class="selection-indicator" aria-hidden="true">
-              <el-icon class="selection-check"><CircleCheck /></el-icon>
-            </span>
-          </label>
-          <div class="media-overlay" :aria-hidden="!isActionLayerVisible(item.id)">
-            <div class="overlay-actions">
-              <el-button
-                size="small"
-                plain
-                class="preview-btn"
-                :title="actionLabel('预览', item)"
-                :aria-label="actionLabel('预览', item)"
-                :tabindex="isActionLayerVisible(item.id) ? 0 : -1"
-                @click="openPreview(item)"
-              >
-                <el-icon><ZoomIn /></el-icon>
-              </el-button>
-              <el-button
-                size="small"
-                type="danger"
-                plain
-                :title="mediaWriteLocked ? mediaWriteLockReason : actionLabel('删除', item)"
-                :aria-label="actionLabel('删除', item)"
-                :disabled="mediaWriteLocked"
-                :tabindex="isActionLayerVisible(item.id) ? 0 : -1"
-                @click="deleteItem(item)"
-              >
-                <el-icon><Delete /></el-icon>
-              </el-button>
-            </div>
-          </div>
-        </div>
-        <div class="media-info">
-          <span :id="`media-name-${item.id}`" class="media-name" :title="item.name">{{ item.name || '未命名' }}</span>
-          <span class="media-meta">{{ formatSize(mediaItemFileSize(item)) }}</span>
-          <span class="media-origin">{{ mediaOriginLabel(item) }}</span>
-        </div>
-      </article>
-
-      <div v-if="!loading && hasSuccessfulMediaLoad && !loadError && mediaItems.length === 0" class="empty-media">
-        <el-icon class="empty-icon"><Files /></el-icon>
-        <h2 class="empty-title">{{ hasActiveFilters ? '没有匹配的素材' : '素材中心还是空的' }}</h2>
-        <p class="empty-description">{{ hasActiveFilters ? '调整关键词或素材类型后再试。' : '上传图片或视频，后续项目可以直接复用。' }}</p>
-        <div class="empty-actions">
-          <template v-if="hasActiveFilters">
-            <el-button @click="clearFilters">清除筛选</el-button>
-            <el-button type="primary" :disabled="mediaWriteLocked || uploading" :title="mediaUploadDisableReason || undefined" aria-label="上传图片或视频到素材中心" @click="triggerUpload">
-              <el-icon><Upload /></el-icon>上传素材
-            </el-button>
-          </template>
-          <template v-else>
-            <el-button
-              type="primary"
-              :disabled="mediaWriteLocked || uploading"
-              :title="mediaUploadDisableReason || undefined"
-              aria-label="上传图片或视频到素材中心"
-              @click="triggerUpload"
-            >
-              <el-icon><Upload /></el-icon>上传素材
-            </el-button>
-          </template>
-        </div>
-        <template v-if="!hasActiveFilters">
-          <p class="empty-note">需要把角色、场景或道具沉淀到分类素材时，请先在项目内点“加入素材库”。</p>
-          <el-button
-            type="primary"
-            plain
-            class="empty-secondary-action"
-            :disabled="mediaWriteLocked || mediaAccessState.navigationLocked"
-            :title="mediaSourceImportDisableReason || undefined"
-            aria-label="选择项目后导入网页 URL"
-            @click="goSourceImport"
-          >进入项目选择后导入网页 URL</el-button>
-        </template>
-      </div>
+        :item="item"
+        :selected-ids="selectedIds"
+        :media-write-locked="mediaWriteLocked"
+        :media-write-lock-reason="mediaWriteLockReason"
+        :item-url="itemUrl"
+        :thumbnail-alt="thumbnailAlt"
+        :format-size="formatSize"
+        :media-item-file-size="mediaItemFileSize"
+        :media-origin-label="mediaOriginLabel"
+        :is-action-layer-visible="isActionLayerVisible"
+        :show-pointer-actions="showPointerActions"
+        :hide-pointer-actions="hidePointerActions"
+        :show-keyboard-actions="showKeyboardActions"
+        :hide-keyboard-actions="hideKeyboardActions"
+        :selection-label="selectionLabel"
+        :set-item-selected="setItemSelected"
+        :action-label="actionLabel"
+        :open-preview="openPreview"
+        :delete-item="deleteItem"
+      />
+      <MediaLibraryEmptyState
+        v-if="!loading && hasSuccessfulMediaLoad && !loadError && mediaItems.length === 0"
+        :has-active-filters="hasActiveFilters"
+        :media-write-locked="mediaWriteLocked"
+        :uploading="uploading"
+        :media-upload-disable-reason="mediaUploadDisableReason"
+        :media-access-state="mediaAccessState"
+        :media-source-import-disable-reason="mediaSourceImportDisableReason"
+        :clear-filters="clearFilters"
+        :trigger-upload="triggerUpload"
+        :go-source-import="goSourceImport"
+      />
     </div>
 
     <!-- 分页 -->
@@ -201,10 +128,10 @@
 
 <script setup>
 
-// 仅展示本地素材网格与空态；写操作和列表状态仍留在素材中心页。筛选栏通过默认插槽插入。
-import {
-  CircleCheck, Delete, Files, Loading, Refresh, Upload, ZoomIn,
-} from '@element-plus/icons-vue'
+// 仅展示本地素材网格；卡片和空态拆到子组件，写操作仍留在素材中心页。筛选栏通过默认插槽插入。
+import { Loading, Refresh } from '@element-plus/icons-vue'
+import MediaLibraryCard from './MediaLibraryCard.vue'
+import MediaLibraryEmptyState from './MediaLibraryEmptyState.vue'
 
 const page = defineModel('page', { type: Number, required: true })
 
@@ -387,189 +314,6 @@ defineProps({
   grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
   gap: 12px;
   min-height: 200px;
-}
-
-.media-card {
-  background: var(--bg-card);
-  border-radius: 8px;
-  overflow: hidden;
-  border: 1px solid var(--border-color);
-  cursor: default;
-  transition: all .2s;
-  box-shadow: var(--shadow);
-}
-
-.media-card:hover {
-  box-shadow: 0 4px 12px rgba(0,0,0,.1);
-}
-
-.media-card.selected {
-  border-color: var(--el-color-primary);
-  box-shadow: 0 0 0 1px var(--el-color-primary), var(--shadow);
-}
-
-.media-thumb {
-  aspect-ratio: 1;
-  background: var(--bg-inner);
-  overflow: hidden;
-  position: relative;
-}
-
-.thumb-img,
-.thumb-video {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.media-overlay {
-  position: absolute;
-  inset: 0;
-  background: rgba(0,0,0,.35);
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity .2s;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.media-card.actions-visible .media-overlay {
-  opacity: 1;
-  pointer-events: auto;
-}
-
-.selection-control {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  z-index: 2;
-  display: grid;
-  width: 28px;
-  height: 28px;
-  place-items: center;
-  cursor: pointer;
-}
-
-.selection-input {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  opacity: 0;
-}
-
-.selection-indicator {
-  display: grid;
-  width: 22px;
-  height: 22px;
-  place-items: center;
-  color: transparent;
-  background: rgba(255, 255, 255, .92);
-  border: 2px solid rgba(31, 41, 55, .55);
-  border-radius: 50%;
-  transition: border-color .2s, box-shadow .2s, color .2s;
-}
-
-.selection-check {
-  font-size: 20px;
-}
-
-.selection-input:checked + .selection-indicator {
-  color: var(--el-color-primary);
-  border-color: #fff;
-}
-
-.selection-input:focus-visible + .selection-indicator {
-  outline: 3px solid var(--el-color-primary);
-  outline-offset: 2px;
-}
-
-.selection-input:disabled + .selection-indicator {
-  cursor: not-allowed;
-  opacity: 0.5;
-}
-
-.overlay-actions {
-  display: flex;
-  gap: 6px;
-}
-
-.media-info {
-  padding: 8px;
-}
-
-.media-name {
-  display: block;
-  font-size: 12px;
-  color: var(--text-primary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.media-meta {
-  font-size: 11px;
-  color: var(--text-subtle);
-}
-
-.media-origin {
-  display: block;
-  margin-top: 2px;
-  font-size: 11px;
-  color: var(--text-muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.empty-media {
-  grid-column: 1 / -1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  min-height: 340px;
-  color: var(--text-subtle);
-  gap: 10px;
-}
-
-.empty-icon {
-  font-size: 48px;
-}
-
-.empty-title {
-  margin: 4px 0 0;
-  color: var(--text-bright);
-  font-size: 18px;
-}
-
-.empty-description {
-  margin: 0 0 8px;
-  color: var(--text-subtle);
-  font-size: 14px;
-}
-
-.empty-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-}
-
-.empty-note {
-  max-width: 560px;
-  margin: 0;
-  font-size: 13px;
-  line-height: 1.6;
-  color: var(--text-subtle);
-  text-align: center;
-}
-
-.empty-secondary-action {
-  min-height: 28px;
-  margin-top: -2px;
-  padding: 0 4px;
 }
 
 .pagination {

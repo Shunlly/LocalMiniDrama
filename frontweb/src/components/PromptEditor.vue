@@ -1,106 +1,59 @@
 <template>
   <div class="prompt-editor-page">
-    <div v-if="loading" v-loading="true" class="loading-wrap" />
+    <div v-if="loading && !hasSuccessfulLoad" v-loading="true" class="loading-wrap" />
     <template v-else>
-      <div class="editor-layout">
-        <!-- 左侧菜单 -->
-        <div class="left-sidebar">
-          <nav class="sidebar-menu" aria-label="提示词列表">
-            <button
-              v-for="p in prompts"
-              :key="p.key"
-              type="button"
-              tabindex="0"
-              :class="['menu-item', { active: currentKey === p.key }]"
-              :aria-current="currentKey === p.key ? 'true' : undefined"
-              @click="selectPrompt(p.key)"
-              @keydown.enter.prevent="selectPrompt(p.key)"
-              @keydown.space.prevent="selectPrompt(p.key)"
-            >
-              <div class="menu-item-content">
-                <span class="menu-label">{{ p.label }}</span>
-                <el-tag
-                  v-if="p.is_customized"
-                  type="warning"
-                  size="small"
-                  class="menu-tag"
-                >已自定义</el-tag>
-                <el-tag v-else type="info" size="small" class="menu-tag">默认</el-tag>
-              </div>
-              <div v-if="isDirty[p.key]" class="dirty-indicator" aria-hidden="true" />
-            </button>
-          </nav>
-        </div>
+      <el-alert
+        v-if="loadError"
+        class="load-error-alert"
+        type="error"
+        show-icon
+        :closable="false"
+        :title="loadError"
+      >
+        <el-button
+          size="small"
+          type="primary"
+          plain
+          :loading="loading"
+          :disabled="loading"
+          :title="loading ? '正在重新加载提示词，请稍候' : undefined"
+          aria-label="重新加载提示词"
+          @click="load"
+        >
+          重新加载
+        </el-button>
+      </el-alert>
 
-        <!-- 右侧编辑区 -->
+      <el-empty
+        v-if="hasSuccessfulLoad && !loadError && !prompts.length"
+        description="暂无系统提示词"
+      />
+
+      <div v-else-if="hasSuccessfulLoad" class="editor-layout">
+        <PromptEditorSidebar
+          :prompts="prompts"
+          :current-key="currentKey"
+          :is-dirty="isDirty"
+          :select-prompt="selectPrompt"
+        />
         <div class="right-content">
           <p class="page-desc">
             可自定义 AI 生成各阶段使用的系统提示词。蓝色锁定区为 JSON
             格式要求，不可修改以确保输出格式正确。
           </p>
-
-          <div v-if="currentPrompt" class="prompt-card">
-            <div class="prompt-card-header">
-              <div class="prompt-card-meta">
-                <span class="prompt-label">{{ currentPrompt.label }}</span>
-                <el-tag
-                  v-if="currentPrompt.is_customized"
-                  type="warning"
-                  size="small"
-                  class="custom-tag"
-                >已自定义</el-tag>
-                <el-tag v-else type="info" size="small" class="custom-tag">使用默认</el-tag>
-              </div>
-              <p class="prompt-desc">{{ currentPrompt.description }}</p>
-            </div>
-
-            <div class="prompt-edit-section">
-              <div class="section-label">
-                <el-icon class="section-icon"><Edit /></el-icon>
-                <span>指令内容（可编辑）</span>
-              </div>
-              <el-input
-                v-model="editState[currentPrompt.key]"
-                type="textarea"
-                :rows="16"
-                :placeholder="currentPrompt.default_body"
-                class="prompt-textarea"
-                @input="markDirty(currentPrompt.key)"
-              />
-            </div>
-
-            <div v-if="currentPrompt.locked_suffix" class="prompt-locked-section">
-              <div class="section-label section-label--locked">
-                <el-icon class="section-icon"><Lock /></el-icon>
-                <span>JSON 格式要求（锁定，不可修改）</span>
-              </div>
-              <div class="locked-content">{{ currentPrompt.locked_suffix }}</div>
-            </div>
-
-            <div class="prompt-actions">
-              <el-button
-                type="primary"
-                size="small"
-                :loading="savingKey === currentPrompt.key"
-                :disabled="Boolean(saveDisabledReason)"
-                :title="saveDisabledReason || undefined"
-                :aria-label="saveDisabledReason ? `保存不可用：${saveDisabledReason}` : undefined"
-                @click="save(currentPrompt)"
-              >
-                保存
-              </el-button>
-              <el-button
-                size="small"
-                :loading="resettingKey === currentPrompt.key"
-                :disabled="Boolean(resetDisabledReason)"
-                :title="resetDisabledReason || undefined"
-                :aria-label="resetDisabledReason ? `恢复默认不可用：${resetDisabledReason}` : undefined"
-                @click="reset(currentPrompt)"
-              >
-                恢复默认
-              </el-button>
-            </div>
-          </div>
+          <PromptEditorPane
+            v-if="currentPrompt"
+            :prompt="currentPrompt"
+            :body="editState[currentPrompt.key]"
+            :saving="savingKey === currentPrompt.key"
+            :resetting="resettingKey === currentPrompt.key"
+            :save-disabled-reason="saveDisabledReason"
+            :reset-disabled-reason="resetDisabledReason"
+            @update:body="onUpdateBody"
+            @save="save(currentPrompt)"
+            @reset="reset(currentPrompt)"
+          />
+          <el-empty v-else description="请选择一条提示词" />
         </div>
       </div>
     </template>
@@ -110,10 +63,13 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import { ElMessage, ElMessageBox } from '@/utils/elementPlusFeedback.js'
-import { Edit, Lock } from '@element-plus/icons-vue'
 import { promptsAPI } from '@/api/prompts'
+import PromptEditorSidebar from './promptEditor/PromptEditorSidebar.vue'
+import PromptEditorPane from './promptEditor/PromptEditorPane.vue'
 
 const loading = ref(false)
+const loadError = ref('')
+const hasSuccessfulLoad = ref(false)
 const prompts = ref([])
 const editState = ref({})
 const isDirty = ref({})
@@ -155,11 +111,13 @@ async function load() {
     for (const p of prompts.value) {
       editState.value[p.key] = p.current_body || p.default_body
     }
-    // 默认选中第一个
-    if (prompts.value.length > 0) {
+    if (prompts.value.length > 0 && !prompts.value.some((p) => p.key === currentKey.value)) {
       currentKey.value = prompts.value[0].key
     }
+    loadError.value = ''
+    hasSuccessfulLoad.value = true
   } catch (_) {
+    loadError.value = '加载提示词失败'
     ElMessage.error('加载提示词失败')
   } finally {
     loading.value = false
@@ -175,6 +133,13 @@ function markDirty(key) {
   if (!p) return
   const current = p.current_body || p.default_body
   isDirty.value[key] = editState.value[key] !== current
+}
+
+function onUpdateBody(value) {
+  const key = currentKey.value
+  if (!key) return
+  editState.value[key] = value
+  markDirty(key)
 }
 
 function hasUnsavedChanges() {
@@ -235,110 +200,16 @@ onMounted(() => load())
 .loading-wrap {
   min-height: 200px;
 }
-
-/* 左右布局 */
 .editor-layout {
   display: flex;
   height: 100%;
   min-height: calc(100vh - 120px);
 }
-
-/* 左侧菜单 */
-.left-sidebar {
-  width: 220px;
-  flex-shrink: 0;
-  background: var(--bg-card, #fff);
-  border-right: 1px solid var(--border-color, #e4e4e7);
-  display: flex;
-  flex-direction: column;
-}
-
-.sidebar-header {
-  padding: 16px 20px;
-  border-bottom: 1px solid var(--border-color, #e4e4e7);
-}
-
-.sidebar-title {
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--text-bright, #18181b);
-}
-
-.sidebar-menu {
-  flex: 1;
-  overflow-y: auto;
-  padding: 8px;
-}
-
-.menu-item {
-  display: block;
-  width: 100%;
-  padding: 12px 16px;
-  border: 0;
-  border-radius: 8px;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-  transition: all 0.2s;
-  margin-bottom: 4px;
-  position: relative;
-}
-.menu-item:focus-visible {
-  outline: 2px solid var(--el-color-primary, #7c3aed);
-  outline-offset: 2px;
-}
-
-.menu-item:hover {
-  background: var(--bg-inner, #f8f8f8);
-}
-
-.menu-item.active {
-  background: var(--el-color-primary-light-9, #f3e8ff);
-}
-
-.menu-item.active .menu-label {
-  color: var(--el-color-primary, #7c3aed);
-  font-weight: 600;
-}
-
-.menu-item-content {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.menu-label {
-  font-size: 13px;
-  color: var(--text-bright, #18181b);
-  flex: 1;
-}
-
-.menu-tag {
-  font-size: 10px;
-  transform: scale(0.9);
-}
-
-.dirty-indicator {
-  position: absolute;
-  right: 8px;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 6px;
-  height: 6px;
-  background: var(--el-color-warning, #f59e0b);
-  border-radius: 50%;
-}
-
-/* 右侧内容区 */
 .right-content {
   flex: 1;
   padding: 20px;
   overflow-y: auto;
 }
-
 .page-desc {
   margin: 0 0 20px;
   font-size: 13px;
@@ -349,91 +220,7 @@ onMounted(() => load())
   border-radius: 8px;
   border-left: 3px solid var(--el-color-primary, #7c3aed);
 }
-
-.prompt-card {
-  background: var(--bg-card, #fff);
-  border: 1px solid var(--border-color, #e4e4e7);
-  border-radius: 12px;
-  padding: 20px;
-}
-
-.prompt-card-header {
+.load-error-alert {
   margin-bottom: 16px;
-}
-
-.prompt-card-meta {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 6px;
-}
-
-.prompt-label {
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--text-bright, #18181b);
-}
-
-.custom-tag {
-  font-size: 11px;
-}
-
-.prompt-desc {
-  margin: 0;
-  font-size: 12px;
-  color: var(--text-muted, #71717a);
-}
-
-.section-label {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 8px;
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--text-muted, #71717a);
-}
-
-.section-label--locked {
-  color: #2563eb;
-}
-
-.section-icon {
-  font-size: 13px;
-}
-
-.prompt-edit-section {
-  margin-bottom: 16px;
-}
-
-.prompt-textarea :deep(textarea) {
-  font-family: 'Consolas', 'Monaco', monospace;
-  font-size: 12.5px;
-  line-height: 1.6;
-}
-
-.prompt-locked-section {
-  margin-bottom: 16px;
-}
-
-.locked-content {
-  background: #eff6ff;
-  border: 1px solid #bfdbfe;
-  border-radius: 8px;
-  padding: 10px 14px;
-  font-size: 12px;
-  font-family: 'Consolas', 'Monaco', monospace;
-  color: #1e40af;
-  white-space: pre-wrap;
-  line-height: 1.6;
-  user-select: none;
-}
-
-.prompt-actions {
-  display: flex;
-  gap: 8px;
-  justify-content: flex-end;
-  padding-top: 16px;
-  border-top: 1px solid var(--border-color, #e4e4e7);
 }
 </style>

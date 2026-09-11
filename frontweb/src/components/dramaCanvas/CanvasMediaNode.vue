@@ -8,7 +8,7 @@
           highlighted: data.highlighted,
           dimmed: data.dimmed,
           focused: showPanel,
-          processing: isNodeBusy,
+          processing: isNodeBusy || isPreviewLoading,
           unknown: showMediaQueryWarning,
           pending: Boolean(pendingFrameCaption),
         },
@@ -17,12 +17,14 @@
       tabindex="0"
       :aria-label="accessibleLabel"
       :aria-expanded="showPanel"
+      :aria-busy="isNodeBusy || isPreviewLoading"
+      :title="accessibleLabel"
       @keydown.enter.stop.prevent="openPanel"
       @keydown.space.stop.prevent="openPanel"
     >
       <Handle type="target" :position="Position.Left" />
       <Handle v-if="data.kind !== 'video' && data.kind !== 'audio'" type="source" :position="Position.Right" />
-      <CanvasNodeStatusOverlay :node-id="id" />
+      <CanvasNodeStatusOverlay :node-id="id" :fallback-message="busyFallback" />
       <div class="tag">{{ kindLabel }}</div>
       <template v-if="data.kind === 'text'">
         <p class="text-body">{{ data.summary || '暂无脚本' }}</p>
@@ -31,7 +33,15 @@
         <p class="text-body universal-body">{{ data.summary || '暂无全能分镜词' }}</p>
       </template>
       <template v-else-if="data.kind === 'image'">
-        <img v-if="imageUrl" :src="imageUrl" :alt="`${kindLabel}预览`" class="media-img" />
+        <img
+          v-if="imageUrl"
+          :src="imageUrl"
+          :alt="`${kindLabel}预览`"
+          class="media-img"
+          :class="{ 'is-loading-preview': isPreviewLoading }"
+          @load="onPreviewReady"
+          @error="onPreviewError"
+        />
         <div v-else class="empty" :class="{ 'pending-frame': Boolean(pendingFrameCaption) }">{{ pendingFrameCaption || '无分镜图' }}</div>
       </template>
       <template v-else-if="data.kind === 'video'">
@@ -78,10 +88,20 @@ const props = defineProps({
 const ctx = useCanvasContext()
 const showPanel = computed(() => ctx?.focusedNodeId?.value === props.id)
 const videoState = ref('empty')
+const previewState = ref('idle')
 
 const isNodeBusy = computed(() => {
   const map = ctx?.nodeStatus?.map
   return map ? !!map[props.id] : false
+})
+
+const isPreviewLoading = computed(() => previewState.value === 'loading')
+
+const busyFallback = computed(() => {
+  if (isNodeBusy.value) return ''
+  if (isPreviewLoading.value) return '正在加载预览'
+  if (props.data.storyboard?.status === 'processing') return '生成中'
+  return ''
 })
 
 const mediaQueryStatus = computed(() => ctx?.getStoryboardMediaQueryStatus?.(props.data.storyboard?.id) || {})
@@ -112,9 +132,18 @@ const accessibleLabel = computed(() => {
     ? `，${videoState.value === 'ready' ? '可播放' : videoState.value === 'invalid' ? '不可播放' : '校验中'}`
     : ''
   const unknownStatus = showMediaQueryWarning.value ? '，媒体状态未知，可重试查询' : ''
+  const loadingStatus = isPreviewLoading.value ? '，加载中' : (isNodeBusy.value ? '，生成中' : '')
   const title = pendingFrameCaption.value || kindLabel.value
-  return `${title}${suffix}${videoStatus}${unknownStatus}，按 Enter 或空格展开`
+  return `${title}${suffix}${videoStatus}${unknownStatus}${loadingStatus}，按 Enter 或空格展开`
 })
+
+function onPreviewReady() {
+  previewState.value = 'ready'
+}
+
+function onPreviewError() {
+  previewState.value = 'error'
+}
 
 function reportVideoState(state) {
   videoState.value = state
@@ -142,6 +171,7 @@ watch(
       videoState.value = 'empty'
       ctx?.clearMediaValidity?.(props.id)
     }
+    previewState.value = kind === 'image' && String(url || '').trim() ? 'loading' : 'idle'
   },
   { immediate: true },
 )
@@ -203,6 +233,9 @@ watch(
   object-fit: cover;
   border-radius: 6px;
   background: var(--canvas-media-well, #09090b);
+}
+.media-img.is-loading-preview {
+  opacity: 0.35;
 }
 
 .media-vid {

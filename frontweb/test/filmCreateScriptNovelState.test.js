@@ -19,6 +19,8 @@ assert.notEqual(DRAMA_ID, EPISODE_ID)
 assert.equal(OTHER_DRAMA_ID, EPISODE_ID)
 
 const filmCreateSource = readFileSync(new URL('../src/views/FilmCreate.vue', import.meta.url), 'utf8')
+const workspaceBindingsSource = readFileSync(new URL('../src/components/filmCreate/filmCreateWorkspaceBindings.js', import.meta.url), 'utf8')
+const scriptActionsSource = readFileSync(new URL('../src/composables/filmCreate/useFilmCreateScriptActions.js', import.meta.url), 'utf8')
 
 function createState(overrides = {}) {
   const store = reactive({
@@ -174,10 +176,12 @@ test('制作页把剧本状态交给 composable，并继续传给既有工作台
   assert.doesNotMatch(filmCreateSource, /const storyInput = ref\(''\)/)
   assert.doesNotMatch(filmCreateSource, /const selectedEpisodeId = ref\(null\)/)
   assert.doesNotMatch(filmCreateSource, /const novelText = ref\(''\)/)
-  assert.match(filmCreateSource, /v-model:story-input="storyInput"/)
+  assert.match(filmCreateSource, /createFilmCreateCloseoutBindings\(\{[\s\S]*storyInput/)
+  assert.doesNotMatch(filmCreateSource, /v-model:story-input="storyInput"/)
+  assert.match(workspaceBindingsSource, /scriptWorkbench: \{[\s\S]*storyInput/)
   assert.match(
     filmCreateSource,
-    /useFilmCreateScriptWorkspace\(\{[\s\S]*scriptTitle,[\s\S]*selectedEpisodeId,[\s\S]*novelText,[\s\S]*showNovelImport/,
+    /useFilmCreateScriptActions\(\{[\s\S]*scriptTitle,[\s\S]*selectedEpisodeId,[\s\S]*novelText,[\s\S]*showNovelImport/,
   )
   assert.match(
     filmCreateSource,
@@ -185,6 +189,8 @@ test('制作页把剧本状态交给 composable，并继续传给既有工作台
   )
   assert.match(
     filmCreateSource,
-    /useFilmCreateScriptPersistence\(\{[\s\S]*scriptTitle,[\s\S]*storyInput,[\s\S]*storyEpisodeCount/,
+    /useFilmCreateScriptActions\(\{[\s\S]*scriptTitle,[\s\S]*storyInput,[\s\S]*storyEpisodeCount/,
   )
+  assert.match(scriptActionsSource, /useFilmCreateScriptWorkspace/)
+  assert.match(scriptActionsSource, /useFilmCreateScriptPersistence/)
 })

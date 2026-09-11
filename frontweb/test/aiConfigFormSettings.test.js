@@ -10,6 +10,7 @@ import {
 } from '../src/utils/aiConfigFormSettings.js'
 
 const vueSource = readFileSync(new URL('../src/components/AIConfigContent.vue', import.meta.url), 'utf8')
+const formActionsSource = readFileSync(new URL('../src/composables/useAiConfigFormActions.js', import.meta.url), 'utf8')
 
 test('settings 和 Comfy 工作流解析失败给出中文错误，不抛英文 JSON 堆栈', () => {
   assert.deepEqual(parseSettings(''), {})
@@ -40,7 +41,8 @@ test('DeepSeek 官方配置按模型和 settings 解析思考开关', () => {
 })
 
 test('页面提交仍调用工作流解析，loadList/openTest 留在页面', () => {
-  assert.match(vueSource, /buildAiConfigSubmitPayload\(form\.value/)
+  assert.match(formActionsSource, /buildAiConfigSubmitPayload\(form\.value/)
+  assert.match(vueSource, /useAiConfigFormActions\(/)
   assert.match(vueSource, /async function loadList\(\)/)
   assert.match(vueSource, /async function openTest\(row\)/)
   assert.doesNotMatch(vueSource, /function parseComfyWorkflowJson\(value\)/)

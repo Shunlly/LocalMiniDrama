@@ -63,7 +63,8 @@ test('character generation rejects an episode owned by another drama before crea
     assert.equal(res.statusCode, 400);
     assert.equal(res.body.success, false);
     assert.equal(res.body.error.code, 'BAD_REQUEST');
-    assert.match(res.body.error.message, /episode_id.*drama_id/i);
+    assert.equal(res.body.error.message, '剧集不属于当前项目');
+    assert.doesNotMatch(res.body.error.message, /episode_id|drama_id/);
     assert.equal(db.prepare('SELECT COUNT(*) AS count FROM async_tasks').get().count, 0);
   } finally {
     db.close();

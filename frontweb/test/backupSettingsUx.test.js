@@ -21,8 +21,10 @@ import {
 } from '../src/utils/operationLog.js'
 import { createLocationSanitizer } from '../src/router/navigation.js'
 
+import { readBackupPageSource, readBackupSettingsSource } from './helpers/backupPageSources.js'
+
 const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8')
-const pageSource = read('../src/views/Backup.vue')
+const pageSource = readBackupPageSource()
 const routerSource = read('../src/router/index.js')
 const aiConfigSource = read('../src/views/AiConfig.vue')
 const viewsSource = read('../src/router/views.js')
@@ -30,9 +32,17 @@ const navigationSource = read('../src/router/navigation.js')
 const routeRestoreSource = read('../src/router/routeRestore.js')
 
 function templateOnly(source) {
-  const start = source.indexOf('<template')
-  const end = source.indexOf('<script', start)
-  return source.slice(start, end)
+  const blocks = []
+  let cursor = 0
+  while (true) {
+    const start = source.indexOf('<template', cursor)
+    if (start < 0) break
+    const end = source.indexOf('</template>', start)
+    if (end < 0) break
+    blocks.push(source.slice(start, end + '</template>'.length))
+    cursor = end + '</template>'.length
+  }
+  return blocks.join('\n')
 }
 
 function fileStub(name, size = 12) {
@@ -183,6 +193,7 @@ test('备份文件选择失败给出中文原因，取消选择不算失败', ()
   assert.match(copy.body, /ok-backup\.zip/)
   assert.match(copy.body, /不可撤销/)
   assert.equal(copy.confirmButtonText, '确认恢复')
+  assert.equal(copy.cancelButtonText, '取消')
 })
 
 test('returnTo 只接受首页和 AI 配置', () => {
@@ -384,7 +395,7 @@ test('确认恢复若返回待重启，不会假装当前进程已经覆盖数�
 })
 
 test('备份页在创建或恢复时注册离开保护', () => {
-  const source = read('../src/views/Backup.vue')
+  const source = pageSource
   assert.match(viewsSource, /backup:\s*\{[\s\S]*?name:\s*'backup'[\s\S]*?leaveProtection:\s*true/)
   assert.match(source, /inject\('appRouteLeaveProtection'/)
   assert.match(source, /leaveProtection\?\.register\?\.\('backup'/)
@@ -399,7 +410,7 @@ test('备份操作失败可重试或关闭，空态也能创建或选择备份',
   assert.match(template, /aria-label="重试恢复备份"[\s\S]*>\s*重试恢复/)
   assert.match(template, /aria-label="重试创建备份"[\s\S]*>\s*重试创建备份/)
   assert.match(template, /aria-label="关闭备份操作错误"[\s\S]*>关闭/)
-  assert.match(template, /v-if="accessState.showEmpty"[\s\S]*空态创建备份[\s\S]*>创建备份[\s\S]*空态选择备份文件/)
+  assert.match(template, /v-if="accessState.showEmpty"[\s\S]*空态创建备份[\s\S]*>创建备份[\s\S]*空态选择已有备份/)
   assert.match(template, /aria-label="确认恢复备份"/)
   assert.match(template, /aria-label="创建全量备份"/)
   assert.match(template, /aria-label="选择备份文件"/)
@@ -544,11 +555,25 @@ test('空的 200 响应不能当成维护未就绪去锁恢复', () => {
     }).restoreFromListLocked,
     false,
   )
-  const source = read('../src/composables/useBackupSettings.js')
+  const source = readBackupSettingsSource()
   assert.match(source, /if \(hasReadinessChecksPayload\(data\)\) return data/)
   assert.match(source, /throw error/)
   assert.doesNotMatch(
     source,
     /if \(hasReadinessChecksPayload\(data\)\) return data\s*if \(!response\.ok\) \{[\s\S]*return data/,
   )
+})
+
+test('恢复确认取消按钮可见文案也是取消恢复备份，过期维护状态仍显示', () => {
+  const template = templateOnly(pageSource)
+  assert.match(template, /aria-label="取消恢复备份"/)
+  assert.match(template, />取消恢复备份<\/el-button>/)
+  assert.doesNotMatch(template, /restoreCopy\.cancelButtonText/)
+  assert.match(template, /v-if="hasSuccessfulReadinessLoad && readiness"/)
+  assert.match(template, /data-testid="backup-readiness-status"/)
+  assert.match(template, /当前内容已过期，以上为上次成功读取的维护状态/)
+  assert.match(template, /:close-on-press-escape="!restoring"/)
+  assert.match(template, /:show-close="!restoring"/)
+  assert.match(template, /onRestoreDialogVisible/)
+  assert.match(pageSource, /if \(restoring\.value\) \{[\s\S]*restoreDialogVisible\.value = true/)
 })

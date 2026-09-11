@@ -71,7 +71,7 @@ function writeFileAtomicSync(targetPath, contents) {
 
 function updateLanguage(cfg, log, language) {
   if (language !== 'zh' && language !== 'en') {
-    return { ok: false, error: '只支持 zh 或 en' };
+    return { ok: false, error: '只支持中文或英文' };
   }
   const targetPath = setConfigPath(cfg);
   if (!targetPath) {

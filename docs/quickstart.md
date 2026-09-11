@@ -25,14 +25,16 @@
 
 包版本为 `1.3.3`。这是仓库 `package.json` 版本号，不是 GitHub Release / tag，也没有把发版合并到 `main`。当前从源码或 Docker 运行，不要按发版下载使用。当前分支和脏工作树不能当作发布完成。仓库是纯 JavaScript，没有 TypeScript。
 
-- 后端端口 **5679**，前端 Vite 端口 **3013**；开发时前端代理 `/api` 与 `/static`
+- 后端端口 **5679**，前端开发用 Vite 端口 **3013**；开发时前端代理 `/api`、`/static`、`/ready` 与 `/health`
+- 生产也可先 `npm --prefix frontweb run build`，由后端在 5679 托管 `frontweb/dist`（`WEB_DIST_PATH` 可覆盖）。Docker 生产前端由 Nginx 提供静态页
 - 后端 CORS 只允许 `http://localhost:3013` 与 `http://127.0.0.1:3013`
-- 测试、CI 与 Docker 生产镜像使用 Node.js 20.x；桌面依赖安装、原生重建和打包使用 Node.js 22.12.0（`desktop/.npmrc` 启用 `engine-strict`）
+- 根目录、后端、前端、Docker 与通用 PR/分支门禁用 Node.js 20.x；桌面依赖安装、原生重建、打包和 Windows 制品安全扫描用 Node.js 22.12.0（`desktop/.npmrc` 启用 `engine-strict`）
 - `configs/config.yaml` 已随仓库提供；启动时执行 `runMigrationsAndEnsure`，一般不必手动 `npm run migrate`
 - 未配置外部 API Key 也可以启动和开发界面；真正生成内容到「AI 配置」页填写。厂商预设填表不等于真实图片/视频/TTS 接入已跑通
 - 故事素材可上传 PDF/图片/音视频：文本可直接导入；PDF/图片需要图片识别（可本机 Tesseract 或 AI 配置 OCR）；音视频需要语音转写配置。OCR/转写是素材抽取扩展，不是成片就绪条件
 - 正式制作仍以文本、素材图、分镜图、视频、TTS 五类服务为成片就绪条件。真实云 OCR/Whisper 账号联调、真实图片/视频/TTS 厂商接入、移动端仍不在当前完成范围
-- Docker Compose **不挂载应用源码**。改完代码后执行 `docker compose up -d --build --wait`，容器级校验用根目录 `npm run verify:docker`
+- Docker Compose **不 bind-mount 应用源码**。改完代码后执行 `docker compose up -d --build --wait`，容器级校验用根目录 `npm run verify:docker`
+- 生产 Nginx 必须有 `location = /ready`，精确代理到后端 `/ready`，并写在 SPA `location /` 之前。只代理 `/healthz` 不够：备份页会请求 `/ready`
 - 生产 E2E 必须在干净工作树执行（证据要求 `working_tree_dirty=false`），不要凭历史 SHA 宣称当前工作树已通过
 - 页面、API 与 CLI 的用户可见错误为简体中文；`/ready` 可接业务，失败时 `checks.*.error` 为简体中文；`/health` 只表示进程存活
 - 备份/恢复/维护恢复 CLI 的 `--help` 和失败输出为简体中文
@@ -103,7 +105,18 @@ npm install
 npm run dev
 ```
 
-浏览器访问 `http://127.0.0.1:3013` 即可看到界面。Vite 把 `/api` 和 `/static` 代理到 `http://127.0.0.1:5679`。后端 CORS 只允许前端 `3013`（`http://localhost:3013` 与 `http://127.0.0.1:3013`）。Vite 与 Compose 默认只监听 `127.0.0.1`。未配置外部 API Key 也可以浏览界面和跑本地测试。
+浏览器访问 `http://127.0.0.1:3013` 即可看到界面。开发用 Vite，把 `/api`、`/static`、`/ready` 和 `/health` 代理到 `http://127.0.0.1:5679`。后端 CORS 只允许前端 `3013`（`http://localhost:3013` 与 `http://127.0.0.1:3013`）。Vite 与 Compose 默认只监听 `127.0.0.1`。未配置外部 API Key 也可以浏览界面和跑本地测试。
+
+若要让后端直接托管生产前端：
+
+```bash
+cd frontweb
+npm run build
+cd ../backend-node
+npm start
+```
+
+然后访问 `http://127.0.0.1:5679`。后端默认托管同级 `frontweb/dist`，可用 `WEB_DIST_PATH` 覆盖。这与 Docker 生产不同：Compose 前端由 Nginx 提供静态页，且必须保留 `location = /ready`。
 
 ---
 
@@ -147,7 +160,7 @@ npm run dist:cn
 - `LocalMiniDrama-Portable-x.x.x-x64.exe` — 便携版
 - `win-unpacked/` — 未压缩目录
 
-本地 `npm run dist` 会生成 Setup、Portable 与 `win-unpacked`，只供本机使用，不是发版。当前请从源码或 Docker 运行。若将来发版，正式发布顺序是：分支 CI 通过后创建 annotated tag，再由工作流生成草稿 Release 并人工发布。
+本地 `npm run dist` 会生成 Setup、Portable 与 `win-unpacked`，只供本机使用，不是发版。当前请从源码或 Docker 运行。这些 Windows 制品未做 Authenticode 签名；若将来从官方 GitHub Release 下载，核验步骤见根目录 [README](../README.md#未签名制品与下载核验)。若将来发版，正式发布顺序是：分支 CI 通过后创建 annotated tag，再由工作流生成草稿 Release 并人工发布。
 
 **打包原理：**
 1. 构建前端静态文件
@@ -248,11 +261,12 @@ docker compose ps
 |------|------|------|
 | 前端页面 | `http://127.0.0.1:3013` | 页面入口 |
 | 前端 `/healthz` | `http://127.0.0.1:3013/healthz` | 健康检查；Nginx 代理后端 `/ready` |
+| 前端 `/ready` | `http://127.0.0.1:3013/ready` | 必须由 Nginx `location = /ready` 精确代理到后端；不能落到 SPA `index.html` |
 | 后端 `/ready` | `http://127.0.0.1:5679/ready` | 健康检查；可接业务才 200，失败信息为简体中文，`docker compose --wait` 等这个 |
 | 后端 `/health` | `http://127.0.0.1:5679/health` | 不是健康检查；只表示进程存活 |
 | API 路径前缀 | `http://127.0.0.1:5679/api/v1` | 该前缀本身不是可访问资源 |
 
-Docker 镜像固定使用 Node.js 20，并在后端容器内安装 `ffmpeg`；编译工具只存在于依赖构建阶段。容器默认把 `backend-node/data` 挂载到 `/app/data`，数据库和生成素材会保留在本机项目目录下。前端容器使用 Nginx 提供 Vite 的生产构建产物。生产容器启用只读根文件系统、`no-new-privileges`、能力裁剪和受限临时目录。
+Docker 镜像固定使用 Node.js 20，并在后端容器内安装 `ffmpeg`；编译工具只存在于依赖构建阶段。容器默认把 `backend-node/data` 挂载到 `/app/data`，数据库和生成素材会保留在本机项目目录下。前端容器使用 Nginx 提供 Vite 的生产构建产物。生产 Nginx 必须包含 `location = /ready`，精确代理到 `http://backend:5679/ready`，并写在 SPA `location /` 之前；只转发 `/healthz` 时，备份页请求 `/ready` 会吃到前端 HTML，恢复按钮会一直禁用。生产容器启用只读根文件系统、`no-new-privileges`、能力裁剪和受限临时目录。
 
 后端 Compose 不会让宿主机配置直接覆盖运行配置。`LOCALMINIDRAMA_CONFIG_DIR`（默认 `./backend-node/configs`）只读挂载到容器的 `/app/config-source`；入口脚本会在降权前通过 `runtime-config-policy.cjs` 将其净化到 `/tmp/localminidrama-config/config.yaml`，应用通过 `LOCALMINIDRAMA_CONFIG_PATH` 读取净化结果。自定义配置必须提供 `config.yaml`，每次启动都会重新净化。CORS 在 Compose 里指向前端 `3013`。
 
@@ -262,7 +276,7 @@ Docker 镜像固定使用 Node.js 20，并在后端容器内安装 `ffmpeg`；�
 npm run verify:docker
 ```
 
-该命令在临时验证容器中运行前后端检查，不验证当前正在运行的 Compose 服务。Compose 健康检查：后端探测 `/ready`，前端探测 `/healthz`（代理 `/ready`）。`/health` 只是存活探针，`docker compose --wait` 不会等它。验收时仍可同时看 `/health` 与 `/ready`。前后端均使用 `unless-stopped` 自动恢复策略；人工停止后不会自行重启。
+该命令在临时验证容器中运行前后端检查，不验证当前正在运行的 Compose 服务。Compose 健康检查：后端探测 `/ready`，前端探测 `/healthz`（代理 `/ready`）。生产 Nginx 还必须单独代理 `location = /ready`。`/health` 只是存活探针，`docker compose --wait` 不会等它。验收时仍可同时看 `/health` 与 `/ready`。前后端均使用 `unless-stopped` 自动恢复策略；人工停止后不会自行重启。
 
 单独运行 `npm run verify:e2e` 不会自动启动测试服务；下面的 `npm run docker:e2e:up` 会显式启动本地协议兼容测试服务。它还要求 `LOCALMINIDRAMA_DATA_DIR` 指向仓库外新建的绝对空目录，以免 E2E 污染开发数据。必须在干净工作树按顺序执行（证据要求 `working_tree_dirty=false`；当前脏工作树不能当作已通过）：
 

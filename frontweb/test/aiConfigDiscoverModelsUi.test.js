@@ -7,20 +7,23 @@ import {
   extractDiscoveredModelIds,
   mergeModelTextWithDiscovered,
 } from '../src/utils/aiConfigDiscoverModels.js'
+import { readAiConfigFormDialogTreeSource } from './helpers/aiConfigFormDialogSources.js'
+import { readSd2AssetSources } from './helpers/sd2AssetSources.js'
 
 function readSource(url) {
   return readFileSync(url, 'utf8').replace(/\r\n?/g, '\n')
 }
 
 const vueSource = readSource(new URL('../src/components/AIConfigContent.vue', import.meta.url))
-const formDialogSource = readSource(new URL('../src/components/aiConfig/AiConfigFormDialog.vue', import.meta.url))
+const formDerivedSource = readSource(new URL('../src/composables/useAiConfigFormDerived.js', import.meta.url))
+const formDialogSource = readAiConfigFormDialogTreeSource()
 const connectionDialogSource = readSource(new URL('../src/components/aiConfig/AiConfigConnectionTestDialog.vue', import.meta.url))
 const overlaySource = `${vueSource}\n${formDialogSource}\n${connectionDialogSource}`
 const discoverSource = readSource(new URL('../src/composables/useAiConfigDiscoverModels.js', import.meta.url))
 const providerOptionsSource = readSource(new URL('../src/utils/aiConfigProviderOptions.js', import.meta.url))
 const labelsSource = readSource(new URL('../src/utils/aiConfigLabels.js', import.meta.url))
 const modelListSource = readSource(new URL('../src/components/aiConfig/AiConfigModelListSection.vue', import.meta.url))
-const sd2Source = readSource(new URL('../src/components/Sd2AssetManagement.vue', import.meta.url))
+const sd2Source = readSd2AssetSources().combined
 const apiSource = readSource(new URL('../src/api/ai.js', import.meta.url))
 
 function extractNamedFunction(source, name) {
@@ -84,8 +87,9 @@ test('AI 配置页提供从服务读取模型按钮，并接上 discoverModels A
   assert.match(modelListSource, />从服务读取模型</)
   assert.match(modelListSource, /:disabled="discoverModelsDisabled"/)
   assert.match(modelListSource, /:loading="discoverModelsLoading"/)
-  assert.match(vueSource, /请先填写接口地址/)
-  assert.match(vueSource, /请先填写 API 密钥后再读取模型/)
+  assert.match(vueSource, /discoverModelsDisabledReason/)
+  assert.match(formDerivedSource, /请先填写接口地址/)
+  assert.match(formDerivedSource, /请先填写 API 密钥后再读取模型/)
   assert.match(modelListSource, /正在从服务读取模型/)
   assert.match(modelListSource, /aria-label="模型列表"/)
   assert.doesNotMatch(modelListSource, /<el-input[^>]*data-ai-config-field="model"[^>]*readonly/)

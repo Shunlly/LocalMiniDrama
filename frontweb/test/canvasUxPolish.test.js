@@ -10,19 +10,21 @@ import {
   canvasReferenceSourceLabel,
 } from '../src/composables/useCanvasReferenceDisplay.js'
 import { canvasUserError, isCanvasUserAbort } from '../src/composables/useCanvasUserError.js'
+import { readCanvasAssetPanelSource } from './helpers/canvasAssetPanelSource.js'
+import { readDramaCanvasPageSource, readDramaCanvasRuntimeSource } from './helpers/dramaCanvasPageSource.js'
 import { readCanvasStoryboardPanelSource } from './helpers/canvasStoryboardPanelSource.js'
 
 function read(path) {
   return readFileSync(new URL(path, import.meta.url), 'utf8')
 }
 
-const canvasSource = read('../src/views/DramaCanvas.vue')
+const canvasSource = readDramaCanvasPageSource()
 const pageHeaderSource = read('../src/components/dramaCanvas/CanvasPageHeader.vue')
 const productionSidebarSource = read('../src/components/dramaCanvas/CanvasProductionSidebar.vue')
 const emptyStateSource = read('../src/components/dramaCanvas/CanvasEmptyState.vue')
 const freeCanvasEmptySource = read('../src/components/dramaCanvas/FreeCanvasEmptyStart.vue')
 const assetNodeSource = read('../src/components/dramaCanvas/CanvasAssetNode.vue')
-const assetPanelSource = read('../src/components/dramaCanvas/CanvasAssetPanel.vue')
+const assetPanelSource = readCanvasAssetPanelSource()
 const storyboardPanelSource = readCanvasStoryboardPanelSource()
 const mediaNodeSource = read('../src/components/dramaCanvas/CanvasMediaNode.vue')
 const mediaPanelSource = read('../src/components/dramaCanvas/CanvasMediaPanel.vue')
@@ -170,13 +172,21 @@ test('剧本面板提取失败不再静默，右键菜单键盘可达', () => {
 })
 
 test('画布页用户 toast 不再直出 e.message', () => {
+  const runtimeSource = readDramaCanvasRuntimeSource()
   assert.match(canvasSource, /from '@\/composables\/useCanvasUserError'/)
-  assert.match(canvasSource, /function safeFreeCanvasError\(error, fallback\) \{[\s\S]*return canvasUserError\(error, fallback/)
+  assert.match(runtimeSource, /function safeFreeCanvasError\(error, fallback\) \{[\s\S]*return canvasUserError\(error, fallback/)
   assert.doesNotMatch(canvasSource, /ElMessage\.(error|warning)\(e\?\.message/)
   assert.doesNotMatch(canvasSource, /ElMessage\.(error|warning)\((?:error\?\.message|`[^`]*\$\{error\?\.message)/)
   assert.match(canvasSource, /if \(isCanvasUserAbort\(e\)\) return/)
-  assert.match(canvasSource, /当前集还没有剧本，请先编写或导入剧本/)
-  assert.match(canvasSource, /await focusScriptNode\(\)/)
+  const canvasToastSource = [
+    canvasSource,
+    read('../src/composables/useCanvasEpisodeGenerate.js'),
+    read('../src/composables/useCanvasScript.js'),
+    read('../src/utils/canvasActionState.js'),
+    read('../src/components/dramaCanvas/dramaCanvasBatchGenerate.js'),
+  ].join('\n')
+  assert.match(canvasToastSource, /当前集还没有剧本，请先编写或导入剧本/)
+  assert.match(canvasToastSource, /await focusScriptNode\(\)/)
 })
 
 test('批量生成、素材参考图和剧本提取都有可点的取消按钮', () => {
@@ -283,11 +293,12 @@ test('画布反馈按需引入，禁用按钮带中文 title，工作流步骤�
   }
 
   assert.match(desktopToolbarSource, /aria-label="AI 生成分镜"/)
+  assert.match(desktopToolbarSource, /aria-label="返回列表模式"/)
   assert.match(desktopToolbarSource, />\s*AI 分镜\s*</)
-  assert.match(desktopToolbarSource, /:title="actionReasons.generateStoryboards \|\| undefined"/)
-  assert.match(desktopToolbarSource, /:title="actionReasons.editScript \|\| undefined"/)
-  assert.match(workflowToolbarSource, /:title="actionReasons.createWorkflow \|\| undefined"/)
-  assert.match(workflowToolbarSource, /:title="actionReasons.deleteWorkflow \|\| undefined"/)
+  assert.match(desktopToolbarSource, /:title="actionReasons.generateStoryboards \|\| 'AI 生成分镜'"/)
+  assert.match(desktopToolbarSource, /:title="actionReasons.editScript \|\| '编辑剧本'"/)
+  assert.match(workflowToolbarSource, /:title="actionReasons.createWorkflow \|\| '创建分组（工作流）'"/)
+  assert.match(workflowToolbarSource, /:title="actionReasons.deleteWorkflow \|\| '删除工作流分组'"/)
   assert.match(assetPanelSource, /:title="panoramaDisabledReason \|\| undefined"/)
   assert.match(scriptPanelSource, /:title="emptyScriptReason \|\| undefined"/)
   assert.match(mediaPanelSource, /:title="videoAction.reason \|\| undefined"/)

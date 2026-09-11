@@ -134,6 +134,13 @@
         <el-button @click="importVisible = false">关闭</el-button>
       </template>
     </AccessibleDialog>
+
+    <ImagePreviewDialog
+      :model-value="Boolean(previewUrl)"
+      :src="previewUrl || ''"
+      title="资源图片预览"
+      @update:model-value="(visible) => { if (!visible) previewUrl = null }"
+    />
   </div>
 </template>
 
@@ -141,6 +148,7 @@
 import DramaDetailCharacterEditDialogs from './DramaDetailCharacterEditDialogs.vue'
 import DramaDetailSceneEditDialogs from './DramaDetailSceneEditDialogs.vue'
 import DramaDetailPropEditDialogs from './DramaDetailPropEditDialogs.vue'
+import ImagePreviewDialog from '@/components/ImagePreviewDialog.vue'
 
 defineOptions({ inheritAttrs: false })
 
@@ -204,6 +212,7 @@ const importVisible = defineModel('importVisible', { type: Boolean, default: fal
 const importKw = defineModel('importKw', { type: String, default: '' })
 const importPage = defineModel('importPage', { type: Number, default: 1 })
 const importPageSize = defineModel('importPageSize', { type: Number, default: 20 })
+const previewUrl = defineModel('previewUrl', { default: null })
 </script>
 
 <style scoped>

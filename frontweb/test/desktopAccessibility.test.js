@@ -1,17 +1,29 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
+import { readSourceIntakeWorkflowSources } from './helpers/sourceIntakeWorkflowSources.js'
+import { readAiConfigFormDialogTreeSource } from './helpers/aiConfigFormDialogSources.js'
 
 const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8')
 
 const actionGateSource = read('../src/components/filmCreate/ActionGate.vue')
-const sourceWorkflowSource = read('../src/components/SourceIntakeWorkflowPanel.vue')
+const sourceWorkflowSource = readSourceIntakeWorkflowSources()
 const aiConfigViewSource = read('../src/views/AiConfig.vue')
-const aiConfigContentSource = read('../src/components/AIConfigContent.vue')
-const aiConfigFormDialogSource = read('../src/components/aiConfig/AiConfigFormDialog.vue')
+const aiConfigContentSource = [
+  read('../src/components/AIConfigContent.vue'),
+  read('../src/components/aiConfig/AiConfigWorkspaceSwitch.vue'),
+  read('../src/components/aiConfig/AiConfigCoverageHeader.vue'),
+  read('../src/components/aiConfig/AiConfigCoveragePanel.vue'),
+  read('../src/components/aiConfig/AiConfigConfigsPanel.vue'),
+].join('\n')
+const aiConfigFormDialogSource = readAiConfigFormDialogTreeSource()
 const aiConfigPageSource = `${aiConfigContentSource}\n${aiConfigFormDialogSource}`
 const readinessSource = read('../src/components/ProjectReadinessPanel.vue')
-const dramaDetailSource = read('../src/views/DramaDetail.vue')
+const dramaDetailSource = [
+  read('../src/views/DramaDetail.vue'),
+  read('../src/components/dramaDetail/DramaDetailEpisodeList.vue'),
+  read('../src/components/dramaDetail/DramaDetailResourceLibrary.vue'),
+].join('\n')
 const dramaDetailDialogsSource = read('../src/components/dramaDetail/DramaDetailResourceDialogs.vue')
 const themeSource = read('../src/styles/theme.css')
 
@@ -24,7 +36,7 @@ test('disabled action gates expose the action name and reason to keyboard users'
 
   assert.match(sourceWorkflowSource, /<ActionGate label="导入故事素材" :reason="actionReasons\.import">/)
   assert.match(sourceWorkflowSource, /<ActionGate label="重试失败步骤" :reason="controlActionReasons\.retry">/)
-  assert.match(sourceWorkflowSource, /<ActionGate label="执行 QA 审计" :reason="actionReasons\.qa">/)
+  assert.match(sourceWorkflowSource, /<ActionGate label="执行 QA 审计" :reason="(?:actionReasons\.qa|qaReason)">/)
   assert.doesNotMatch(sourceWorkflowSource, /<el-tooltip/)
 })
 
@@ -37,6 +49,11 @@ test('AI configuration uses a real page heading and keyboard-operable help contr
   assert.match(aiConfigPageSource, /\.tip-button:focus-visible/)
   assert.match(aiConfigContentSource, /role="tablist" aria-label="AI 配置工作区"/)
   assert.match(aiConfigContentSource, /\.config-workspace-mode:focus-visible/)
+  assert.match(aiConfigContentSource, /id="ai-config-coverage-panel"/)
+  assert.match(aiConfigContentSource, /id="ai-config-configs-panel"/)
+  assert.match(aiConfigContentSource, /role="tabpanel"/)
+  assert.match(aiConfigContentSource, /tabindex="-1"/)
+  assert.match(aiConfigContentSource, /\.config-workspace-panel:focus-visible/)
 })
 
 test('project readiness and detail controls avoid dead or mouse-only interactions', () => {

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 
 import {
   getConfigWorkspaceKeyTarget,
+  normalizeInitialServiceType,
   shouldApplyConfigWorkspaceRequest,
 } from '../src/utils/aiConfigWorkspace.js'
 import { useAiConfigWorkspaceView } from '../src/composables/useAiConfigWorkspaceView.js'
@@ -96,4 +97,12 @@ test('onConfigWorkspaceKeydown 忽略非横向导航键', () => {
   assert.equal(prevented, 0)
   assert.equal(harness.configWorkspaceView.value, 'coverage')
   assert.deepEqual(harness.focused, [])
+})
+
+test('初始服务类型只放行可筛选的正式与抽取类型', () => {
+  assert.equal(normalizeInitialServiceType('video'), 'video')
+  assert.equal(normalizeInitialServiceType('ocr'), 'ocr')
+  assert.equal(normalizeInitialServiceType('transcription'), 'transcription')
+  assert.equal(normalizeInitialServiceType('unknown'), '')
+  assert.equal(normalizeInitialServiceType('  image  '), 'image')
 })

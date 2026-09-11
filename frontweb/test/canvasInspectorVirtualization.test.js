@@ -2,12 +2,16 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { parse } from '@vue/compiler-sfc'
+import { readDramaCanvasRuntimeSource } from './helpers/dramaCanvasPageSource.js'
 
 function read(path) {
   return readFileSync(new URL(path, import.meta.url), 'utf8')
 }
 
-const dramaCanvasSource = read('../src/views/DramaCanvas.vue')
+const dramaCanvasViewSource = read('../src/views/DramaCanvas.vue')
+const dramaCanvasSource = readDramaCanvasRuntimeSource()
+const flowStageSource = read('../src/components/dramaCanvas/CanvasFlowStage.vue')
+const overlayHostSource = read('../src/components/dramaCanvas/CanvasOverlayHost.vue')
 const inspectorDockSource = read('../src/components/dramaCanvas/CanvasInspectorDock.vue')
 const storyboardNodeSource = read('../src/components/dramaCanvas/CanvasStoryboardNode.vue')
 const scriptNodeSource = read('../src/components/dramaCanvas/CanvasScriptNode.vue')
@@ -36,16 +40,18 @@ test('VueFlow keeps only-render-visible-elements true even when inspectors are o
 })
 
 test('workflow and free inspector docks are mounted outside the VueFlow default slot', () => {
-  const canvasTemplate = templateOf(dramaCanvasSource, 'DramaCanvas.vue')
-  const slot = vueFlowSlot(canvasTemplate)
+  const canvasTemplate = templateOf(dramaCanvasViewSource, 'DramaCanvas.vue')
+  const flowTemplate = templateOf(flowStageSource, 'CanvasFlowStage.vue')
+  const overlayTemplate = templateOf(overlayHostSource, 'CanvasOverlayHost.vue')
+  const slot = vueFlowSlot(flowTemplate)
   assert.doesNotMatch(slot, /canvas-inspector-dock/)
   assert.doesNotMatch(slot, /free-canvas-inspector-dock/)
   assert.doesNotMatch(slot, /<CanvasInspectorDock/)
   assert.doesNotMatch(slot, /<FreeCanvasInspector/)
 
-  const afterFlow = canvasTemplate.slice(canvasTemplate.indexOf('</VueFlow>'))
-  assert.match(afterFlow, /<CanvasInspectorDock[\s\S]*focusedInspectorNode/)
-  assert.match(afterFlow, /<FreeCanvasInspector[\s\S]*class="free-canvas-inspector-dock"/)
+  assert.match(canvasTemplate, /<CanvasOverlayHost/)
+  assert.match(overlayTemplate, /<CanvasInspectorDock[\s\S]*focusedInspectorNode/)
+  assert.match(overlayTemplate, /<FreeCanvasInspector[\s\S]*class="free-canvas-inspector-dock"/)
   assert.match(inspectorDockSource, /class="canvas-inspector-dock"/)
 })
 

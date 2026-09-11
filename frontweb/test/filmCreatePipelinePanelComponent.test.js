@@ -11,6 +11,7 @@ import {
   compileSfc,
   createHostRenderer,
   dataModule,
+  findAll,
   findByTestId,
   findByType,
   loadCompiledSfc,
@@ -34,6 +35,19 @@ const stylePickerStubUrl = dataModule(`
   })
 `)
 const compiledActionGateUrl = compileSfc(actionGateUrl, 'pipeline-panel-action-gate', new Map([['vue', vueUrl]]))
+function compilePipelineChild(name, id) {
+  return compileSfc(
+    new URL(`../src/components/filmCreate/${name}`, import.meta.url),
+    id,
+    new Map([
+      ['vue', vueUrl],
+      ['@/components/filmCreate/ActionGate.vue', compiledActionGateUrl],
+    ]),
+  )
+}
+const compiledPipelineActionsUrl = compilePipelineChild('FilmCreatePipelineActions.vue', 'pipeline-panel-actions')
+const compiledPipelineStepsUrl = compilePipelineChild('FilmCreatePipelineSteps.vue', 'pipeline-panel-steps')
+const compiledPipelineStatusUrl = compilePipelineChild('FilmCreatePipelineStatus.vue', 'pipeline-panel-status')
 const FilmCreatePipelinePanel = await loadCompiledSfc(
   pipelinePanelUrl,
   'film-create-pipeline-panel-component',
@@ -42,6 +56,9 @@ const FilmCreatePipelinePanel = await loadCompiledSfc(
     ['@element-plus/icons-vue', iconStubUrl],
     ['@/components/StylePickerButton.vue', stylePickerStubUrl],
     ['@/components/filmCreate/ActionGate.vue', compiledActionGateUrl],
+    ['./FilmCreatePipelineActions.vue', compiledPipelineActionsUrl],
+    ['./FilmCreatePipelineSteps.vue', compiledPipelineStepsUrl],
+    ['./FilmCreatePipelineStatus.vue', compiledPipelineStatusUrl],
   ]),
 )
 
@@ -264,6 +281,80 @@ test('没有剧集时空态下一步是添加一集', async () => {
     assert.equal(add.props['aria-label'], '添加一集')
     click(add)
     assert.deepEqual(harness.events, [['add-episode']])
+  } finally {
+    harness.app.unmount()
+  }
+})
+
+
+test('就绪后紧凑入口会启动一键成片，能力检查失败则重试', async () => {
+  const ready = mountPipeline({ productionReadinessState: 'ready' })
+  try {
+    await nextTick()
+    const compact = findByTestId(ready.root, 'film-pipeline-action')[0]
+    assert.ok(compact)
+    assert.notEqual(compact.props.disabled, true)
+    assert.equal(compact.props['aria-label'], '一键生成成片')
+    click(compact)
+    assert.deepEqual(ready.events, [['start-one-click']])
+  } finally {
+    ready.app.unmount()
+  }
+
+  const failed = mountPipeline({ productionReadinessState: 'error' })
+  try {
+    await nextTick()
+    click(findByTestId(failed.root, 'film-pipeline-action')[0])
+    const retry = requireButton(failed.root, '重试检查')
+    assert.equal(retry.props['aria-label'], '重试检查')
+    click(retry)
+    assert.deepEqual(failed.events, [['retry-readiness'], ['retry-readiness']])
+  } finally {
+    failed.app.unmount()
+  }
+
+  const missing = mountPipeline({
+    productionReadinessState: 'missing',
+    productionReadinessServiceType: 'video',
+  })
+  try {
+    await nextTick()
+    const primary = findByTestId(missing.root, 'film-pipeline-action')[0]
+    const secondary = findByTestId(missing.root, 'film-pipeline-secondary-action')[0]
+    assert.ok(primary)
+    assert.ok(secondary)
+    assert.match(textContent(primary), /先跑草稿预演/)
+    assert.match(textContent(secondary), /配置缺失服务/)
+    assert.match(secondary.props.class, /is-secondary/)
+    const config = requireButton(missing.root, '前往 AI 配置')
+    assert.equal(config.props['aria-label'], '前往 AI 配置')
+    click(primary)
+    click(secondary)
+    assert.deepEqual(missing.events, [['start-text-framework'], ['open-ai-config', 'video']])
+  } finally {
+    missing.app.unmount()
+  }
+})
+
+test('运行中可暂停和停止；生成设置改比例会保存', async () => {
+  const harness = mountPipeline({ running: true, currentStep: '分镜生图', stepIndex: 2, stepTotal: 6 })
+  try {
+    await nextTick()
+    const pause = requireButton(harness.root, '暂停')
+    const stop = requireButton(harness.root, '停止')
+    assert.equal(pause.props['aria-label'], '暂停')
+    assert.equal(stop.props['aria-label'], '停止')
+    click(pause)
+    click(stop)
+    const ratio = findAll(harness.root, (node) => node.type === 'select' && node.props?.['aria-label'] === '生成设置：画面比例')[0]
+    assert.ok(ratio)
+    ratio.props.onChange({ target: { value: '9:16' } })
+    assert.deepEqual(harness.events, [
+      ['pause'],
+      ['cancel'],
+      ['update:aspectRatio', '9:16'],
+      ['save-settings', false],
+    ])
   } finally {
     harness.app.unmount()
   }

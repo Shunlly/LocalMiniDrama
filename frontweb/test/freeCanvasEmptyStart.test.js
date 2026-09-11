@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
 import { h } from 'vue'
+import { readDramaCanvasPageSource } from './helpers/dramaCanvasPageSource.js'
 
 import {
   buttonByText,
@@ -16,7 +17,7 @@ import {
 } from './helpers/vueComponentHarness.js'
 
 const componentUrl = new URL('../src/components/dramaCanvas/FreeCanvasEmptyStart.vue', import.meta.url)
-const viewSource = readFileSync(new URL('../src/views/DramaCanvas.vue', import.meta.url), 'utf8')
+const viewSource = readDramaCanvasPageSource()
 const componentSource = readFileSync(componentUrl, 'utf8')
 
 const iconStubUrl = compileIconStub(['Document', 'FolderOpened', 'Setting'])
@@ -44,7 +45,7 @@ function mountEmptyStart() {
 test('DramaCanvas 把自由画布空态交给独立起步组件，制作空态仍走 CanvasEmptyState', () => {
   assert.match(viewSource, /<CanvasEmptyState/)
   assert.match(viewSource, /<FreeCanvasEmptyStart/)
-  assert.match(viewSource, /v-if="canvasMode === 'free' && !loading && !freeCanvas.nodes.length"/)
+  assert.match(viewSource, /v-if="canvasMode === 'free' && !loading && !freeNodeCount"/)
   assert.match(viewSource, /:create-free-canvas-node="createFreeCanvasNode"/)
   assert.match(viewSource, /:open-free-canvas-media-picker="openFreeCanvasMediaPicker"/)
   assert.match(componentSource, /class="free-canvas-empty-state"/)

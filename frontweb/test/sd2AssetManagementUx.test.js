@@ -1,8 +1,10 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { readSd2AssetSources } from './helpers/sd2AssetSources.js'
 
-const source = readFileSync(new URL('../src/components/Sd2AssetManagement.vue', import.meta.url), 'utf8')
+const sources = readSd2AssetSources()
+const source = sources.combined
+const parentSource = sources.parent
 
 function templateOnly(vueSource) {
   const start = vueSource.indexOf('<template')
@@ -39,7 +41,7 @@ function isHiddenInput(opening) {
       && (/aria-hidden/.test(opening) || /display:\s*none/.test(opening)))
 }
 
-const template = templateOnly(source)
+const template = [sources.parent, sources.groupList, sources.assetList, sources.filter, sources.dialogs, sources.intro, sources.connectionForm, sources.lastResponse].map(templateOnly).join('\n')
 const TITLE_BINDING = ':title="mutationLocked ? mutationLockReason : undefined"'
 
 test('写锁定按钮给出中文原因，隐藏输入不加 title', () => {
@@ -119,4 +121,40 @@ test('用户可见的资产组 Id 改为编号，接口字段名保持原文', (
   assert.match(source, /GroupId: formAssetGroupId\.value\.trim\(\)/)
   assert.match(source, /placeholder='若填写则优先整段作为请求体（须含 Id）'/)
   assert.match(source, /placeholder="若填写则整段作为请求体（须含 Id）"/)
+})
+
+test('认证资产管理页把列表、筛选和对话框交给 sd2 子组件，写操作仍留在页内', () => {
+  assert.match(parentSource, /import Sd2AssetIntro from ['"]@\/components\/sd2\/Sd2AssetIntro\.vue['"]/)
+  assert.match(parentSource, /import Sd2AssetConnectionForm from ['"]@\/components\/sd2\/Sd2AssetConnectionForm\.vue['"]/)
+  assert.match(parentSource, /import Sd2AssetGroupList from ['"]@\/components\/sd2\/Sd2AssetGroupList\.vue['"]/)
+  assert.match(parentSource, /import Sd2AssetList from ['"]@\/components\/sd2\/Sd2AssetList\.vue['"]/)
+  assert.match(parentSource, /import Sd2AssetLastResponse from ['"]@\/components\/sd2\/Sd2AssetLastResponse\.vue['"]/)
+  assert.match(parentSource, /import Sd2AssetDialogs from ['"]@\/components\/sd2\/Sd2AssetDialogs\.vue['"]/)
+  assert.match(parentSource, /<Sd2AssetGroupList[\s\S]*:on-group-row-change="onGroupRowChange"/)
+  assert.match(parentSource, /<Sd2AssetList[\s\S]*v-model:asset-group-id-input="assetGroupIdInput"/)
+  assert.match(parentSource, /<Sd2AssetConnectionForm[\s\S]*:save-to-ai-config="saveToAiConfig"/)
+  assert.match(parentSource, /<Sd2AssetConnectionForm[\s\S]*:video-like-configs="videoLikeConfigs"/)
+  assert.match(parentSource, /<Sd2AssetLastResponse[\s\S]*v-model="lastRawJson"/)
+  assert.match(parentSource, /<Sd2AssetDialogs[\s\S]*:submit-create-group="submitCreateGroup"/)
+  assert.match(sources.assetList, /<Sd2AssetFilter v-model="assetGroupIdInput"/)
+  assert.doesNotMatch(parentSource, /<AccessibleDialog/)
+  assert.doesNotMatch(parentSource, /<el-table/)
+  assert.doesNotMatch(parentSource, /<el-form[\s>]/)
+  assert.doesNotMatch(parentSource, /<el-alert[\s>]/)
+  assert.doesNotMatch(parentSource, /async function loadList\(/)
+  assert.doesNotMatch(parentSource, /async function openTest\(/)
+  for (const [name, body] of Object.entries({
+    groupList: sources.groupList,
+    assetList: sources.assetList,
+    filter: sources.filter,
+    dialogs: sources.dialogs,
+    intro: sources.intro,
+    connectionForm: sources.connectionForm,
+    lastResponse: sources.lastResponse,
+  })) {
+    assert.doesNotMatch(body, /async function loadList\(/, `${name} 不应抽 AI 配置 loadList`)
+    assert.doesNotMatch(body, /async function openTest\(/, `${name} 不应抽 AI 配置 openTest`)
+    assert.doesNotMatch(body, /aiAPI\./, `${name} 不应直接调 aiAPI`)
+    assert.doesNotMatch(body, /from ['"]element-plus['"]/)
+  }
 })

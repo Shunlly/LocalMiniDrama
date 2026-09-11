@@ -60,7 +60,7 @@ test('没有上一页时，主按钮可见文案和读屏名称都是返回项�
     assert.match(textContent(harness.root), /可以回到项目列表继续制作/)
     assert.doesNotMatch(textContent(harness.root), /可以返回上一页，或回到项目列表继续制作/)
     click(home)
-    assert.deepEqual(harness.router.calls, [['replace', '/']])
+    assert.deepEqual(harness.router.calls, [['replace', { name: 'list' }]])
   } finally {
     harness.app.unmount()
     resetVueRouterHarness()
@@ -85,7 +85,7 @@ test('有可返回上一页时，返回项目列表仍然保留独立读屏名�
     assert.match(textContent(harness.root), /无法打开地址 \/missing-page/)
     assert.match(textContent(harness.root), /可以返回上一页，或回到项目列表继续制作/)
     click(home)
-    assert.deepEqual(harness.router.calls, [['replace', '/']])
+    assert.deepEqual(harness.router.calls, [['replace', { name: 'list' }]])
   } finally {
     harness.app.unmount()
     resetVueRouterHarness()

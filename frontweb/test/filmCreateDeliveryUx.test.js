@@ -287,9 +287,20 @@ test('输出区把英文错误收成中文，并补上合成失败下一步', ()
     deliveryExportStatus: { subtitle: 'idle', project: 'idle' },
   })
 
-  assert.equal(lockEnglish, '当前不能修改视频配置')
-  assert.equal(lockChinese, '请先创建或选择剧集')
+  assert.equal(lockEnglish, '')
+  assert.equal(lockChinese, '')
   assert.equal(composing, '正在合成视频，请等待当前任务完成')
+  const missingVideos = describeOutputVideoSettingsLock({
+    composeActionDisabledReason: `请先为全部分镜生成可播放视频（已完成 0/${EPISODE_ID}）`,
+    videoStatus: 'idle',
+  })
+  const pipelineBusy = describeOutputVideoSettingsLock({
+    composeActionDisabledReason: '全流程任务正在执行，请先暂停或等待完成',
+    videoStatus: 'idle',
+  })
+  assert.equal(missingVideos, '')
+  assert.equal(pipelineBusy, '全流程任务正在执行，请先暂停或等待完成')
+  assert.doesNotMatch(missingVideos, new RegExp(String(EPISODE_ID)))
   assert.equal(messages.videoErrorMsg, '成片合成失败，请稍后重试')
   assert.equal(messages.composeActionDisabledReason, '当前不能合成成片')
   assert.equal(nextCompose, '成片合成失败后，可检查分镜视频是否齐全，再点「合成成片」重试。')
@@ -310,7 +321,16 @@ test('交付区用户可见文案保持简体中文', () => {
   assert.match(outputSectionSource, /可继续点「重试下载」/)
   assert.match(outputSectionSource, /可继续点「重试字幕」/)
   assert.match(outputSectionSource, /可继续点「重试项目包」/)
+  assert.match(outputSectionSource, /const busyLock/)
   assert.match(deliveryPanelSource, /视频正在生成，请稍候/)
   assert.match(deliveryPanelSource, /正在验证并下载成片，请稍候/)
   assert.doesNotMatch(deliveryPanelSource, /视频生成中\.\.\./)
+})
+
+test('交付面板把项目包写成随时可导出工程，不把工程包算成已有成片', () => {
+  const empty = describeDeliveryPanelState({})
+  assert.equal(empty.deliveryPackageHint, '随时可导出工程')
+  assert.match(deliveryPanelSource, /随时可导出工程/)
+  assert.match(deliveryPanelSource, /panelState\.deliveryPackageHint/)
+  assert.match(deliveryPanelSource, /delivery-package-hint/)
 })

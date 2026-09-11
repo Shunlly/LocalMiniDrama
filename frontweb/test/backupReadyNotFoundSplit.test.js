@@ -1,0 +1,64 @@
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+
+import { isRecoverableNotFoundBackPath } from '../src/utils/notFoundNavigation.js'
+import { readBackupPageSource, readBackupSettingsSource } from './helpers/backupPageSources.js'
+
+const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8').replace(/\r\n?/g, '\n')
+
+const nginxSource = read('../nginx.conf')
+const backupPageSource = readBackupPageSource()
+const backupSettingsSource = readBackupSettingsSource()
+const routerSource = read('../src/router/index.js')
+const viewsSource = read('../src/router/views.js')
+
+test('生产 Nginx 把 /ready 精确代理到后端，不会回退成前端 HTML', () => {
+  const readyBlockStart = nginxSource.indexOf('location = /ready {')
+  const spaBlockStart = nginxSource.indexOf('location / {')
+  const assetsBlockStart = nginxSource.indexOf('location /assets/ {')
+  assert.ok(readyBlockStart >= 0, '缺少 location = /ready')
+  assert.ok(spaBlockStart > readyBlockStart, '/ready 必须写在 SPA 回退之前')
+  assert.ok(assetsBlockStart > readyBlockStart, '/ready 必须写在静态资源规则之前')
+
+  const readyBlock = nginxSource.slice(readyBlockStart, nginxSource.indexOf('}', readyBlockStart))
+  assert.match(readyBlock, /proxy_pass http:\/\/backend:5679\/ready/)
+  assert.doesNotMatch(readyBlock, /try_files/)
+  assert.doesNotMatch(readyBlock, /index\.html/)
+
+  const assetsBlock = nginxSource.slice(assetsBlockStart, nginxSource.indexOf('location / {'))
+  assert.match(assetsBlock, /try_files \$uri =404;/)
+  assert.doesNotMatch(assetsBlock, /\/index\.html/)
+
+  const spaBlock = nginxSource.slice(spaBlockStart)
+  assert.match(spaBlock, /try_files \$uri \$uri\/ \/index\.html;/)
+})
+
+test('备份页继续请求 /ready，空 HTML 不会当成维护锁定', () => {
+  assert.match(backupSettingsSource, /from '\.\/useBackupSettingsRestore\.js'/)
+  assert.match(backupSettingsSource, /export \{ restoreConfirmationCopy \}/)
+  assert.match(backupPageSource, /from '@\/composables\/useBackupSettings\.js'/)
+  assert.doesNotMatch(backupPageSource, /useBackupSettingsRestore/)
+  assert.match(backupPageSource, /loadReadiness\(\)/)
+  assert.match(backupSettingsSource, /fetch\('\/ready'/)
+  assert.match(backupSettingsSource, /if \(hasReadinessChecksPayload\(data\)\) return data/)
+  assert.doesNotMatch(
+    backupSettingsSource,
+    /if \(hasReadinessChecksPayload\(data\)\) return data\s*if \(!response\.ok\) \{[\s\S]*return data/,
+  )
+  assert.match(backupPageSource, /v-if="readinessError"/)
+  assert.match(backupPageSource, /v-if="hasSuccessfulReadinessLoad && readiness"/)
+  assert.doesNotMatch(backupPageSource, /v-else-if="!readinessLoading && hasSuccessfulReadinessLoad && readiness"/)
+})
+
+test('备份路由是独立页面，404 可回到 /backup，不会被 catch-all 吞掉', () => {
+  assert.match(routerSource, /path: '\/backup'/)
+  assert.match(routerSource, /name: 'backup'/)
+  assert.match(routerSource, /component: \(\) => import\('@\/views\/Backup\.vue'\)/)
+  assert.match(routerSource, /if \(to\.name === 'not-found-catchall'\) \{/)
+  assert.match(viewsSource, /id: 'backup', view: 'backup', label: '数据备份'/)
+  assert.equal(isRecoverableNotFoundBackPath('/backup'), true)
+  assert.equal(isRecoverableNotFoundBackPath('/backup?returnTo=/ai-config'), true)
+  assert.equal(isRecoverableNotFoundBackPath('/ready'), false)
+  assert.equal(isRecoverableNotFoundBackPath('/this-page-does-not-exist'), false)
+})

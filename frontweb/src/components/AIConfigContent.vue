@@ -10,122 +10,35 @@
             :retry-config-dependencies="retryConfigDependencies"
           />
 
-          <div class="config-workspace-switch" role="tablist" aria-label="AI 配置工作区">
-            <button
-              ref="coverageWorkspaceModeRef"
-              id="ai-config-mode-coverage"
-              type="button"
-              role="tab"
-              class="config-workspace-mode"
-              data-testid="ai-config-mode-coverage"
-              :class="{ active: configWorkspaceView === 'coverage' }"
-              :aria-selected="configWorkspaceView === 'coverage'"
-              :tabindex="configWorkspaceView === 'coverage' ? 0 : -1"
-              aria-controls="ai-config-coverage-panel"
-              @click="selectConfigWorkspaceView('coverage')"
-              @keydown="onConfigWorkspaceKeydown('coverage', $event)"
-            >
-              服务状态
-            </button>
-            <button
-              ref="configsWorkspaceModeRef"
-              id="ai-config-mode-configs"
-              type="button"
-              role="tab"
-              class="config-workspace-mode"
-              data-testid="ai-config-mode-configs"
-              :class="{ active: configWorkspaceView === 'configs' }"
-              :aria-selected="configWorkspaceView === 'configs'"
-              :tabindex="configWorkspaceView === 'configs' ? 0 : -1"
-              aria-controls="ai-config-configs-panel"
-              @click="selectConfigWorkspaceView('configs')"
-              @keydown="onConfigWorkspaceKeydown('configs', $event)"
-            >
-              配置管理
-            </button>
-          </div>
+          <AiConfigWorkspaceSwitch
+            v-model:coverage-workspace-mode-ref="coverageWorkspaceModeRef"
+            v-model:configs-workspace-mode-ref="configsWorkspaceModeRef"
+            :config-workspace-view="configWorkspaceView"
+            :select-config-workspace-view="selectConfigWorkspaceView"
+            :on-config-workspace-keydown="onConfigWorkspaceKeydown"
+          />
 
-          <div
-            id="ai-config-coverage-panel"
-            v-show="configWorkspaceView === 'coverage'"
-            class="config-workspace-panel"
-            role="tabpanel"
-            aria-labelledby="ai-config-mode-coverage"
-          >
-          <section class="coverage-panel" aria-labelledby="ai-service-coverage-title">
-            <div class="coverage-header">
-              <div>
-                <div class="coverage-title-row">
-                  <h2 id="ai-service-coverage-title">AI 服务配置与验证</h2>
-                  <el-tag
-                    v-if="!configListPendingEmpty && !configListFailedEmpty"
-                    :type="serviceCoverage.ready ? 'success' : 'warning'"
-                    size="small"
-                    effect="light"
-                  >
-                    {{ serviceCoverage.readyCount }}/{{ serviceCoverage.totalCount }} 类可用
-                  </el-tag>
-                </div>
-                <p>每类服务可用需启用默认配置；默认配置还需凭据、模型或工作流完整。上方统计只看五类正式制作服务。</p>
-              </div>
-              <span class="coverage-test-note">连接测试结果来自后端记录或此设备保存的最近结果</span>
-            </div>
-            <div
-              v-if="configListPendingEmpty"
-              class="coverage-unresolved-state"
-              role="status"
-              aria-live="polite"
-            >
-              正在读取 AI 配置...
-            </div>
-            <div
-              v-else-if="configListFailedEmpty"
-              class="coverage-unresolved-state coverage-unresolved-state--error"
-              role="alert"
-            >
-              <div class="coverage-unresolved-copy">
-                <strong>暂时无法确认服务状态</strong>
-                <span>配置列表还没有成功加载，当前不能判断五类服务是否已配置。</span>
-              </div>
-              <el-button size="small" type="primary" plain :loading="loading || vendorLockLoading" @click="retryConfigDependencies">
-                重试
-              </el-button>
-            </div>
-            <template v-else>
-            <div class="coverage-summary-strip">
-              <div
-                v-for="card in coverageSummaryCards"
-                :key="card.key"
-                class="coverage-summary-card"
-                :class="`summary-${card.tone}`"
-              >
-                <span>{{ card.label }}</span>
-                <strong>{{ card.value }}</strong>
-              </div>
-            </div>
-            <AiConfigCoverageCards
-              :ordered-coverage-services="orderedCoverageServices"
-              :ordered-extraction-coverage-services="orderedExtractionCoverageServices"
-              :active-service-filter="activeServiceFilter"
-              :coverage-actions="coverageActions"
-              :is-coverage-action-testing="isCoverageActionTesting"
-              :is-coverage-action-disabled="isCoverageActionDisabled"
-              :set-coverage-card-ref="setCoverageCardRef"
-              @select="onCoverageSelect"
-              @action="onCoverageAction"
-            />
-            </template>
-          </section>
-          </div>
+          <AiConfigCoveragePanel
+            :config-workspace-view="configWorkspaceView"
+            :service-coverage="serviceCoverage"
+            :coverage-summary-cards="coverageSummaryCards"
+            :config-list-pending-empty="configListPendingEmpty"
+            :config-list-failed-empty="configListFailedEmpty"
+            :loading="loading || vendorLockLoading"
+            :retry-config-dependencies="retryConfigDependencies"
+            :ordered-coverage-services="orderedCoverageServices"
+            :ordered-extraction-coverage-services="orderedExtractionCoverageServices"
+            :active-service-filter="activeServiceFilter"
+            :coverage-actions="coverageActions"
+            :is-coverage-action-testing="isCoverageActionTesting"
+            :is-coverage-action-disabled="isCoverageActionDisabled"
+            :set-coverage-card-ref="setCoverageCardRef"
+            @select="onCoverageSelect"
+            @action="onCoverageAction"
+          />
 
-          <div
-            id="ai-config-configs-panel"
-            v-show="configWorkspaceView === 'configs'"
-            class="config-workspace-panel config-management-panel"
-            role="tabpanel"
-            aria-labelledby="ai-config-mode-configs"
-          >
-          <AiConfigListToolbar
+          <AiConfigConfigsPanel
+            :config-workspace-view="configWorkspaceView"
             :vendor-lock="vendorLock"
             :config-write-locked="configWriteLocked"
             :config-write-lock-reason="configWriteLockReason"
@@ -134,6 +47,7 @@
             :active-service-filter="activeServiceFilter"
             :filtered-count="filteredList.length"
             v-model:import-file-ref="importFileRef"
+            v-model:config-list-section-ref="configListSectionRef"
             :open-add="openAdd"
             :export-configs="exportConfigs"
             :trigger-import="triggerImport"
@@ -144,91 +58,24 @@
             :on-batch-delete="onBatchDelete"
             :open-bulk-key="openBulkKey"
             :clear-service-filter="clearServiceFilter"
+            :loading="loading"
+            :vendor-lock-loading="vendorLockLoading"
+            :rows="filteredList"
+            :config-empty-title="configEmptyTitle"
+            :config-empty-description="configEmptyDescription"
+            :config-list-failed-empty="configListFailedEmpty"
+            :config-list-pending-empty="configListPendingEmpty"
+            :is-config-row-selectable="isConfigRowSelectable"
+            :on-selection-change="onSelectionChange"
+            :open-test="openTest"
+            :on-row-edit="onRowEdit"
+            :on-delete="onDelete"
+            :retry-config-dependencies="retryConfigDependencies"
+            :open-add-for-service="openAddForService"
           />
-          <p class="default-tip">生成任务会优先使用同类服务中已启用的默认配置。即梦2角色认证、认证资产库、图片识别和语音转写属于扩展能力，不计入上方五类基础生成服务。</p>
-          <div ref="configListSectionRef" class="config-list-section">
-          <el-table
-            v-loading="loading"
-            :data="filteredList"
-            stripe
-            style="width: 100%"
-            @selection-change="onSelectionChange"
-          >
-            <el-table-column v-if="!vendorLock.enabled" type="selection" width="46" :selectable="isConfigRowSelectable" />
-            <el-table-column prop="name" label="名称" min-width="220" show-overflow-tooltip />
-            <el-table-column prop="provider" label="提供商" min-width="180" show-overflow-tooltip />
-            <el-table-column prop="base_url" label="接口地址（Base URL）" min-width="170" show-overflow-tooltip />
-            <el-table-column prop="default_model" label="默认模型" min-width="130" show-overflow-tooltip>
-              <template #default="{ row }">
-                {{ row.default_model || (Array.isArray(row.model) && row.model[0]) || '—' }}
-              </template>
-            </el-table-column>
-            <el-table-column prop="service_type" label="类型" width="148">
-              <template #default="{ row }">
-                <span :class="['type-badge', 'type-' + row.service_type]">
-                  <el-icon class="type-icon">
-                    <ChatDotRound v-if="row.service_type === 'text'" />
-                    <Picture v-else-if="row.service_type === 'image'" />
-                    <Film v-else-if="row.service_type === 'storyboard_image'" />
-                    <VideoCamera v-else-if="row.service_type === 'video'" />
-                    <Microphone v-else-if="row.service_type === 'tts'" />
-                    <Document v-else-if="row.service_type === 'ocr'" />
-                    <Headset v-else-if="row.service_type === 'transcription'" />
-                    <Key v-else-if="row.service_type === 'jimeng2_character_auth'" />
-                    <Folder v-else-if="row.service_type === 'model_ark_asset'" />
-                  </el-icon>
-                  {{ serviceTypeLabel(row.service_type) }}
-                </span>
-              </template>
-            </el-table-column>
-            <el-table-column prop="is_default" label="默认" width="60">
-              <template #default="{ row }">
-                <el-tag v-if="row.is_default" type="success" size="small">✓</el-tag>
-                <span v-else class="no-default">—</span>
-              </template>
-            </el-table-column>
-            <el-table-column label="操作" width="180" fixed="right">
-              <template #default="{ row }">
-                <el-button link type="primary" size="small" :aria-label="configActionLabel('测试', row)" @click="openTest(row)">测试</el-button>
-                <el-button link type="primary" size="small" :disabled="configWriteLocked" :title="configWriteLocked ? configWriteLockReason : undefined" :aria-label="configActionLabel(vendorLock.enabled ? '修改密钥' : '编辑', row)" @click="onRowEdit(row)">{{ vendorLock.enabled ? '修改密钥' : '编辑' }}</el-button>
-                <el-button v-if="!vendorLock.enabled" link type="danger" size="small" :disabled="configWriteLocked" :title="configWriteLocked ? configWriteLockReason : undefined" :aria-label="configActionLabel('删除', row)" @click="onDelete(row)">删除</el-button>
-              </template>
-            </el-table-column>
-            <template #empty>
-              <div class="config-empty-state">
-                <el-icon class="config-empty-icon"><MagicStick /></el-icon>
-                <strong>{{ configEmptyTitle }}</strong>
-                <span>{{ configEmptyDescription }}</span>
-                <div class="config-empty-actions">
-                  <el-button
-                    v-if="configListFailedEmpty"
-                    type="primary"
-                    size="small"
-                    :loading="loading || vendorLockLoading"
-                    @click="retryConfigDependencies"
-                  >
-                    重试
-                  </el-button>
-                  <el-button
-                    v-else-if="!vendorLock.enabled && !configListPendingEmpty"
-                    type="primary"
-                    size="small"
-                    :disabled="configWriteLocked"
-                    :title="configWriteLocked ? configWriteLockReason : undefined"
-                    @click="openAddForService(activeServiceFilter || 'text')"
-                  >
-                    <el-icon><Plus /></el-icon>
-                    {{ activeServiceFilter ? `添加${serviceTypeLabel(activeServiceFilter)}配置` : '添加第一个配置' }}
-                  </el-button>
-                  <el-button v-if="activeServiceFilter && !configListFailedEmpty" size="small" @click="clearServiceFilter">查看全部</el-button>
-                </div>
-              </div>
-            </template>
-          </el-table>
-          </div>
-          </div>
         </div>
       </el-tab-pane>
+
       <el-tab-pane v-if="hasSavedConfigs" label="高级设置（提示词）" name="prompts">
         <div class="tab-content">
           <PromptEditor ref="promptEditorRef" />
@@ -240,104 +87,21 @@
         </div>
       </el-tab-pane>
       <el-tab-pane label="生成设置" name="generation">
-        <div class="tab-content generation-settings">
-          <div class="gs-section-title">⚡ 一键生成并发设置</div>
-          <p class="gs-desc">控制「一键生成视频」和「补全并生成」流水线中，各类任务同时并行生成的数量。并发数越高速度越快，但过高可能触发接口限流（请求过于频繁）。建议根据你的 API 额度选择。</p>
-
-          <div
-            v-if="generationSettingsLoadState === 'error'"
-            class="generation-settings-load-state generation-settings-load-state--error"
-            role="alert"
-            aria-live="assertive"
-          >
-            <div class="generation-settings-load-copy">
-              <strong>生成设置读取失败</strong>
-              <span>{{ generationSettingsLoadError }}</span>
-            </div>
-            <el-button size="small" type="primary" plain @click="loadGenerationSettings">重试</el-button>
-          </div>
-          <div
-            v-else-if="generationSettingsLoadState === 'loading'"
-            class="generation-settings-load-state"
-            role="status"
-            aria-live="polite"
-          >
-            正在读取生成设置...
-          </div>
-          <template v-else>
-          <div class="gs-row">
-            <span class="gs-label">图片并发数</span>
-            <el-select
-              v-model="genConcurrencyInput"
-              filterable
-              allow-create
-              default-first-option
-              aria-label="图片并发数"
-              placeholder="选择或输入并发数"
-              no-data-text="暂无可选项，可直接输入"
-              style="width: 180px"
-              @change="onConcurrencyChange"
-            >
-              <el-option label="1（串行，最稳定）" :value="1" />
-              <el-option label="2" :value="2" />
-              <el-option label="3（默认）" :value="3" />
-              <el-option label="5" :value="5" />
-              <el-option label="8" :value="8" />
-              <el-option label="10" :value="10" />
-            </el-select>
-            <span class="gs-unit">个任务同时生成</span>
-          </div>
-
-          <div class="gs-row" style="margin-top: 10px">
-            <span class="gs-label">视频并发数</span>
-            <el-select
-              v-model="genVideoConcurrencyInput"
-              filterable
-              allow-create
-              default-first-option
-              aria-label="视频并发数"
-              placeholder="选择或输入并发数"
-              no-data-text="暂无可选项，可直接输入"
-              style="width: 180px"
-              @change="onVideoConcurrencyChange"
-            >
-              <el-option label="1（串行，最稳定）" :value="1" />
-              <el-option label="2" :value="2" />
-              <el-option label="3（默认）" :value="3" />
-              <el-option label="5" :value="5" />
-              <el-option label="8" :value="8" />
-              <el-option label="10" :value="10" />
-            </el-select>
-            <span class="gs-unit">个任务同时生成</span>
-          </div>
-
-          <div style="margin-top: 14px">
-            <el-button
-              type="primary"
-              size="small"
-              aria-label="保存生成设置"
-              :loading="genSettingSaving"
-              :disabled="generationSettingsWriteLocked"
-              :title="generationSettingsWriteLocked ? generationSettingsWriteLockReason : undefined"
-              @click="saveGenerationSettings"
-            >保存</el-button>
-          </div>
-          <el-alert
-            v-if="genSettingSaved"
-            type="success"
-            title="已保存"
-            :closable="false"
-            show-icon
-            style="margin-top: 12px; width: fit-content"
-          />
-          </template>
-          <div class="gs-tip-box">
-            <div class="gs-tip-title">📌 适用范围</div>
-            <ul class="gs-tip-list">
-              <li>图片并发：步骤 2 角色图、步骤 4 场景图、步骤 6 分镜图</li>
-              <li>视频并发：步骤 7 分镜视频</li>
-            </ul>
-          </div>
+        <div class="tab-content">
+        <AiConfigGenerationSettingsPane
+          v-model:gen-concurrency-input="genConcurrencyInput"
+          v-model:gen-video-concurrency-input="genVideoConcurrencyInput"
+          :generation-settings-load-state="generationSettingsLoadState"
+          :generation-settings-load-error="generationSettingsLoadError"
+          :gen-setting-saving="genSettingSaving"
+          :gen-setting-saved="genSettingSaved"
+          :generation-settings-write-locked="generationSettingsWriteLocked"
+          :generation-settings-write-lock-reason="generationSettingsWriteLockReason"
+          :load-generation-settings="loadGenerationSettings"
+          :save-generation-settings="saveGenerationSettings"
+          :on-concurrency-change="onConcurrencyChange"
+          :on-video-concurrency-change="onVideoConcurrencyChange"
+        />
         </div>
       </el-tab-pane>
       <el-tab-pane v-if="hasSavedConfigs" label="认证资产管理" name="sd2_assets">
@@ -451,11 +215,11 @@
 </template>
 
 <script setup>
-import { ref, computed, nextTick, onMounted, onBeforeUnmount, watch } from 'vue'
-import { ElMessage, ElMessageBox } from '@/utils/elementPlusFeedback.js'
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
+import { ElMessage } from '@/utils/elementPlusFeedback.js'
+import { formatJimeng2AssetCreatedAt } from '@/components/aiConfig/aiConfigFormatters.js'
 import { toUserFacingError, isUserFacingAbort } from '@/utils/userFacingError'
 import { runWithOwnedRequestErrorToast } from '@/utils/request'
-import { Plus, MagicStick, ChatDotRound, Picture, Film, VideoCamera, Key, Microphone, Folder, Document, Headset } from '@element-plus/icons-vue'
 import { aiAPI } from '@/api/ai'
 import { generationSettingsAPI } from '@/api/prompts'
 import { useAiConfigGenerationSettings } from '@/composables/useAiConfigGenerationSettings.js'
@@ -465,83 +229,51 @@ import { useAiConfigRowMutations } from '@/composables/useAiConfigRowMutations.j
 import { useAiConfigDiscoverModels } from '@/composables/useAiConfigDiscoverModels.js'
 import { useAiConfigVendorLock } from '@/composables/useAiConfigVendorLock.js'
 import { useAiConfigJimeng2Assets } from '@/composables/useAiConfigJimeng2Assets.js'
-import {
-  parseModelText,
-  isOpenAiCompatibleConfig,
-  hasDiscoverableCredential,
-} from '@/utils/aiConfigDiscoverModels.js'
-import {
-  hidesApiProtocolField,
-  serviceTypeLabel,
-  configActionLabel,
-} from '@/utils/aiConfigLabels.js'
+import { useAiConfigFormActions } from '@/composables/useAiConfigFormActions.js'
+import { useAiConfigSessionStatus } from '@/composables/useAiConfigSessionStatus.js'
+import { useAiConfigPageRequests } from '@/composables/useAiConfigPageRequests.js'
+import { isOpenAiCompatibleConfig } from '@/utils/aiConfigDiscoverModels.js'
 import { describeConnectionTestError } from '@/utils/aiConfigConnectionTest.js'
-import {
-  parseSettings,
-  parseComfyWorkflowJson,
-  isDeepSeekOfficial,
-  resolveDeepSeekFormSettings,
-} from '@/utils/aiConfigFormSettings.js'
-import { applyProviderSelection } from '@/utils/aiConfigProviderSelection.js'
-import { createBlankAiConfigForm, hydrateAiConfigForm } from '@/utils/aiConfigFormState.js'
-import {
-  findExistingDefaultConfig,
-  buildReplaceDefaultConfirmCopy,
-  buildAiConfigSubmitPayload,
-} from '@/utils/aiConfigSubmitPayload.js'
-import {
-  buildAvailableProviderOptions,
-  buildAvailableModels,
-  providerModelEmptyHint as describeProviderModelEmptyHint,
-  describeConfigEditTarget,
-} from '@/utils/aiConfigProviderOptions.js'
-import {
-  applyServiceTypeChange,
-  appendModelToList,
-  applyPresetModelSelect,
-} from '@/utils/aiConfigServiceTypeChange.js'
-import { buildEndpointPreviewInfo } from '@/utils/aiConfigEndpointPreview.js'
+import { describeConfigEditTarget } from '@/utils/aiConfigProviderOptions.js'
 import { buildAiServiceCoverage, sortAiServiceCoverage } from '@/utils/aiConfigCoverage.js'
 import { useAiConfigCoverage } from '@/composables/useAiConfigCoverage.js'
 import { useAiConfigWorkspaceView } from '@/composables/useAiConfigWorkspaceView.js'
+import { useAiConfigFormDerived } from '@/composables/useAiConfigFormDerived.js'
+import { useAiConfigFormRules } from '@/composables/useAiConfigFormRules.js'
+import { useAiConfigWriteLock } from '@/composables/useAiConfigWriteLock.js'
+import { useAiConfigEmptyCopy } from '@/composables/useAiConfigEmptyCopy.js'
+import { useAiConfigPageChrome } from '@/composables/useAiConfigPageChrome.js'
 import {
-  DEFAULT_MODEL_VALIDATION_MESSAGE,
   isMaskedSecret,
-  isDefaultModelSelectionValid as isValidDefaultModelSelection,
-  configFormFingerprint as fingerprintConfigForm,
   useAiConfigUnsaved,
 } from '@/composables/useAiConfigUnsaved.js'
+import { createAiConfigConnectionStatusStore } from '@/utils/aiConfigConnectionStatusStore.js'
 import {
-  createAiConfigConnectionStatusStore,
-  resolveAiConfigConnectionStatusScope,
-} from '@/utils/aiConfigConnectionStatusStore.js'
-import {
-  confirmAiConfigMutationInList,
-  confirmAiConfigMutationResult,
   runAiConfigCreateBatch,
 } from '@/utils/aiConfigMutations.js'
-import { applyAiConfigRepairTarget } from '@/utils/aiConfigRepairTarget.js'
-import { CUSTOM_PROVIDER_SENTINEL, getBaseUrlForProvider, getProviderEndpointDefaults, getProviderProtocol, isApiKeyOptionalProvider, providerConfigs } from '@/utils/aiProviderPresets.js'
-import { buildProviderPricing, parseSettingsObject, readProviderPricingForm } from '@/utils/providerPricing.js'
-import { shouldApplyConfigWorkspaceRequest } from '@/utils/aiConfigWorkspace.js'
+import { jsonRequestOptions } from '@/utils/aiConfigRequestOptions.js'
+import {
+  normalizeInitialServiceType,
+  shouldApplyConfigWorkspaceRequest,
+} from '@/utils/aiConfigWorkspace.js'
 import PromptEditor from '@/components/PromptEditor.vue'
 import SceneModelMap from '@/components/SceneModelMap.vue'
 import Sd2AssetManagement from '@/components/Sd2AssetManagement.vue'
-import AiConfigCoverageCards from '@/components/aiConfig/AiConfigCoverageCards.vue'
+import AiConfigWorkspaceSwitch from '@/components/aiConfig/AiConfigWorkspaceSwitch.vue'
+import AiConfigCoveragePanel from '@/components/aiConfig/AiConfigCoveragePanel.vue'
+import AiConfigConfigsPanel from '@/components/aiConfig/AiConfigConfigsPanel.vue'
 import AiConfigDependencyErrorBar from '@/components/aiConfig/AiConfigDependencyErrorBar.vue'
-import AiConfigListToolbar from '@/components/aiConfig/AiConfigListToolbar.vue'
 import AiConfigFormDialog from '@/components/aiConfig/AiConfigFormDialog.vue'
 import AiConfigOneKeyDialogs from '@/components/aiConfig/AiConfigOneKeyDialogs.vue'
 import AiConfigBulkKeyDialog from '@/components/aiConfig/AiConfigBulkKeyDialog.vue'
 import AiConfigConnectionTestDialog from '@/components/aiConfig/AiConfigConnectionTestDialog.vue'
 import AiConfigJimeng2AssetsDialog from '@/components/aiConfig/AiConfigJimeng2AssetsDialog.vue'
+import AiConfigGenerationSettingsPane from '@/components/aiConfig/AiConfigGenerationSettingsPane.vue'
 import { createOperationId, logOperation } from '@/utils/operationLog'
 import {
   DEFAULT_CONNECTION_TEST_TIMEOUT_MS,
-  DEFAULT_JSON_TIMEOUT_MS,
   describeServiceLoadError,
   isRequestCanceled,
-  isRequestTimeout,
   withRequestRetry,
 } from '@/utils/requestError'
 const props = defineProps({
@@ -552,17 +284,6 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['configuration-changed'])
-
-function notifyConfigurationChanged() {
-  emit('configuration-changed')
-}
-
-const filterableServiceTypes = new Set(['text', 'image', 'storyboard_image', 'video', 'tts', 'ocr', 'transcription'])
-
-function normalizeInitialServiceType(value) {
-  const normalized = String(value || '').trim()
-  return filterableServiceTypes.has(normalized) ? normalized : ''
-}
 
 const activeTab = ref('configs')
 const promptEditorRef = ref(null)
@@ -630,31 +351,13 @@ watch(
     await applyRequestedService(normalized)
   },
 )
-const sessionTestStatusById = ref({})
 let connectionStatusStore = createAiConfigConnectionStatusStore()
 let configListAbortController = null
 let connectionTestAbortController = null
-let connectionStatusScopeAbortController = null
 let lastTestedConfig = null
 let abortDiscoverModelsRequest = () => {}
 let resetDiscoverModelsState = () => {}
 let abortVendorLockRequest = () => {}
-
-function abortAiConfigPageRequests() {
-  configListAbortController?.abort()
-  abortVendorLockRequest()
-  abortGenerationSettingsRequest()
-  connectionTestAbortController?.abort()
-  connectionStatusScopeAbortController?.abort()
-  abortDiscoverModelsRequest()
-  configListAbortController = null
-  connectionTestAbortController = null
-  connectionStatusScopeAbortController = null
-}
-
-function jsonRequestOptions(signal, timeout = DEFAULT_JSON_TIMEOUT_MS) {
-  return { signal, timeout, suppressErrorToast: true }
-}
 
 const {
   vendorLock,
@@ -669,22 +372,15 @@ const {
 })
 abortVendorLockRequest = abortVendorLockFromComposable
 
-async function initializeConnectionStatusStore() {
-  connectionStatusScopeAbortController?.abort()
-  const controller = new AbortController()
-  connectionStatusScopeAbortController = controller
-  const scope = await resolveAiConfigConnectionStatusScope({
-    fallbackScope: import.meta.env.VITE_LOCALMINIDRAMA_INSTANCE_ID || '',
-    signal: controller.signal,
-  })
-  if (controller.signal.aborted) return
-  connectionStatusStore = createAiConfigConnectionStatusStore({ scope })
-}
-
-function invalidateConnectionTestResults() {
-  connectionStatusStore.invalidateAll()
-  sessionTestStatusById.value = {}
-}
+const {
+  sessionTestStatusById,
+  initializeConnectionStatusStore,
+  invalidateConnectionTestResults,
+  abortConnectionStatusScopeRequest,
+} = useAiConfigSessionStatus({
+  getConnectionStatusStore: () => connectionStatusStore,
+  setConnectionStatusStore: (store) => { connectionStatusStore = store },
+})
 const selectedRows = ref([])
 const batchDeleting = ref(false)
 const dialogVisible = ref(false)
@@ -738,13 +434,27 @@ const form = ref({
 })
 const presetModelPick = ref('')
 
-const formModelList = computed(() => parseModelText(form.value.modelText))
-const discoverModelsDisabledReason = computed(() => {
-  if (!String(form.value.base_url || '').trim()) return '请先填写接口地址'
-  if (hasDiscoverableCredential(form.value)) return ''
-  return '请先填写 API 密钥后再读取模型'
+const {
+  formModelList,
+  discoverModelsDisabledReason,
+  discoverModelsDisabled,
+  isDeepSeekOfficialForm,
+  isComfyUiForm,
+  isDefaultModelUnavailable,
+  isDefaultModelSelectionValid,
+  availableProviderOptions,
+  availableModels,
+  providerModelEmptyHint,
+  endpointPreviewInfo,
+  onProviderChange,
+  onServiceTypeChange,
+  onPresetModelSelect,
+  onDefaultModelChange,
+} = useAiConfigFormDerived({
+  form,
+  editingId,
+  presetModelPick,
 })
-const discoverModelsDisabled = computed(() => Boolean(discoverModelsDisabledReason.value))
 const {
   discoverModelsLoading,
   discoverModelsFromService,
@@ -775,135 +485,15 @@ const {
   jimeng2AssetsHasMore,
   jimeng2AssetsNextCursor,
 })
-const isDefaultModelUnavailable = computed(() => {
-  const selected = String(form.value.default_model || '').trim()
-  return Boolean(selected && !formModelList.value.includes(selected))
+const {
+  defaultModelRules,
+  rules,
+} = useAiConfigFormRules({
+  form,
+  isComfyUiForm,
+  isDefaultModelSelectionValid,
 })
 
-function isDefaultModelSelectionValid(value) {
-  return isValidDefaultModelSelection(value, {
-    isComfyUi: isComfyUiForm.value,
-    modelList: formModelList.value,
-  })
-}
-
-const defaultModelRules = [
-  {
-    validator: (_rule, value, cb) => {
-      if (isDefaultModelSelectionValid(value)) return cb()
-      cb(new Error(DEFAULT_MODEL_VALIDATION_MESSAGE))
-    },
-    trigger: 'change',
-  },
-]
-
-// 新增配置延续首项默认值；用户手填的自定义模型会同步进列表，避免被首项覆盖。编辑时保留已失效历史值。
-watch(
-  () => [formModelList.value, form.value.default_model],
-  () => {
-    const list = formModelList.value
-    const current = String(form.value.default_model || '').trim()
-    if (current && !list.includes(current) && form.value.service_type !== 'jimeng2_character_auth') {
-      if (!editingId.value) ensureModelInList(current)
-      return
-    }
-    if (editingId.value || list.length === 0) return
-    if (!current || !list.includes(current)) {
-      form.value.default_model = list[0] || ''
-    }
-  },
-  { immediate: true }
-)
-
-function onServiceTypeChange() {
-  applyServiceTypeChange(form.value, { editingId: editingId.value })
-}
-
-function ensureModelInList(modelName) {
-  appendModelToList(form.value, modelName)
-}
-
-function onPresetModelSelect(value) {
-  applyPresetModelSelect(form.value, value)
-  presetModelPick.value = ''
-}
-
-function onDefaultModelChange(value) {
-  appendModelToList(form.value, value)
-}
-
-const rules = computed(() => ({
-  service_type: [{ required: true, message: '请选择服务类型', trigger: 'change' }],
-  name: [{ required: true, message: '请输入名称', trigger: 'blur' }],
-  provider: [{ required: true, message: '请选择或输入厂商', trigger: 'change' }],
-  base_url: [{ required: true, message: '请输入接口地址（Base URL）', trigger: 'blur' }],
-  api_key: [
-    {
-      validator: (_rule, v, cb) => {
-        const st = form.value.service_type
-        if (st === 'jimeng2_character_auth') {
-          if (v != null && String(v).trim()) return cb()
-          return cb(new Error('请填写令牌（Token）'))
-        }
-        const proto = form.value.api_protocol
-        if (isApiKeyOptionalProvider(form.value.provider, proto)) return cb()
-        const ak = (form.value.kling_access_key || '').trim()
-        const sk = (form.value.kling_secret_key || '').trim()
-        if (st === 'video' && proto === 'kling_omni' && ak && sk) return cb()
-        if (v != null && String(v).trim()) return cb()
-        cb(new Error('请输入 API 密钥，或使用官方 AccessKey + SecretKey（可不填 API 密钥）'))
-      },
-      trigger: 'blur',
-    },
-  ],
-  api_protocol: [
-    {
-      validator: (_rule, value, cb) => {
-        const st = form.value.service_type
-        const protocolVisible = !hidesApiProtocolField(st)
-        const presetProvider = (providerConfigs[st] || []).some((item) => item.id === form.value.provider)
-        if (!protocolVisible || presetProvider || String(value || '').trim()) return cb()
-        cb(new Error('自定义厂商请选择接口规范'))
-      },
-      trigger: 'change',
-    },
-  ],
-  endpoint: [
-    {
-      validator: (_rule, value, cb) => {
-        const st = form.value.service_type
-        const presetProvider = (providerConfigs[st] || []).some((item) => item.id === form.value.provider)
-        if (st !== 'video' || presetProvider || String(value || '').trim()) return cb()
-        cb(new Error('自定义视频厂商请输入提交端点'))
-      },
-      trigger: 'blur',
-    },
-  ],
-  modelText: [
-    {
-      validator: (_rule, value, cb) => {
-        if (form.value.service_type === 'jimeng2_character_auth' || isComfyUiForm.value || parseModelText(value).length > 0) return cb()
-        cb(new Error('请填写至少一个模型'))
-      },
-      trigger: 'blur',
-    },
-  ],
-  default_model: defaultModelRules,
-  comfy_workflow_json: [
-    {
-      validator: (_rule, value, cb) => {
-        if (!isComfyUiForm.value) return cb()
-        try {
-          parseComfyWorkflowJson(value)
-          cb()
-        } catch (error) {
-          cb(error)
-        }
-      },
-      trigger: 'blur',
-    },
-  ],
-}))
 const testVisible = ref(false)
 const testResult = ref(null)
 const testServiceType = ref('')
@@ -962,291 +552,21 @@ const filteredList = computed(() => {
   return list.value.filter((row) => row.service_type === activeServiceFilter.value)
 })
 
-const configWriteLocked = computed(() => (
-  configLoadState.value !== 'ready'
-  || !vendorLockResolved.value
-  || saving.value
-  || bulkKeySaving.value
-  || batchDeleting.value
-  || oneKeyTongyiSaving.value
-  || oneKeyVolcSaving.value
-  || oneKeyAgnesSaving.value
-))
-
-const configWriteLockReason = computed(() => {
-  if (saving.value) return '正在保存配置，请稍候'
-  if (bulkKeySaving.value) return '正在批量替换密钥，请稍候'
-  if (batchDeleting.value) return '正在批量删除配置，请稍候'
-  if (oneKeyTongyiSaving.value || oneKeyVolcSaving.value || oneKeyAgnesSaving.value) {
-    return '正在一键配置，请稍候'
-  }
-  if (configLoadState.value !== 'ready') return '配置列表尚未就绪'
-  if (!vendorLockResolved.value) return '厂商锁定状态尚未解析'
-  return ''
-})
-
-function formatJimeng2AssetCreatedAt(value) {
-  const timestamp = Date.parse(String(value ?? ''))
-  if (!Number.isFinite(timestamp)) return ''
-  return new Date(timestamp).toLocaleString('zh-CN', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  })
-}
-
 const {
-  openOneKeyTongyi,
-  submitOneKeyTongyi,
-  openOneKeyVolc,
-  submitOneKeyVolc,
-  openOneKeyAgnes,
-  submitOneKeyAgnes,
-} = useAiConfigOneKeyPresets({
-  ElMessage,
-  aiAPI,
-  runAiConfigCreateBatch,
   configWriteLocked,
-  oneKeyTongyiVisible,
-  oneKeyTongyiKey,
-  oneKeyTongyiSaving,
-  oneKeyVolcVisible,
-  oneKeyVolcKey,
-  oneKeyVolcSaving,
-  oneKeyAgnesVisible,
-  oneKeyAgnesKey,
-  oneKeyAgnesSaving,
-  loadList,
-  list,
-  configLoadError,
-  invalidateConnectionTestResults,
-  notifyConfigurationChanged,
-})
-
-const {
-  exportConfigs,
-  triggerImport,
-  importConfigs,
-} = useAiConfigImportExport({
-  ElMessage,
-  aiAPI,
-  runAiConfigCreateBatch,
-  configWriteLocked,
-  importFileRef,
-  loadList,
-  list,
-  configLoadError,
-  invalidateConnectionTestResults,
-  notifyConfigurationChanged,
-})
-
-const {
-  openBulkKey,
-  submitBulkKey,
-  onDelete,
-  onSelectionChange,
-  onBatchDelete,
-} = useAiConfigRowMutations({
-  ElMessage,
-  ElMessageBox,
-  aiAPI,
-  configWriteLocked,
-  bulkKeyInput,
-  bulkKeyVisible,
-  bulkKeySaving,
-  selectedRows,
-  batchDeleting,
-  loadList,
-  list,
-  invalidateConnectionTestResults,
-  notifyConfigurationChanged,
-})
-
-const configListPendingEmpty = computed(() => (
-  !list.value.length && configLoadState.value !== 'ready' && configLoadState.value !== 'error'
-))
-const configListFailedEmpty = computed(() => (
-  !list.value.length && configLoadState.value === 'error'
-))
-const configEmptyTitle = computed(() => {
-  if (configListFailedEmpty.value) return '暂时无法读取配置列表'
-  if (configListPendingEmpty.value) return '正在读取配置列表'
-  if (activeServiceFilter.value) return `暂无${serviceTypeLabel(activeServiceFilter.value)}配置`
-  return '还没有 AI 服务配置'
-})
-const configEmptyDescription = computed(() => {
-  if (configListFailedEmpty.value) {
-    return configLoadError.value || '请点击重试后再查看或添加配置。'
-  }
-  if (configListPendingEmpty.value) return '正在从本地服务读取已保存的厂商配置。'
-  if (activeServiceFilter.value === 'ocr') return '添加一个配置并设为默认，即可用于 PDF/图片识别。'
-  if (activeServiceFilter.value === 'transcription') return '添加一个配置并设为默认，即可用于音频/视频转写。'
-  if (activeServiceFilter.value) return '添加一个配置并设为默认，即可用于对应生成环节。'
-  return '先添加文本、图片或视频厂商，生成流程会自动使用默认配置。'
-})
-
-const configDependencyError = computed(() => (
-  [configLoadError.value, vendorLockError.value].filter(Boolean).join('；')
-))
-
-watch(configWriteLocked, (locked) => {
-  if (locked) selectedRows.value = []
-})
-
-const canAutoOpenMissingService = computed(() => (
-  configLoadState.value === 'ready' && vendorLockResolved.value
-))
-
-const {
-  coverageActions,
-  onCoverageSelect,
-  onCoverageAction,
-  shouldAutoOpenRequestedService,
-  focusServiceConfigs,
-  applyRequestedService,
-  setCoverageCardRef,
-  isCoverageActionTesting: isCoverageActionTestingFromCoverage,
-  restoreTestedCoverageCardFocus: restoreCoverageCardFocus,
-} = useAiConfigCoverage({
-  vendorLock,
-  configWriteLocked,
-  testingConfigId,
+  configWriteLockReason,
   canAutoOpenMissingService,
-  configWorkspaceView,
-  activeServiceFilter,
-  serviceCoverage,
-  coverageWorkspaceModeRef,
-  configListSectionRef,
-  selectConfigWorkspaceView,
-  normalizeInitialServiceType,
-  openAddForService,
-  openEdit,
-  openTest,
-  abortConnectionTest: () => { connectionTestAbortController?.abort() },
+} = useAiConfigWriteLock({
+  configLoadState,
+  vendorLockResolved,
+  saving,
+  bulkKeySaving,
+  batchDeleting,
+  oneKeyTongyiSaving,
+  oneKeyVolcSaving,
+  oneKeyAgnesSaving,
+  selectedRows,
 })
-
-function clearServiceFilter() {
-  activeServiceFilter.value = ''
-}
-
-function isCoverageActionTesting(item, action) {
-  return isCoverageActionTestingFromCoverage(item, action)
-}
-
-function isCoverageActionDisabled(item, action) {
-  if (['add', 'edit'].includes(action.action)) return configWriteLocked.value
-  if (action.action !== 'test') return false
-  return isCoverageActionTesting(item, action) || testingConfigId.value !== null
-}
-
-function isConfigRowSelectable() {
-  return !configWriteLocked.value
-}
-
-async function restoreTestedCoverageCardFocus() {
-  connectionTestAbortController?.abort()
-  await restoreCoverageCardFocus()
-}
-
-const isDeepSeekOfficialForm = computed(() => (
-  form.value.service_type === 'text'
-  && isDeepSeekOfficial(form.value.provider, form.value.base_url)
-))
-
-const isComfyUiForm = computed(() => (
-  ['image', 'storyboard_image'].includes(String(form.value.service_type || '').toLowerCase())
-    && ['comfyui', 'comfy_ui'].includes(String(form.value.api_protocol || form.value.provider || '').toLowerCase())
-))
-
-/** 当前服务类型下的预设厂商列表（编辑时若当前 provider 不在列表则补一项；末尾始终附一项自定义入口） */
-const availableProviderOptions = computed(() => buildAvailableProviderOptions(
-  form.value.service_type,
-  form.value.provider,
-  { editingId: editingId.value },
-))
-
-/** 当前厂商的预设模型列表（用于追加预设模型） */
-const availableModels = computed(() => buildAvailableModels(form.value.service_type, form.value.provider))
-
-const providerModelEmptyHint = computed(() => describeProviderModelEmptyHint(
-  form.value.service_type,
-  form.value.provider,
-  availableModels.value,
-))
-
-const endpointPreviewInfo = computed(() => buildEndpointPreviewInfo(form.value))
-
-function onProviderChange(providerId) {
-  applyProviderSelection(form.value, providerId, { editingId: editingId.value })
-}
-
-function onRowEdit(row) {
-  if (configWriteLocked.value) return
-  const target = describeConfigEditTarget(row)
-  if (target.tab) {
-    activeTab.value = target.tab
-    ElMessage.info(target.message)
-    return
-  }
-  openEdit(row)
-}
-
-async function handleSd2AssetSaved() {
-  invalidateConnectionTestResults()
-  notifyConfigurationChanged()
-  await loadList()
-}
-
-async function loadList() {
-  configListAbortController?.abort()
-  const controller = new AbortController()
-  configListAbortController = controller
-  const requestId = ++configListLoadSequence
-  loading.value = true
-  configLoadState.value = list.value.length ? 'refreshing' : 'loading'
-  try {
-    const nextList = await withRequestRetry(
-      () => aiAPI.list(undefined, jsonRequestOptions(controller.signal)),
-      { maxAttempts: 2, delayMs: 400, signal: controller.signal },
-    )
-    if (requestId !== configListLoadSequence) return false
-    list.value = nextList
-    sessionTestStatusById.value = connectionStatusStore.forConfigs(list.value)
-    configLoadError.value = ''
-    configLoadState.value = 'ready'
-    return true
-  } catch (error) {
-    if (isRequestCanceled(error) || requestId !== configListLoadSequence) return false
-    configLoadError.value = describeServiceLoadError(error, {
-      serviceLabel: 'AI 配置服务',
-      fallback: '暂时无法读取 AI 配置，请稍后重试。',
-      signal: controller.signal,
-    })
-    configLoadState.value = 'error'
-    return false
-  } finally {
-    if (requestId === configListLoadSequence) loading.value = false
-    if (configListAbortController === controller) configListAbortController = null
-  }
-}
-
-function resetForm() {
-  resetDiscoverModelsState()
-  editingId.value = null
-  editingUpdatedAt.value = ''
-  presetModelPick.value = ''
-  advancedFormSections.value = []
-  clearConfigValidationSummary()
-  form.value = createBlankAiConfigForm()
-  formRef.value?.resetFields?.()
-}
-
-function configFormFingerprint() {
-  return fingerprintConfigForm(form.value)
-}
 
 const configFormDirty = computed(() => (
   dialogVisible.value
@@ -1312,129 +632,219 @@ defineExpose({
   requestClose,
 })
 
-function openConfigDialog() {
-  configDialogSaved.value = false
-  clearConfigValidationSummary()
-  dialogVisible.value = true
-  nextTick(() => {
-    configFormBaseline.value = configFormFingerprint()
-    if (configDialogScrollRef.value) configDialogScrollRef.value.scrollTop = 0
-  })
+const {
+  notifyConfigurationChanged,
+  resetForm,
+  configFormFingerprint,
+  openConfigDialog,
+  openAdd,
+  openAddForService,
+  openEdit,
+  confirmReplaceDefaultConfig,
+  submit,
+} = useAiConfigFormActions({
+  emit,
+  ElMessage,
+  configWriteLocked,
+  form,
+  formRef,
+  editingId,
+  editingUpdatedAt,
+  presetModelPick,
+  advancedFormSections,
+  dialogVisible,
+  configDialogSaved,
+  configFormBaseline,
+  configDialogScrollRef,
+  saving,
+  list,
+  loadList,
+  resetDiscoverModelsState: () => resetDiscoverModelsState(),
+  clearConfigValidationSummary,
+  handleConfigValidationFailure,
+  onServiceTypeChange,
+  activeServiceFilter,
+  apiKeyInputRef,
+  modelListInputRef,
+  workflowInputRef,
+  isComfyUiForm,
+  isDeepSeekOfficialForm,
+  invalidateConnectionTestResults,
+})
+
+const {
+  handleConfigDialogClosed,
+  clearServiceFilter,
+  isConfigRowSelectable,
+} = useAiConfigPageChrome({
+  resetForm,
+  configFormBaseline,
+  configDialogSaved,
+  activeServiceFilter,
+  configWriteLocked,
+})
+
+const {
+  openOneKeyTongyi,
+  submitOneKeyTongyi,
+  openOneKeyVolc,
+  submitOneKeyVolc,
+  openOneKeyAgnes,
+  submitOneKeyAgnes,
+} = useAiConfigOneKeyPresets({
+  ElMessage,
+  aiAPI,
+  runAiConfigCreateBatch,
+  configWriteLocked,
+  oneKeyTongyiVisible,
+  oneKeyTongyiKey,
+  oneKeyTongyiSaving,
+  oneKeyVolcVisible,
+  oneKeyVolcKey,
+  oneKeyVolcSaving,
+  oneKeyAgnesVisible,
+  oneKeyAgnesKey,
+  oneKeyAgnesSaving,
+  loadList,
+  list,
+  configLoadError,
+  invalidateConnectionTestResults,
+  notifyConfigurationChanged,
+})
+
+const {
+  exportConfigs,
+  triggerImport,
+  importConfigs,
+} = useAiConfigImportExport({
+  ElMessage,
+  aiAPI,
+  runAiConfigCreateBatch,
+  configWriteLocked,
+  importFileRef,
+  loadList,
+  list,
+  configLoadError,
+  invalidateConnectionTestResults,
+  notifyConfigurationChanged,
+})
+
+const {
+  openBulkKey,
+  submitBulkKey,
+  onDelete,
+  onSelectionChange,
+  onBatchDelete,
+} = useAiConfigRowMutations({
+  ElMessage,
+  aiAPI,
+  configWriteLocked,
+  bulkKeyInput,
+  bulkKeyVisible,
+  bulkKeySaving,
+  selectedRows,
+  batchDeleting,
+  loadList,
+  list,
+  invalidateConnectionTestResults,
+  notifyConfigurationChanged,
+})
+
+const {
+  configListPendingEmpty,
+  configListFailedEmpty,
+  configEmptyTitle,
+  configEmptyDescription,
+  configDependencyError,
+} = useAiConfigEmptyCopy({
+  list,
+  configLoadState,
+  configLoadError,
+  vendorLockError,
+  activeServiceFilter,
+})
+
+const {
+  coverageActions,
+  onCoverageSelect,
+  onCoverageAction,
+  shouldAutoOpenRequestedService,
+  focusServiceConfigs,
+  applyRequestedService,
+  setCoverageCardRef,
+  isCoverageActionTesting,
+  isCoverageActionDisabled,
+  restoreTestedCoverageCardFocus: restoreCoverageCardFocus,
+} = useAiConfigCoverage({
+  vendorLock,
+  configWriteLocked,
+  testingConfigId,
+  canAutoOpenMissingService,
+  configWorkspaceView,
+  activeServiceFilter,
+  serviceCoverage,
+  coverageWorkspaceModeRef,
+  configListSectionRef,
+  selectConfigWorkspaceView,
+  normalizeInitialServiceType,
+  openAddForService,
+  openEdit,
+  openTest,
+  abortConnectionTest: () => { connectionTestAbortController?.abort() },
+})
+
+async function restoreTestedCoverageCardFocus() {
+  connectionTestAbortController?.abort()
+  await restoreCoverageCardFocus()
 }
 
-function handleConfigDialogClosed() {
-  resetForm()
-  configFormBaseline.value = ''
-  configDialogSaved.value = false
-}
-
-function openAdd() {
+function onRowEdit(row) {
   if (configWriteLocked.value) return
-  resetForm()
-  openConfigDialog()
-}
-
-function openAddForService(serviceType) {
-  if (configWriteLocked.value) return
-  resetForm()
-  form.value.service_type = serviceType || 'text'
-  activeServiceFilter.value = form.value.service_type
-  onServiceTypeChange()
-  openConfigDialog()
-}
-
-async function openEdit(row, { repairIssue = '' } = {}) {
-  if (configWriteLocked.value) return
-  editingId.value = row.id
-  editingUpdatedAt.value = String(row.updated_at || '')
-  advancedFormSections.value = []
-  form.value = hydrateAiConfigForm(row)
-  openConfigDialog()
-  await applyAiConfigRepairTarget(repairIssue, {
-    advancedSections: advancedFormSections,
-    fieldRefs: {
-      credentials: apiKeyInputRef,
-      model: modelListInputRef,
-      workflow: workflowInputRef,
-    },
-    nextTickFn: nextTick,
-  })
-}
-
-async function confirmReplaceDefaultConfig() {
-  if (!form.value.is_default) return true
-  const existing = findExistingDefaultConfig(list.value, form.value.service_type, editingId.value)
-  if (!existing) return true
-  const copy = buildReplaceDefaultConfirmCopy(form.value, existing)
-  try {
-    await ElMessageBox.confirm(
-      copy.message,
-      copy.title,
-      { type: 'warning', confirmButtonText: copy.confirmButtonText, cancelButtonText: copy.cancelButtonText },
-    )
-    return true
-  } catch (error) {
-    if (!isUserFacingAbort(error)) {
-      ElMessage.error(toUserFacingError(error, '无法确认保存'))
-    }
-    return false
-  }
-}
-
-async function submit() {
-  if (configWriteLocked.value) return
-  try {
-    await formRef.value?.validate?.()
-  } catch (invalidFields) {
-    await handleConfigValidationFailure(invalidFields)
+  const target = describeConfigEditTarget(row)
+  if (target.tab) {
+    activeTab.value = target.tab
+    ElMessage.info(target.message)
     return
   }
-  clearConfigValidationSummary()
-  if (!await confirmReplaceDefaultConfig()) return
-  if (configWriteLocked.value) return
-  saving.value = true
+  openEdit(row)
+}
+
+async function handleSd2AssetSaved() {
+  invalidateConnectionTestResults()
+  notifyConfigurationChanged()
+  await loadList()
+}
+
+async function loadList() {
+  configListAbortController?.abort()
+  const controller = new AbortController()
+  configListAbortController = controller
+  const requestId = ++configListLoadSequence
+  loading.value = true
+  configLoadState.value = list.value.length ? 'refreshing' : 'loading'
   try {
-    const previous = editingId.value
-      ? list.value.find((row) => String(row.id) === String(editingId.value))
-      : null
-    const payload = buildAiConfigSubmitPayload(form.value, {
-      editingId: editingId.value,
-      editingUpdatedAt: editingUpdatedAt.value,
-      previous,
-      isComfyUi: isComfyUiForm.value,
-      isDeepSeekOfficial: isDeepSeekOfficialForm.value,
+    const nextList = await withRequestRetry(
+      () => aiAPI.list(undefined, jsonRequestOptions(controller.signal)),
+      { maxAttempts: 2, delayMs: 400, signal: controller.signal },
+    )
+    if (requestId !== configListLoadSequence) return false
+    list.value = nextList
+    sessionTestStatusById.value = connectionStatusStore.forConfigs(list.value)
+    configLoadError.value = ''
+    configLoadState.value = 'ready'
+    return true
+  } catch (error) {
+    if (isRequestCanceled(error) || requestId !== configListLoadSequence) return false
+    configLoadError.value = describeServiceLoadError(error, {
+      serviceLabel: 'AI 配置服务',
+      fallback: '暂时无法读取 AI 配置，请稍后重试。',
+      signal: controller.signal,
     })
-    const wasEditing = Boolean(editingId.value)
-    const mutationResult = await runWithOwnedRequestErrorToast(async () => (
-      wasEditing
-        ? await aiAPI.update(editingId.value, payload)
-        : await aiAPI.create(payload)
-    ))
-    const serverConfirmation = confirmAiConfigMutationResult(mutationResult, payload, previous || {})
-    if (!serverConfirmation) {
-      await loadList()
-      ElMessage.error('服务端返回的配置快照与本次提交不一致，未确认保存结果，请重新打开配置核对。')
-      return
-    }
-    const listConfirmed = await loadList()
-    const listMatches = listConfirmed && confirmAiConfigMutationInList(serverConfirmation, list.value)
-    invalidateConnectionTestResults()
-    notifyConfigurationChanged()
-    configDialogSaved.value = true
-    configFormBaseline.value = configFormFingerprint()
-    dialogVisible.value = false
-    if (listMatches) ElMessage.success(wasEditing ? '保存成功' : '添加成功')
-    else ElMessage.warning('服务端已确认保存，但配置列表刷新或并发校验未完全一致，请刷新后复核。')
-  } catch (e) {
-    if (isUserFacingAbort(e)) return
-    if (e?.response?.status === 409) {
-      await loadList()
-      ElMessage.warning('配置已被其他操作更新，本次修改未覆盖现有配置，请重新打开后再保存。')
-      return
-    }
-    ElMessage.error(toUserFacingError(e, '保存失败'))
+    configLoadState.value = 'error'
+    return false
   } finally {
-    saving.value = false
+    if (requestId === configListLoadSequence) loading.value = false
+    if (configListAbortController === controller) configListAbortController = null
   }
 }
 
@@ -1534,14 +944,29 @@ async function openTest(row) {
   }
 }
 
-function retryConnectionTest() {
-  if (!lastTestedConfig || testingConfigId.value !== null) return
-  openTest(lastTestedConfig)
-}
-
-async function retryConfigDependencies() {
-  await Promise.all([loadVendorLock(), loadList()])
-}
+const {
+  abortAiConfigPageRequests,
+  retryConnectionTest,
+  retryConfigDependencies,
+} = useAiConfigPageRequests({
+  abortVendorLockRequest: () => abortVendorLockRequest(),
+  abortGenerationSettingsRequest: () => abortGenerationSettingsRequest(),
+  abortDiscoverModelsRequest: () => abortDiscoverModelsRequest(),
+  abortConfigListRequest: () => {
+    configListAbortController?.abort()
+    configListAbortController = null
+  },
+  abortConnectionTestRequest: () => {
+    connectionTestAbortController?.abort()
+    connectionTestAbortController = null
+  },
+  abortConnectionStatusScopeRequest,
+  loadVendorLock,
+  loadList,
+  testingConfigId,
+  openTest,
+  getLastTestedConfig: () => lastTestedConfig,
+})
 
 onMounted(async () => {
   await initializeConnectionStatusStore()
@@ -1699,260 +1124,8 @@ html.dark :is(.ai-config-content, .ai-config-overlay) :is(
   padding-top: 16px;
   min-width: 0;
 }
-.config-workspace-switch {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  margin-bottom: 16px;
-  padding: 3px;
-  border: 1px solid var(--border-color);
-  border-radius: 6px;
-  background: var(--bg-inner);
-}
-.config-workspace-mode {
-  min-width: 112px;
-  min-height: 32px;
-  padding: 5px 12px;
-  border: 1px solid transparent;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--text-muted);
-  font: inherit;
-  font-size: 13px;
-  font-weight: 600;
-  line-height: 20px;
-  cursor: pointer;
-}
-.config-workspace-mode:hover {
-  background: var(--bg-hover);
-  color: var(--text-primary);
-}
-.config-workspace-mode.active {
-  color: var(--accent-text);
-  border-color: var(--border-muted);
-  background: var(--bg-hover);
-}
-.config-workspace-mode:focus-visible {
-  outline: 2px solid var(--accent-text);
-  outline-offset: 2px;
-}
 .config-workspace-panel {
   min-width: 0;
-}
-.coverage-panel {
-  margin-bottom: 16px;
-  padding: 16px;
-  border: 1px solid var(--el-border-color-light, #e4e7ed);
-  border-radius: 8px;
-  background: var(--el-bg-color, #fff);
-}
-.coverage-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 24px;
-  margin-bottom: 14px;
-}
-.coverage-title-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-.coverage-title-row h2 {
-  margin: 0;
-  color: var(--el-text-color-primary, #303133);
-  font-size: 16px;
-  line-height: 24px;
-  letter-spacing: 0;
-}
-.coverage-header p {
-  margin: 4px 0 0;
-  color: var(--el-text-color-regular, #606266);
-  font-size: 13px;
-  line-height: 1.5;
-}
-.coverage-test-note {
-  max-width: 260px;
-  color: var(--el-text-color-secondary, #909399);
-  font-size: 12px;
-  line-height: 1.5;
-  text-align: right;
-}
-.coverage-unresolved-state {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  min-height: 88px;
-  padding: 12px 14px;
-  border: 1px solid var(--el-border-color-light, #e4e7ed);
-  border-radius: 8px;
-  background: var(--el-fill-color-light, #f5f7fa);
-  color: var(--el-text-color-regular, #606266);
-  font-size: 13px;
-  line-height: 1.5;
-}
-.coverage-unresolved-state--error {
-  border-color: var(--ai-config-danger-border, #fbc4c4);
-  background: var(--ai-config-danger-surface, #fef0f0);
-  color: var(--ai-config-danger-text, #b42318);
-}
-.coverage-unresolved-copy {
-  min-width: 0;
-  display: grid;
-  gap: 4px;
-}
-.coverage-unresolved-copy strong {
-  font-size: 13px;
-  line-height: 18px;
-}
-.coverage-unresolved-copy span,
-.config-empty-state > span {
-  overflow-wrap: anywhere;
-}
-.coverage-summary-strip {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 8px;
-  margin-bottom: 12px;
-}
-.coverage-summary-card {
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 10px 12px;
-  border: 1px solid var(--el-border-color-light, #e4e7ed);
-  border-radius: 6px;
-  background: var(--el-fill-color-blank, #fff);
-}
-.coverage-summary-card span {
-  color: var(--el-text-color-secondary, #909399);
-  font-size: 12px;
-  line-height: 18px;
-}
-.coverage-summary-card strong {
-  color: var(--el-text-color-primary, #303133);
-  font-size: 16px;
-  line-height: 22px;
-  font-weight: 600;
-}
-.coverage-summary-card.summary-success {
-  border-color: var(--ai-config-success-border, rgba(16, 185, 129, 0.24));
-  background: var(--ai-config-success-surface, #ecfdf5);
-}
-.coverage-summary-card.summary-warning {
-  border-color: var(--ai-config-warning-border, rgba(245, 158, 11, 0.24));
-  background: var(--ai-config-warning-surface, #fffbeb);
-}
-.coverage-summary-card.summary-danger {
-  border-color: var(--ai-config-danger-border, rgba(239, 68, 68, 0.24));
-  background: var(--ai-config-danger-surface, #fef2f2);
-}
-.coverage-summary-card.summary-info {
-  border-color: var(--ai-config-info-border, rgba(59, 130, 246, 0.24));
-  background: var(--ai-config-info-surface, #eff6ff);
-}
-.coverage-summary-card.summary-success strong { color: var(--ai-config-success-text, #047857); }
-.coverage-summary-card.summary-warning strong { color: var(--ai-config-warning-text, #a16207); }
-.coverage-summary-card.summary-danger strong { color: var(--ai-config-danger-text, #b91c1c); }
-.coverage-summary-card.summary-info strong { color: var(--ai-config-info-text, #0369a1); }
-.config-empty-state {
-  min-height: 220px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  color: var(--el-text-color-regular, #606266);
-}
-.config-empty-state strong {
-  color: var(--el-text-color-primary, #303133);
-  font-size: 14px;
-}
-.config-empty-state > span {
-  max-width: 440px;
-  font-size: 13px;
-  line-height: 1.5;
-  text-align: center;
-}
-.config-empty-icon {
-  color: var(--el-color-primary, #409eff);
-  font-size: 28px;
-}
-.config-empty-actions {
-  display: flex;
-  gap: 8px;
-  margin-top: 6px;
-}
-.config-list-section {
-  scroll-margin-top: 88px;
-}
-/* 类型徽章 */
-.type-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 3px 10px;
-  border-radius: 20px;
-  font-size: 12px;
-  font-weight: 600;
-  white-space: nowrap;
-  border: 1px solid transparent;
-}
-.type-icon {
-  font-size: 13px;
-  flex-shrink: 0;
-}
-/* 文本/对话 — 蓝色 */
-.type-text {
-  background: rgba(59, 130, 246, 0.12);
-  color: #3b82f6;
-  border-color: rgba(59, 130, 246, 0.25);
-}
-/* 文本生成图片 — 绿色 */
-.type-image {
-  background: rgba(16, 185, 129, 0.12);
-  color: #10b981;
-  border-color: rgba(16, 185, 129, 0.25);
-}
-/* 分镜图片生成 — 紫色 */
-.type-storyboard_image {
-  background: rgba(139, 92, 246, 0.12);
-  color: #8b5cf6;
-  border-color: rgba(139, 92, 246, 0.25);
-}
-/* 视频 — 橙色 */
-.type-video {
-  background: rgba(249, 115, 22, 0.12);
-  color: #f97316;
-  border-color: rgba(249, 115, 22, 0.25);
-}
-.type-ocr {
-  background: rgba(14, 165, 233, 0.12);
-  color: #0284c7;
-  border-color: rgba(14, 165, 233, 0.25);
-}
-.type-transcription {
-  background: rgba(234, 88, 12, 0.12);
-  color: #c2410c;
-  border-color: rgba(234, 88, 12, 0.25);
-}
-.type-jimeng2_character_auth {
-  background: rgba(20, 184, 166, 0.14);
-  color: #0d9488;
-  border-color: rgba(20, 184, 166, 0.28);
-}
-.type-model_ark_asset {
-  background: rgba(99, 102, 241, 0.12);
-  color: #6366f1;
-  border-color: rgba(99, 102, 241, 0.25);
-}
-.no-default {
-  color: var(--el-text-color-secondary, #9ca3af);
-  font-size: 13px;
 }
 .one-key-tip {
   margin: 0 0 12px;
@@ -1967,104 +1140,6 @@ code {
   font-size: 12px;
   font-family: monospace;
 }
-.default-tip {
-  margin: 0 0 16px;
-  padding: 10px 12px;
-  border: 1px solid var(--ai-config-info-border, #bae6fd);
-  background: var(--ai-config-info-surface, #f0f9ff);
-  border-radius: 6px;
-  font-size: 13px;
-  color: var(--ai-config-info-text, #0369a1);
-  line-height: 1.5;
-}
-.generation-settings {
-  max-width: 600px;
-}
-.generation-settings-load-state {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  min-height: 52px;
-  padding: 12px 14px;
-  border: 1px solid var(--el-border-color-light, #e4e7ed);
-  border-radius: 6px;
-  background: var(--el-fill-color-light, #f5f7fa);
-  color: var(--el-text-color-regular, #606266);
-  font-size: 13px;
-}
-.generation-settings-load-state--error {
-  border-color: var(--el-color-danger-light-5, #fab6b6);
-  background: var(--el-color-danger-light-9, #fef0f0);
-}
-.generation-settings-load-copy {
-  display: grid;
-  min-width: 0;
-  gap: 4px;
-}
-.generation-settings-load-copy strong {
-  color: var(--el-color-danger, #f56c6c);
-}
-.generation-settings-load-copy span {
-  overflow-wrap: anywhere;
-}
-.gs-section-title {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--el-text-color-primary, #303133);
-  margin-bottom: 8px;
-}
-.gs-desc {
-  font-size: 13px;
-  color: var(--el-text-color-regular, #606266);
-  line-height: 1.6;
-  margin-bottom: 20px;
-}
-.gs-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 12px;
-}
-.gs-label {
-  font-size: 13px;
-  color: var(--el-text-color-primary, #303133);
-  font-weight: 500;
-  white-space: nowrap;
-}
-.gs-unit {
-  font-size: 13px;
-  color: var(--el-text-color-regular, #606266);
-  white-space: nowrap;
-}
-.gs-tip-box {
-  margin-top: 20px;
-  background: var(--el-fill-color-light, #f5f7fa);
-  border: 1px solid var(--el-border-color-light, #e4e7ed);
-  border-radius: 8px;
-  padding: 14px 16px;
-  font-size: 13px;
-}
-.gs-tip-title {
-  font-weight: 600;
-  color: var(--el-text-color-primary, #303133);
-  margin-bottom: 8px;
-}
-.gs-tip-list {
-  margin: 0 0 8px 16px;
-  padding: 0;
-  color: var(--el-text-color-regular, #606266);
-  line-height: 1.8;
-}
-.gs-tip-note {
-  color: var(--el-text-color-secondary, #909399);
-  font-size: 12px;
-}
-@media (max-width: 1440px) {
-  .coverage-summary-strip {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
 @media (max-width: 760px) {
   .ai-config-content,
   .tab-content,
@@ -2074,42 +1149,6 @@ code {
     min-width: 0;
     box-sizing: border-box;
   }
-  .coverage-summary-strip {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .coverage-header,
-  .generation-settings-load-state {
-    align-items: stretch;
-    flex-direction: column;
-  }
-  .coverage-header {
-    gap: 8px;
-  }
-  .coverage-test-note {
-    max-width: none;
-    text-align: left;
-  }
-  .config-workspace-switch {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    width: 100%;
-    box-sizing: border-box;
-  }
-  .config-workspace-mode {
-    min-width: 0;
-  }
-  .config-empty-actions,
-  .pricing-field-row,
-  .gs-row {
-    flex-wrap: wrap;
-  }
-  .config-section-header {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-  .pricing-help {
-    margin-left: 0;
-  }
   :deep(.el-tabs__content),
   :deep(.el-tab-pane),
   :deep(.el-form-item__content),
@@ -2117,34 +1156,6 @@ code {
   :deep(.el-select) {
     min-width: 0;
     max-width: 100%;
-  }
-}
-@media (max-width: 520px) {
-  .coverage-panel,
-  .config-form-section {
-    padding: 12px;
-  }
-  .config-workspace-switch {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .config-empty-actions {
-    align-items: stretch;
-    flex-direction: column;
-    width: 100%;
-  }
-  .config-empty-actions :deep(.el-button) {
-    margin-left: 0;
-    width: 100%;
-  }
-  .advanced-config-title {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-  .ep-row {
-    flex-direction: column;
-  }
-  .ep-label {
-    min-width: 0;
   }
 }
 </style>

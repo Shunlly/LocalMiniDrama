@@ -6,6 +6,7 @@ import { readFileSync } from 'node:fs'
 export const CANVAS_STORYBOARD_PANEL_FILES = Object.freeze([
   'CanvasStoryboardPanel.vue',
   'CanvasStoryboardPanelHeader.vue',
+  'CanvasStoryboardPanelForm.vue',
   'CanvasStoryboardPanelRelations.vue',
   'CanvasStoryboardPanelReferences.vue',
   'CanvasStoryboardPanelFrames.vue',

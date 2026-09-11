@@ -17,6 +17,8 @@
       tabindex="0"
       :aria-label="accessibleLabel"
       :aria-expanded="showPanel"
+      :aria-busy="isProcessing || isNodeBusy"
+      :title="accessibleLabel"
       @keydown.enter.stop.prevent="openPanel"
       @keydown.space.stop.prevent="openPanel"
     >
@@ -24,7 +26,7 @@
       <Handle type="target" :position="Position.Left" />
       <Handle type="source" :position="Position.Right" />
       <Handle id="chain-out" type="source" :position="Position.Bottom" />
-      <CanvasNodeStatusOverlay :node-id="id" />
+      <CanvasNodeStatusOverlay :node-id="id" :fallback-message="busyFallback" />
       <div class="head">
         <span class="num">#{{ data.storyboard?.storyboard_number ?? data.index }}</span>
         <span v-if="data.workflowGroup?.title" class="wf-badge">{{ data.workflowGroup.title }}</span>
@@ -69,6 +71,10 @@ const isNodeBusy = computed(() => {
   const map = ctx?.nodeStatus?.map
   return map ? !!map[props.id] : false
 })
+
+const busyFallback = computed(() => (
+  isNodeBusy.value || isProcessing.value ? '生成中' : ''
+))
 
 const mediaQueryStatus = computed(() => props.data.mediaQueryStatus || ctx?.getStoryboardMediaQueryStatus?.(props.data.storyboard?.id) || {})
 const mediaQueryUnknown = computed(() => mediaQueryStatus.value?.state === 'unknown')

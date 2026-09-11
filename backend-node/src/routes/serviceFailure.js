@@ -1,4 +1,5 @@
 const response = require('../response');
+const logger = require('../logger');
 const { isTrustedChineseUserError } = require('../services/providerErrorSanitizer');
 
 const NOT_FOUND_MESSAGES = Object.freeze({
@@ -48,6 +49,7 @@ function sendMappedServiceFailure(res, out, options = {}) {
     response.badRequest(res, error);
     return true;
   }
+  if (options.allowGenericFallback === false) return false;
   response.badRequest(res, options.fallback || '操作失败，请稍后重试');
   return true;
 }
@@ -78,12 +80,59 @@ function sendCaughtRouteError(res, err, fallback = '操作失败，请稍后重�
     response.badRequest(res, isTrustedChineseUserError(raw) ? raw : fallback);
     return true;
   }
-  return sendMappedServiceFailure(res, { ok: false, error: raw }, { fallback });
+  if (Number.isInteger(err?.statusCode) && err.statusCode >= 400 && err.statusCode < 500) {
+    const code = err.code || (err.statusCode === 404 ? 'NOT_FOUND' : 'BAD_REQUEST');
+    const message = isTrustedChineseUserError(raw) ? raw : fallback;
+    if (err.statusCode === 404) response.notFound(res, message);
+    else if (err.statusCode === 403) response.forbidden(res, message);
+    else response.error(res, err.statusCode, code, message);
+    return true;
+  }
+  const mapped = sendMappedServiceFailure(res, { ok: false, error: raw }, { fallback, allowGenericFallback: false });
+  if (mapped) return true;
+  response.internalError(res, fallback);
+  return true;
+}
+
+function logCaughtRouteError(log, operation, err, extra = {}) {
+  if (!log) return;
+  const fallback = extra.fallback || extra.userFallback || '操作失败，请稍后重试';
+  const technical = logger.sanitizeLogString(String((err && err.message) || err || ''));
+  const userError = extra.fallback || extra.userFallback || publicErrorMessage(err, fallback) || fallback;
+  const requestId = extra.request_id || logger.getRequestId();
+  const payload = {
+    error: technical,
+  };
+  if (userError && userError !== technical) payload.userError = userError;
+  if (err && err.code) payload.code = err.code;
+  if (logger.isSafeRequestId(requestId)) payload.request_id = requestId;
+  for (const [key, value] of Object.entries(extra)) {
+    if (key === 'fallback' || key === 'userFallback' || key === 'request_id' || key === 'userError') continue;
+    payload[key] = value;
+  }
+  const logFn = typeof log.error === 'function'
+    ? log.error.bind(log)
+    : (typeof log.errorw === 'function' ? log.errorw.bind(log) : null);
+  if (logFn) logFn(operation, payload);
+  if (typeof log.operation === 'function') {
+    log.operation({
+      operation,
+      phase: 'error',
+      error: technical,
+      ...(payload.userError ? { userError: payload.userError } : {}),
+      ...(payload.code ? { code: payload.code } : {}),
+      ...(payload.request_id ? { request_id: payload.request_id } : {}),
+      ...Object.fromEntries(
+        Object.entries(payload).filter(([key]) => !['error', 'userError', 'code', 'request_id'].includes(key))
+      ),
+    });
+  }
 }
 
 module.exports = {
   sendMappedServiceFailure,
   sendCaughtRouteError,
+  logCaughtRouteError,
   publicErrorMessage,
   uploadFormErrorMessage,
 };

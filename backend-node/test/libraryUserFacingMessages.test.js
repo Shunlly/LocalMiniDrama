@@ -36,7 +36,7 @@ describe('资料库路由对用户返回中文错误', () => {
     for (const file of ['characterLibrary.js', 'propLibrary.js', 'sceneLibrary.js']) {
       const source = fs.readFileSync(path.join(__dirname, '../src/routes', file), 'utf8');
       assert.equal(source.includes('response.internalError(res, err.message)'), false, file);
-      assert.match(source, /sendLibraryFailure/);
+      assert.match(source, /sendCaughtRouteError/);
     }
   });
 
@@ -50,7 +50,8 @@ describe('资料库路由对用户返回中文错误', () => {
     for (const [factory] of cases) {
       const res = mockRes();
       factory(throwingDb('SQLITE_ERROR: no such table: character_library'), {}, silent).list({ query: {} }, res);
-      assert.equal(res.statusCode, 400);
+      assert.equal(res.statusCode, 500);
+      assert.equal(res.body.error.code, 'INTERNAL_ERROR');
       assert.equal(hasCjk(res.body.error.message), true);
       assert.doesNotMatch(res.body.error.message, /SQLITE_ERROR|no such table/i);
     }

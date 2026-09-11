@@ -4,28 +4,27 @@ import { readFileSync } from 'node:fs'
 
 import { compileScript, parse } from '@vue/compiler-sfc'
 
-import { getPipelineControlReasons } from '../src/utils/filmPipelineAction.js'
-import { remainingExtractNamedFunction } from './helpers/remainingSourceBetween.js'
+import {
+  describePipelineErrorLog,
+  describePipelinePanelUx,
+  toPipelineDisabledReason,
+} from '../src/components/filmCreate/filmCreatePipelinePanelUx.js'
 
-const pipelinePanelSource = readFileSync(
-  new URL('../src/components/filmCreate/FilmCreatePipelinePanel.vue', import.meta.url),
-  'utf8',
-).replace(/\r\n?/g, '\n')
+function readPipelineFile(name) {
+  return readFileSync(
+    new URL(`../src/components/filmCreate/${name}`, import.meta.url),
+    'utf8',
+  ).replace(/\r\n?/g, '\n')
+}
 
-const toPipelineDisabledReason = new Function(
-  `'use strict'; ${remainingExtractNamedFunction(pipelinePanelSource, 'toPipelineDisabledReason')}; return toPipelineDisabledReason;`,
-)()
-
-const describePipelinePanelUx = new Function(
-  'getPipelineControlReasons',
-  'toPipelineDisabledReason',
-  `'use strict'; ${remainingExtractNamedFunction(pipelinePanelSource, 'describePipelinePanelUx')}; return describePipelinePanelUx;`,
-)(getPipelineControlReasons, toPipelineDisabledReason)
-
-const describePipelineErrorLog = new Function(
-  'toPipelineDisabledReason',
-  `'use strict'; ${remainingExtractNamedFunction(pipelinePanelSource, 'describePipelineErrorLog')}; return describePipelineErrorLog;`,
-)(toPipelineDisabledReason)
+const pipelinePanelVueSource = readPipelineFile('FilmCreatePipelinePanel.vue')
+const pipelinePanelSource = [
+  pipelinePanelVueSource,
+  readPipelineFile('filmCreatePipelinePanelBindings.js'),
+  readPipelineFile('FilmCreatePipelineActions.vue'),
+  readPipelineFile('FilmCreatePipelineSteps.vue'),
+  readPipelineFile('FilmCreatePipelineStatus.vue'),
+].join('\n')
 
 function compileVue(source, filename, id) {
   const parsed = parse(source, { filename })
@@ -34,7 +33,10 @@ function compileVue(source, filename, id) {
 }
 
 test('\u5168\u6d41\u7a0b\u9762\u677f\u53ef\u4ee5\u72ec\u7acb\u7f16\u8bd1', () => {
-  compileVue(pipelinePanelSource, 'FilmCreatePipelinePanel.vue', 'film-create-pipeline-ux')
+  compileVue(pipelinePanelVueSource, 'FilmCreatePipelinePanel.vue', 'film-create-pipeline-ux')
+  compileVue(readPipelineFile('FilmCreatePipelineActions.vue'), 'FilmCreatePipelineActions.vue', 'film-create-pipeline-actions')
+  compileVue(readPipelineFile('FilmCreatePipelineSteps.vue'), 'FilmCreatePipelineSteps.vue', 'film-create-pipeline-steps')
+  compileVue(readPipelineFile('FilmCreatePipelineStatus.vue'), 'FilmCreatePipelineStatus.vue', 'film-create-pipeline-status')
 })
 
 test('\u6682\u505c\u3001\u7ee7\u7eed\u3001\u505c\u6b62\u7981\u7528\u539f\u56e0\u4fdd\u6301\u4e2d\u6587\u53ef\u89c1', () => {
@@ -89,7 +91,7 @@ test('\u6682\u505c\u3001\u7ee7\u7eed\u3001\u505c\u6b62\u7981\u7528\u539f\u56e0\u
   assert.match(pipelinePanelSource, /label="\u6682\u505c" :reason="pauseDisabledReason"/)
   assert.match(pipelinePanelSource, /label="\u7ee7\u7eed" :reason="resumeDisabledReason"/)
   assert.match(pipelinePanelSource, /:reason="cancelDisabledReason"/)
-  assert.match(pipelinePanelSource, /:title="compactDisabledReason(?: \|\| undefined)?"/)
+  assert.match(pipelinePanelSource, /:title="compactActionDisabledReason(?: \|\| undefined)?"/)
   assert.match(pipelinePanelSource, /:title="productionButtonTitle(?: \|\| undefined)?"/)
   assert.match(pipelinePanelSource, /:title="draftButtonTitle(?: \|\| undefined)?"/)
   assert.match(pipelinePanelSource, /class="pipeline-compact-gate"/)
@@ -178,6 +180,12 @@ test('全流程错误日志和阻断原因把英文技术失败收成中文', ()
   assert.match(pipelinePanelSource, /displayErrorLog/)
   assert.match(pipelinePanelSource, /toPipelineDisabledReason\(\s*props\.productionDisabledReason \|\| props\.disabledReason/)
   assert.match(pipelinePanelSource, /toPipelineDisabledReason\(controlReasons\.value\.retry/)
+  assert.match(pipelinePanelSource, /describePipelineErrorLog\(props\.errorLog\)/)
+  assert.match(pipelinePanelSource, /describePipelinePanelUx\(\{/)
+  assert.match(pipelinePanelSource, /from '@\/components\/filmCreate\/filmCreatePipelinePanelUx(?:\.js)?'/)
+  assert.doesNotMatch(pipelinePanelSource, /function toPipelineDisabledReason/)
+  assert.doesNotMatch(pipelinePanelSource, /function describePipelineErrorLog/)
+  assert.doesNotMatch(pipelinePanelSource, /function describePipelinePanelUx/)
 })
 
 test('制作页离开保护覆盖批量生图生视频和单条生成', () => {

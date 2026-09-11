@@ -291,3 +291,47 @@ test('结果空态展示中文说明，失败时可重新检查服务', () => {
     harness.app.unmount()
   }
 })
+
+test('上传中可以取消上传，失败空态给出中文原因', async () => {
+  const uploading = mountInput({
+    mode: 'video',
+    activeServiceLabel: '视频',
+    generationCapability: readyCapability('视频'),
+    refImageUploadStatus: 'uploading',
+    refImageFileName: 'frame.png',
+    refImageTriggerLabel: '视频参考图正在上传',
+    refImageUploadMessage: '参考图上传中：frame.png',
+    generateDisabled: true,
+    generateDisabledReason: '参考图正在上传，请等待上传完成',
+  })
+  try {
+    await nextTick()
+    const cancelUpload = buttonByText(uploading.root, '取消上传')
+    assert.ok(cancelUpload)
+    click(cancelUpload)
+    assert.deepEqual(uploading.events, ['clear-ref-image'])
+  } finally {
+    uploading.app.unmount()
+  }
+})
+
+test('取消后的结果展示中文说明并可以重试', async () => {
+  const item = {
+    type: 'image',
+    prompt: '港口夜景',
+    status: 'cancelled',
+    url: null,
+    error: '生成已取消',
+  }
+  const harness = mountResult({ results: [item] })
+  try {
+    await nextTick()
+    assert.match(textContent(harness.root), /生成已取消/)
+    const retry = buttonByText(harness.root, '重试')
+    assert.ok(retry)
+    click(retry)
+    assert.equal(harness.events[0][0], 'retry-generation')
+  } finally {
+    harness.app.unmount()
+  }
+})

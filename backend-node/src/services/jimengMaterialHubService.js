@@ -6,6 +6,7 @@ const {
   buildProviderErrorMessage,
   summarizeProviderResponse,
   toSafeProviderErrorMessage,
+  isTrustedChineseUserError,
 } = require('./providerErrorSanitizer');
 
 const HUB_MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
@@ -299,12 +300,16 @@ async function hubJson(path, ctx, { method, body, log } = {}) {
   try {
     networkOptions = requireCompleteProviderNetworkPolicy(ctx.networkPolicy, base);
   } catch (error) {
+    const raw = String(error?.message || '');
     return {
       ok: false,
-      error: toSafeProviderErrorMessage(error, {
-        provider: 'Jimeng material hub',
-        operation: 'request',
-      }),
+      code: error?.code || 'PROVIDER_NETWORK_POLICY_INVALID',
+      error: isTrustedChineseUserError(raw)
+        ? raw
+        : toSafeProviderErrorMessage(error, {
+          provider: '即梦素材库',
+          operation: '请求',
+        }),
     };
   }
   const url = `${base}/api/business/v1${path}`;

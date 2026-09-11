@@ -71,7 +71,9 @@ const UI = Object.freeze({
   collapseNavigation: '\u6536\u8d77\u5bfc\u822a',
   expandNavigation: '\u5c55\u5f00\u5bfc\u822a',
   sourcePlaceholder: '\u7c98\u8d34\u5c0f\u8bf4\u3001\u6897\u6982\u3001\u5267\u672c\u3001\u5206\u955c\u8868\u3001\u6f2b\u753b\u6587\u5b57\u8bf4\u660e\u6216\u8f6c\u5199\u6587\u672c',
-  sourceImportProject: '\u9009\u62e9\u9879\u76ee\u540e\u5bfc\u5165\u7f51\u9875 URL',
+  sourceImportProject: '\u9009\u62e9\u76ee\u6807\u9879\u76ee\u540e\u5bfc\u5165\u7f51\u9875 URL',
+  sourceImportPickerTitle: '\u9009\u62e9\u76ee\u6807\u9879\u76ee',
+  importToProject: (title) => `\u5bfc\u5165\u5230\u9879\u76ee\u300c${title}\u300d`,
   sourceUrlLabel: '\u7f51\u9875 URL',
   importWebUrl: '\u5bfc\u5165\u7f51\u9875 URL',
   newProject: '\u65b0\u5efa\u9879\u76ee',
@@ -2880,38 +2882,18 @@ async function verifyFocusedDesktopAcceptance(browser, {
     await page.goto(`${FRONTEND_URL}/media-library`, { waitUntil: 'domcontentloaded' })
     const sourceImportEntry = page.getByRole('button', { name: UI.sourceImportProject, exact: true }).first()
     await sourceImportEntry.waitFor({ state: 'visible', timeout: 30000 })
-    const projectListNavigation = page.waitForURL((url) => (
-      url.pathname === '/' && url.searchParams.get('intent') === 'source-import'
-    ), { timeout: 30000 })
     await sourceImportEntry.click()
-    await projectListNavigation
-    const search = page.getByRole('textbox', { name: '\u641c\u7d22\u9879\u76ee', exact: true })
+    const sourceImportDialog = page.getByRole('dialog', { name: UI.sourceImportPickerTitle, exact: true })
+    await sourceImportDialog.waitFor({ state: 'visible', timeout: 30000 })
+    const search = sourceImportDialog.getByRole('textbox', { name: '\u641c\u7d22\u9879\u76ee', exact: true })
     await search.waitFor({ state: 'visible', timeout: 30000 })
     await search.fill(fixtureTitle)
-    await page.waitForFunction((title) => new URL(window.location.href).searchParams.get('q') === title, fixtureTitle)
-    const projectCard = page.locator('.project-card').filter({ hasText: fixtureTitle })
-    await projectCard.waitFor({ state: 'visible', timeout: 30000 })
-    assert.equal(await projectCard.count(), 1, 'focused project search must resolve one project card')
-    const projectEntry = projectCard.locator('.project-card-link')
-    await projectEntry.getByText(UI.importWebUrl, { exact: true }).waitFor({ state: 'visible', timeout: 10000 })
-    const sourceListUrl = new URL(page.url())
-    const projectDestination = new URL(await projectEntry.getAttribute('href'), FRONTEND_URL)
-    const sourceReturnTo = projectDestination.searchParams.get('returnTo')
-    assert.ok(sourceReturnTo, 'project action must retain source-import list context')
-    const normalizedSourceListUrl = new URL(sourceReturnTo, FRONTEND_URL)
-    assert.equal(normalizedSourceListUrl.pathname, '/', 'project action must return to the project list')
-    for (const key of ['q', 'status', 'sort', 'intent']) {
-      assert.equal(
-        normalizedSourceListUrl.searchParams.get(key),
-        sourceListUrl.searchParams.get(key),
-        `project action must preserve the ${key} list context`,
-      )
-    }
-    assert.equal(projectDestination.searchParams.get('intake'), 'source-url', 'project action must carry URL intake intent')
+    const projectEntry = sourceImportDialog.getByRole('button', { name: UI.importToProject(fixtureTitle), exact: true })
+    await projectEntry.waitFor({ state: 'visible', timeout: 30000 })
+    assert.equal(await projectEntry.count(), 1, 'focused project search must resolve one import target')
     const sourceNavigation = page.waitForURL((url) => (
       url.pathname === `/drama/${dramaId}`
         && url.searchParams.get('intake') === 'source-url'
-        && url.searchParams.get('returnTo') === sourceReturnTo
         && url.hash === '#source-intake-workflow'
     ), { timeout: 30000 })
     await projectEntry.click()
@@ -2919,7 +2901,6 @@ async function verifyFocusedDesktopAcceptance(browser, {
     const sourceUrl = new URL(page.url())
     assert.equal(sourceUrl.hash, '#source-intake-workflow')
     assert.equal(sourceUrl.searchParams.get('intake'), 'source-url')
-    assert.equal(sourceUrl.searchParams.get('returnTo'), sourceReturnTo, 'project-list return context must be preserved')
     const workflow = page.locator('#source-intake-workflow')
     await workflow.waitFor({ state: 'visible', timeout: 30000 })
     const sourceUrlInput = workflow.getByRole('textbox', { name: UI.sourceUrlLabel, exact: true })

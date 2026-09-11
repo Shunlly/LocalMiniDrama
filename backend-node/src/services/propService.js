@@ -1,6 +1,7 @@
 const aiClient = require('./aiClient');
 const promptI18n = require('./promptI18n');
 const { mergeCfgStyleWithDrama } = require('../utils/dramaStyleMerge');
+const { toUserFacingProcessError, toVisionExtractUserError } = require('./providerErrorSanitizer');
 const {
   assertEpisodeWritable,
   assertResourceWritable,
@@ -194,7 +195,7 @@ async function generatePropPromptOnly(db, log, cfg, propId, modelName, style) {
     });
   } catch (err) {
     log.error('[道具提示词] 文字AI失败', { error: err.message });
-    return { ok: false, error: err.message };
+    return { ok: false, error: toUserFacingProcessError(err, '生成道具提示词失败，请稍后重试') };
   }
 
   if (generatedPrompt && generatedPrompt.trim()) {
@@ -230,10 +231,7 @@ async function extractPropFromImage(db, log, cfg, propId) {
     description = await generateTextWithVision(db, log, 'text', userPrompt, systemPrompt, imgSrc, { max_tokens: 2000 });
   } catch (err) {
     log.error('[extractPropFromImage] AI 调用失败', { propId, error: err.message });
-    const errMsg = /image|vision|visual|multimodal/i.test(err.message)
-      ? `AI 模型不支持图片识别，请在「AI 配置」中使用支持视觉的模型（如 GPT-4o、Gemini 1.5 等）【原始错误：${err.message.slice(0, 120)}】`
-      : `AI 分析失败：${err.message}`;
-    return { ok: false, error: errMsg };
+    return { ok: false, error: toVisionExtractUserError(err) };
   }
 
   runResourceWrite(db, 'props', propId, () => db.prepare(

@@ -251,3 +251,56 @@ test('连接失败展示重新测试，厂商锁定时不再提供编辑入口',
     vendorCard.app.unmount()
   }
 })
+
+test('回焦后的卡片可用回车或空格选中服务', () => {
+  const { api } = createCoverageApi()
+  const item = coverageItem([])
+  const harness = mountCard({ item, api })
+  try {
+    const card = findByClass(harness.root, 'coverage-item')[0]
+    assert.equal(card.props.tabindex, '-1')
+    function emitKey(node, event) {
+      const listener = node.props.onKeydown
+      if (Array.isArray(listener)) {
+        for (const fn of listener) fn(event)
+        return
+      }
+      listener?.(event)
+    }
+    const enterEvent = {
+      key: 'Enter',
+      target: card,
+      currentTarget: card,
+      preventDefault() { enterEvent.prevented = true },
+      stopPropagation() {},
+    }
+    emitKey(card, enterEvent)
+    assert.equal(harness.events.select.length, 1)
+    assert.equal(harness.events.select[0].type, 'text')
+    assert.equal(enterEvent.prevented, true)
+
+    const spaceEvent = {
+      key: ' ',
+      target: card,
+      currentTarget: card,
+      preventDefault() { spaceEvent.prevented = true },
+      stopPropagation() {},
+    }
+    emitKey(card, spaceEvent)
+    assert.equal(harness.events.select.length, 2)
+    assert.equal(spaceEvent.prevented, true)
+
+    const inner = findByClass(harness.root, 'coverage-select')[0]
+    const bubbled = {
+      key: 'Enter',
+      target: inner,
+      currentTarget: card,
+      preventDefault() { bubbled.prevented = true },
+      stopPropagation() {},
+    }
+    emitKey(card, bubbled)
+    assert.equal(harness.events.select.length, 2)
+  } finally {
+    harness.app.unmount()
+  }
+})

@@ -29,11 +29,14 @@ const SERVICE_FILES = [
   'storyGenerationService.js',
   'backgroundExtractionService.js',
   'framePromptService.js',
-  'episodeStoryboardService.js',
+  'episodeStoryboardProcessGenerate.js',
   'propExtractionService.js',
   'propImageGenerationService.js',
   'qaService.js',
+  'qaServiceChecks.js',
   'workflowService.js',
+  'workflowQueue.js',
+  'workflowStatus.js',
 ];
 
 const FORBIDDEN_SOURCE = [

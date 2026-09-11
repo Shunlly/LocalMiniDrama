@@ -51,7 +51,7 @@
               </div>
               <div class="project-card-footer">
                 <p class="project-meta">创建于 {{ formatDate(d.created_at) || '未知时间' }}</p>
-                <span class="project-card-continue">{{ sourceImportIntent ? '导入网页 URL' : '继续制作' }} <el-icon aria-hidden="true"><ArrowRight /></el-icon></span>
+                <span class="project-card-continue">{{ sourceImportIntent ? '导入网页 URL' : ((d.episodes && d.episodes.length) ? '继续制作' : '去创建剧集') }} <el-icon aria-hidden="true"><ArrowRight /></el-icon></span>
               </div>
             </div>
           </div>

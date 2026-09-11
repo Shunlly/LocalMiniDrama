@@ -3,10 +3,11 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
 import { remainingExtractNamedFunction } from './helpers/remainingSourceBetween.js'
+import { readCanvasAssetPanelSource } from './helpers/canvasAssetPanelSource.js'
 import { canvasUserError } from '../src/composables/useCanvasUserError.js'
 import { isRequestNetworkError, isRequestTimeout } from '../src/utils/requestError.js'
 
-const panelSource = readFileSync(new URL('../src/components/dramaCanvas/CanvasAssetPanel.vue', import.meta.url), 'utf8')
+const panelSource = readCanvasAssetPanelSource()
 const filmScenesSource = readFileSync(new URL('../src/composables/filmCreate/useScenes.js', import.meta.url), 'utf8')
 
 const MISSING_MAIN_IMAGE = '请先为该场景生成或上传主图'

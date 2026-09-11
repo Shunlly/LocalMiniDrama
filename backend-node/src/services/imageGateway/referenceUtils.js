@@ -82,7 +82,7 @@ async function loadImageReference(value, opts, config) {
     const match = text.match(/^data:(image\/[a-z0-9.+-]+);base64,([a-z0-9+/=\s]+)$/i);
     const encodedLimit = Math.ceil(IMAGE_REFERENCE_MAX_BYTES * 4 / 3) + 16;
     if (!match || match[2].length > encodedLimit) {
-      throw new uploadService.UnsafeMediaReferenceError('参考图 data URL 无效或过大。');
+      throw new uploadService.UnsafeMediaReferenceError('参考图内嵌地址无效或过大。');
     }
     return validateImageReferenceBuffer(Buffer.from(match[2].replace(/\s/g, ''), 'base64'));
   }

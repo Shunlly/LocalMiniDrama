@@ -194,7 +194,7 @@ test('worker 先返回时等待远端失败决议并继续完成，不留下无 
   assert.equal(cancelled.ok, false);
   assert.equal(taskService.getTask(db, taskId).status, 'failed');
   assert.equal(videoService.getById(db, videoId).status, 'failed');
-  assert.match(videoService.getById(db, videoId).error_msg, /generation failed normally/);
+  assert.match(videoService.getById(db, videoId).error_msg, /视频生成失败|generation failed normally/);
 });
 
 test('取消完成后迟到 worker 不能覆盖 cancelled 终态', async (t) => {

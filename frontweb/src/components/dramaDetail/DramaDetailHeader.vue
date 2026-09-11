@@ -7,8 +7,8 @@
         </button>
         <span class="breadcrumb-sep">›</span>
         <span class="page-title">{{ pageTitle }}</span>
-        <el-button class="btn-back-list" @click="emit('go-list')">
-          <el-icon><ArrowLeft /></el-icon>返回列表
+        <el-button class="btn-back-list" aria-label="返回项目列表" @click="emit('go-list')">
+          <el-icon aria-hidden="true"><ArrowLeft /></el-icon>返回项目列表
         </el-button>
         <div class="header-actions">
           <el-button class="btn-theme" :title="isDark ? '切换到浅色模式' : '切换到暗色模式'" :aria-label="isDark ? '切换到浅色模式' : '切换到暗色模式'" @click="emit('toggle-theme')">
@@ -66,7 +66,7 @@
 <script setup>
 import { ArrowLeft, Grid, Moon, Sunny, VideoPlay } from '@element-plus/icons-vue'
 
-// 页头只负责展示，返回列表与进入制作等方法仍由页面处理
+// 页头只负责展示，返回项目列表与进入制作等方法仍由页面处理
 
 defineProps({
   pageTitle: { type: String, default: '剧集管理' },

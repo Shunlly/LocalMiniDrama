@@ -1,13 +1,21 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
+import { readAiConfigFormDialogTreeSource } from './helpers/aiConfigFormDialogSources.js'
 
 const pageSource = readFileSync(new URL('../src/components/AIConfigContent.vue', import.meta.url), 'utf8')
-const formDialogSource = readFileSync(new URL('../src/components/aiConfig/AiConfigFormDialog.vue', import.meta.url), 'utf8')
+const formDialogSource = readAiConfigFormDialogTreeSource()
 const oneKeyDialogsSource = readFileSync(new URL('../src/components/aiConfig/AiConfigOneKeyDialogs.vue', import.meta.url), 'utf8')
 const bulkKeyDialogSource = readFileSync(new URL('../src/components/aiConfig/AiConfigBulkKeyDialog.vue', import.meta.url), 'utf8')
 const connectionDialogSource = readFileSync(new URL('../src/components/aiConfig/AiConfigConnectionTestDialog.vue', import.meta.url), 'utf8')
 const jimeng2AssetsDialogSource = readFileSync(new URL('../src/components/aiConfig/AiConfigJimeng2AssetsDialog.vue', import.meta.url), 'utf8')
+const dependencyErrorBarSource = readFileSync(new URL('../src/components/aiConfig/AiConfigDependencyErrorBar.vue', import.meta.url), 'utf8')
+const listToolbarSource = readFileSync(new URL('../src/components/aiConfig/AiConfigListToolbar.vue', import.meta.url), 'utf8')
+const listTableSource = readFileSync(new URL('../src/components/aiConfig/AiConfigListTable.vue', import.meta.url), 'utf8')
+const workspaceSwitchSource = readFileSync(new URL('../src/components/aiConfig/AiConfigWorkspaceSwitch.vue', import.meta.url), 'utf8')
+const coverageHeaderSource = readFileSync(new URL('../src/components/aiConfig/AiConfigCoverageHeader.vue', import.meta.url), 'utf8')
+const coveragePanelSource = readFileSync(new URL('../src/components/aiConfig/AiConfigCoveragePanel.vue', import.meta.url), 'utf8')
+const configsPanelSource = readFileSync(new URL('../src/components/aiConfig/AiConfigConfigsPanel.vue', import.meta.url), 'utf8')
 const source = [
   pageSource,
   formDialogSource,
@@ -15,6 +23,13 @@ const source = [
   bulkKeyDialogSource,
   connectionDialogSource,
   jimeng2AssetsDialogSource,
+  dependencyErrorBarSource,
+  listToolbarSource,
+  listTableSource,
+  workspaceSwitchSource,
+  coverageHeaderSource,
+  coveragePanelSource,
+  configsPanelSource,
 ].join('\n')
 
 test('AI config dark theme covers page surfaces, teleported dialogs, controls, tables, and states', () => {

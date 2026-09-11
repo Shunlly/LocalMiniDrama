@@ -67,11 +67,18 @@ desktop/dist/
 # Local agent scratch files must never be committed.
 .tmp-*
 **/.tmp-*
+_tmp_*
+_a11y_*.py
+_add_watch.py
+_drama_detail_test_log.txt
+_fail_test_*
 _patch_*.py
 _patch_*.js
 _extract_*.py
 _fix_*.py
 frontweb/_patch_*.py
+frontweb/_dump_cn.py
+backend-node/tmp-*
 
 tmp_extract_msgs.js
 

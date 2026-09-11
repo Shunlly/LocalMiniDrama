@@ -1,0 +1,120 @@
+.page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+.header-left,
+.header-actions,
+.import-failure-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.header-left {
+  min-width: 0;
+}
+.title-wrap {
+  min-width: 0;
+}
+.page-title {
+  margin: 0;
+  font-size: 20px;
+  line-height: 1.3;
+  color: var(--text-bright, var(--text-primary));
+}
+.page-subtitle {
+  margin: 4px 0 0;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+.back-link {
+  flex: 0 0 auto;
+}
+.data-load-state,
+.maintenance-status,
+.selected-file,
+.empty-state,
+.backup-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+  padding: 16px 18px;
+  border: 1px solid var(--border-color, #3f3f46);
+  border-radius: 8px;
+  background: var(--bg-card, rgba(24, 24, 27, 0.75));
+}
+.data-load-state {
+  border-color: var(--el-color-danger-light-5);
+  border-left: 4px solid var(--el-color-danger);
+}
+.data-load-state__content,
+.backup-item-copy,
+.empty-state {
+  min-width: 0;
+}
+.data-load-state h2,
+.empty-state strong,
+.backup-item-copy strong,
+.maintenance-status strong {
+  margin: 0 0 4px;
+  font-size: 16px;
+}
+.data-load-state p,
+.empty-state span,
+.backup-item-copy p,
+.maintenance-status p,
+.selected-file p {
+  margin: 3px 0 0;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.55;
+}
+.data-load-state__stale {
+  color: #d97706;
+}
+.data-load-state__detail,
+.import-failure-filename {
+  color: var(--el-color-danger);
+  overflow-wrap: anywhere;
+}
+.maintenance-status.is-blocked {
+  border-left: 4px solid #d97706;
+}
+.maintenance-status.is-ready {
+  border-left: 4px solid var(--el-color-success);
+}
+.maintenance-status.is-stale {
+  border-style: dashed;
+}
+.empty-state {
+  flex-direction: column;
+  align-items: flex-start;
+}
+.empty-state-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+.backup-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.backup-list-wrap {
+  min-height: 80px;
+}
+@media (max-width: 720px) {
+  .page-header,
+  .header-left,
+  .header-actions,
+  .data-load-state,
+  .import-failure-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}

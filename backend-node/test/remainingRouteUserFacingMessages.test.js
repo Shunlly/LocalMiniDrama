@@ -45,7 +45,8 @@ describe('剩余路由对用户返回中文错误', () => {
     assetRoutes({
       prepare() { throw new Error('SQLITE_ERROR: no such table: assets'); },
     }, silent).list({ query: {} }, res);
-    assert.equal(res.statusCode, 400);
+    assert.equal(res.statusCode, 500);
+    assert.equal(res.body.error.code, 'INTERNAL_ERROR');
     assert.equal(hasCjk(res.body.error.message), true);
     assert.doesNotMatch(res.body.error.message, /SQLITE_ERROR|no such table/i);
   });

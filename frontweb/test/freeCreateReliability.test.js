@@ -7,11 +7,16 @@ import {
   buildFreeCreateGenerationPayload,
   createFreeCreateTaskOwner,
   getFreeCreateAspectRatioOptions,
+  getFreeCreateBusyDisabledReason,
   getFreeCreateCapabilityNotice,
+  getFreeCreateEmptyResultCopy,
+  getFreeCreateGenerateDisabledReason,
   getFreeCreateReadyMessage,
   getReferenceUploadBlockReason,
   normalizeFreeCreateAspectRatio,
   parseFreeCreateTaskResult,
+  pollFreeCreateTask,
+  shouldBlockFreeCreateUnload,
   toFreeCreateUserError,
 } from '../src/utils/freeCreate.js'
 const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8')
@@ -20,11 +25,15 @@ const freeCreatePageSource = read('../src/views/FreeCreate.vue')
 const freeCreateHeaderSource = read('../src/components/freeCreate/FreeCreateHeader.vue')
 const freeCreateInputSource = read('../src/components/freeCreate/FreeCreateInputPanel.vue')
 const freeCreateResultSource = read('../src/components/freeCreate/FreeCreateResultPanel.vue')
+const freeCreateWorkspaceSource = read('../src/composables/useFreeCreateWorkspace.js')
+const freeCreateUtilsSource = read('../src/utils/freeCreate.js')
 const freeCreateSource = [
   freeCreatePageSource,
   freeCreateHeaderSource,
   freeCreateInputSource,
   freeCreateResultSource,
+  freeCreateWorkspaceSource,
+  freeCreateUtilsSource,
 ].join('\n')
 const taskApiSource = read('../src/api/task.js')
 const videosApiSource = read('../src/api/videos.js')
@@ -191,7 +200,7 @@ test('task owner cancels a rejected pre-id submission without a remote request',
 test('FreeCreate polls image and video jobs through the shared task API', () => {
   assert.match(freeCreateSource, /import \{ taskAPI \} from '@\/api\/task'/)
   assert.equal(
-    (freeCreateSource.match(/taskAPI\.get\(taskId, \{ suppressErrorToast: true \}\)/g) || []).length,
+    (freeCreateSource.match(/taskAPI\.get\([^,]+, \{ suppressErrorToast: true \}\)/g) || []).length,
     2,
   )
   assert.doesNotMatch(freeCreateSource, /imagesAPI\.getTask/)
@@ -225,7 +234,7 @@ test('FreeCreate owns, cancels, and releases exactly one remote generation task'
   )
   assert.match(
     freeCreateSource,
-    /onBeforeRouteLeave\(async \(\) =>[\s\S]*return cancelActiveGeneration\('用户离开自由创作页面'\)/,
+    /onBeforeRouteLeave\(async \(\) =>[\s\S]*return confirmFreeCreateLeave\(\)/,
   )
   assert.match(freeCreateSource, /window\.addEventListener\('beforeunload', handleBeforeUnload\)/)
   assert.match(freeCreateSource, /window\.removeEventListener\('beforeunload', handleBeforeUnload\)/)
@@ -236,7 +245,7 @@ test('FreeCreate parses completed task payloads and recognizes cancellation term
     (freeCreateSource.match(/parseFreeCreateTaskResult\(res\.result\)/g) || []).length,
     2,
   )
-  assert.match(freeCreateSource, /\['cancelled', 'canceled'\]\.includes\(status\)/)
+  assert.match(freeCreateSource, /\['cancelled', 'canceled'\]\.includes\(String\(status \|\| ''\)\.toLowerCase\(\)\)/)
   assert.match(freeCreateSource, /item\.status = 'cancelled'/)
 })
 
@@ -262,8 +271,8 @@ function loadFreeCreateUserErrorHelper() {
 test('自由创作空态区分加载、失败和未配置，失败时可重新检查', () => {
   assert.match(freeCreateSource, /const emptyResultCopy = computed/)
   assert.match(freeCreateSource, /填写提示词后，生成结果会显示在这里/)
-  assert.match(freeCreateSource, /暂时无法读取\$\{activeServiceLabel\.value\}服务配置，因此还不能生成。/)
-  assert.match(freeCreateSource, /请先配置可用的\$\{activeServiceLabel\.value\}服务，生成结果会显示在这里/)
+  assert.match(freeCreateSource, /暂时无法读取\$\{label\}服务配置，因此还不能生成。/)
+  assert.match(freeCreateSource, /请先配置可用的\$\{label\}服务，生成结果会显示在这里/)
   assert.match(freeCreateSource, /v-if="generationCapability.status === 'error'"[\s\S]*重新检查服务/)
   assert.match(freeCreateSource, /v-if="generationCapability.status === 'error'"[\s\S]*@click="loadServiceConfigs"[\s\S]*重新检查/)
   assert.match(freeCreateSource, /results\.length === 0 && !generating/)
@@ -275,8 +284,10 @@ test('生成按钮禁用原因可见，而不是只写在 title 里', () => {
   assert.match(freeCreateSource, /id="free-create-generate-reason"/)
   assert.match(
     freeCreateSource,
-    /const generateDisabledReason = computed\(\(\) => \{[\s\S]*if \(generating\.value\) return ''[\s\S]*if \(!generationCapability\.value\.ready\) \{[\s\S]*toFreeCreateUserError\([\s\S]*generationUnavailableNotice\(\)[\s\S]*if \(referenceUploadBlockReason\.value\) return referenceUploadBlockReason\.value[\s\S]*if \(!prompt\.value\.trim\(\)\) return '请先填写提示词'/,
+    /const generateDisabledReason = computed\(\(\) => getFreeCreateGenerateDisabledReason\(\{/,
   )
+  assert.match(freeCreateSource, /export function getFreeCreateGenerateDisabledReason\(/)
+  assert.match(freeCreateSource, /if \(!nonEmpty\(prompt\)\) return '请先填写提示词'/)
   assert.match(freeCreateSource, /mode\.value === 'video'[\s\S]*getReferenceUploadBlockReason/)
 })
 
@@ -315,7 +326,11 @@ test('页面错误转义会吃掉英文技术信息，保留中文业务错误',
 test('离开保护会确认取消生成，并登记到应用级卸载拦截', () => {
   assert.match(
     freeCreateSource,
-    /window\.confirm\('正在生成，离开将取消当前任务。仍要离开吗？'\)/,
+    /FREE_CREATE_LEAVE_CONFIRM_MESSAGE = '正在生成，离开将取消当前任务。仍要离开吗？'/
+  )
+  assert.match(
+    freeCreateSource,
+    /window\.confirm\(FREE_CREATE_LEAVE_CONFIRM_MESSAGE\)/,
   )
   assert.match(
     freeCreateSource,
@@ -324,7 +339,7 @@ test('离开保护会确认取消生成，并登记到应用级卸载拦截', ()
   assert.match(freeCreateSource, /unregisterLeaveProtection\?\.\(\)/)
   assert.match(
     freeCreateSource,
-    /onBeforeRouteLeave\(async \(\) =>[\s\S]*return cancelActiveGeneration\('用户离开自由创作页面'\)/,
+    /onBeforeRouteLeave\(async \(\) =>[\s\S]*return confirmFreeCreateLeave\(\)/,
   )
   assert.match(freeCreateSource, /window\.addEventListener\('beforeunload', handleBeforeUnload\)/)
 })
@@ -394,7 +409,7 @@ test('参考图上传禁用时给出中文原因', () => {
 test('结果区禁用按钮给出中文原因', () => {
   assert.match(
     freeCreateSource,
-    /const resultBusyDisabledReason = computed\(\(\) => \{[\s\S]*if \(cancelling\.value\) return '正在取消生成，请稍候'[\s\S]*if \(generating\.value\) return '正在生成，请稍候'/,
+    /const resultBusyDisabledReason = computed\(\(\) => getFreeCreateBusyDisabledReason\(\{[\s\S]*cancelling: cancelling\.value[\s\S]*generating: generating\.value/,
   )
   assert.equal(
     (freeCreateSource.match(/:disabled="cancelling"\s*:title="cancelling \? resultBusyDisabledReason : undefined"/g) || []).length,
@@ -419,6 +434,57 @@ test('结果区禁用按钮给出中文原因', () => {
   assert.match(freeCreateSource, /:title="\(generating \? resultBusyDisabledReason : generateDisabledReason\) \|\| undefined"/)
   assert.match(
     freeCreateSource,
-    /const generateDisabledReason = computed\(\(\) => \{[\s\S]*if \(generating\.value\) return ''/,
+    /const generateDisabledReason = computed\(\(\) => getFreeCreateGenerateDisabledReason\(\{/,
   )
+})
+
+test('自由创作空态、失败、取消和离开保护文案可直接断言', () => {
+  assert.equal(getFreeCreateEmptyResultCopy({ status: 'ready', ready: true }), '填写提示词后，生成结果会显示在这里')
+  assert.equal(
+    getFreeCreateEmptyResultCopy({ status: 'error', serviceLabel: '图片' }),
+    '暂时无法读取图片服务配置，因此还不能生成。',
+  )
+  assert.equal(getFreeCreateGenerateDisabledReason({ generating: false, capabilityReady: true, prompt: '' }), '请先填写提示词')
+  assert.equal(getFreeCreateBusyDisabledReason({ cancelling: true }), '正在取消生成，请稍候')
+  assert.equal(shouldBlockFreeCreateUnload({ uploading: true }), true)
+  assert.equal(shouldBlockFreeCreateUnload({ hasActive: true }), true)
+  assert.equal(shouldBlockFreeCreateUnload({}), false)
+})
+
+test('轮询会把取消和失败写成中文终态', async () => {
+  const cancelled = { type: 'image', url: null, status: 'processing', error: null }
+  await pollFreeCreateTask({
+    taskId: 'task-1',
+    item: cancelled,
+    run: {},
+    maxMs: 20,
+    intervalMs: 1,
+    waitForPendingCancellation: async () => false,
+    fetchTask: async () => ({ status: 'canceled', message: '用户已取消' }),
+    resolveCompletedItem: async () => {},
+    failResultItem(item, message) {
+      item.status = 'failed'
+      item.error = String(message)
+    },
+  })
+  assert.equal(cancelled.status, 'cancelled')
+  assert.equal(cancelled.error, '用户已取消')
+
+  const failed = { type: 'image', url: null, status: 'processing', error: null }
+  await pollFreeCreateTask({
+    taskId: 'task-2',
+    item: failed,
+    run: {},
+    maxMs: 20,
+    intervalMs: 1,
+    waitForPendingCancellation: async () => false,
+    fetchTask: async () => ({ status: 'failed', message: '当前模型额度不足' }),
+    resolveCompletedItem: async () => {},
+    failResultItem(item, message) {
+      item.status = 'failed'
+      item.error = String(message)
+    },
+  })
+  assert.equal(failed.status, 'failed')
+  assert.equal(failed.error, '当前模型额度不足')
 })

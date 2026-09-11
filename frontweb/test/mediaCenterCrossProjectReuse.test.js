@@ -8,12 +8,17 @@ import { shouldShowRequestErrorToast } from '../src/utils/request.js'
 import { buildStoryboardVideoRequest } from '../src/utils/storyboardVideoRequest.js'
 import { useFilmCreateWorkspaceNav } from '../src/composables/filmCreate/useFilmCreateWorkspaceNav.js'
 import { useFilmCreatePipelineStages } from '../src/composables/filmCreate/useFilmCreatePipelineStages.js'
+import { useFilmCreatePipelineOneClick } from '../src/composables/filmCreate/useFilmCreatePipelineOneClick.js'
+import { useFilmCreatePipelineRepair } from '../src/composables/filmCreate/useFilmCreatePipelineRepair.js'
 import { useFilmCreateBatchGeneration } from '../src/composables/filmCreate/useFilmCreateBatchGeneration.js'
 import { useFilmCreateStoryboardVideoGeneration } from '../src/composables/filmCreate/useFilmCreateStoryboardVideoGeneration.js'
 import { useFilmCreateStoryboardReferences } from '../src/composables/filmCreate/useFilmCreateStoryboardReferences.js'
 import { remainingImportedFunctionSource } from './helpers/remainingSourceBetween.js'
+import { readMediaLibrarySources } from './helpers/mediaLibrarySources.js'
+import { readDramaCanvasPageSource } from './helpers/dramaCanvasPageSource.js'
 
 const filmCreateSource = readFileSync(new URL('../src/views/FilmCreate.vue', import.meta.url), 'utf8')
+const shellBindingsSource = readFileSync(new URL('../src/components/filmCreate/filmCreateShellBindings.js', import.meta.url), 'utf8')
 const storyboardPanelSource = readFileSync(new URL('../src/components/filmCreate/FilmCreateStoryboardPanel.vue', import.meta.url), 'utf8') + '\n' + readFileSync(new URL('../src/components/filmCreate/FilmCreateStoryboardPanel.css', import.meta.url), 'utf8')
 const storyboardDialogsSource = [
   'FilmCreateStoryboardDialogs.vue',
@@ -27,10 +32,10 @@ const mediaLibraryHeaderSource = readFileSync(new URL('../src/components/mediaLi
 const mediaLibraryFilterSource = readFileSync(new URL('../src/components/mediaLibrary/MediaLibraryFilterBar.vue', import.meta.url), 'utf8')
 const mediaLibraryLocalGridSource = readFileSync(new URL('../src/components/mediaLibrary/MediaLibraryLocalGrid.vue', import.meta.url), 'utf8')
 const mediaLibraryNetworkSource = readFileSync(new URL('../src/components/mediaLibrary/MediaLibraryNetworkPanel.vue', import.meta.url), 'utf8')
-const mediaLibrarySource = [mediaLibraryPageSource, mediaLibraryHeaderSource, mediaLibraryFilterSource, mediaLibraryLocalGridSource, mediaLibraryNetworkSource].join('\n')
+const mediaLibrarySource = readMediaLibrarySources()
 const pickerSource = readFileSync(new URL('../src/components/GlobalMediaPickerDialog.vue', import.meta.url), 'utf8')
 const deliveryPanelSource = readFileSync(new URL('../src/components/filmCreate/FilmCreateDeliveryPanel.vue', import.meta.url), 'utf8')
-const dramaCanvasSource = readFileSync(new URL('../src/views/DramaCanvas.vue', import.meta.url), 'utf8')
+const dramaCanvasSource = readDramaCanvasPageSource()
 const assetsApiSource = readFileSync(new URL('../src/api/assets.js', import.meta.url), 'utf8')
 
 function assertValidVueSfc(name, source) {
@@ -137,7 +142,10 @@ test('FilmCreate wires the picker into storyboard free references with duplicate
   }
 
   const workspaceDialogsSource = readFileSync(new URL('../src/components/filmCreate/FilmCreateWorkspaceDialogs.vue', import.meta.url), 'utf8')
-  assert.match(filmCreateSource, /<FilmCreateWorkspaceDialogs[\s\S]*@select="onGlobalMediaAssetSelected"[\s\S]*@open-library="openMediaLibraryFromPicker"/)
+  assert.match(filmCreateSource, /<FilmCreateWorkspaceDialogs/)
+  assert.match(filmCreateSource, /v-bind="workspaceDialogsLayerBindings"/)
+  assert.match(shellBindingsSource, /onSelect: onGlobalMediaAssetSelected/)
+  assert.match(shellBindingsSource, /onOpenLibrary: openMediaLibraryFromPicker/)
   assert.match(workspaceDialogsSource, /<GlobalMediaPickerDialog/)
   const storyboardVideoColumnSource = readFileSync(new URL('../src/components/filmCreate/FilmCreateStoryboardVideoColumn.vue', import.meta.url), 'utf8')
   assert.match(storyboardVideoColumnSource, /:aria-label="`分镜 \$\{sb\.storyboard_number\} 视频预览`"/)
@@ -149,6 +157,8 @@ test('FilmCreate wires the picker into storyboard free references with duplicate
 test('all storyboard video submission paths reuse the shared video request builder', () => {
   const source = remainingImportedFunctionSource(
     useFilmCreatePipelineStages,
+    useFilmCreatePipelineOneClick,
+    useFilmCreatePipelineRepair,
     useFilmCreateBatchGeneration,
     useFilmCreateStoryboardVideoGeneration,
   )
@@ -165,7 +175,8 @@ test('all storyboard video submission paths reuse the shared video request build
 
 test('free canvas picker only confirms current-project or global assets and closes after a successful pick', () => {
   assert.match(dramaCanvasSource, /reusePolicy: 'current-or-global'/)
-  assert.match(dramaCanvasSource, /@select="onFreeCanvasMediaPicked"/)
+  assert.match(dramaCanvasSource, /@select="handleFreeCanvasMediaPicked"/)
+  assert.match(dramaCanvasSource, /handleFreeCanvasMediaPicked:\s*ctx\.onFreeCanvasMediaPicked/)
   assert.match(pickerSource, /当前画布只能确认全局素材或当前项目素材/)
   assert.doesNotMatch(filmCreateSource, /reusePolicy: 'current-or-global'/)
 })

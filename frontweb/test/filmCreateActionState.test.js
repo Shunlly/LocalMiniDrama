@@ -171,12 +171,22 @@ test('video and production capabilities require a usable model, with only explic
 
 test('FilmCreate delegates pipeline UI and wraps major gated actions', async () => {
   const filmCreateSource = readFileSync(new URL('../src/views/FilmCreate.vue', import.meta.url), 'utf8')
-  const pipelinePanelSource = readFileSync(
-    new URL('../src/components/filmCreate/FilmCreatePipelinePanel.vue', import.meta.url),
+  const pipelinePanelSource = [
+    'FilmCreatePipelinePanel.vue',
+    'filmCreatePipelinePanelBindings.js',
+    'FilmCreatePipelineActions.vue',
+    'FilmCreatePipelineSteps.vue',
+    'FilmCreatePipelineStatus.vue',
+  ].map((name) => readFileSync(
+    new URL(`../src/components/filmCreate/${name}`, import.meta.url),
     'utf8',
-  )
+  )).join('\n')
   const deliveryPanelSource = readFileSync(
     new URL('../src/components/filmCreate/FilmCreateDeliveryPanel.vue', import.meta.url),
+    'utf8',
+  )
+  const workspaceBindingsSource = readFileSync(
+    new URL('../src/components/filmCreate/filmCreateWorkspaceBindings.js', import.meta.url),
     'utf8',
   )
 
@@ -305,9 +315,13 @@ test('FilmCreate delegates pipeline UI and wraps major gated actions', async () 
 
   assert.match(filmCreateSource, /<FilmCreatePipelinePanel/)
   assert.doesNotMatch(filmCreateSource, /class="one-click-actions"/)
-  assert.match(filmCreateSource, /:character-generation-disabled-reason="characterGenerationDisabledReason"/)
+  assert.match(filmCreateSource, /v-bind="resourcePanelBindings"/)
   assert.match(filmCreateSource, /<FilmCreateResourcePanel/)
-  assert.match(filmCreateSource, /:batch-action-disabled-reason="batchActionDisabledReason"/)
+  assert.match(filmCreateSource, /v-bind="storyboardPanelBindings"/)
+  assert.doesNotMatch(filmCreateSource, /:character-generation-disabled-reason="characterGenerationDisabledReason"/)
+  assert.doesNotMatch(filmCreateSource, /:batch-action-disabled-reason="batchActionDisabledReason"/)
+  assert.match(workspaceBindingsSource, /resourcePanel: \{[\s\S]*characterGenerationDisabledReason/)
+  assert.match(workspaceBindingsSource, /storyboardPanel: \{[\s\S]*batchActionDisabledReason/)
   assert.match(filmCreateSource, /<FilmCreateStoryboardPanel/)
   assert.match(deliveryPanelSource, /:reason="visibleComposeDisabledReason"/)
   assert.match(filmCreateSource, /ttsGenerationDisabledReason/)

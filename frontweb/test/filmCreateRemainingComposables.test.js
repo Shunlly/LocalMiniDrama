@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage as PipelineElMessage } from '../src/utils/elementPlusFeedback.js'
 
 import { useFilmCreateTaskRecovery } from '../src/composables/filmCreate/useFilmCreateTaskRecovery.js'
 import { useFilmCreatePipelineStages } from '../src/composables/filmCreate/useFilmCreatePipelineStages.js'
@@ -272,6 +273,8 @@ function createPipelineStageDeps(overrides = {}) {
     getSelectedStyle() {
       throw new Error('缺 id 时不应读取风格')
     },
+    sbTruncatedWarning: refOf(false),
+    sbTruncatedDismissed: refOf(true),
     ...overrides,
   }
 }
@@ -416,6 +419,46 @@ function createRunnablePipelineStages(overrides = {}) {
   }))
   return { api, errors, store, pipelineErrorLog }
 }
+
+test('一键流水线在分镜被截断时打开制作页警告', async () => {
+  const sbTruncatedWarning = refOf(false)
+  const sbTruncatedDismissed = refOf(true)
+  const originalSuccess = PipelineElMessage.success
+  PipelineElMessage.success = () => {}
+  try {
+  const { api } = createRunnablePipelineStages({
+    sbTruncatedWarning,
+    sbTruncatedDismissed,
+    store: {
+      currentEpisode: {
+        id: EPISODE_ID,
+        characters: [{ id: 1 }],
+        scenes: [{ id: 2 }],
+      },
+      scriptContent: '李华走进办公室。',
+      props: [{ id: 3 }],
+      storyboards: [],
+    },
+    dramaAPI: {
+      async generateStoryboard() {
+        return { task_id: 'sb-task' }
+      },
+    },
+    pollTaskWithPause: async () => ({ result: { truncated: true } }),
+    generationAPI: forbiddenApi('generationAPI'),
+    propAPI: forbiddenApi('propAPI'),
+    characterAPI: forbiddenApi('characterAPI'),
+    sceneAPI: forbiddenApi('sceneAPI'),
+    imagesAPI: forbiddenApi('imagesAPI'),
+    videosAPI: forbiddenApi('videosAPI'),
+  })
+  await api.runOneClickPipeline(true)
+  assert.equal(sbTruncatedWarning.value, true)
+  assert.equal(sbTruncatedDismissed.value, false)
+  } finally {
+    PipelineElMessage.success = originalSuccess
+  }
+})
 
 test('流水线阶段把英文/密钥错误收成中文日志', async () => {
   assertDistinctIds(DRAMA_ID, EPISODE_ID)

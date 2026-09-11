@@ -81,7 +81,7 @@ describe('imageGateway 客户端拆分', () => {
     assert.equal(src.includes("require('./imageGateway/download')"), true);
     assert.equal(src.includes("require('./imageGateway/config')"), true);
     assert.equal(src.includes("require('./imageGateway/protocolDispatch')"), true);
-    assert.equal(src.includes("require('./imageGateway/requestAssembly')"), true);
+    assert.equal(src.includes("require('./imageGateway/imageApiAssembly')"), true);
     assert.equal(src.includes('FOR REFERENCE ONLY'), false);
     assert.equal(src.includes('ANTI_SPLIT_NEGATIVE_PROMPT'), false);
     assert.equal(src.includes('inferProtocol'), false);

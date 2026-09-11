@@ -10,13 +10,31 @@ export function readFilmListSources() {
   const header = read('../../src/components/filmList/FilmListHeader.vue')
   const banners = read('../../src/components/filmList/FilmListFailureBanners.vue')
   const toolbar = read('../../src/components/filmList/FilmListWorkspaceToolbar.vue')
+  const grid = read('../../src/components/filmList/FilmListProjectGrid.vue')
+  const pagination = read('../../src/components/filmList/FilmListPagination.vue')
+  const formatters = read('../../src/components/filmList/filmListFormatters.js')
+  const trash = read('../../src/components/filmList/FilmListTrashDialog.vue')
+  const load = read('../../src/components/filmList/useFilmListLoad.js')
+  const trashActions = read('../../src/components/filmList/useFilmListTrash.js')
+  const forms = read('../../src/components/filmList/useFilmListProjectForms.js')
+  const importExport = read('../../src/components/filmList/useFilmListImportExport.js')
+  const navigation = read('../../src/components/filmList/useFilmListNavigation.js')
   const library = readFilmListLibrarySource()
   return {
     view,
     header,
     banners,
     toolbar,
+    grid,
+    pagination,
+    formatters,
+    trash,
+    load,
+    trashActions,
+    forms,
+    importExport,
+    navigation,
     library,
-    ui: [view, header, banners, toolbar].join('\n'),
+    ui: [view, header, banners, toolbar, grid, pagination, formatters, trash, load, trashActions, forms, importExport, navigation].join('\n'),
   }
 }

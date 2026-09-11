@@ -9,6 +9,7 @@ const { requireCompleteProviderNetworkPolicy } = require('../providerNetworkPoli
 const { validateHttpRequestTarget } = require('../secureHttpFetch');
 const aiConfigService = require('../aiConfigService');
 const { resolveVideoTimeoutMs } = require('./providerRuntime');
+const { localRefKeyFromRaw, relativePathAfterStatic } = require('./staticPath');
 
 const VIDEO_REFERENCE_MAX_BYTES = 25 * 1024 * 1024;
 
@@ -105,16 +106,6 @@ function isPublicFilesBaseUrl(files_base_url) {
   const fb = (files_base_url || '').trim();
   if (!fb || !/^https?:\/\//i.test(fb)) return false;
   return !/localhost|127\.0\.0\.1|0\.0\.0\.0|192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\./i.test(fb);
-}
-
-function localRefKeyFromRaw(raw) {
-  const s = (raw || '').trim();
-  if (!s || s.startsWith('data:')) return null;
-  if (s.includes('/static/')) {
-    return (s.split('/static/')[1] || '').split(/[?#]/)[0].replace(/^\/+/, '') || null;
-  }
-  if (/^https?:\/\//i.test(s)) return null;
-  return s.replace(/^\/+/, '') || null;
 }
 
 function publicUrlFromLocalRef(raw, files_base_url) {
@@ -233,10 +224,7 @@ async function resolveVeo3ImageForApi(rawImgUrl, storage_local_path, log, video_
     return { kind: 'data', value: raw };
   }
 
-  let relAfterStatic = '';
-  if (raw.includes('/static/')) {
-    relAfterStatic = (raw.split('/static/')[1] || '').split(/[?#]/)[0].replace(/^\/+/, '');
-  }
+  const relAfterStatic = relativePathAfterStatic(raw);
   if (relAfterStatic && storage_local_path) {
     try {
       let safeRel = relAfterStatic;

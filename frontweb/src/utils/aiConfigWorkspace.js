@@ -1,4 +1,13 @@
+/**
+ * AI 配置工作区导航与初始服务类型归一。
+ */
 const CONFIG_WORKSPACE_VIEWS = ['coverage', 'configs']
+const FILTERABLE_SERVICE_TYPES = new Set(['text', 'image', 'storyboard_image', 'video', 'tts', 'ocr', 'transcription'])
+
+export function normalizeInitialServiceType(value) {
+  const normalized = String(value || '').trim()
+  return FILTERABLE_SERVICE_TYPES.has(normalized) ? normalized : ''
+}
 
 export function getConfigWorkspaceKeyTarget(currentView, key) {
   const currentIndex = CONFIG_WORKSPACE_VIEWS.indexOf(currentView)

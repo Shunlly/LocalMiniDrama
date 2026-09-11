@@ -9,6 +9,7 @@
             :loading="cancelling"
             :disabled="cancelling"
             :title="cancelling ? resultBusyDisabledReason : undefined"
+            :aria-label="generating ? '取消并清空生成结果' : '清空生成结果'"
             @click="clearResults"
           >
             {{ generating ? '取消并清空' : '清空' }}
@@ -42,6 +43,7 @@
             :loading="cancelling"
             :disabled="cancelling"
             :title="cancelling ? resultBusyDisabledReason : undefined"
+            aria-label="取消生成"
             @click="cancelGeneration"
           >
             <el-icon v-if="!cancelling"><CircleClose /></el-icon>
@@ -192,10 +194,11 @@ function openImagePreview(item, idx) {
 
 .result-panel {
   flex: 1;
-  background: #fff;
+  min-width: 0;
+  background: var(--bg-card);
   border-radius: 12px;
   padding: 20px;
-  box-shadow: 0 2px 8px rgba(0,0,0,.06);
+  box-shadow: var(--shadow);
   min-height: 400px;
 }
 
@@ -209,7 +212,7 @@ function openImagePreview(item, idx) {
 .result-title {
   font-size: 16px;
   font-weight: 600;
-  color: #1a1a2e;
+  color: var(--text-bright);
 }
 
 .empty-result {
@@ -218,7 +221,7 @@ function openImagePreview(item, idx) {
   align-items: center;
   justify-content: center;
   height: 300px;
-  color: #9ca3af;
+  color: var(--text-faint);
   gap: 12px;
 }
 
@@ -230,7 +233,7 @@ function openImagePreview(item, idx) {
   display: flex;
   align-items: center;
   gap: 8px;
-  color: #409eff;
+  color: var(--el-color-primary);
   font-size: 14px;
   margin-bottom: 12px;
 }
@@ -242,13 +245,13 @@ function openImagePreview(item, idx) {
 }
 
 .result-item {
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--border-color);
   border-radius: 8px;
   overflow: hidden;
 }
 
 .result-media {
-  background: #f9fafb;
+  background: var(--bg-inner);
   aspect-ratio: 16/9;
   display: flex;
   align-items: center;
@@ -290,7 +293,7 @@ function openImagePreview(item, idx) {
   flex-direction: column;
   align-items: center;
   gap: 6px;
-  color: #6b7280;
+  color: var(--text-muted);
   font-size: 12px;
 }
 
@@ -303,12 +306,12 @@ function openImagePreview(item, idx) {
   flex-direction: column;
   align-items: center;
   gap: 6px;
-  color: #6b7280;
+  color: var(--text-muted);
   font-size: 12px;
 }
 
 .media-cancelled {
-  color: #6b7280;
+  color: var(--text-muted);
 }
 
 .result-meta {
@@ -317,7 +320,7 @@ function openImagePreview(item, idx) {
 
 .result-prompt {
   font-size: 12px;
-  color: #6b7280;
+  color: var(--text-muted);
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;

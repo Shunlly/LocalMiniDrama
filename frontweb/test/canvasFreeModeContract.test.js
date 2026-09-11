@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
 import { readCanvasStoryboardPanelSource } from './helpers/canvasStoryboardPanelSource.js'
+import { readDramaCanvasRuntimeSource } from './helpers/dramaCanvasPageSource.js'
 
 const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8')
 
@@ -21,16 +22,18 @@ const freeCanvasEmptySource = read('../src/components/dramaCanvas/FreeCanvasEmpt
 const dramaCanvasViewSource = read('../src/views/DramaCanvas.vue')
 const dramaCanvasStyleSource = read('../src/views/DramaCanvas.css')
 const freeCanvasLogicSource = read('../src/composables/useDramaCanvasFreeCanvas.js')
+const freeCanvasMediaLogicSource = read('../src/composables/useDramaCanvasFreeCanvasMedia.js')
+const freeCanvasClipboardLogicSource = read('../src/composables/useDramaCanvasFreeCanvasClipboard.js')
 const persistLogicSource = read('../src/composables/useDramaCanvasPersist.js')
 const projectLoadLogicSource = read('../src/composables/useDramaCanvasProjectLoad.js')
 const workflowLogicSource = read('../src/composables/useDramaCanvasWorkflow.js')
 const graphLogicSource = read('../src/composables/useDramaCanvasGraph.js')
 const viewportLogicSource = read('../src/composables/useDramaCanvasViewport.js')
-const dramaCanvasSource = `${dramaCanvasViewSource}\n${pageHeaderSource}\n${productionSidebarSource}\n${loadFailureCardSource}\n${freeCanvasEmptySource}\n${dramaCanvasStyleSource}\n${freeCanvasLogicSource}\n${persistLogicSource}\n${projectLoadLogicSource}\n${workflowLogicSource}\n${graphLogicSource}\n${viewportLogicSource}`
+const dramaCanvasSource = readDramaCanvasRuntimeSource()
 
 test('free canvas toolbar names every icon-only action and exposes mode selection', () => {
-  assert.match(toolbarSource, /:title="canUndo \? '撤销' : '没有可撤销的操作'"/)
-  assert.match(toolbarSource, /:title="canRedo \? '重做' : '没有可重做的操作'"/)
+  assert.match(toolbarSource, /:title="canUndo \? '撤销（Ctrl\+Z）' : '没有可撤销的操作'"/)
+  assert.match(toolbarSource, /:title="canRedo \? '重做（Ctrl\+Y）' : '没有可重做的操作'"/)
   assert.match(toolbarSource, /没有可撤销的操作/)
   assert.match(toolbarSource, /没有可重做的操作/)
   for (const label of ['适配视图', '切换背景']) {
@@ -234,7 +237,7 @@ test('free canvas uses a collapsible project media sidebar with upload and drag-
   assert.match(dramaCanvasSource, /<FreeCanvasAssetSidebar/)
   assert.match(dramaCanvasSource, /function uploadFreeCanvasFiles\(files, position/)
   assert.match(dramaCanvasSource, /uploadAPI\.uploadAsset\(file, \{ dramaId:/)
-  assert.match(dramaCanvasSource, /@drop="onFreeCanvasDrop"/)
+  assert.match(dramaCanvasSource, /@drop="handleFreeCanvasDrop"/)
   assert.match(dramaCanvasSource, /function ensureFreeCanvasUploadFinished\(\)/)
   assert.match(dramaCanvasSource, /素材正在上传，请等待完成后再离开/)
 })
@@ -273,10 +276,11 @@ test('creating a free node suppresses the empty selection race until Vue Flow se
 })
 
 test('project-list return actions keep list-mode and project-list destinations distinct', () => {
-  assert.match(dramaCanvasViewSource, /<CanvasPageHeader/)
-  assert.match(dramaCanvasViewSource, /:go-project-list="goProjectList"/)
-  assert.match(dramaCanvasViewSource, /:go-list-mode="goListMode"/)
-  assert.match(dramaCanvasSource, /<button type="button" class="logo" aria-label="返回项目列表" @click="goProjectList">/)
+  assert.match(dramaCanvasViewSource, /<CanvasPageChrome/)
+  assert.match(dramaCanvasSource, /<CanvasPageHeader/)
+  assert.match(dramaCanvasSource, /:go-project-list="goProjectList"/)
+  assert.match(dramaCanvasSource, /:go-list-mode="goListMode"/)
+  assert.match(dramaCanvasSource, /<button type="button" class="logo" aria-label="返回项目列表" title="返回项目列表" @click="goProjectList">/)
   assert.match(dramaCanvasSource, /canvas-load-actions[\s\S]*@click="goProjectList">返回项目列表/)
   assert.match(dramaCanvasSource, /free-canvas-version-warning[\s\S]*@click="goListMode">列表模式/)
   assert.match(dramaCanvasSource, /function goProjectList\(\)[\s\S]*projectListReturnTo\.value \|\| '\/'/)

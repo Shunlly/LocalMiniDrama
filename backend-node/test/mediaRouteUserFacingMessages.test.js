@@ -44,13 +44,15 @@ describe('图片视频任务路由对用户返回中文错误', () => {
     const silent = { error() {}, errorw() {} };
     const imageRes = mockRes();
     imageRoutes(throwingDb('SQLITE_ERROR: no such table: images'), {}, silent).list({ query: {} }, imageRes);
-    assert.equal(imageRes.statusCode, 400);
+    assert.equal(imageRes.statusCode, 500);
+    assert.equal(imageRes.body.error.code, 'INTERNAL_ERROR');
     assert.equal(hasCjk(imageRes.body.error.message), true);
     assert.doesNotMatch(imageRes.body.error.message, /SQLITE_ERROR|no such table/i);
 
     const videoRes = mockRes();
     videoRoutes(throwingDb('SQLITE_ERROR: no such table: videos'), silent).list({ query: {} }, videoRes);
-    assert.equal(videoRes.statusCode, 400);
+    assert.equal(videoRes.statusCode, 500);
+    assert.equal(videoRes.body.error.code, 'INTERNAL_ERROR');
     assert.equal(hasCjk(videoRes.body.error.message), true);
     assert.doesNotMatch(videoRes.body.error.message, /SQLITE_ERROR|no such table/i);
 
@@ -59,7 +61,8 @@ describe('图片视频任务路由对用户返回中文错误', () => {
       { params: { task_id: '1' } },
       taskRes,
     );
-    assert.equal(taskRes.statusCode, 400);
+    assert.equal(taskRes.statusCode, 500);
+    assert.equal(taskRes.body.error.code, 'INTERNAL_ERROR');
     assert.equal(hasCjk(taskRes.body.error.message), true);
     assert.doesNotMatch(taskRes.body.error.message, /SQLITE_ERROR|no such table/i);
   });

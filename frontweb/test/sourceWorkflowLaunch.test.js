@@ -1,8 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
-
 import { remainingExtractNamedFunction } from './helpers/remainingSourceBetween.js'
+import { readSourceIntakeWorkflowSources } from './helpers/sourceIntakeWorkflowSources.js'
 
 import {
   ProductionReadinessError,
@@ -156,7 +155,7 @@ test('AI config location preserves a safe explicit workspace return and the firs
 })
 
 test('source workflow panel exposes mode, readiness remediation, and a throwing source launcher', () => {
-  const source = readFileSync(new URL('../src/components/SourceIntakeWorkflowPanel.vue', import.meta.url), 'utf8')
+  const source = readSourceIntakeWorkflowSources()
 
   assert.match(source, /草稿预演/)
   assert.match(source, /正式制作/)
@@ -178,7 +177,7 @@ test('source workflow panel exposes mode, readiness remediation, and a throwing 
 })
 
 test('source workflow polling surfaces failure, persists load errors, and offers recovery', () => {
-  const source = readFileSync(new URL('../src/components/SourceIntakeWorkflowPanel.vue', import.meta.url), 'utf8')
+  const source = readSourceIntakeWorkflowSources()
   assert.match(source, /workflowDataError = ref\(''\)/)
   assert.match(source, /pollState = ref\('idle'\)/)
   assert.match(source, /pollError = ref\(''\)/)

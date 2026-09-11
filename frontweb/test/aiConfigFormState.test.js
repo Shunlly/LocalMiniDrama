@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs'
 import { createBlankAiConfigForm, hydrateAiConfigForm } from '../src/utils/aiConfigFormState.js'
 
 const vueSource = readFileSync(new URL('../src/components/AIConfigContent.vue', import.meta.url), 'utf8')
+const formActionsSource = readFileSync(new URL('../src/composables/useAiConfigFormActions.js', import.meta.url), 'utf8')
 
 test('新增表单默认设为默认配置，并关闭 DeepSeek 思考', () => {
   const form = createBlankAiConfigForm()
@@ -45,9 +46,9 @@ test('编辑回填 TTS、可灵 Omni 和 Comfy 工作流，坏 JSON 不会抛错
 })
 
 test('页面新增/编辑仍走原函数，loadList/openTest 留在页面', () => {
-  assert.match(vueSource, /function resetForm\(\)/)
-  assert.match(vueSource, /createBlankAiConfigForm\(\)/)
-  assert.match(vueSource, /hydrateAiConfigForm\(row\)/)
+  assert.match(formActionsSource, /function resetForm\(\)/)
+  assert.match(formActionsSource, /createBlankAiConfigForm\(\)/)
+  assert.match(formActionsSource, /hydrateAiConfigForm\(row\)/)
   assert.match(vueSource, /async function loadList\(\)/)
   assert.match(vueSource, /async function openTest\(row\)/)
 })
