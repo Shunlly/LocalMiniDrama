@@ -11,11 +11,12 @@
         tabindex="0"
         aria-disabled="true"
         :aria-label="accessibleLabel"
+        :aria-describedby="reasonId"
       >
         <slot />
       </span>
     </el-tooltip>
-    <span class="action-gate-reason" data-testid="action-gate-reason">{{ reason }}</span>
+    <span :id="reasonId" class="action-gate-reason" data-testid="action-gate-reason">{{ reason }}</span>
   </span>
   <slot v-else />
 </template>
@@ -23,11 +24,14 @@
 <script setup>
 import { computed } from 'vue'
 
+let actionGateReasonSeq = 0
+
 const props = defineProps({
   reason: { type: String, default: '' },
   label: { type: String, default: '此操作' },
 })
 
+const reasonId = `action-gate-reason-${++actionGateReasonSeq}`
 const accessibleLabel = computed(() => `${props.label}不可用：${props.reason}`)
 </script>
 

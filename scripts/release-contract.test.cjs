@@ -1681,8 +1681,9 @@ test('all desktop release builders explicitly disable electron-builder publishin
 })
 
 test('user ZIP parsers pin the four-gigabyte allocation fix', () => {
-  assert.equal(backendPackage.dependencies['adm-zip'], '0.6.0')
-  assert.equal(desktopPackage.dependencies['adm-zip'], '0.6.0')
+  // 0.6.0 起封住伪造 4GB 分配；0.6.1 额外拒绝提取时跟随目标目录内的符号链接。
+  assert.equal(backendPackage.dependencies['adm-zip'], '0.6.1')
+  assert.match(String(desktopPackage.dependencies['adm-zip']), /^0\.6\.\d+$/)
 })
 
 test('root source gate syntax-checks and executes the OpenClaw contract', () => {

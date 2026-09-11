@@ -12,7 +12,13 @@
       </span>
     </div>
     <slot name="status" />
-    <div v-if="runState.mediaNotice" class="placeholder-note" :class="{ 'is-error': runState.productionPlaceholder }">
+    <div
+      v-if="runState.mediaNotice"
+      class="placeholder-note"
+      :class="{ 'is-error': runState.productionPlaceholder }"
+      :role="runState.productionPlaceholder ? 'alert' : 'status'"
+      :aria-live="runState.productionPlaceholder ? 'assertive' : 'polite'"
+    >
       {{ runState.mediaNotice }}
     </div>
     <details class="run-detail" open>
@@ -31,8 +37,28 @@
         </div>
       </div>
     </details>
-    <div v-if="runState.failedStep && displayedRunError" class="run-error">
-      {{ displayedRunError }}
+    <div
+      v-if="runState.failedStep && displayedRunError"
+      id="source-intake-run-error"
+      class="run-error"
+      role="alert"
+      aria-live="assertive"
+      aria-atomic="true"
+    >
+      <span>{{ displayedRunError }}</span>
+      <div v-if="extractionNextStep" class="source-extraction-next-step">
+        <span class="next-step-kicker">下一步</span>
+        <el-button
+          size="small"
+          type="primary"
+          plain
+          :aria-label="extractionNextStep.actionLabel"
+          @click="$emit('open-extraction-ai-config', extractionNextStep.serviceType)"
+        >
+          {{ extractionNextStep.actionLabel }}
+        </el-button>
+        <span v-if="extractionNextStep.extraHint">{{ extractionNextStep.extraHint }}</span>
+      </div>
     </div>
     <slot name="actions" />
   </div>
@@ -50,8 +76,11 @@ defineProps({
   runState: { type: Object, required: true },
   runProgressStatus: { type: String, default: '' },
   displayedRunError: { type: String, default: '' },
+  extractionNextStep: { type: Object, default: null },
   formatTime: { type: Function, required: true },
 })
+
+defineEmits(['open-extraction-ai-config'])
 </script>
 
 <style scoped>
@@ -133,6 +162,27 @@ defineProps({
   color: #fecaca;
   background: rgba(239, 68, 68, 0.12);
   font-size: 12px;
+  display: grid;
+  gap: 8px;
+}
+.source-extraction-next-step {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  color: #e4e4e7;
+}
+.next-step-kicker {
+  padding: 2px 6px;
+  border-radius: 4px;
+  color: var(--accent-text, #a78bfa);
+  background: rgba(139, 92, 246, 0.2);
+  font-size: 11px;
+}
+.run-error :deep(.el-button:focus-visible),
+.source-extraction-next-step :deep(.el-button:focus-visible) {
+  outline: 2px solid #818cf8;
+  outline-offset: 2px;
 }
 html.light .step-name {
   color: #18181b;

@@ -4,6 +4,7 @@ import assert from 'node:assert/strict'
 import { defineComponent, h, nextTick } from 'vue'
 
 import {
+  buttonByText,
   createHostRenderer,
   findByClass,
   loadCompiledSfc,
@@ -64,15 +65,19 @@ function sampleRun(overrides = {}) {
 }
 
 function mountRecords(initial = {}) {
+  const events = []
   const run = sampleRun(initial.run)
   const runState = normalizeWorkflowRun(run)
-  return mountHarness(renderer, () => h(SourceIntakeRunRecordsPanel, {
+  const mounted = mountHarness(renderer, () => h(SourceIntakeRunRecordsPanel, {
     selectedRun: run,
     runState,
     runProgressStatus: initial.progressStatus || 'exception',
     displayedRunError: initial.error || '分镜草稿失败，请稍后重试',
+    extractionNextStep: initial.extractionNextStep || null,
+    onOpenExtractionAiConfig: (serviceType) => events.push(['open-extraction-ai-config', serviceType]),
     formatTime: (value) => (value ? '9月11日 10:00' : ''),
   }))
+  return { ...mounted, events }
 }
 
 function mountDrawer(initial = {}) {
@@ -180,5 +185,39 @@ test('素材详情抽屉区分加载、空数据和片段/事件/关系', async 
     assert.doesNotMatch(text, /next|from_event_id|Invalid Date/)
   } finally {
     detail.app.unmount()
+  }
+})
+
+
+test('处理失败给出图片识别下一步，普通失败没有这颗按钮', async () => {
+  const withStep = mountRecords({
+    error: '图片识别失败。请到「AI 配置」添加「图片识别」服务，或先使用本机 Tesseract。',
+    extractionNextStep: {
+      kind: 'ocr',
+      serviceType: 'ocr',
+      actionLabel: '去「AI 配置」添加图片识别',
+      extraHint: 'PDF/图片也可先使用本机 Tesseract。',
+    },
+  })
+  try {
+    await nextTick()
+    const text = textContent(withStep.root)
+    assert.match(text, /下一步/)
+    assert.match(text, /去「AI 配置」添加图片识别/)
+    assert.match(text, /本机 Tesseract/)
+    const action = buttonByText(withStep.root, '去「AI 配置」添加图片识别')
+    assert.ok(action, '缺少图片识别下一步按钮')
+    action.props.onClick()
+    assert.deepEqual(withStep.events, [['open-extraction-ai-config', 'ocr']])
+  } finally {
+    withStep.app.unmount()
+  }
+
+  const plain = mountRecords()
+  try {
+    await nextTick()
+    assert.doesNotMatch(textContent(plain.root), /下一步/)
+  } finally {
+    plain.app.unmount()
   }
 })

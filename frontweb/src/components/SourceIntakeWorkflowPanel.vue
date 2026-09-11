@@ -118,6 +118,7 @@
             @restart-latest="startExistingSource"
             @start-existing="startExistingSource"
             @select-step="selectFlowStep"
+            @open-extraction-ai-config="openAiConfigForExtraction"
           >
             <template #status>
               <div

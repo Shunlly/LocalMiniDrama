@@ -254,3 +254,42 @@ test('取消网络搜索不算失败，也不漏英文', async () => {
   assert.equal(networkSearched.value, false)
   assert.doesNotMatch(String(networkError.value), /abort|canceled|cancelled|Network Error|Failed to fetch/i)
 })
+
+test('取消搜索会立刻结束加载，即使请求没有马上抛出', async () => {
+  const networkKeyword = ref('雨巷')
+  const networkMediaType = ref('all')
+  const networkSource = ref('all')
+  const networkItems = ref([])
+  const networkLoading = ref(false)
+  const networkError = ref('')
+  const networkNotice = ref('')
+  const networkSearched = ref(false)
+  const { searchNetworkMedia, cancelNetworkSearch } = createMediaLibraryNetworkActions({
+    networkKeyword,
+    networkMediaType,
+    networkSource,
+    networkItems,
+    networkLoading,
+    networkError,
+    networkNotice,
+    networkSearched,
+    networkRequestGuard: createLatestMediaRequestGuard(),
+    networkImportFeedback: ref(null),
+    networkImportRetryItem: ref(null),
+    networkImportingKeys: reactive(new Set()),
+    scopedDramaId: ref(null),
+    loadMedia: async () => {},
+    mediaLibraryAPI: {
+      searchNetwork() {
+        return new Promise(() => {})
+      },
+    },
+  })
+  searchNetworkMedia()
+  await Promise.resolve()
+  assert.equal(networkLoading.value, true)
+  cancelNetworkSearch()
+  assert.equal(networkLoading.value, false)
+  assert.equal(networkError.value, '')
+  assert.doesNotMatch(String(networkError.value), /abort|canceled|Network Error/i)
+})

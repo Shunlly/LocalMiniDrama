@@ -104,11 +104,19 @@ export function createOutputSectionBindings(values) {
   return createTemplateModelBindings(values, FILM_CREATE_OUTPUT_SECTION_MODEL_KEYS)
 }
 
+function isAssembledSurfaceSources(value) {
+  return Boolean(value?.header && value?.pipelinePanel && value?.outputSection)
+}
+
 /**
- * 把页头 / 流水线 / 交付区绑定源装配成可 v-bind 的属性袋。
+ * 把页头 / 流水线 / 交付区装配成可 v-bind 的属性袋。
+ * 可接收扁平制作页状态，或已装配的 header / pipelinePanel / outputSection 源。
  * 不创建新状态。
  */
-export function createFilmCreateSurfaceBindings(sources = {}) {
+export function createFilmCreateSurfaceBindings(ctx = {}) {
+  const sources = isAssembledSurfaceSources(ctx)
+    ? ctx
+    : createFilmCreateSurfaceBindingSources(ctx)
   return {
     headerBindings: createHeaderBindings(sources.header || {}),
     pipelinePanelBindings: createPipelinePanelBindings(sources.pipelinePanel || {}),

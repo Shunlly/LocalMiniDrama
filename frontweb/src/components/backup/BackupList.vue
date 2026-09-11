@@ -1,5 +1,7 @@
 <template>
   <div v-loading="loading" class="backup-list-wrap" :aria-busy="loading">
+    <span v-if="backupWriteLockReason" id="backup-list-write-reason" class="visually-hidden">{{ backupWriteLockReason }}</span>
+    <span v-if="backupRestoreLockReason" id="backup-list-restore-reason" class="visually-hidden">{{ backupRestoreLockReason }}</span>
     <section
       v-if="accessState.showEmpty"
       class="empty-state"
@@ -15,12 +17,14 @@
           :loading="creating"
           :disabled="accessState.createLocked"
           :title="accessState.createLocked ? backupWriteLockReason : undefined"
+          :aria-describedby="accessState.createLocked ? 'backup-list-write-reason' : undefined"
           aria-label="空态创建备份"
           @click="onCreateBackup"
         >创建备份</el-button>
         <el-button
           :disabled="accessState.writeLocked"
           :title="accessState.writeLocked ? backupWriteLockReason : undefined"
+          :aria-describedby="accessState.writeLocked ? 'backup-list-write-reason' : undefined"
           aria-label="空态选择已有备份"
           @click="triggerFileSelect"
         >选择已有备份</el-button>
@@ -52,6 +56,7 @@
           size="small"
           :disabled="accessState.restoreFromListLocked"
           :title="accessState.restoreFromListLocked ? backupRestoreLockReason : undefined"
+          :aria-describedby="accessState.restoreFromListLocked ? 'backup-list-restore-reason' : undefined"
           :aria-label="`恢复备份 ${item.name}`"
           @click="requestRestoreFromItem(item)"
         >

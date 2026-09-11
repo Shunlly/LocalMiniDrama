@@ -80,9 +80,11 @@ export function createMediaLibraryNetworkActions(ctx = {}) {
   }
 
   function cancelNetworkSearch() {
-    if (!networkAbortController) return
-    networkAbortController.abort()
+    if (!networkAbortController && !networkLoading.value) return
+    networkAbortController?.abort()
     networkAbortController = null
+    networkRequestGuard.begin()
+    networkLoading.value = false
   }
 
   function invalidateNetworkSearch() {

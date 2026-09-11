@@ -10,9 +10,12 @@
   >
     <p>{{ restoreCopy.body }}</p>
     <template #footer>
+      <span v-if="restoring" id="backup-dialog-restoring-reason" class="visually-hidden">正在恢复备份，请稍候</span>
+      <span v-if="backupWriteLockReason" id="backup-dialog-lock-reason" class="visually-hidden">{{ backupWriteLockReason }}</span>
       <el-button
         :disabled="restoring"
         :title="restoring ? '正在恢复备份，请稍候' : undefined"
+        :aria-describedby="restoring ? 'backup-dialog-restoring-reason' : undefined"
         aria-label="取消恢复备份"
         @click="cancelRestore"
       >取消恢复备份</el-button>
@@ -21,6 +24,7 @@
         :loading="restoring"
         :disabled="accessState.restoreLocked"
         :title="accessState.restoreLocked ? backupWriteLockReason : undefined"
+        :aria-describedby="accessState.restoreLocked ? 'backup-dialog-lock-reason' : undefined"
         aria-label="确认恢复备份"
         @click="onConfirmRestore"
       >

@@ -99,11 +99,9 @@ import {
 } from '@/utils/filmCreateActionState'
 import { createFilmCreateCloseoutBindings } from '@/components/filmCreate/filmCreateCloseoutBindings.js'
 import {
-  createFilmCreateSurfaceBindingSources,
   createFilmCreateSurfaceBindings,
 } from '@/components/filmCreate/filmCreateSurfaceBindings.js'
 import {
-  createFilmCreateShellBindingSources,
   createFilmCreateShellBindings,
 } from '@/components/filmCreate/filmCreateShellBindings.js'
 import {
@@ -208,6 +206,7 @@ const store = useFilmStore()
 const genStore = useGenerationTaskStore()
 const { isDark, toggle: toggleTheme } = useTheme()
 const { videoResolution: storeVideoResolution } = storeToRefs(store)
+const storeDisplay = useFilmCreateStoreDisplay({ store, storeVideoResolution })
 const {
   scriptContent,
   videoResolution,
@@ -221,13 +220,15 @@ const {
   hasAnyEpisode,
   videoProgress,
   videoStatus,
-} = useFilmCreateStoreDisplay({ store, storeVideoResolution })
-const { storyboardGenerating } = useFilmCreateGeneratingDisplay({
+} = storeDisplay
+const generatingDisplay = useFilmCreateGeneratingDisplay({
   genStore,
   dramaId,
   currentEpisodeId,
 })
+const { storyboardGenerating } = generatingDisplay
 const initialRouteProjectId = route.params.id && route.params.id !== 'new' ? Number(route.params.id) : null
+const projectLoadSurface = useFilmCreateProjectLoadSurface({ initialRouteProjectId, store })
 const {
   projectLoadState,
   projectLoadError,
@@ -237,15 +238,17 @@ const {
   projectDependencyWarning,
   projectDependencyLoading,
   projectPageTitle,
-} = useFilmCreateProjectLoadSurface({ initialRouteProjectId, store })
+} = projectLoadSurface
 
 // ── Composable: Navigation ─────────────────────────────
-const { navCollapsed, storyboardMenuExpanded, activeNavAnchor, toggleNav, scrollToAnchor } = useNavigation({
+const navigation = useNavigation({
   getAnchorIds: () => navSteps.value.map((step) => step.anchor),
 })
+const { navCollapsed, storyboardMenuExpanded, activeNavAnchor, toggleNav, scrollToAnchor } = navigation
 const { filmCreateRootClass } = useFilmCreateRootClass({ navCollapsed, projectLoadState })
 
 
+const aiConfigDialogState = useFilmCreateAiConfigDialogState()
 const {
   showAiConfigDialog,
   aiConfigContentRef,
@@ -253,7 +256,7 @@ const {
   aiConfigInitialServiceType,
   aiConfigChanged,
   aiConfigOpenedFromPipelineAction,
-} = useFilmCreateAiConfigDialogState()
+} = aiConfigDialogState
 const {
   videoCapabilityConfigs,
   videoCapabilityLoading,
@@ -263,13 +266,7 @@ const {
   productionReadinessFailed,
 } = useFilmCreateProductionCapabilityState()
 
-const {
-  openAiConfig,
-  openAiConfigFromPipeline,
-  onAiConfigurationChanged,
-  confirmAiConfigWorkspaceClose,
-  requestAiConfigWorkspaceClose,
-} = useFilmCreateAiConfigWorkspace({
+const aiConfigWorkspace = useFilmCreateAiConfigWorkspace({
   ElMessage,
   showAiConfigDialog,
   aiConfigContentRef,
@@ -281,7 +278,15 @@ const {
   refreshVideoGenerationCapability: (...args) => refreshVideoGenerationCapability(...args),
   refreshProductionReadiness: (...args) => refreshProductionReadiness(...args),
 })
+const {
+  openAiConfig,
+  openAiConfigFromPipeline,
+  onAiConfigurationChanged,
+  confirmAiConfigWorkspaceClose,
+  requestAiConfigWorkspaceClose,
+} = aiConfigWorkspace
 
+const scriptNovelState = useFilmCreateScriptNovelState({ store, genStore })
 const {
   storyInput,
   storyStyle,
@@ -314,8 +319,9 @@ const {
   scriptDraftStatus,
   scriptDraftStatusLabel,
   isStoryGenRunning,
-} = useFilmCreateScriptNovelState({ store, genStore })
+} = scriptNovelState
 
+const deliverySettings = useFilmCreateDeliverySettings()
 const {
   generationStyle,
   projectAspectRatio,
@@ -327,7 +333,7 @@ const {
   videoBurnDialogue,
   videoWatermark,
   videoWatermarkText,
-} = useFilmCreateDeliverySettings()
+} = deliverySettings
 
 const {
   getSelectedStylePrompt,
@@ -339,6 +345,15 @@ const {
 })
 
 
+const productionReadiness = useFilmCreateProductionReadiness({
+  dramaId,
+  productionReadinessLoading,
+  productionReadinessFailed,
+  authoritativeProductionReadiness,
+  videoCapabilityLoading,
+  videoCapabilityFailed,
+  videoCapabilityConfigs,
+})
 const {
   invalidateActiveVideoAiConfigCache,
   getNovel2AnimeReadiness,
@@ -353,18 +368,11 @@ const {
   productionReadinessState,
   productionReadinessReason,
   ttsCapabilityReason,
-} = useFilmCreateProductionReadiness({
-  dramaId,
-  productionReadinessLoading,
-  productionReadinessFailed,
-  authoritativeProductionReadiness,
-  videoCapabilityLoading,
-  videoCapabilityFailed,
-  videoCapabilityConfigs,
-})
-const { productionReadinessServiceType } = useFilmCreateReadinessDisplay({
+} = productionReadiness
+const readinessDisplay = useFilmCreateReadinessDisplay({
   productionCapabilityGaps,
 })
+const { productionReadinessServiceType } = readinessDisplay
 
 const {
   pollUntilResourceHasImage,
@@ -395,19 +403,14 @@ const {
   recordHasPlayableVideoUrl,
   toAbsoluteImageUrl,
 } = mediaPreview
+const mediaPickerState = useFilmCreateMediaPickerState()
 const {
   showGlobalMediaPicker,
   globalMediaPickerMode,
   globalMediaPickerTarget,
-} = useFilmCreateMediaPickerState()
+} = mediaPickerState
 
-const {
-  filmCreateHeaderRef,
-  goList,
-  goCanvasMode,
-  openMediaLibraryFromPicker,
-  onSelectEpisode,
-} = useFilmCreateWorkspaceNav({
+const workspaceNav = useFilmCreateWorkspaceNav({
   router,
   route,
   dramaId,
@@ -416,15 +419,23 @@ const {
   showGlobalMediaPicker,
 })
 const {
-  globalMediaPickerAccept,
-  globalMediaPickerTitle,
-  globalMediaPickerContext,
-} = useFilmCreateMediaPickerCopy({
+  filmCreateHeaderRef,
+  goList,
+  goCanvasMode,
+  openMediaLibraryFromPicker,
+  onSelectEpisode,
+} = workspaceNav
+const mediaPickerCopy = useFilmCreateMediaPickerCopy({
   globalMediaPickerMode,
   globalMediaPickerTarget,
   currentEpisode,
   store,
 })
+const {
+  globalMediaPickerAccept,
+  globalMediaPickerTitle,
+  globalMediaPickerContext,
+} = mediaPickerCopy
 
 const {
   scriptDraftController,
@@ -453,6 +464,18 @@ const episodeSwitchController = createEpisodeSwitchController({
   },
 })
 
+const deliveryActions = useFilmCreateDeliveryActions({
+  store,
+  ElMessage,
+  dramaId,
+  currentEpisode,
+  currentEpisodeId,
+  storyboards,
+  videoStatus,
+  videoProgress,
+  timelinesAPI,
+  dramaAPI,
+})
 const {
   currentEpisodeVideoUrl,
   deliveryCompositeStatusLabel,
@@ -468,18 +491,7 @@ const {
   downloadCurrentEpisodeVideo,
   downloadCurrentEpisodeSubtitle,
   exportCurrentProjectPackage,
-} = useFilmCreateDeliveryActions({
-  store,
-  ElMessage,
-  dramaId,
-  currentEpisode,
-  currentEpisodeId,
-  storyboards,
-  videoStatus,
-  videoProgress,
-  timelinesAPI,
-  dramaAPI,
-})
+} = deliveryActions
 
 /** 分镜批量生成结束后，按镜序逐个润色全能片段（仅勾选全能模式且各镜为 universal 且有正文时） */
 const omniPolishState = useFilmCreateOmniPolishState()
@@ -492,6 +504,18 @@ const {
   videoErrorMsg,
 } = omniPolishState
 // 一键全流程流水线
+const pipelineRun = useFilmCreatePipelineRun({
+  store,
+  videoClipDuration,
+  taskAPI,
+  genStore,
+  trackFilmCreateAction,
+  getStoryboardCountForApi: () => getStoryboardCountForApi(),
+  get storyboardMediaActionReason() {
+    return storyboardMediaActionReason
+  },
+  resolvePollMeta: (meta) => resolvePollMeta(meta),
+})
 const {
   pipelineRunning,
   pipelineStarting,
@@ -523,18 +547,7 @@ const {
   confirmProductionPipelineCost,
   executeOwnedPipelineRun,
   setPipelineStep,
-} = useFilmCreatePipelineRun({
-  store,
-  videoClipDuration,
-  taskAPI,
-  genStore,
-  trackFilmCreateAction,
-  getStoryboardCountForApi: () => getStoryboardCountForApi(),
-  get storyboardMediaActionReason() {
-    return storyboardMediaActionReason
-  },
-  resolvePollMeta: (meta) => resolvePollMeta(meta),
-})
+} = pipelineRun
 
 // ── Composable: Characters ────────────────────────────
 const charactersApi = useCharacters({
@@ -748,12 +761,7 @@ const {
   loadSingleStoryboardMedia,
   captureDramaRefresh,
 } = storyboardMedia
-const {
-  getGeneratingSetsBag,
-  buildSbGenMeta,
-  isSbVideoGenerating,
-  recoverAndSyncEpisodeTasks,
-} = useFilmCreateTaskRecovery({
+const taskRecovery = useFilmCreateTaskRecovery({
   dramaId,
   currentEpisodeId,
   store,
@@ -771,6 +779,12 @@ const {
   loadSingleStoryboardMedia,
   captureDramaRefresh,
 })
+const {
+  getGeneratingSetsBag,
+  buildSbGenMeta,
+  isSbVideoGenerating,
+  recoverAndSyncEpisodeTasks,
+} = taskRecovery
 const batchMediaState = useFilmCreateBatchMediaState()
 const {
   regenSbImagesProgress,
@@ -789,9 +803,7 @@ const {
   batchVideoErrors,
   videoFrameContiguity,
 } = batchMediaState
-const {
-  cancelActiveTask,
-} = useFilmCreateTaskCancel({
+const taskCancel = useFilmCreateTaskCancel({
   ElMessage,
   genStore,
   cancelPipelineRun,
@@ -801,11 +813,11 @@ const {
   batchImageStopping,
   batchVideoStopping,
 })
-
 const {
-  allActiveTaskItems,
-  allActiveTaskLabels,
-} = useFilmCreateActiveTasks({
+  cancelActiveTask,
+} = taskCancel
+
+const activeTasks = useFilmCreateActiveTasks({
   genStore,
   pipelineRunning,
   pipelineStopping,
@@ -818,14 +830,19 @@ const {
   batchVideoRunning,
   batchVideoProgress,
 })
-
 const {
-  ttsGenerationDisabledReason,
-} = useFilmCreateTtsDisableReason({
+  allActiveTaskItems,
+  allActiveTaskLabels,
+} = activeTasks
+
+const ttsDisableReason = useFilmCreateTtsDisableReason({
   ttsSbIds,
   ttsSbNarrationIds,
   ttsCapabilityReason,
 })
+const {
+  ttsGenerationDisabledReason,
+} = ttsDisableReason
 /** 分镜 TTS 试听：避免多条同时播放 */
 /** 正在编辑视频提示词的分镜 id；编辑中显示文本框与保存/取消 */
 const promptDialogState = useFilmCreatePromptDialogState()
@@ -969,9 +986,7 @@ const {
   getSbLocalImage,
 } = storyboardAccessors
 
-const {
-  navSteps,
-} = useFilmCreateNavSteps({
+const navStepsState = useFilmCreateNavSteps({
   genStore,
   dramaId,
   currentEpisodeId,
@@ -999,6 +1014,9 @@ const {
   videoStatus,
   currentEpisodeVideoUrl,
 })
+const {
+  navSteps,
+} = navStepsState
 
 const actionDisabledReasons = useFilmCreateActionDisabledReasons({
   dramaId,
@@ -1072,16 +1090,7 @@ const {
   onSbImageFileChange, syncStoryboardStateFromEpisode,
 } = storyboardPrep
 
-const {
-  onEpisodeSelect,
-  applySelectedEpisode,
-  friendlyFilmProjectLoadError,
-  refreshProjectDependencies,
-  retryProjectDependencies,
-  loadDrama,
-  retryFilmProjectLoad,
-  invalidateProjectLoads,
-} = useFilmCreateProjectLoad({
+const projectLoad = useFilmCreateProjectLoad({
   store,
   dramaId,
   currentEpisodeId,
@@ -1121,13 +1130,18 @@ const {
   projectLoadFailureRef,
   scriptDraftController,
 })
-
 const {
-  saveScriptToBackend, saveProjectSettings, onGenerateStory, openSelectScriptDialog,
-  returnToScriptCreation, returnToCharacterPanel, returnToPropPanel, returnToScenePanel,
-  loadSelectScriptList, onPickScriptFromDialog, novelImportReset, onNovelFileChange,
-  onImportNovel, onGenerateScript, onAddEpisode,
-} = useFilmCreateScriptActions({
+  onEpisodeSelect,
+  applySelectedEpisode,
+  friendlyFilmProjectLoadError,
+  refreshProjectDependencies,
+  retryProjectDependencies,
+  loadDrama,
+  retryFilmProjectLoad,
+  invalidateProjectLoads,
+} = projectLoad
+
+const scriptActions = useFilmCreateScriptActions({
   store, dramaAPI, router, route,
   scriptTitle, storyType, generationStyle, storyStyle,
   storyInput, projectAspectRatio, videoClipDuration, storyboardIncludeNarration,
@@ -1142,6 +1156,12 @@ const {
   novelFileContent, novelImportMode, novelImporting, novelMaxChapters,
   novelAiSummarize, showNovelImport,
 })
+const {
+  saveScriptToBackend, saveProjectSettings, onGenerateStory, openSelectScriptDialog,
+  returnToScriptCreation, returnToCharacterPanel, returnToPropPanel, returnToScenePanel,
+  loadSelectScriptList, onPickScriptFromDialog, novelImportReset, onNovelFileChange,
+  onImportNovel, onGenerateScript, onAddEpisode,
+} = scriptActions
 
 const resourceUpload = useFilmCreateResourceUpload({
   dramaId,
@@ -1234,10 +1254,7 @@ const {
   startBatchVideoGeneration,
 } = storyboardActions
 
-const {
-  getFinalizeMergeOptions, onGenerateVideo, startOneClickPipeline, startTextFrameworkPipeline,
-  runOneClickPipeline, startRepairPipeline, runRepairPipeline,
-} = useFilmCreatePipelineActions({
+const pipelineActions = useFilmCreatePipelineActions({
   store, dramaId, currentEpisodeId, dramaAPI,
   genStore, captureDramaRefresh, loadDrama, composeActionDisabledReason,
   currentEpisodeVideoUrl, videoErrorMsg, videoSubtitle, videoBurnDialogue,
@@ -1262,6 +1279,10 @@ const {
   setPipelineStep, storyboardMediaActionReason,
   pollTask,
 })
+const {
+  getFinalizeMergeOptions, onGenerateVideo, startOneClickPipeline, startTextFrameworkPipeline,
+  runOneClickPipeline, startRepairPipeline, runRepairPipeline,
+} = pipelineActions
 
 const {
   hasActivePipelineWork,
@@ -1338,29 +1359,23 @@ const {
   pipelinePanelBindings,
   outputSectionBindings,
 } = createFilmCreateSurfaceBindings({
-  ...createFilmCreateSurfaceBindingSources({
-    store, router, isDark, projectPageTitle, projectLoadState,
-    dramaId, hasAnyEpisode, selectedEpisodeId, episodeSwitching,
-    selectedEpisodeContextLabel, goList, onEpisodeSelect, onAddEpisode,
-    goCanvasMode, toggleTheme, openAiConfig,
-    projectAspectRatio, videoClipDuration, scriptLanguage, generationStyle,
-    generationStyleOptions, productionPipelineActionDisabledReason, pipelineActionDisabledReason,
-    productionReadinessReason, productionReadinessState, productionReadinessServiceType,
-    pipelineStarting, pipelineStopping, pipelineAbortRequested, pipelineRunning,
-    pipelinePaused, pipelineErrorLog, pipelineCurrentStep, pipelineStepIndex,
-    pipelineStepTotal, pipelineCountdown, pipelineCountdownMsg, pipelineActiveTasks,
-    saveProjectSettings, startOneClickPipeline, startTextFrameworkPipeline,
-    openAiConfigFromPipeline, refreshProductionReadiness, onPipelineResume,
-    cancelPipelineRun, skipPipelineCountdown,
-    videoResolution, videoSubtitle, videoBurnDialogue, videoWatermark,
-    videoWatermarkText, playableStoryboardVideoCount, storyboards,
-    deliveryCompositeStatusLabel, deliveryFileCount, composeActionDisabledReason,
-    videoStatus, videoProgress, currentEpisodeVideoUrl, videoDownloadStatus,
-    videoDownloadError, currentEpisodeId, deliverySubtitleAvailable,
-    deliveryExportStatus, videoErrorMsg, deliveryExportFeedback, deliveryExportHasError,
-    onGenerateVideo, downloadCurrentEpisodeVideo, downloadCurrentEpisodeSubtitle,
-    exportCurrentProjectPackage,
-  }),
+  ...storeDisplay,
+  ...scriptNovelState,
+  ...deliverySettings,
+  ...deliveryActions,
+  ...omniPolishState,
+  ...pipelineRun,
+  ...actionDisabledReasons,
+  ...productionReadiness,
+  ...readinessDisplay,
+  ...aiConfigWorkspace,
+  ...scriptActions,
+  ...pipelineActions,
+  ...projectLoad,
+  ...workspaceNav,
+  ...projectLoadSurface,
+  store, router, isDark, toggleTheme,
+  generationStyleOptions,
 })
 
 const {
@@ -1393,27 +1408,22 @@ const {
   ...storyboardPrep,
   ...storyboardActions,
   ...mediaPreview,
-  store, props, scriptWorkbenchMode, storyInput,
-  storyStyle, storyType, storyEpisodeCount, scriptTitle,
-  scriptContent, showSelectScriptDialog, selectPreviewEpisodeId, isStoryGenRunning,
-  dramaId, hasAnyEpisode, scriptGenerating, currentEpisodeId,
-  scriptDraftStatus, scriptDraftStatusLabel, selectScriptLoading, selectScriptImporting,
-  selectableScriptDramas, selectScriptDramas, saveProjectSettings, showNovelImport,
-  router, onGenerateStory, onAddEpisode, onGenerateScript,
-  openSelectScriptDialog, loadSelectScriptList, onPickScriptFromDialog, returnToScriptCreation,
-  returnToCharacterPanel, returnToPropPanel, returnToScenePanel, onSelectEpisode,
-  characters, scenes, storyboards, storyboardGenerating,
-  videoCapabilityReason, isSbVideoGenerating, ttsGenerationDisabledReason, storyboardsAPI,
-  storyboardImageUrl, openAiConfig, onInsertStoryboardAfter,
-  route,
-  handleBeforeUnload,
-  applyRouteToStore,
-  loadPipelineConcurrency,
-  refreshVideoGenerationCapability,
-  refreshProductionReadiness,
-  invalidateProjectLoads,
-  projectLifecycle,
-  scriptDraftController,
+  ...storeDisplay,
+  ...scriptNovelState,
+  ...scriptActions,
+  ...productionReadiness,
+  ...aiConfigWorkspace,
+  ...workspaceNav,
+  ...generatingDisplay,
+  ...taskRecovery,
+  ...ttsDisableReason,
+  ...pipelineRun,
+  ...projectLoad,
+  store, router, route,
+  storyboardsAPI, storyboardImageUrl,
+  onInsertStoryboardAfter, onGenerateStory,
+  handleBeforeUnload, applyRouteToStore,
+  projectLifecycle, scriptDraftController,
 })
 
 const {
@@ -1422,23 +1432,25 @@ const {
   projectDependencyWarningBindings,
   workspaceDialogsLayerBindings,
 } = createFilmCreateShellBindings({
-  ...createFilmCreateShellBindingSources({
-    navCollapsed, navSteps, activeNavAnchor, storyboardMenuExpanded,
-    storyboards, allActiveTaskItems, allActiveTaskLabels, pipelineStopping,
-    toggleNav, scrollToAnchor, cancelActiveTask,
-    projectLoadState, projectLoadError, projectLoadNotFound, projectLoadPending,
-    retryFilmProjectLoad, goList,
-    storyboardMediaLoadError, projectDependencyWarning, projectDependencyLoading,
-    retryProjectDependencies,
-    resourceDialogsBindings, storyboardDialogsBindings,
-    showNovelImport, novelImportMode, novelText, novelMaxChapters, novelAiSummarize,
-    novelFileName, novelImporting, novelImportReset, onNovelFileChange, onImportNovel,
-    showAiConfigDialog, aiConfigInitialServiceType, confirmAiConfigWorkspaceClose,
-    requestAiConfigWorkspaceClose, onAiConfigurationChanged, previewImageUrl,
-    closeImagePreview, showGlobalMediaPicker, globalMediaPickerTitle,
-    globalMediaPickerAccept, globalMediaPickerContext, onGlobalMediaAssetSelected,
-    openMediaLibraryFromPicker,
-  }),
+  ...navigation,
+  ...navStepsState,
+  ...projectLoadSurface,
+  ...projectLoad,
+  ...activeTasks,
+  ...scriptNovelState,
+  ...scriptActions,
+  ...aiConfigDialogState,
+  ...aiConfigWorkspace,
+  ...mediaPreview,
+  ...mediaPickerState,
+  ...mediaPickerCopy,
+  ...storyboardMedia,
+  ...pipelineRun,
+  ...storeDisplay,
+  ...workspaceNav,
+  ...taskCancel,
+  resourceDialogsBindings, storyboardDialogsBindings,
+  onGlobalMediaAssetSelected,
 })
 
 onMounted(mountWorkspace)

@@ -1,11 +1,13 @@
 <template>
   <section
     v-if="readinessError"
+    id="backup-readiness-error"
     class="data-load-state"
     role="alert"
     aria-live="assertive"
     aria-atomic="true"
   >
+    <span v-if="readinessLoading" id="backup-readiness-loading-reason" class="visually-hidden">维护状态正在加载，请稍候</span>
     <div class="data-load-state__content">
       <h2>{{ hasSuccessfulReadinessLoad ? '维护状态刷新失败' : '维护状态加载失败' }}</h2>
       <p>暂时无法确认维护租约。这不会删除已有备份。</p>
@@ -19,6 +21,7 @@
       :loading="readinessLoading"
       :disabled="readinessLoading"
       :title="readinessLoading ? '维护状态正在加载，请稍候' : undefined"
+      :aria-describedby="readinessLoading ? 'backup-readiness-loading-reason' : 'backup-readiness-error'"
       aria-label="重试加载维护状态"
       @click="loadReadiness"
     >

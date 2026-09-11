@@ -10,11 +10,13 @@
         <p class="page-subtitle">全量备份默认不含 AI 密钥。恢复会覆盖当前数据。</p>
       </div>
     </div>
+    <span v-if="backupWriteLockReason" id="backup-header-lock-reason" class="visually-hidden">{{ backupWriteLockReason }}</span>
     <div class="header-actions">
       <el-button
         :loading="creating"
         :disabled="accessState.createLocked"
         :title="accessState.createLocked ? backupWriteLockReason : undefined"
+        :aria-describedby="accessState.createLocked ? 'backup-header-lock-reason' : undefined"
         aria-label="创建全量备份"
         @click="onCreateBackup"
       >
@@ -25,6 +27,7 @@
         type="primary"
         :disabled="accessState.writeLocked"
         :title="accessState.writeLocked ? backupWriteLockReason : undefined"
+        :aria-describedby="accessState.writeLocked ? 'backup-header-lock-reason' : undefined"
         aria-label="选择备份文件"
         @click="triggerFileSelect"
       >

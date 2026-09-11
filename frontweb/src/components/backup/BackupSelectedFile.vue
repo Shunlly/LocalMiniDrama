@@ -1,5 +1,6 @@
 <template>
   <section v-if="selectedFile" class="selected-file" role="status" aria-live="polite">
+    <span v-if="backupWriteLockReason" id="backup-selected-lock-reason" class="visually-hidden">{{ backupWriteLockReason }}</span>
     <p>已选择：{{ selectedFile.name }}</p>
     <div class="import-failure-actions">
       <el-button
@@ -7,6 +8,7 @@
         plain
         :disabled="accessState.restoreLocked"
         :title="accessState.restoreLocked ? backupWriteLockReason : undefined"
+        :aria-describedby="accessState.restoreLocked ? 'backup-selected-lock-reason' : undefined"
         aria-label="恢复所选备份文件"
         @click="requestRestoreFromSelection"
       >
@@ -16,6 +18,7 @@
         plain
         :disabled="accessState.writeLocked"
         :title="accessState.writeLocked ? backupWriteLockReason : undefined"
+        :aria-describedby="accessState.writeLocked ? 'backup-selected-lock-reason' : undefined"
         aria-label="清除所选备份文件"
         @click="clearSelectedFile"
       >

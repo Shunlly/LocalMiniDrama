@@ -118,3 +118,22 @@
     align-items: stretch;
   }
 }
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+.back-link:focus-visible,
+.data-load-state:focus-visible,
+.import-failure-state:focus-visible,
+:deep(.el-button:focus-visible) {
+  outline: 2px solid var(--el-color-primary, #818cf8);
+  outline-offset: 2px;
+}

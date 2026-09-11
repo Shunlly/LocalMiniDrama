@@ -1,6 +1,11 @@
 <template>
+  <span v-if="backupWriteLockReason" id="backup-failure-write-reason" class="visually-hidden">{{ backupWriteLockReason }}</span>
+  <span v-if="loading" id="backup-list-loading-reason" class="visually-hidden">备份列表正在加载，请稍候</span>
+  <span v-if="restoring" id="backup-restoring-reason" class="visually-hidden">正在恢复备份，请稍候</span>
+  <span v-if="creating" id="backup-creating-reason" class="visually-hidden">正在创建备份，请稍候</span>
   <section
     v-if="listError"
+    id="backup-list-load-error"
     class="data-load-state"
     role="alert"
     aria-live="assertive"
@@ -19,6 +24,7 @@
       :loading="loading"
       :disabled="loading"
       :title="loading ? '备份列表正在加载，请稍候' : undefined"
+      :aria-describedby="loading ? 'backup-list-loading-reason' : 'backup-list-load-error'"
       aria-label="重试加载备份列表"
       @click="loadBackups"
     >
@@ -28,6 +34,7 @@
 
   <section
     v-if="fileError"
+    id="backup-file-error"
     ref="fileErrorEl"
     class="data-load-state import-failure-state"
     role="alert"
@@ -46,6 +53,7 @@
         plain
         :disabled="accessState.writeLocked"
         :title="accessState.writeLocked ? backupWriteLockReason : undefined"
+        :aria-describedby="accessState.writeLocked ? 'backup-failure-write-reason' : 'backup-file-error'"
         aria-label="重新选择备份文件"
         @click="triggerFileSelect"
       >
@@ -55,6 +63,7 @@
         plain
         :disabled="restoring"
         :title="restoring ? '正在恢复备份，请稍候' : undefined"
+        :aria-describedby="restoring ? 'backup-restoring-reason' : undefined"
         aria-label="关闭备份文件错误"
         @click="dismissFileError"
       >关闭</el-button>
@@ -63,6 +72,7 @@
 
   <section
     v-if="actionError"
+    id="backup-action-error"
     ref="actionErrorEl"
     class="data-load-state"
     role="alert"
@@ -81,6 +91,7 @@
         :loading="restoring"
         :disabled="accessState.restoreLocked"
         :title="accessState.restoreLocked ? backupWriteLockReason : undefined"
+        :aria-describedby="accessState.restoreLocked ? 'backup-failure-write-reason' : 'backup-action-error'"
         aria-label="重试恢复备份"
         @click="onRetryRestore"
       >
@@ -92,6 +103,7 @@
         :loading="creating"
         :disabled="accessState.createLocked"
         :title="accessState.createLocked ? backupWriteLockReason : undefined"
+        :aria-describedby="accessState.createLocked ? 'backup-failure-write-reason' : 'backup-action-error'"
         aria-label="重试创建备份"
         @click="onCreateBackup"
       >
@@ -101,6 +113,7 @@
         plain
         :disabled="restoring || creating"
         :title="(restoring || creating) ? backupWriteLockReason : undefined"
+        :aria-describedby="(restoring || creating) ? 'backup-failure-write-reason' : undefined"
         aria-label="关闭备份操作错误"
         @click="dismissActionError"
       >关闭</el-button>

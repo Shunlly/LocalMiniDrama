@@ -17,6 +17,7 @@ import {
   getSourceWorkflowBusyReason,
   isDeferredAutoExtractionSource,
   localizeSourceIntakeFailure,
+  resolveSourceIntakeExtractionNextStep,
   resolveInspectedWorkflowStep,
   selectInspectedWorkflowStep,
 } from '@/utils/sourceWorkflowState'
@@ -134,6 +135,17 @@ export function createSourceIntakeWorkspaceComputeds({
     )
     if (!localized) return ''
     return toUserFacingError(localized, '处理失败，请稍后重试。')
+  })
+  const extractionNextStep = computed(() => {
+    const latestSource = Array.isArray(sources.value) ? sources.value[0] : null
+    return resolveSourceIntakeExtractionNextStep(
+      runState.value.failedStep?.error || selectedRun.value?.error || displayedRunError.value,
+      {
+        message: displayedRunError.value,
+        filename: latestSource?.original_filename || latestSource?.filename || latestSource?.title || '',
+        sourceUrl: latestSource?.source_url || '',
+      },
+    )
   })
   const productionLaunchReason = computed(() => {
     if (workflowMode.value !== 'production') return ''
@@ -461,6 +473,7 @@ export function createSourceIntakeWorkspaceBindings({
       runTagType,
       runProgressStatus,
       displayedRunError,
+      extractionNextStep,
       formatTime,
       controlActionReasons,
       retrying,

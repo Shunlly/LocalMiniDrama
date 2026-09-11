@@ -14,7 +14,9 @@
         :run-state="runState"
         :run-progress-status="runProgressStatus"
         :displayed-run-error="displayedRunError"
+        :extraction-next-step="extractionNextStepForRecords"
         :format-time="formatTime"
+        @open-extraction-ai-config="$emit('open-extraction-ai-config', $event)"
       >
         <template #status>
           <slot name="status" />
@@ -22,7 +24,7 @@
         <template #actions>
           <div class="action-row compact">
             <ActionGate label="重试失败步骤" :reason="controlActionReasons.retry">
-              <el-button size="small" :disabled="Boolean(controlActionReasons.retry)" :loading="retrying" :aria-label="retrying ? '正在提交重试' : (controlActionReasons.retry || '重试失败步骤')" @click="$emit('retry')">
+              <el-button size="small" :disabled="Boolean(controlActionReasons.retry)" :loading="retrying" :aria-label="retrying ? '正在提交重试' : (controlActionReasons.retry || '重试失败步骤')" :aria-describedby="runState.failedStep && displayedRunError ? 'source-intake-run-error' : undefined" @click="$emit('retry')">
                 {{ retrying ? '正在提交重试' : '重试失败步骤' }}
               </el-button>
             </ActionGate>
@@ -56,6 +58,23 @@
           </div>
         </template>
       </SourceIntakeRunRecordsPanel>
+      <div
+        v-if="runState.failedStep && displayedRunError && extractionNextStepForRecords"
+        class="source-extraction-next-step"
+        data-testid="process-extraction-next-step"
+      >
+        <span class="next-step-kicker">下一步</span>
+        <el-button
+          size="small"
+          type="primary"
+          plain
+          :aria-label="extractionNextStepForRecords.actionLabel"
+          @click="$emit('open-extraction-ai-config', extractionNextStepForRecords.serviceType)"
+        >
+          {{ extractionNextStepForRecords.actionLabel }}
+        </el-button>
+        <span v-if="extractionNextStepForRecords.extraHint">{{ extractionNextStepForRecords.extraHint }}</span>
+      </div>
     </template>
 
     <div v-else-if="sources.length > 0" class="stage-empty stage-empty--actionable">
@@ -74,15 +93,17 @@
 </template>
 
 <script setup>
+import { computed } from 'vue'
 import ActionGate from '@/components/filmCreate/ActionGate.vue'
 import SourceIntakeRunRecordsPanel from '@/components/sourceIntake/SourceIntakeRunRecordsPanel.vue'
 
-defineProps({
+const props = defineProps({
   selectedRun: { default: null },
   runState: { type: Object, required: true },
   runTagType: { type: String, default: 'warning' },
   runProgressStatus: { type: String, default: '' },
   displayedRunError: { type: String, default: '' },
+  extractionNextStep: { type: Object, default: null },
   formatTime: { type: Function, required: true },
   controlActionReasons: { type: Object, required: true },
   retrying: { type: Boolean, default: false },
@@ -96,7 +117,9 @@ defineProps({
   existingSourceLaunchReason: { type: String, default: '' },
 })
 
-defineEmits(['retry', 'pause', 'resume', 'cancel', 'restart-latest', 'start-existing', 'select-step'])
+const extractionNextStepForRecords = computed(() => props.extractionNextStep)
+
+defineEmits(['retry', 'pause', 'resume', 'cancel', 'restart-latest', 'start-existing', 'select-step', 'open-extraction-ai-config'])
 </script>
 
 <style scoped>
@@ -157,5 +180,9 @@ html.light .status-block {
 }
 html.light .stage-heading strong {
   color: #18181b;
+}
+.status-block :deep(.el-button:focus-visible) {
+  outline: 2px solid #818cf8;
+  outline-offset: 2px;
 }
 </style>

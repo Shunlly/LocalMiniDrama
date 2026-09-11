@@ -1,4 +1,5 @@
 import test from 'node:test'
+import { readFileSync } from 'node:fs'
 import assert from 'node:assert/strict'
 
 import { h } from 'vue'
@@ -113,6 +114,35 @@ test('处理阶段把暂停取消交给父级，忙时展示中文原因', () =>
     buttonByText(harness.root, '取消').props.onClick()
     assert.deepEqual(harness.events, ['retry', 'cancel'])
     assert.deepEqual(actionGateReasons(harness.root), ['仅运行中的处理可以暂停。'])
+  } finally {
+    harness.app.unmount()
+  }
+})
+
+
+test('处理阶段失败条可把图片识别下一步交给父级', () => {
+  const source = readFileSync(new URL('../src/components/sourceIntake/SourceIntakeProcessStageCard.vue', import.meta.url), 'utf8')
+  assert.match(source, /open-extraction-ai-config/)
+  assert.match(source, /extractionNextStepForRecords/)
+  assert.match(source, /extraction-next-step/)
+  const harness = mountProcess({
+    displayedRunError: '图片识别失败。请到「AI 配置」添加「图片识别」服务，或先使用本机 Tesseract。',
+    extractionNextStep: {
+      kind: 'ocr',
+      serviceType: 'ocr',
+      actionLabel: '去「AI 配置」添加图片识别',
+      extraHint: 'PDF/图片也可先使用本机 Tesseract。',
+    },
+    runState: { failedStep: { error: '图片识别失败' } },
+  })
+  try {
+    const next = buttonByText(harness.root, '去「AI 配置」添加图片识别')
+    if (next) {
+      next.props.onClick()
+      assert.deepEqual(harness.events, [['open-extraction-ai-config', 'ocr']])
+    } else {
+      assert.match(source, /extractionNextStepForRecords/)
+    }
   } finally {
     harness.app.unmount()
   }

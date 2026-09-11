@@ -89,11 +89,20 @@ export function createWorkspaceDialogsLayerBindings(values) {
   return createTemplateModelBindings(values, FILM_CREATE_WORKSPACE_LAYER_MODEL_KEYS)
 }
 
+function isAssembledShellSources(value) {
+  return Boolean(value?.quickNav && value?.workspaceDialogsLayer)
+}
+
 /**
- * 把侧栏 / 加载面 / 依赖警告 / 弹窗层绑定源装配成可 v-bind 的属性袋。
+ * 把侧栏 / 加载面 / 依赖警告 / 弹窗层装配成可 v-bind 的属性袋。
+ * 可接收扁平制作页状态，或已装配的 quickNav / workspaceDialogsLayer 源。
+ * 不把 projectLoadState 当成已装配源，因为它也是扁平 ctx 字段。
  * 不创建新状态。
  */
-export function createFilmCreateShellBindings(sources = {}) {
+export function createFilmCreateShellBindings(ctx = {}) {
+  const sources = isAssembledShellSources(ctx)
+    ? ctx
+    : createFilmCreateShellBindingSources(ctx)
   return {
     quickNavBindings: createQuickNavBindings(sources.quickNav || {}),
     projectLoadStateBindings: createProjectLoadStateBindings(sources.projectLoadState || {}),
