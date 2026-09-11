@@ -28,6 +28,7 @@
           :disabled="mediaWriteLocked"
           :title="mediaWriteLocked ? mediaWriteLockReason : selectionLabel(item)"
           :aria-label="selectionLabel(item)"
+          :aria-describedby="mediaWriteLocked ? writeLockDescribedBy : undefined"
           @change="setItemSelected(item, $event.target.checked)"
         />
         <span class="selection-indicator" aria-hidden="true">
@@ -53,6 +54,7 @@
             plain
             :title="mediaWriteLocked ? mediaWriteLockReason : actionLabel('删除', item)"
             :aria-label="actionLabel('删除', item)"
+            :aria-describedby="mediaWriteLocked ? writeLockDescribedBy : undefined"
             :disabled="mediaWriteLocked"
             :tabindex="isActionLayerVisible(item.id) ? 0 : -1"
             @click="deleteItem(item)"
@@ -79,6 +81,7 @@ defineProps({
   selectedIds: { type: Object, required: true },
   mediaWriteLocked: { type: Boolean, default: false },
   mediaWriteLockReason: { type: String, default: '' },
+  writeLockDescribedBy: { type: String, default: 'media-write-lock-reason' },
   itemUrl: { type: Function, required: true },
   thumbnailAlt: { type: Function, required: true },
   formatSize: { type: Function, required: true },
@@ -201,6 +204,10 @@ defineProps({
 .overlay-actions {
   display: flex;
   gap: 6px;
+}
+.overlay-actions :deep(.el-button:focus-visible) {
+  outline: 2px solid var(--el-color-primary, #818cf8);
+  outline-offset: 2px;
 }
 
 .media-info {

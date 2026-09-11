@@ -16,6 +16,10 @@
       </el-tooltip>
     </header>
 
+    <p v-if="editorDisabled" id="free-inspector-editor-reason" class="visually-hidden">{{ editorDisabledReason }}</p>
+    <p v-if="readonly || busy" id="free-inspector-config-action-reason" class="visually-hidden">{{ configActionDisabledReason }}</p>
+    <p v-if="generateDisabled" id="free-inspector-generate-reason" class="visually-hidden">{{ generateButtonAriaLabel }}</p>
+    <p v-if="editorDisabled || !conversionTarget" id="free-inspector-convert-reason" class="visually-hidden">{{ convertDisabledReason }}</p>
     <el-form label-position="top" size="small">
       <el-form-item label="标题">
         <el-input
@@ -23,6 +27,7 @@
           aria-label="节点标题"
           :disabled="editorDisabled"
           :title="editorDisabled ? editorDisabledReason : undefined"
+          :aria-describedby="editorDisabled ? 'free-inspector-editor-reason' : undefined"
           @update:model-value="updateDraftField('title', $event)"
         />
       </el-form-item>
@@ -35,6 +40,7 @@
           aria-label="节点内容"
           :disabled="editorDisabled"
           :title="editorDisabled ? editorDisabledReason : undefined"
+          :aria-describedby="editorDisabled ? 'free-inspector-editor-reason' : undefined"
           @update:model-value="updateDraftField('content', $event)"
         />
       </el-form-item>
@@ -45,6 +51,7 @@
           clearable
           :disabled="editorDisabled"
           :title="editorDisabled ? editorDisabledReason : undefined"
+          :aria-describedby="editorDisabled ? 'free-inspector-editor-reason' : undefined"
           placeholder="不关联素材"
           @change="emitUpdate"
         >
@@ -58,6 +65,7 @@
           clearable
           :disabled="editorDisabled"
           :title="editorDisabled ? editorDisabledReason : undefined"
+          :aria-describedby="editorDisabled ? 'free-inspector-editor-reason' : undefined"
           placeholder="不关联分镜"
           @change="emitUpdate"
         >
@@ -93,6 +101,7 @@
           type="primary"
           :disabled="generateDisabled"
           :title="generateDisabled ? generateButtonAriaLabel : undefined"
+          :aria-describedby="generateDisabled ? 'free-inspector-generate-reason' : undefined"
           :aria-label="generateButtonAriaLabel"
           data-inspector-primary-action="generate"
           @click="emitGenerate"
@@ -104,6 +113,7 @@
           v-if="configRuntime.canConfigure"
           :disabled="readonly || busy"
           :title="(readonly || busy) ? configActionDisabledReason : undefined"
+          :aria-describedby="(readonly || busy) ? 'free-inspector-config-action-reason' : undefined"
           :aria-label="(readonly || busy) ? configActionDisabledReason : 'AI 配置'" @click="emit('configure', node.id)"
         >
           <el-icon><Setting /></el-icon>
@@ -116,6 +126,7 @@
           :disabled="readonly || busy"
           aria-label="停止等待"
           title="停止当前页面等待；已提交任务可能继续执行或计费"
+          :aria-describedby="(readonly || busy) ? 'free-inspector-config-action-reason' : undefined"
           data-inspector-primary-action="cancel"
           @click="emit('cancel-config', node.id)"
         >
@@ -127,6 +138,7 @@
           type="primary"
           :disabled="readonly || busy"
           :title="(readonly || busy) ? configActionDisabledReason : undefined"
+          :aria-describedby="(readonly || busy) ? 'free-inspector-config-action-reason' : undefined"
           :aria-label="(readonly || busy) ? configActionDisabledReason : '重试检查'"
           data-inspector-primary-action="retry"
           @click="emit('retry-config', node.id)"
@@ -144,6 +156,7 @@
         aria-label="转换目标"
         :disabled="editorDisabled"
         :title="editorDisabled ? editorDisabledReason : undefined"
+        :aria-describedby="editorDisabled ? 'free-inspector-editor-reason' : undefined"
         placeholder="选择转换目标"
       >
         <el-option v-for="target in conversionTargets" :key="target.value" :label="target.label" :value="target.value" />
@@ -153,6 +166,7 @@
           :loading="converting"
           :disabled="editorDisabled || !conversionTarget"
           :title="(editorDisabled || !conversionTarget) ? convertDisabledReason : undefined"
+          :aria-describedby="(editorDisabled || !conversionTarget) ? 'free-inspector-convert-reason' : undefined"
           :aria-label="(editorDisabled || !conversionTarget) ? convertDisabledReason : '转换引用'" @click="emitConvertReference"
         >
           转换引用
@@ -163,12 +177,13 @@
           :disabled="editorDisabled || !saveAssetEligibility.eligible"
           :aria-label="saveAssetAriaLabel"
           :title="saveAssetEligibility.reason || '保存为素材'"
+          :aria-describedby="!saveAssetEligibility.eligible ? 'free-inspector-save-reason' : (editorDisabled ? 'free-inspector-editor-reason' : undefined)"
           @click="emitSaveAsset"
         >
           保存为素材
         </el-button>
       </div>
-      <p v-if="!saveAssetEligibility.eligible" class="asset-save-reason" role="note">
+      <p v-if="!saveAssetEligibility.eligible" id="free-inspector-save-reason" class="asset-save-reason" role="note">
         {{ saveAssetEligibility.reason }}
       </p>
     </section>
@@ -427,10 +442,24 @@ function emitSaveAsset() {
   justify-content: flex-end;
 }
 
+.free-canvas-inspector:focus-visible,
 .free-canvas-inspector :deep(.el-input__wrapper.is-focus),
 .free-canvas-inspector :deep(.el-textarea__inner:focus),
+.free-canvas-inspector :deep(.el-select .el-input__wrapper.is-focus),
+.free-canvas-inspector :deep(.el-select__wrapper.is-focused),
 .free-canvas-inspector :deep(.el-button:focus-visible) {
   outline: 2px solid var(--canvas-focus-ring, #818cf8);
   outline-offset: 2px;
+}
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 </style>

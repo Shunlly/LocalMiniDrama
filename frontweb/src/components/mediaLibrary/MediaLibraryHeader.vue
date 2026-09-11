@@ -10,8 +10,10 @@
           <p class="page-subtitle">上传后的图片和视频会在所有项目里复用；单文件最大 100MB。</p>
         </div>
       </div>
+      <span v-if="mediaNavigationLockReason" id="media-header-nav-reason" class="visually-hidden">{{ mediaNavigationLockReason }}</span>
+      <span v-if="mediaUploadDisableReason" id="media-header-upload-reason" class="visually-hidden">{{ mediaUploadDisableReason }}</span>
       <div class="header-actions">
-        <el-button :disabled="mediaAccessState.navigationLocked" aria-label="新建项目" :title="mediaAccessState.navigationLocked ? mediaNavigationLockReason : undefined" @click="goNewProject">
+        <el-button :disabled="mediaAccessState.navigationLocked" aria-label="新建项目" :title="mediaAccessState.navigationLocked ? mediaNavigationLockReason : undefined" :aria-describedby="mediaAccessState.navigationLocked ? 'media-header-nav-reason' : undefined" @click="goNewProject">
           <el-icon><Plus /></el-icon>
           新建项目
         </el-button>
@@ -20,6 +22,7 @@
           :loading="uploading"
           :disabled="mediaWriteLocked || uploading"
           :title="mediaUploadDisableReason || undefined"
+          :aria-describedby="mediaUploadDisableReason ? 'media-header-upload-reason' : undefined"
           aria-label="上传图片或视频到素材中心"
           @click="triggerUpload"
         >
@@ -121,5 +124,22 @@ defineExpose({ uploadInput })
   .header-actions > .el-button {
     margin-left: 0;
   }
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+.back-link:focus-visible,
+.header-actions :deep(.el-button:focus-visible) {
+  outline: 2px solid var(--el-color-primary, #818cf8);
+  outline-offset: 2px;
 }
 </style>

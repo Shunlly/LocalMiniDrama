@@ -1,12 +1,14 @@
 <template>
-  <div class="empty-media" role="status">
+  <div class="empty-media" role="status" aria-live="polite">
+    <span v-if="mediaUploadDisableReason" id="media-empty-upload-reason" class="visually-hidden">{{ mediaUploadDisableReason }}</span>
+    <span v-if="mediaSourceImportDisableReason" id="media-empty-import-reason" class="visually-hidden">{{ mediaSourceImportDisableReason }}</span>
     <el-icon class="empty-icon"><Files /></el-icon>
     <h2 class="empty-title">{{ hasActiveFilters ? '没有匹配的素材' : '素材中心还是空的' }}</h2>
     <p class="empty-description">{{ hasActiveFilters ? '调整关键词或素材类型后再试。' : '上传图片或视频，后续项目可以直接复用。' }}</p>
     <div class="empty-actions">
       <template v-if="hasActiveFilters">
         <el-button aria-label="清除素材筛选" @click="clearFilters">清除筛选</el-button>
-        <el-button type="primary" :disabled="mediaWriteLocked || uploading" :title="mediaUploadDisableReason || undefined" aria-label="上传图片或视频到素材中心" @click="triggerUpload">
+        <el-button type="primary" :disabled="mediaWriteLocked || uploading" :title="mediaUploadDisableReason || undefined" :aria-describedby="mediaUploadDisableReason ? 'media-empty-upload-reason' : undefined" aria-label="上传图片或视频到素材中心" @click="triggerUpload">
           <el-icon><Upload /></el-icon>上传素材
         </el-button>
       </template>
@@ -15,6 +17,7 @@
           type="primary"
           :disabled="mediaWriteLocked || uploading"
           :title="mediaUploadDisableReason || undefined"
+          :aria-describedby="mediaUploadDisableReason ? 'media-empty-upload-reason' : undefined"
           aria-label="上传图片或视频到素材中心"
           @click="triggerUpload"
         >
@@ -30,6 +33,7 @@
         class="empty-secondary-action"
         :disabled="mediaWriteLocked || mediaAccessState.navigationLocked"
         :title="mediaSourceImportDisableReason || undefined"
+        :aria-describedby="mediaSourceImportDisableReason ? 'media-empty-import-reason' : undefined"
         aria-label="选择目标项目后导入网页 URL"
         @click="goSourceImport"
       >选择目标项目后导入网页 URL</el-button>
@@ -103,5 +107,22 @@ defineProps({
   min-height: 28px;
   margin-top: -2px;
   padding: 0 4px;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+.empty-actions :deep(.el-button:focus-visible),
+.empty-secondary-action:focus-visible {
+  outline: 2px solid var(--el-color-primary, #818cf8);
+  outline-offset: 2px;
 }
 </style>

@@ -6,6 +6,7 @@
             导入目标：<strong>{{ networkImportTargetLabel }}</strong>。这些是公开许可素材，具体用途是否兼容仍需用户自行核对。只有来源和许可证据完整的素材才能导入。
           </p>
         </div>
+        <span v-if="networkSearchDisableReason" id="media-network-search-reason" class="visually-hidden">{{ networkSearchDisableReason }}</span>
         <div class="network-search-controls">
           <el-radio-group
             v-model="networkSource"
@@ -40,6 +41,7 @@
             :loading="networkLoading"
             :disabled="!networkKeyword.trim() || networkLoading"
             :title="networkSearchDisableReason || undefined"
+            :aria-describedby="networkSearchDisableReason ? 'media-network-search-reason' : undefined"
             :aria-label="networkLoading ? '正在搜索网络素材' : (networkSearchDisableReason || '搜索网络素材')"
             @click="searchNetworkMedia"
           >
@@ -67,6 +69,7 @@
           :loading="networkLoading"
           :disabled="!networkKeyword.trim() || networkLoading"
           :title="networkSearchDisableReason || undefined"
+          :aria-describedby="networkSearchDisableReason ? 'media-network-search-reason' : undefined"
           :aria-label="networkLoading ? '正在搜索网络素材' : (networkSearchDisableReason || '重试搜索网络素材')"
           @click="searchNetworkMedia"
         >
@@ -74,7 +77,7 @@
         </el-button>
       </section>
 
-      <section v-if="networkNotice && !networkError" class="network-state" role="status">
+      <section v-if="networkNotice && !networkError" class="network-state" role="status" aria-live="polite">
         <p>{{ networkNotice }}</p>
       </section>
 
@@ -169,6 +172,11 @@ defineProps({
   line-height: 1.55;
 }
 
+.network-search-controls :deep(.el-button:focus-visible),
+.network-state :deep(.el-button:focus-visible) {
+  outline: 2px solid var(--el-color-primary, #818cf8);
+  outline-offset: 2px;
+}
 .network-search-controls {
   display: flex;
   align-items: center;

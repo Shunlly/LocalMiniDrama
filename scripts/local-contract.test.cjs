@@ -1,6 +1,7 @@
 'use strict'
 
 const assert = require('node:assert/strict')
+const { spawnSync } = require('node:child_process')
 const http = require('node:http')
 const fs = require('node:fs')
 const path = require('node:path')
@@ -27,8 +28,56 @@ const backendRoutes = read('backend-node', 'src', 'routes', 'index.js')
 const backendApp = read('backend-node', 'src', 'app.js')
 const workspacePackage = JSON.parse(read('package.json'))
 const backendPackage = JSON.parse(read('backend-node', 'package.json'))
+const frontendPackage = JSON.parse(read('frontweb', 'package.json'))
+const backendLock = JSON.parse(read('backend-node', 'package-lock.json'))
+const frontendLock = JSON.parse(read('frontweb', 'package-lock.json'))
+const backendDockerfile = read('backend-node', 'Dockerfile')
+const frontendProdDockerfile = read('frontweb', 'Dockerfile.prod')
 const waitLocalDevPath = path.join(root, 'scripts', 'wait-local-dev.cjs')
 const waitLocalDev = fs.existsSync(waitLocalDevPath) ? fs.readFileSync(waitLocalDevPath, 'utf8') : ''
+
+// 生产安装合同：用 lockfile 与 npm ls --omit=dev --package-lock-only 证明开发包不会进入生产树。
+function npmCliInvocation(args) {
+  if (process.platform !== 'win32') return { command: 'npm', args }
+  const npmCli = process.env.npm_execpath
+    || path.join(path.dirname(process.execPath), 'node_modules', 'npm', 'bin', 'npm-cli.js')
+  return { command: process.execPath, args: [npmCli, ...args] }
+}
+
+function lockRecord(lock, name) {
+  return lock.packages[`node_modules/${name}`] || null
+}
+
+function productionLockIncludes(lock, name) {
+  const record = lockRecord(lock, name)
+  return Boolean(record) && record.dev !== true && record.devOptional !== true
+}
+
+function listProductionInstall(packageDir, packageName) {
+  const invocation = npmCliInvocation([
+    'ls',
+    packageName,
+    '--omit=dev',
+    '--package-lock-only',
+    '--registry=https://registry.npmjs.org',
+  ])
+  const result = spawnSync(invocation.command, invocation.args, {
+    cwd: packageDir,
+    encoding: 'utf8',
+    windowsHide: true,
+  })
+  return `${result.stdout || ''}\n${result.stderr || ''}`
+}
+
+function collectJsSources(dir) {
+  const files = []
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name)
+    if (entry.isDirectory()) files.push(...collectJsSources(full))
+    else if (entry.isFile() && entry.name.endsWith('.js')) files.push(full)
+  }
+  return files
+}
 
 function normalizeRoute(method, route) {
   const normalized = route
@@ -315,3 +364,50 @@ test('every HTTP route documented by the OpenClaw skill exists in the backend ro
   assert.ok(declared.size > 50, 'OpenClaw route inventory is unexpectedly small')
   assert.deepEqual(missing, [])
 })
+
+test('工作区根目录没有生产 npm 依赖，因此不产生可审计的生产安装树', () => {
+  assert.equal(workspacePackage.dependencies, undefined)
+  assert.equal(workspacePackage.devDependencies, undefined)
+  assert.equal(fs.existsSync(path.join(root, 'package-lock.json')), false)
+})
+
+test('后端 smol-toml 只存在于开发依赖，生产安装不会带入该包', () => {
+  assert.equal(backendPackage.devDependencies['smol-toml'], '1.7.1')
+  assert.equal(Object.hasOwn(backendPackage.dependencies, 'smol-toml'), false)
+  const record = lockRecord(backendLock, 'smol-toml')
+  assert.ok(record, 'lockfile 缺少 smol-toml')
+  assert.equal(record.version, '1.7.1')
+  assert.equal(record.dev, true)
+  assert.equal(productionLockIncludes(backendLock, 'smol-toml'), false)
+  const listed = listProductionInstall(path.join(root, 'backend-node'), 'smol-toml')
+  assert.match(listed, /\(empty\)/)
+  assert.doesNotMatch(listed, /smol-toml@/)
+  assert.match(backendDockerfile, /npm ci --omit=dev --no-audit/)
+})
+
+test('前端构建工具只存在于开发依赖，生产安装不会带入 Vite/Playwright', () => {
+  for (const name of ['vite', 'playwright', 'acorn', '@vitejs/plugin-vue', 'unplugin-vue-components']) {
+    assert.equal(Object.hasOwn(frontendPackage.dependencies || {}, name), false, name)
+    assert.ok(Object.hasOwn(frontendPackage.devDependencies, name), name)
+    assert.equal(productionLockIncludes(frontendLock, name), false, name)
+  }
+  const listed = listProductionInstall(path.join(root, 'frontweb'), 'vite')
+  assert.match(listed, /\(empty\)/)
+  assert.doesNotMatch(listed, /vite@/)
+  assert.match(frontendProdDockerfile, /npm ci --include=dev --no-audit/)
+  assert.match(frontendProdDockerfile, /FROM nginxinc\/nginx-unprivileged/)
+  assert.doesNotMatch(frontendProdDockerfile, /COPY --from=build \/app\/node_modules/)
+})
+
+test('后端生产 ZIP 路径使用自定义条目校验，不调用 adm-zip 提取写出 API', () => {
+  const sources = collectJsSources(path.join(root, 'backend-node', 'src'))
+  assert.ok(sources.length > 10, '后端源码清单过小')
+  const joined = sources.map((file) => fs.readFileSync(file, 'utf8')).join('\n')
+  assert.doesNotMatch(joined, /extractAllTo|extractEntryTo|writeFileTo/)
+  assert.match(read('backend-node', 'src', 'services', 'dramaImportParse.js'), /zip\.getEntries\(\)/)
+  assert.equal(backendPackage.dependencies['adm-zip'], '0.6.1')
+  assert.equal(lockRecord(backendLock, 'adm-zip').version, '0.6.1')
+  assert.equal(backendPackage.overrides.qs, '6.16.0')
+  assert.equal(lockRecord(backendLock, 'qs').version, '6.16.0')
+})
+

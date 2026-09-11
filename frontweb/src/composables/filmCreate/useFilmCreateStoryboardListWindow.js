@@ -59,7 +59,7 @@ export function useFilmCreateStoryboardListWindow(options = {}) {
       draggingIndex.value,
       forceIndex.value,
       ...pinnedIndexes.value,
-    ])
+    ].filter((index) => Number.isInteger(index)))
     return computeStoryboardListWindow({
       total: boards.length,
       scrollTop: scrollMetrics.value.scrollTop,
@@ -73,8 +73,9 @@ export function useFilmCreateStoryboardListWindow(options = {}) {
   const visibleItems = computed(() => visibleStoryboardItems(list(), windowState.value))
 
   function pinAround(index) {
+    if (index == null || index === '') return
     const i = Number(index)
-    if (!Number.isInteger(i)) return
+    if (!Number.isInteger(i) || i < 0) return
     pinnedIndexes.value = pinStoryboardIndexes(list().length, [i])
     focusedIndex.value = i
   }
@@ -151,6 +152,7 @@ export function useFilmCreateStoryboardListWindow(options = {}) {
   }
 
   function readScrollMetrics() {
+    if (metrics) return
     const el = listRef?.value
     const win = readWindow()
     if (!el?.getBoundingClientRect || !win) return

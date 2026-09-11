@@ -1,6 +1,12 @@
 <template>
+    <span v-if="mediaWriteLockReason" id="media-write-lock-reason" class="visually-hidden">{{ mediaWriteLockReason }}</span>
+    <span v-if="mediaUploadDisableReason" id="media-grid-upload-reason" class="visually-hidden">{{ mediaUploadDisableReason }}</span>
+    <span v-if="mediaNavigationLockReason" id="media-grid-nav-reason" class="visually-hidden">{{ mediaNavigationLockReason }}</span>
+    <span v-if="mediaRetryLoadDisableReason" id="media-retry-load-reason" class="visually-hidden">{{ mediaRetryLoadDisableReason }}</span>
+    <span v-if="mediaBatchDeleteDisableReason" id="media-batch-delete-reason" class="visually-hidden">{{ mediaBatchDeleteDisableReason }}</span>
     <section
       v-if="loadError"
+      id="media-list-load-error"
       class="data-load-state"
       role="alert"
       aria-live="assertive"
@@ -14,7 +20,7 @@
         <p class="data-load-state__detail">错误详情：{{ loadError }}</p>
         <p>下一步：请检查本机素材服务后点「重试加载」。</p>
       </div>
-      <el-button type="primary" plain :loading="loading" :disabled="loading" :title="mediaRetryLoadDisableReason || undefined" :aria-label="loading ? '正在加载素材' : (mediaRetryLoadDisableReason || '重试加载素材')" @click="loadMedia">
+      <el-button type="primary" plain :loading="loading" :disabled="loading" :title="mediaRetryLoadDisableReason || undefined" :aria-describedby="mediaRetryLoadDisableReason ? 'media-retry-load-reason' : 'media-list-load-error'" :aria-label="loading ? '正在加载素材' : (mediaRetryLoadDisableReason || '重试加载素材')" @click="loadMedia">
         <el-icon><Refresh /></el-icon>重试加载
       </el-button>
     </section>
@@ -23,7 +29,7 @@
       <div class="entry-item">
         <span class="entry-label">上传到素材中心</span>
         <p class="entry-description">把不超过 100MB 的图片和视频放进全局素材，后续项目可以直接复用。</p>
-        <el-button text class="entry-action" :disabled="mediaWriteLocked || uploading" :title="mediaUploadDisableReason || undefined" aria-label="上传图片或视频到素材中心" @click="triggerUpload">立即上传</el-button>
+        <el-button text class="entry-action" :disabled="mediaWriteLocked || uploading" :title="mediaUploadDisableReason || undefined" :aria-describedby="mediaUploadDisableReason ? 'media-grid-upload-reason' : undefined" aria-label="上传图片或视频到素材中心" @click="triggerUpload">立即上传</el-button>
       </div>
       <div class="entry-item">
         <span class="entry-label">网页 URL 导入</span>
@@ -34,6 +40,7 @@
           class="entry-action"
           :disabled="mediaAccessState.navigationLocked"
           :title="mediaAccessState.navigationLocked ? mediaNavigationLockReason : undefined"
+          :aria-describedby="mediaAccessState.navigationLocked ? 'media-grid-nav-reason' : undefined"
           aria-label="选择目标项目后导入网页 URL"
           @click="goSourceImport"
         >选择目标项目后导入网页 URL</el-button>
@@ -49,7 +56,7 @@
     <slot />
 
     <!-- 上传进度 -->
-    <div v-if="uploading" class="upload-progress">
+    <div v-if="uploading" class="upload-progress" role="status" aria-live="polite" aria-atomic="true">
       <el-icon class="is-loading"><Loading /></el-icon>
       <span>正在上传 {{ uploadProgress.current }}/{{ uploadProgress.total }}...</span>
     </div>
@@ -72,6 +79,7 @@
         plain
         :disabled="mediaWriteLocked || uploading"
         :title="mediaUploadDisableReason || undefined"
+        :aria-describedby="mediaUploadDisableReason ? 'media-grid-upload-reason' : undefined"
         aria-label="重新上传素材到素材中心"
         @click="triggerUpload"
       >重新上传</el-button>
@@ -86,6 +94,7 @@
         :selected-ids="selectedIds"
         :media-write-locked="mediaWriteLocked"
         :media-write-lock-reason="mediaWriteLockReason"
+        write-lock-described-by="media-write-lock-reason"
         :item-url="itemUrl"
         :thumbnail-alt="thumbnailAlt"
         :format-size="formatSize"
@@ -132,7 +141,7 @@
     <div v-if="selectedIds.size > 0" class="batch-bar">
       <span>已选 {{ selectedIds.size }} 项</span>
       <el-button size="small" aria-label="取消选择" @click="selectedIds.clear()">取消选择</el-button>
-      <el-button size="small" type="danger" plain :disabled="mediaWriteLocked || visibleSelectedMediaCount <= 0" :title="mediaBatchDeleteDisableReason || undefined" :aria-label="mediaBatchDeleteDisableReason || '批量删除素材'" @click="batchDelete">批量删除</el-button>
+      <el-button size="small" type="danger" plain :disabled="mediaWriteLocked || visibleSelectedMediaCount <= 0" :title="mediaBatchDeleteDisableReason || undefined" :aria-describedby="mediaBatchDeleteDisableReason ? 'media-batch-delete-reason' : undefined" :aria-label="mediaBatchDeleteDisableReason || '批量删除素材'" @click="batchDelete">批量删除</el-button>
     </div>
 </template>
 
@@ -347,5 +356,24 @@ defineProps({
   gap: 12px;
   font-size: 14px;
   box-shadow: 0 4px 16px rgba(0,0,0,.2);
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+.data-load-state :deep(.el-button:focus-visible),
+.entry-action:focus-visible,
+.batch-bar :deep(.el-button:focus-visible),
+.upload-feedback :deep(.el-button:focus-visible) {
+  outline: 2px solid var(--el-color-primary, #818cf8);
+  outline-offset: 2px;
 }
 </style>

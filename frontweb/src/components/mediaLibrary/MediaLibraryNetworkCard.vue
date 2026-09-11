@@ -30,9 +30,15 @@
       <p class="network-license" :title="item.license || '未注明许可'">许可：{{ item.license || '未注明许可' }}</p>
       <p
         v-if="!networkItemImportability(item).allowed"
+        :id="`network-import-reason-${index}`"
         class="network-license-warning"
         role="status"
       >{{ networkItemImportability(item).reason }}</p>
+      <p
+        v-else-if="isNetworkImporting(item)"
+        :id="`network-import-reason-${index}`"
+        class="visually-hidden"
+      >{{ MEDIA_LIBRARY_DISABLE_REASON.importing }}</p>
       <div class="network-actions">
         <a
           v-if="safeExternalUrl(item.source_url)"
@@ -55,6 +61,7 @@
           :loading="isNetworkImporting(item)"
           :disabled="isNetworkImporting(item) || !networkItemImportability(item).allowed"
           :title="isNetworkImporting(item) ? MEDIA_LIBRARY_DISABLE_REASON.importing : (networkItemImportability(item).reason || networkImportButtonText)"
+          :aria-describedby="(isNetworkImporting(item) || !networkItemImportability(item).allowed) ? `network-import-reason-${index}` : undefined"
           :aria-label="`${networkImportButtonText}：${networkItemTitle(item)}`"
           @click="importNetworkItem(item)"
         >{{ networkImportButtonText }}</el-button>
@@ -134,6 +141,21 @@ defineProps({
 .network-thumb:focus-visible {
   outline: 3px solid var(--el-color-primary);
   outline-offset: -3px;
+}
+.network-actions :deep(.el-button:focus-visible) {
+  outline: 2px solid var(--el-color-primary, #818cf8);
+  outline-offset: 2px;
+}
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .network-preview-label {

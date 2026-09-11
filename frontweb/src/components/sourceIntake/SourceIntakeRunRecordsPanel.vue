@@ -46,7 +46,7 @@
       aria-atomic="true"
     >
       <span>{{ displayedRunError }}</span>
-      <div v-if="extractionNextStep" class="source-extraction-next-step">
+      <div v-if="extractionNextStep" class="source-extraction-next-step" data-testid="process-extraction-next-step">
         <span class="next-step-kicker">下一步</span>
         <el-button
           size="small"

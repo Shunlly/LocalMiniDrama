@@ -205,11 +205,35 @@ test('工作台绑定源只映射已有状态，不改 episodeId', () => {
   }
 })
 
+test('制作页页头/流水线/侧栏调用名仍在 vue，BindingSources 已收进 bindings', () => {
+  const filmCreateSource = readFileSync(new URL('../src/views/FilmCreate.vue', import.meta.url), 'utf8')
+  const surfaceBindingsSource = readFileSync(new URL('../src/components/filmCreate/filmCreateSurfaceBindings.js', import.meta.url), 'utf8')
+  const shellBindingsSource = readFileSync(new URL('../src/components/filmCreate/filmCreateShellBindings.js', import.meta.url), 'utf8')
+  const closeoutBindingsSource = readFileSync(new URL('../src/components/filmCreate/filmCreateCloseoutBindings.js', import.meta.url), 'utf8')
+  assert.match(filmCreateSource, /createFilmCreateSurfaceBindings\(/)
+  assert.match(filmCreateSource, /createFilmCreateShellBindings\(/)
+  assert.match(filmCreateSource, /createFilmCreateCloseoutBindings\(/)
+  assert.match(filmCreateSource, /onMounted\(mountWorkspace\)/)
+  assert.match(filmCreateSource, /onBeforeUnmount\(unmountWorkspace\)/)
+  assert.match(filmCreateSource, /createFilmCreateCloseoutBindings\(\{[\s\S]*onGenerateStory/)
+  assert.match(filmCreateSource, /onInsertStoryboardAfter/)
+  assert.doesNotMatch(filmCreateSource, /createFilmCreateSurfaceBindingSources\(/)
+  assert.doesNotMatch(filmCreateSource, /createFilmCreateShellBindingSources\(/)
+  assert.doesNotMatch(filmCreateSource, /useFilmCreateWorkspaceBootstrap\(/)
+  assert.doesNotMatch(filmCreateSource, /useFilmCreateAiConfigDialogState\(\)[\s\S]{0,80}loadList/)
+  assert.doesNotMatch(filmCreateSource, /\bloadList\b|\bopenTest\b/)
+  assert.match(surfaceBindingsSource, /createFilmCreateSurfaceBindingSources\(ctx\)/)
+  assert.match(shellBindingsSource, /createFilmCreateShellBindingSources\(ctx\)/)
+  assert.match(closeoutBindingsSource, /useFilmCreateWorkspaceBootstrap\(\{/)
+})
+
 test('制作页把页头、流水线和交付区显式 props 交给独立绑定源', () => {
   const filmCreateSource = readFileSync(new URL('../src/views/FilmCreate.vue', import.meta.url), 'utf8')
   const surfaceBindingsSource = readFileSync(new URL('../src/components/filmCreate/filmCreateSurfaceBindings.js', import.meta.url), 'utf8')
-  assert.match(filmCreateSource, /createFilmCreateSurfaceBindingSources\(/)
-  assert.match(filmCreateSource, /createFilmCreateSurfaceBindings\(\{/)
+  assert.doesNotMatch(filmCreateSource, /createFilmCreateSurfaceBindingSources\(/)
+  assert.match(filmCreateSource, /createFilmCreateSurfaceBindings\(/)
+  assert.match(filmCreateSource, /\.\.\.storeDisplay,/)
+  assert.match(filmCreateSource, /\.\.\.deliveryActions,/)
   assert.match(filmCreateSource, /v-bind="headerBindings"/)
   assert.match(filmCreateSource, /v-bind="pipelinePanelBindings"/)
   assert.match(filmCreateSource, /v-bind="outputSectionBindings"/)
@@ -290,6 +314,27 @@ test('页头/流水线/交付区绑定源只映射已有状态，不改 episodeI
     assert.equal(props.value[0].id, 3)
 
     const bindings = createFilmCreateSurfaceBindings(bags)
+    const fromFlat = createFilmCreateSurfaceBindings({
+      store,
+      props,
+      currentEpisodeId,
+      selectedEpisodeId,
+      dramaId,
+      storyboardCount,
+      storyboards,
+      projectAspectRatio,
+      videoWatermarkText,
+      pipelinePaused,
+      pipelineAbortRequested,
+      pipelineRunning,
+      pipelineStopping,
+      productionPipelineActionDisabledReason,
+      pipelineActionDisabledReason,
+    })
+    assert.equal(fromFlat.headerBindings.value.selectedEpisodeId, 33)
+    assert.equal(fromFlat.outputSectionBindings.value.currentEpisodeId, 22)
+    assert.notEqual(fromFlat.headerBindings.value.dramaId, fromFlat.outputSectionBindings.value.currentEpisodeId)
+    assert.equal('propItems' in fromFlat.headerBindings.value, false)
     assert.equal(FILM_CREATE_PIPELINE_PANEL_MODEL_KEYS.includes('currentEpisodeId'), false)
     assert.equal(FILM_CREATE_PIPELINE_PANEL_MODEL_KEYS.includes('selectedEpisodeId'), false)
     assert.equal(FILM_CREATE_OUTPUT_SECTION_MODEL_KEYS.includes('currentEpisodeId'), false)
@@ -318,8 +363,10 @@ test('页头/流水线/交付区绑定源只映射已有状态，不改 episodeI
 test('制作页把侧栏、加载面、依赖警告和弹窗层显式 props 交给独立绑定源', () => {
   const filmCreateSource = readFileSync(new URL('../src/views/FilmCreate.vue', import.meta.url), 'utf8')
   const shellBindingsSource = readFileSync(new URL('../src/components/filmCreate/filmCreateShellBindings.js', import.meta.url), 'utf8')
-  assert.match(filmCreateSource, /createFilmCreateShellBindingSources\(/)
-  assert.match(filmCreateSource, /createFilmCreateShellBindings\(\{/)
+  assert.doesNotMatch(filmCreateSource, /createFilmCreateShellBindingSources\(/)
+  assert.match(filmCreateSource, /createFilmCreateShellBindings\(/)
+  assert.match(filmCreateSource, /\.\.\.navigation,/)
+  assert.match(filmCreateSource, /\.\.\.projectLoadSurface,/)
   assert.match(filmCreateSource, /v-bind="quickNavBindings"/)
   assert.match(filmCreateSource, /v-bind="projectLoadStateBindings"/)
   assert.match(filmCreateSource, /v-bind="projectDependencyWarningBindings"/)
@@ -399,6 +446,20 @@ test('侧栏/加载面/警告/弹窗层绑定源只映射已有状态，不改 e
     assert.equal(props.value[0].id, 3)
 
     const bindings = createFilmCreateShellBindings(bags)
+    const fromFlat = createFilmCreateShellBindings({
+      store,
+      props,
+      currentEpisodeId,
+      selectedEpisodeId,
+      dramaId,
+      storyboardMenuExpanded,
+      showAiConfigDialog,
+      novelMaxChapters,
+      pipelineStopping,
+      productionPipelineActionDisabledReason,
+    })
+    assert.equal(fromFlat.quickNavBindings.value.pipelineStopping, true)
+    assert.equal(Object.prototype.hasOwnProperty.call(fromFlat.quickNavBindings.value, 'onUpdate:currentEpisodeId'), false)
     assert.equal(FILM_CREATE_QUICK_NAV_MODEL_KEYS.includes('currentEpisodeId'), false)
     assert.equal(FILM_CREATE_QUICK_NAV_MODEL_KEYS.includes('dramaId'), false)
     assert.equal(FILM_CREATE_WORKSPACE_LAYER_MODEL_KEYS.includes('currentEpisodeId'), false)
@@ -438,7 +499,8 @@ test('制作页把工作台闭合接线交给独立装配函数', () => {
   assert.doesNotMatch(filmCreateSource, /:batch-action-disabled-reason="batchActionDisabledReason"/)
   assert.match(filmCreateSource, /useFilmCreateActionDisabledReasons\(/)
   assert.match(filmCreateSource, /onBeforeRouteLeave\(allowNavigationAfterDraftFlush\)/)
-  assert.match(filmCreateSource, /createFilmCreateShellBindingSources\(/)
+  assert.match(filmCreateSource, /createFilmCreateShellBindings\(/)
+  assert.doesNotMatch(filmCreateSource, /createFilmCreateShellBindingSources\(/)
   assert.doesNotMatch(closeoutBindingsSource, /allowNavigationAfterDraftFlush/)
   assert.doesNotMatch(closeoutBindingsSource, /useFilmCreateActionDisabledReasons/)
   assert.doesNotMatch(closeoutBindingsSource, /const currentEpisodeId = ref/)

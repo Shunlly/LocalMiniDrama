@@ -10,6 +10,11 @@
     <div>
       <h2>{{ networkImportFeedback.title }}</h2>
       <p>{{ networkImportFeedback.detail }}</p>
+      <p
+        v-if="isNetworkImporting(networkImportRetryItem) || (networkImportRetryItem && !networkItemImportability(networkImportRetryItem).allowed)"
+        id="media-network-import-retry-reason"
+        class="visually-hidden"
+      >{{ isNetworkImporting(networkImportRetryItem) ? MEDIA_LIBRARY_DISABLE_REASON.importing : networkItemImportability(networkImportRetryItem).reason }}</p>
     </div>
     <el-button
       v-if="networkImportRetryItem"
@@ -18,6 +23,7 @@
       :loading="isNetworkImporting(networkImportRetryItem)"
       :disabled="isNetworkImporting(networkImportRetryItem) || !networkItemImportability(networkImportRetryItem).allowed"
       :title="isNetworkImporting(networkImportRetryItem) ? MEDIA_LIBRARY_DISABLE_REASON.importing : (networkItemImportability(networkImportRetryItem).reason || undefined)"
+      :aria-describedby="(isNetworkImporting(networkImportRetryItem) || (networkItemImportability(networkImportRetryItem).reason && !networkItemImportability(networkImportRetryItem).allowed)) ? 'media-network-import-retry-reason' : undefined"
       aria-label="重试导入该网络素材"
       @click="importNetworkItem(networkImportRetryItem)"
     >
@@ -76,5 +82,21 @@ defineProps({
   margin-top: 4px;
   color: var(--text-muted);
   overflow-wrap: anywhere;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+.upload-feedback :deep(.el-button:focus-visible) {
+  outline: 2px solid var(--el-color-primary, #818cf8);
+  outline-offset: 2px;
 }
 </style>

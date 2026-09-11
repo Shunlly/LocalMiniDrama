@@ -58,23 +58,6 @@
           </div>
         </template>
       </SourceIntakeRunRecordsPanel>
-      <div
-        v-if="runState.failedStep && displayedRunError && extractionNextStepForRecords"
-        class="source-extraction-next-step"
-        data-testid="process-extraction-next-step"
-      >
-        <span class="next-step-kicker">下一步</span>
-        <el-button
-          size="small"
-          type="primary"
-          plain
-          :aria-label="extractionNextStepForRecords.actionLabel"
-          @click="$emit('open-extraction-ai-config', extractionNextStepForRecords.serviceType)"
-        >
-          {{ extractionNextStepForRecords.actionLabel }}
-        </el-button>
-        <span v-if="extractionNextStepForRecords.extraHint">{{ extractionNextStepForRecords.extraHint }}</span>
-      </div>
     </template>
 
     <div v-else-if="sources.length > 0" class="stage-empty stage-empty--actionable">
