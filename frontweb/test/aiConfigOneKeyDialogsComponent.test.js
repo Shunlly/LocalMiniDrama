@@ -112,6 +112,9 @@ test('三个一键配置密钥输入的 aria-label 必须是通义密钥、火�
       const input = inputByAriaLabel(harness.root, label)
       assert.ok(input, `缺少密钥输入：${label}`)
       assert.equal(input.props['aria-label'], label)
+      assert.equal(input.props.type, 'password')
+      assert.ok(input.props['show-password'] === '' || input.props['show-password'] === true)
+      assert.equal(input.props['show-password-on'], undefined)
     }
     assert.equal(inputByAriaLabel(harness.root, '通义 API Key'), undefined)
     assert.equal(inputByAriaLabel(harness.root, 'DashScope 密钥'), undefined)

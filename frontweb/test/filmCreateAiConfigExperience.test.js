@@ -6,7 +6,7 @@ import { effectScope, nextTick, ref } from 'vue'
 import { useAiConfigCoverage } from '../src/composables/useAiConfigCoverage.js'
 import { useAiConfigFormActions } from '../src/composables/useAiConfigFormActions.js'
 import { useAiConfigImportExport } from '../src/composables/useAiConfigImportExport.js'
-import { useAiConfigOneKeyPresets, TONGYI_CONFIGS } from '../src/composables/useAiConfigOneKeyPresets.js'
+import { useAiConfigOneKeyPresets } from '../src/composables/useAiConfigOneKeyPresets.js'
 import { useAiConfigRowMutations } from '../src/composables/useAiConfigRowMutations.js'
 import { useFilmCreateAiConfigWorkspace } from '../src/composables/filmCreate/useFilmCreateAiConfigWorkspace.js'
 import { useFilmCreateProductionReadiness } from '../src/composables/filmCreate/useFilmCreateProductionReadiness.js'
@@ -810,7 +810,11 @@ test('导入、一键预设和批量换密钥都要中文确认，取消不写�
   })
   await importer.importConfigs({
     target: {
-      files: [new File([JSON.stringify([{ name: '导入配置', service_type: 'text' }])], 'configs.json', { type: 'application/json' })],
+      files: [{
+        async text() {
+          return JSON.stringify([{ name: '导入配置', service_type: 'text' }])
+        },
+      }],
       value: 'configs.json',
     },
   })
