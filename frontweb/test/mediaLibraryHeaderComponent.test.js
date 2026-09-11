@@ -95,6 +95,7 @@ test('写锁只禁用上传并展示中文原因，新建项目仍可点', async
     assert.ok(created)
     assert.equal(upload.props.disabled, true)
     assert.equal(upload.props.title, reason)
+    assert.equal(upload.props['aria-describedby'], 'media-header-upload-reason')
     assert.notEqual(created.props.disabled, true)
     assert.equal(created.props.title, undefined)
     click(created)

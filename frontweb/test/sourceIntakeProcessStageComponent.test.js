@@ -1,5 +1,4 @@
 import test from 'node:test'
-import { readFileSync } from 'node:fs'
 import assert from 'node:assert/strict'
 
 import { h } from 'vue'
@@ -9,6 +8,7 @@ import {
   buttonByText,
   compileSfc,
   createHostRenderer,
+  findAll,
   loadCompiledSfc,
   mountHarness,
   textContent,
@@ -62,6 +62,7 @@ function mountProcess(initial = {}) {
     runTagType: initial.runTagType || 'warning',
     runProgressStatus: initial.runProgressStatus || '',
     displayedRunError: initial.displayedRunError || '',
+    extractionNextStep: initial.extractionNextStep || null,
     formatTime: () => '9月11日 10:00',
     controlActionReasons: initial.reasons || { retry: '', pause: '', resume: '', cancel: '' },
     retrying: Boolean(initial.retrying),
@@ -80,6 +81,7 @@ function mountProcess(initial = {}) {
     onRestartLatest: (source) => events.push(['restart', source.id]),
     onStartExisting: (source) => events.push(['start-existing', source.id]),
     onSelectStep: (stepId) => events.push(['select-step', stepId]),
+    onOpenExtractionAiConfig: (serviceType) => events.push(['open-extraction-ai-config', serviceType]),
   }))
   return { ...mounted, events }
 }
@@ -121,10 +123,6 @@ test('处理阶段把暂停取消交给父级，忙时展示中文原因', () =>
 
 
 test('处理阶段失败条可把图片识别下一步交给父级', () => {
-  const source = readFileSync(new URL('../src/components/sourceIntake/SourceIntakeProcessStageCard.vue', import.meta.url), 'utf8')
-  assert.match(source, /open-extraction-ai-config/)
-  assert.match(source, /extractionNextStepForRecords/)
-  assert.match(source, /extraction-next-step/)
   const harness = mountProcess({
     displayedRunError: '图片识别失败。请到「AI 配置」添加「图片识别」服务，或先使用本机 Tesseract。',
     extractionNextStep: {
@@ -136,13 +134,27 @@ test('处理阶段失败条可把图片识别下一步交给父级', () => {
     runState: { failedStep: { error: '图片识别失败' } },
   })
   try {
-    const next = buttonByText(harness.root, '去「AI 配置」添加图片识别')
-    if (next) {
-      next.props.onClick()
-      assert.deepEqual(harness.events, [['open-extraction-ai-config', 'ocr']])
-    } else {
-      assert.match(source, /extractionNextStepForRecords/)
-    }
+    assert.match(textContent(harness.root), /下一步/)
+    const retry = buttonByText(harness.root, '重试失败步骤')
+    assert.equal(retry.props['aria-describedby'], 'source-intake-run-error')
+    buttonByText(harness.root, '去「AI 配置」添加图片识别').props.onClick()
+    assert.deepEqual(harness.events, [['open-extraction-ai-config', 'ocr']])
+  } finally {
+    harness.app.unmount()
+  }
+})
+
+test('处理阶段禁用闸门把可见原因挂到 aria-describedby', () => {
+  const harness = mountProcess({
+    reasons: { retry: '', pause: '仅运行中的处理可以暂停。', resume: '', cancel: '' },
+  })
+  try {
+    const [gate] = findAll(harness.root, (node) => node.props.role === 'group')
+    assert.ok(gate)
+    const describedBy = gate.props['aria-describedby']
+    assert.ok(describedBy)
+    const [reason] = findAll(harness.root, (node) => node.props.id === describedBy)
+    assert.equal(textContent(reason).trim(), '仅运行中的处理可以暂停。')
   } finally {
     harness.app.unmount()
   }

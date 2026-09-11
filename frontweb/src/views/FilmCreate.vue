@@ -1419,7 +1419,7 @@ const {
   ...ttsDisableReason,
   ...pipelineRun,
   ...projectLoad,
-  store, router, route,
+  store, router, route, storyInput,
   storyboardsAPI, storyboardImageUrl,
   onInsertStoryboardAfter, onGenerateStory,
   handleBeforeUnload, applyRouteToStore,

@@ -31,6 +31,8 @@ test('disabled action gates expose the action name and reason to keyboard users'
   assert.match(actionGateSource, /role="group"/)
   assert.match(actionGateSource, /aria-disabled="true"/)
   assert.match(actionGateSource, /:aria-label="accessibleLabel"/)
+  assert.match(actionGateSource, /:aria-describedby="reasonId"/)
+  assert.match(actionGateSource, /:id="reasonId"/)
   assert.match(actionGateSource, /label: \{ type: String, default: '此操作' \}/)
   assert.match(actionGateSource, /`\$\{props\.label\}不可用：\$\{props\.reason\}`/)
 

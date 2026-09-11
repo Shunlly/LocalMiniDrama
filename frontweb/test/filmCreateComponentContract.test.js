@@ -504,6 +504,9 @@ test('ActionGate mounts a keyboard-focusable accessible reason and removes it wh
     assert.equal(gate.props['aria-disabled'], 'true')
     assert.match(gate.props['aria-label'], /Generate video/)
     assert.match(gate.props['aria-label'], /Select an episode/)
+    assert.ok(gate.props['aria-describedby'])
+    const [reasonNode] = findAll(harness.root, (node) => node.props.id === gate.props['aria-describedby'])
+    assert.equal(textContent(reasonNode).trim(), 'Select an episode')
     assert.equal(findByType(harness.root, 'tooltip')[0].props['data-content'], 'Select an episode')
 
     harness.reason.value = ''

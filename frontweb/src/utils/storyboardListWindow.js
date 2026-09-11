@@ -105,6 +105,7 @@ export function mergeIndexesIntoWindow(start, end, total, extraIndexes) {
   let nextStart = Math.max(0, Math.min(count, Number(start) || 0))
   let nextEnd = Math.max(nextStart, Math.min(count, Number(end) || 0))
   for (const raw of extraIndexes || []) {
+    if (raw == null || raw === '') continue
     const i = Number(raw)
     if (!Number.isInteger(i) || i < 0 || i >= count) continue
     if (i < nextStart) nextStart = i
@@ -117,6 +118,7 @@ export function pinStoryboardIndexes(total, indexes) {
   const count = Math.max(0, Number(total) || 0)
   const pinned = []
   for (const raw of indexes || []) {
+    if (raw == null || raw === '') continue
     const i = Number(raw)
     if (!Number.isInteger(i) || i < 0 || i >= count) continue
     if (i > 0) pinned.push(i - 1)

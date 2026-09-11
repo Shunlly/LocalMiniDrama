@@ -152,6 +152,9 @@ test('inspector disabled controls expose Chinese reasons and stay untitled when 
     /:title="\(editorDisabled \|\| !conversionTarget\) \? convertDisabledReason : undefined"/,
   )
   assert.match(inspector, /title="停止当前页面等待；已提交任务可能继续执行或计费"/)
+  assert.match(inspector, /:aria-describedby="\(readonly \|\| busy\) \? 'free-inspector-config-action-reason' : undefined"/)
+  assert.match(inspector, /id="free-inspector-editor-reason"/)
+  assert.match(inspector, /:deep\(\.el-select \.el-input__wrapper\.is-focus\)/)
   assert.match(inspector, /:title="saveAssetEligibility\.reason \|\| '保存为素材'"/)
   assert.match(
     inspector,

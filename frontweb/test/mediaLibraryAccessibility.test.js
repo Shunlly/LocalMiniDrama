@@ -225,6 +225,12 @@ test('顶栏上传按钮与筛选空态都提供明确的上传名称', () => {
 
 
 test('素材中心禁用按钮给出中文原因', () => {
+  assert.match(source, /id="media-header-upload-reason"/)
+  assert.match(source, /:aria-describedby="mediaUploadDisableReason \? 'media-header-upload-reason' : undefined"/)
+  assert.match(source, /id="media-list-load-error"/)
+  assert.match(source, /class="upload-progress" role="status" aria-live="polite" aria-atomic="true"/)
+  assert.match(source, /class="empty-media" role="status" aria-live="polite"/)
+
   assert.match(source, /from '@\/utils\/elementPlusFeedback\.js'/)
   assert.doesNotMatch(source, /from 'element-plus'/)
   assert.match(source, /const mediaWriteLockReason = computed/)

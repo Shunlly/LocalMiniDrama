@@ -108,6 +108,10 @@ test('运行记录展示类型、模式、步骤状态和中文失败原因', as
     assert.match(text, /失败/)
     assert.match(text, /#2/)
     assert.match(text, /分镜草稿失败，请稍后重试/)
+    const [error] = findByClass(harness.root, 'run-error')
+    assert.equal(error.props.role, 'alert')
+    assert.equal(error.props['aria-live'], 'assertive')
+    assert.equal(error.props.id, 'source-intake-run-error')
     assert.doesNotMatch(text, /Network Error|fetch failed|Invalid Date/i)
   } finally {
     harness.app.unmount()
