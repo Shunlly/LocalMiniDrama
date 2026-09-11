@@ -27,7 +27,8 @@
 
 - 后端端口 **5679**，前端开发用 Vite 端口 **3013**；开发时前端代理 `/api`、`/static`、`/ready` 与 `/health`
 - 生产也可先 `npm --prefix frontweb run build`，由后端在 5679 托管 `frontweb/dist`（`WEB_DIST_PATH` 可覆盖）。Docker 生产前端由 Nginx 提供静态页
-- 后端 CORS 只允许 `http://localhost:3013` 与 `http://127.0.0.1:3013`
+- 后端 CORS 默认白名单是 `http://localhost:3013` 与 `http://127.0.0.1:3013`。`NODE_ENV=development` 时任意回环 Origin 可通过；Docker 生产由 `LOCALMINIDRAMA_CORS_ORIGINS` 跟随前端宿主机端口
+- 官方 Compose 默认仍占 3013/5679，会和源码 dev 抢端口。已被占用时不要并行硬起；改宿主机端口用 `LOCALMINIDRAMA_FRONTEND_HOST_PORT` / `LOCALMINIDRAMA_BACKEND_HOST_PORT`，E2E 还要设 `FRONTEND_URL` / `BACKEND_URL`。`docker:e2e:up` 只隔离数据目录，额外占用 `127.0.0.1:5688`
 - 根目录、后端、前端、Docker 与通用 PR/分支门禁用 Node.js 20.x；桌面依赖安装、原生重建、打包和 Windows 制品安全扫描用 Node.js 22.12.0（`desktop/.npmrc` 启用 `engine-strict`）
 - `configs/config.yaml` 已随仓库提供；启动时执行 `runMigrationsAndEnsure`，一般不必手动 `npm run migrate`
 - 未配置外部 API Key 也可以启动和开发界面；真正生成内容到「AI 配置」页填写。厂商预设填表不等于真实图片/视频/TTS 接入已跑通
@@ -248,7 +249,7 @@ npm run verify:docker
 
 ## 运行方式二：Docker
 
-项目根目录 `docker-compose.yml` 会同时启动后端和前端。Compose **不挂载应用源码**，只把数据目录挂到 `/app/data`，并把配置源目录只读挂到 `/app/config-source`。改完 JS/Vue 后必须重建镜像，不能把 Docker 当成 bind-mount 热更新开发环境：
+项目根目录 `docker-compose.yml` 会同时启动后端和前端。Compose **不挂载应用源码**，只把数据目录挂到 `/app/data`，并把配置源目录只读挂到 `/app/config-source`。改完 JS/Vue 后必须重建镜像，不能把 Docker 当成 bind-mount 热更新开发环境。默认映射 `127.0.0.1:3013` 和 `127.0.0.1:5679`；这两个端口已被本机 Vite/后端占用时，不要再执行官方 `docker compose up`，应先停源码服务或改 `LOCALMINIDRAMA_FRONTEND_HOST_PORT` / `LOCALMINIDRAMA_BACKEND_HOST_PORT`：
 
 ```bash
 docker compose up -d --build --wait

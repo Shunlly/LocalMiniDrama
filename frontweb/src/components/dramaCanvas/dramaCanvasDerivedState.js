@@ -89,6 +89,14 @@ export function createDramaCanvasDerivedState(ctx = {}) {
       label: `道具 · ${prop.name || prop.id}`,
     })),
     ...freeStoryboardOptions.value.map((storyboard) => ({
+      value: `storyboard-image:${storyboard.id}`,
+      label: `分镜主图 · ${storyboard.label}`,
+    })),
+    ...freeStoryboardOptions.value.map((storyboard) => ({
+      value: `storyboard-video:${storyboard.id}`,
+      label: `分镜视频 · ${storyboard.label}`,
+    })),
+    ...freeStoryboardOptions.value.map((storyboard) => ({
       value: `storyboard:${storyboard.id}`,
       label: `分镜 · ${storyboard.label}`,
     })),

@@ -322,7 +322,7 @@ style:
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | GET | `/dramas/:id/characters` | 获取剧集角色 |
-| POST | `/episodes/:episode_id/characters/extract` | 从本集剧本提取角色 |
+| POST | `/episodes/:episode_id/characters/extract` | 从本集剧本提取角色（走真实角色生成任务，空剧本失败关闭） |
 | POST | `/characters/:id/generate-image` | 生成角色图片 |
 | GET | `/dramas/:id/scenes` | 获取剧集场景 |
 | POST | `/images/episode/:episode_id/backgrounds/extract` | 提取场景背景（触发任务） |

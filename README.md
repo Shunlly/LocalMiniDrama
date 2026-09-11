@@ -49,6 +49,8 @@
 - 语言：纯 JavaScript，无 TypeScript
 - 根目录、后端、前端、Docker 与通用 PR/分支门禁用 Node.js 20.x（`.nvmrc` 为 `20`）；桌面依赖安装、原生重建、打包和 Windows 制品安全扫描用 Node.js 22.12.0（`desktop/.npmrc` 启用 `engine-strict`）
 - 日常 Docker：`docker compose up -d --build --wait`。Compose **不 bind-mount 应用源码**，改完代码必须重建镜像；容器级校验：根目录 `npm run verify:docker`
+- 官方 `docker compose up -d --build --wait` 默认映射 `127.0.0.1:3013` 和 `127.0.0.1:5679`，会和源码 `npm run dev` 抢端口，也会撞同一 `backend-node/data`。这两个端口已被占用时不要再起官方 Compose。并存请改 `LOCALMINIDRAMA_FRONTEND_HOST_PORT` / `LOCALMINIDRAMA_BACKEND_HOST_PORT`，并给 Docker 单独的 `LOCALMINIDRAMA_DATA_DIR`；Compose 会按前端宿主机端口写入 `LOCALMINIDRAMA_CORS_ORIGINS`。若覆盖 CORS 或对改端口的实例跑 E2E，还须同步 `LOCALMINIDRAMA_CORS_ORIGINS` 与 `FRONTEND_URL` / `BACKEND_URL`。`npm run docker:e2e:up` 只隔离仓库外 `LOCALMINIDRAMA_DATA_DIR`，不换 `3013`/`5679`，另外占用 `127.0.0.1:5688`
+- 开发模式下回环 Origin 可通过；生产 Docker CORS 跟随前端宿主机端口
 - 生产 Nginx（`frontweb/nginx.conf`）必须有 `location = /ready`，精确代理到后端 `/ready`，并写在 SPA `location /` 之前。只代理 `/healthz` 不够：备份页会请求 `/ready`，吃到 HTML 会被当成未就绪
 - 生产 E2E 必须在干净工作树执行（证据要求 `working_tree_dirty=false`），不要凭历史 SHA 宣称当前工作树已通过
 - 未配置外部 API Key 也可以启动和开发界面；真正生成内容到「AI 配置」页填写。厂商预设填表不等于真实图片/视频/TTS 接入已跑通
@@ -216,7 +218,7 @@ npm run dev
 cd frontweb && npm install && npm run dev
 ```
 
-浏览器打开 `http://127.0.0.1:3013`。开发用 Vite，把 `/api`、`/static`、`/ready` 和 `/health` 代理到 `http://127.0.0.1:5679`。后端 CORS 只允许前端 `3013`（`http://localhost:3013` 与 `http://127.0.0.1:3013`）。
+浏览器打开 `http://127.0.0.1:3013`。开发用 Vite，把 `/api`、`/static`、`/ready` 和 `/health` 代理到 `http://127.0.0.1:5679`。开发模式下回环 Origin 可通过；`config.yaml` 默认白名单仍是 `http://localhost:3013` 与 `http://127.0.0.1:3013`。生产 Docker CORS 跟随前端宿主机端口（`LOCALMINIDRAMA_CORS_ORIGINS`），不会自动放行任意回环端口。
 
 若要让后端直接托管生产前端：先在 `frontweb` 执行 `npm run build`，再启动后端，访问 `http://127.0.0.1:5679`。后端默认读取同级 `frontweb/dist`，也可用 `WEB_DIST_PATH` 覆盖；`dist` 不存在时打开 `/` 会提示先构建前端。这与 Docker 生产不同：Compose 前端由 Nginx 提供静态页。
 
@@ -241,7 +243,9 @@ docker compose up -d --build --wait
 docker compose ps
 ```
 
-浏览器打开 `http://127.0.0.1:3013`。默认只绑定宿主机 `127.0.0.1`，数据默认写在 `backend-node/data/`。生产 Nginx 必须保留 `location = /ready` 精确代理，写在 SPA 回退之前；自定义反代也一样，否则备份恢复会被前端 HTML 误锁。
+官方命令默认映射宿主机 `127.0.0.1:3013` 和 `127.0.0.1:5679`，会和源码 `npm run dev` 抢端口，也会写入同一 `backend-node/data/`。这两个端口已被占用时不要再起官方 Compose。并存请改 `LOCALMINIDRAMA_FRONTEND_HOST_PORT` / `LOCALMINIDRAMA_BACKEND_HOST_PORT`，并设置独立的 `LOCALMINIDRAMA_DATA_DIR`；Compose 会按前端宿主机端口写入 `LOCALMINIDRAMA_CORS_ORIGINS`。若覆盖 CORS，或对改端口的实例跑 E2E，还须同步 `LOCALMINIDRAMA_CORS_ORIGINS` 以及 `FRONTEND_URL` / `BACKEND_URL`。命令示例见 [开发指南](docs/quickstart.md#运行方式二docker)。
+
+浏览器打开 `http://127.0.0.1:3013`（改端口后改用对应地址）。默认只绑定宿主机 `127.0.0.1`，数据默认写在 `backend-node/data/`。生产 Nginx 必须保留 `location = /ready` 精确代理，写在 SPA 回退之前；自定义反代也一样，否则备份恢复会被前端 HTML 误锁。
 
 | 探针 | 地址 | Compose 用途 |
 |------|------|------|
@@ -267,7 +271,7 @@ npm run verify:docker
 
 `npm run verify:docker` 检查镜像边界，并在临时验证容器内跑前后端测试，不代替正在运行的 Compose 服务。`npm run docker:up` 要求 Git 工作树干净，并把当前 Git SHA 写入镜像 revision；未提交改动请直接用 `docker compose up -d --build --wait`。
 
-生产 E2E 必须在干净工作树、仓库外新建空数据目录后设置 `LOCALMINIDRAMA_DATA_DIR`，再执行 `npm run docker:e2e:up` 和 `npm run verify:e2e`，最后销毁 E2E profile 与临时数据目录。证据绑定完整源码 SHA 且 `working_tree_dirty=false`；当前脏工作树不能当作已通过。完整 PowerShell 命令见 [开发指南](docs/quickstart.md#运行方式二docker)。仓库测试使用本地协议兼容 Provider，不代表真实厂商账号已深度联调。
+生产 E2E 必须在干净工作树、仓库外新建空数据目录后设置 `LOCALMINIDRAMA_DATA_DIR`，再执行 `npm run docker:e2e:up` 和 `npm run verify:e2e`，最后销毁 E2E profile 与临时数据目录。`docker:e2e:up` 只隔离数据目录，不换 `3013`/`5679`，另外占用 `127.0.0.1:5688`；源码 `npm run dev` 已占用这两个端口时不要再跑它。若已改宿主机端口，E2E 还须设置 `FRONTEND_URL` / `BACKEND_URL`。证据绑定完整源码 SHA 且 `working_tree_dirty=false`；当前脏工作树不能当作已通过。完整 PowerShell 命令见 [开发指南](docs/quickstart.md#运行方式二docker)。仓库测试使用本地协议兼容 Provider，不代表真实厂商账号已深度联调。
 
 异常退出若留下维护租约，必须按 [维护租约恢复步骤](docs/quickstart.md#q-如何备份迁移项目数据) 先检查归属，再用精确作用域和 PID 显式恢复；不要直接删除锁文件。
 

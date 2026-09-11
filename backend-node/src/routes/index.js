@@ -466,7 +466,31 @@ function setupRouter(cfg, db, log) {
   // 之前可能有部分路由指向了 storyboards.episodeStoryboardsGenerate，这可能导致参数解析不一致
   r.post('/episodes/:episode_id/storyboards', drama.generateStoryboard);
   r.post('/episodes/:episode_id/props/extract', prop.extractProps);
-  r.post('/episodes/:episode_id/characters/extract', stub.episodeCharactersExtract);
+  r.post('/episodes/:episode_id/characters/extract', (req, res) => {
+    const characterGenerationService = require('../services/characterGenerationService');
+    try {
+      const episodeId = Number(req.params.episode_id);
+      const episode = db.prepare(
+        'SELECT id, drama_id, script_content FROM episodes WHERE id = ? AND deleted_at IS NULL'
+      ).get(episodeId);
+      if (!episode) {
+        return response.notFound(res, '剧集不存在');
+      }
+      const outline = String(episode.script_content || '').trim();
+      if (!outline) {
+        return response.badRequest(res, '请先填写剧本内容');
+      }
+      const taskId = characterGenerationService.generateCharacters(db, cfg, log, {
+        drama_id: episode.drama_id,
+        episode_id: episode.id,
+        outline,
+      });
+      response.success(res, { task_id: taskId, status: 'pending' });
+    } catch (err) {
+      log.error('episodes/characters/extract', { error: err.message });
+      sendCaughtRouteError(res, err, '提取角色失败');
+    }
+  });
   r.get('/episodes/:episode_id/storyboards', storyboards.episodeStoryboardsGet);
   r.post('/episodes/:episode_id/finalize', drama.finalizeEpisode);
   r.get('/episodes/:episode_id/download', drama.downloadEpisodeVideo);

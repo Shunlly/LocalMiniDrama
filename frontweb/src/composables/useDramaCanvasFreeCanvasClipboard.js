@@ -16,6 +16,12 @@ import { storyboardsAPI } from '@/api/storyboards'
 import { isCanvasUserAbort } from '@/composables/useCanvasUserError'
 import { resolveFreeCanvasMediaPath } from '@/utils/freeCanvasMedia'
 import {
+  buildStoryboardPrimaryMediaPatch,
+  describeFreeConversionOperation,
+  parseFreeConversionTargetKey,
+  validateFreeConversionMedia,
+} from '@/utils/freeCanvasConversion.js'
+import {
   cloneFreeSelection,
   normalizeFreeCanvas,
   serializeFreeCanvas,
@@ -262,11 +268,10 @@ export function useDramaCanvasFreeCanvasClipboard(deps = {}) {
   }
 
   function resolveFreeConversionTarget(value) {
-    const match = /^(character|scene|prop|storyboard):(\d+)$/.exec(String(value || ''))
-    if (!match) return null
-    const [, type, rawId] = match
-    const id = Number(rawId)
-    if (type === 'storyboard') {
+    const parsed = parseFreeConversionTargetKey(value)
+    if (!parsed) return null
+    const { type, id } = parsed
+    if (type === 'storyboard' || type === 'storyboard-image' || type === 'storyboard-video') {
       const storyboard = storyboardsById.value.get(String(id))
       return storyboard ? { type, id, entity: storyboard, label: storyboard.title || `分镜 ${id}` } : null
     }
@@ -301,14 +306,21 @@ export function useDramaCanvasFreeCanvasClipboard(deps = {}) {
       ElMessage.warning('当前节点没有可转换的文本或本地素材')
       return
     }
-    if (isVideoReference && target.type !== 'storyboard' && mediaReference) {
-      ElMessage.warning('角色、场景和道具参考只接受图片；请先将视频保存为素材')
+    const mediaError = validateFreeConversionMedia({
+      mediaReference,
+      isVideo: isVideoReference,
+      targetType: target.type,
+    })
+    if (mediaError) {
+      ElMessage.warning(mediaError)
       return
     }
 
-    const operation = mediaReference
-      ? (target.type === 'storyboard' ? '追加为分镜参考图' : '覆盖目标的参考图')
-      : '追加到目标描述'
+    const operation = describeFreeConversionOperation({
+      mediaReference,
+      isVideo: isVideoReference,
+      targetType: target.type,
+    })
     freeInspectorBusy.value = true
     freeInspectorAction.value = 'convert'
     try {
@@ -337,6 +349,12 @@ export function useDramaCanvasFreeCanvasClipboard(deps = {}) {
       } else if (target.type === 'prop') {
         if (mediaReference) await propAPI.putRefImage(target.id, mediaReference)
         else await propAPI.update(target.id, { description: appendFreeReference(target.entity.description, node) })
+      } else if (target.type === 'storyboard-image') {
+        const patch = buildStoryboardPrimaryMediaPatch(mediaReference, 'image')
+        await storyboardsAPI.update(target.id, patch)
+      } else if (target.type === 'storyboard-video') {
+        const patch = buildStoryboardPrimaryMediaPatch(mediaReference, 'video')
+        await storyboardsAPI.update(target.id, patch)
       } else if (mediaReference) {
         if (isVideoReference) {
           throw new Error('分镜参考区域只接受图片素材')
@@ -361,7 +379,7 @@ export function useDramaCanvasFreeCanvasClipboard(deps = {}) {
 
       const nextNodes = freeCanvas.value.nodes.map((item) => {
         if (String(item.id) !== String(node.id)) return item
-        if (target.type === 'storyboard') {
+        if (target.type === 'storyboard' || target.type === 'storyboard-image' || target.type === 'storyboard-video') {
           return { ...item, storyboard_ref: target.id, storyboardId: target.id }
         }
         if (target.type === 'scene') return { ...item, sceneId: target.id }
@@ -369,7 +387,7 @@ export function useDramaCanvasFreeCanvasClipboard(deps = {}) {
       })
       commitFreeCanvasState({ ...freeCanvas.value, nodes: nextNodes }, `convert:${target.type}`)
       await loadCanvasProject({ blocking: false, preserveOnError: true, preserveFreeState: true })
-      ElMessage.success('已转换为制作参考，自由节点仍保留在画布中')
+      ElMessage.success(target.type === 'storyboard-image' ? '已设为分镜主图，自由节点仍保留在画布中' : (target.type === 'storyboard-video' ? '已设为分镜视频，自由节点仍保留在画布中' : '已转换为制作参考，自由节点仍保留在画布中'))
     } catch (error) {
       if (isCanvasUserAbort(error)) return
       ElMessage.error(safeFreeCanvasError(error, '转换失败，请检查目标和素材后重试'))
