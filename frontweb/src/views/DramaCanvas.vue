@@ -137,11 +137,13 @@
           @nodes-initialized="onCanvasNodesInitialized"
         >
           <CanvasFlowAligner />
-          <Background
-            v-if="canvasBackgroundMode !== 'none'"
-            :variant="canvasBackgroundMode"
-            pattern-color="#3f3f46"
-            :gap="20"
+          <CanvasFlowControls
+            :background-mode="canvasBackgroundMode"
+            :canvas-interactive="canvasInteractive"
+            :zoom-canvas-in="zoomCanvasIn"
+            :zoom-canvas-out="zoomCanvasOut"
+            :fit-canvas-view="fitCanvasView"
+            :toggle-canvas-interactive="toggleCanvasInteractive"
           />
           <template #node-freeCanvas="slotProps">
             <FreeCanvasNode
@@ -161,50 +163,19 @@
               @request-finish-edit="finishFreeCanvasNodeEditing"
             />
           </template>
-          <Controls :show-zoom="true" :show-fit-view="true" :show-interactive="true">
-            <template #control-zoom-in>
-              <button type="button" class="vue-flow__controls-button" aria-label="放大画布" title="放大画布" @click="zoomCanvasIn">
-                <el-icon><ZoomIn /></el-icon>
-              </button>
-            </template>
-            <template #control-zoom-out>
-              <button type="button" class="vue-flow__controls-button" aria-label="缩小画布" title="缩小画布" @click="zoomCanvasOut">
-                <el-icon><ZoomOut /></el-icon>
-              </button>
-            </template>
-            <template #control-fit-view>
-              <button type="button" class="vue-flow__controls-button" aria-label="适配可读视图" title="适配可读视图" @click="fitCanvasView">
-                <el-icon><FullScreen /></el-icon>
-              </button>
-            </template>
-            <template #control-interactive>
-              <button
-                type="button"
-                class="vue-flow__controls-button"
-                :aria-label="canvasInteractive ? '锁定画布' : '解锁画布'"
-                :title="canvasInteractive ? '锁定画布' : '解锁画布'"
-                :aria-pressed="!canvasInteractive"
-                @click="toggleCanvasInteractive"
-              >
-                <el-icon><Unlock v-if="canvasInteractive" /><Lock v-else /></el-icon>
-              </button>
-            </template>
-          </Controls>
-          <MiniMap pannable zoomable />
         </VueFlow>
-        <CanvasEmptyState
-          v-if="canvasMode === 'production' && !loading && canvasStartMode"
-          :mode="canvasStartMode"
+        <CanvasEmptyOverlays
+          :canvas-mode="canvasMode"
+          :loading="loading"
+          :canvas-start-mode="canvasStartMode"
           :episodes="drama?.episodes || []"
           :selected-episode-id="filterEpisodeId"
+          :free-node-count="freeCanvas.nodes.length"
+          :create-free-canvas-node="createFreeCanvasNode"
+          :open-free-canvas-media-picker="openFreeCanvasMediaPicker"
           @create-episode="openCreateDialog('episode')"
           @confirm-episode="confirmEpisodeSelection"
           @go-list="goListMode"
-        />
-        <FreeCanvasEmptyStart
-          v-if="canvasMode === 'free' && !loading && !freeCanvas.nodes.length"
-          :create-free-canvas-node="createFreeCanvasNode"
-          :open-free-canvas-media-picker="openFreeCanvasMediaPicker"
         />
         <FreeCanvasToolbar
           v-if="canvasMode === 'free'"
@@ -226,12 +197,11 @@
           @delete-selection="deleteFreeCanvasSelection"
         />
       </div>
-      <div v-if="workflowOutcomeUnknown" class="canvas-warning-bar" role="alert">
-        <span>上一次配音请求结果待确认，后台合成和供应商计费可能仍在继续。刷新项目状态后才能再次执行整组工作流。</span>
-        <div class="canvas-warning-actions">
-          <el-button link size="small" :loading="loading" @click="refreshUnknownWorkflowOutcome">刷新项目状态</el-button>
-        </div>
-      </div>
+      <CanvasUnknownOutcomeBar
+        v-if="workflowOutcomeUnknown"
+        :loading="loading"
+        :refresh-unknown-workflow-outcome="refreshUnknownWorkflowOutcome"
+      />
     </div>
 
     <CanvasCreateDialog
@@ -291,11 +261,7 @@
 import { computed, markRaw, nextTick, onBeforeUnmount, onMounted, provide, reactive, ref, watch } from 'vue'
 import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router'
 import { VueFlow } from '@vue-flow/core'
-import { Background } from '@vue-flow/background'
-import { Controls } from '@vue-flow/controls'
-import { MiniMap } from '@vue-flow/minimap'
 import { ElMessage, ElMessageBox } from '@/utils/elementPlusFeedback.js'
-import { FullScreen, Lock, Unlock, ZoomIn, ZoomOut } from '@element-plus/icons-vue'
 
 import '@vue-flow/core/dist/style.css'
 import '@vue-flow/core/dist/theme-default.css'
@@ -367,8 +333,10 @@ import CanvasCreateDialog from '@/components/dramaCanvas/CanvasCreateDialog.vue'
 import CanvasContextMenu from '@/components/dramaCanvas/CanvasContextMenu.vue'
 import CanvasAddButtonNode from '@/components/dramaCanvas/CanvasAddButtonNode.vue'
 import CanvasFlowAligner from '@/components/dramaCanvas/CanvasFlowAligner.vue'
+import CanvasFlowControls from '@/components/dramaCanvas/CanvasFlowControls.vue'
 import CanvasDesktopToolbar from '@/components/dramaCanvas/CanvasDesktopToolbar.vue'
-import CanvasEmptyState from '@/components/dramaCanvas/CanvasEmptyState.vue'
+import CanvasEmptyOverlays from '@/components/dramaCanvas/CanvasEmptyOverlays.vue'
+import CanvasUnknownOutcomeBar from '@/components/dramaCanvas/CanvasUnknownOutcomeBar.vue'
 import CanvasLoadFailureCard from '@/components/dramaCanvas/CanvasLoadFailureCard.vue'
 import CanvasPageHeader from '@/components/dramaCanvas/CanvasPageHeader.vue'
 import CanvasProductionSidebar from '@/components/dramaCanvas/CanvasProductionSidebar.vue'
@@ -377,7 +345,6 @@ import FreeCanvasInspector from '@/components/dramaCanvas/FreeCanvasInspector.vu
 import FreeCanvasAssetSidebar from '@/components/dramaCanvas/FreeCanvasAssetSidebar.vue'
 import FreeCanvasNode from '@/components/dramaCanvas/FreeCanvasNode.vue'
 import FreeCanvasToolbar from '@/components/dramaCanvas/FreeCanvasToolbar.vue'
-import FreeCanvasEmptyStart from '@/components/dramaCanvas/FreeCanvasEmptyStart.vue'
 import GlobalMediaPickerDialog from '@/components/GlobalMediaPickerDialog.vue'
 
 const route = useRoute()

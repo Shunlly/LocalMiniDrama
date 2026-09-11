@@ -3,23 +3,12 @@
     <el-tabs v-model="activeTab" class="config-tabs">
       <el-tab-pane label="AI 配置" name="configs">
         <div class="tab-content">
-          <div
-            v-if="configDependencyError"
-            class="config-load-state config-load-state--error"
-            role="alert"
-            aria-live="assertive"
-          >
-            <div class="config-load-copy">
-              <strong>AI 配置依赖加载失败</strong>
-              <span>
-                {{ configDependencyError }}
-                <template v-if="configLoadError && list.length">当前显示的是上次成功加载的数据，写操作已暂停。</template>
-              </span>
-            </div>
-            <el-button size="small" type="primary" plain :loading="loading || vendorLockLoading" @click="retryConfigDependencies">
-              重试
-            </el-button>
-          </div>
+          <AiConfigDependencyErrorBar
+            :config-dependency-error="configDependencyError"
+            :stale-data-hint="Boolean(configLoadError && list.length)"
+            :loading="loading || vendorLockLoading"
+            :retry-config-dependencies="retryConfigDependencies"
+          />
 
           <div class="config-workspace-switch" role="tablist" aria-label="AI 配置工作区">
             <button
@@ -136,79 +125,26 @@
             role="tabpanel"
             aria-labelledby="ai-config-mode-configs"
           >
-          <!-- 普通模式操作栏 -->
-          <div v-if="!vendorLock.enabled" class="content-actions">
-            <div class="actions-left">
-              <el-button type="primary" :disabled="configWriteLocked" :title="configWriteLocked ? configWriteLockReason : undefined" @click="openAdd">
-                <el-icon><Plus /></el-icon>
-                添加配置
-              </el-button>
-              <el-button plain @click="exportConfigs">
-                <el-icon><Download /></el-icon>
-                导出配置
-              </el-button>
-              <el-button plain :disabled="configWriteLocked" :title="configWriteLocked ? configWriteLockReason : undefined" @click="triggerImport">
-                <el-icon><Upload /></el-icon>
-                导入配置
-              </el-button>
-              <input ref="importFileRef" type="file" accept=".json" style="display:none" aria-hidden="true" tabindex="-1" :disabled="configWriteLocked" @change="importConfigs" />
-              <el-button type="success" plain :disabled="configWriteLocked" :title="configWriteLocked ? configWriteLockReason : undefined" @click="openOneKeyVolc">
-                <el-icon><MagicStick /></el-icon>
-                一键配置火山
-              </el-button>
-              <el-button type="success" plain :disabled="configWriteLocked" :title="configWriteLocked ? configWriteLockReason : undefined" @click="openOneKeyAgnes">
-                <el-icon><MagicStick /></el-icon>
-                一键配置 Agnes
-              </el-button>
-              <el-button type="info" plain :disabled="configWriteLocked" :title="configWriteLocked ? configWriteLockReason : undefined" @click="openOneKeyTongyi">
-                <el-icon><MagicStick /></el-icon>
-                一键配置通义
-                <span class="one-key-not-recommended">不推荐</span>
-              </el-button>
-            </div>
-            <div class="actions-right">
-              <transition name="fade-slide">
-                <el-button
-                  v-if="selectedRows.length > 0"
-                  type="danger"
-                  :loading="batchDeleting"
-                  :disabled="configWriteLocked"
-                  :title="configWriteLocked ? configWriteLockReason : undefined"
-                  @click="onBatchDelete"
-                >
-                  <el-icon><Delete /></el-icon>
-                  删除选中 ({{ selectedRows.length }})
-                </el-button>
-              </transition>
-            </div>
-          </div>
-          <!-- 锁定模式提示栏 -->
-          <div v-else class="vendor-lock-bar">
-            <el-alert
-              type="info"
-              :closable="false"
-              class="vendor-lock-tip"
-            >
-              <template #title>
-                <span>🔒 当前为厂商锁定模式，AI 服务由管理员统一配置。你只能修改 <b>API 密钥</b> 和 <b>默认模型</b>。</span>
-              </template>
-            </el-alert>
-            <el-button plain size="small" @click="exportConfigs">
-              <el-icon><Download /></el-icon>
-              导出配置
-            </el-button>
-            <el-button type="primary" size="small" class="vendor-bulk-key-btn" :disabled="configWriteLocked" :title="configWriteLocked ? configWriteLockReason : undefined" @click="openBulkKey">
-              <el-icon><Key /></el-icon>
-              一键换密钥
-            </el-button>
-          </div>
-          <div v-if="activeServiceFilter" class="config-filter-bar">
-            <span>
-              当前只看：<strong>{{ serviceTypeLabel(activeServiceFilter) }}</strong>
-              <span class="filter-count">{{ filteredList.length }} 条</span>
-            </span>
-            <el-button link type="primary" @click="clearServiceFilter">查看全部配置</el-button>
-          </div>
+          <AiConfigListToolbar
+            :vendor-lock="vendorLock"
+            :config-write-locked="configWriteLocked"
+            :config-write-lock-reason="configWriteLockReason"
+            :selected-rows="selectedRows"
+            :batch-deleting="batchDeleting"
+            :active-service-filter="activeServiceFilter"
+            :filtered-count="filteredList.length"
+            v-model:import-file-ref="importFileRef"
+            :open-add="openAdd"
+            :export-configs="exportConfigs"
+            :trigger-import="triggerImport"
+            :import-configs="importConfigs"
+            :open-one-key-volc="openOneKeyVolc"
+            :open-one-key-agnes="openOneKeyAgnes"
+            :open-one-key-tongyi="openOneKeyTongyi"
+            :on-batch-delete="onBatchDelete"
+            :open-bulk-key="openBulkKey"
+            :clear-service-filter="clearServiceFilter"
+          />
           <p class="default-tip">生成任务会优先使用同类服务中已启用的默认配置。即梦2角色认证、认证资产库、图片识别和语音转写属于扩展能力，不计入上方五类基础生成服务。</p>
           <div ref="configListSectionRef" class="config-list-section">
           <el-table
@@ -519,7 +455,7 @@ import { ref, computed, nextTick, onMounted, onBeforeUnmount, watch } from 'vue'
 import { ElMessage, ElMessageBox } from '@/utils/elementPlusFeedback.js'
 import { toUserFacingError, isUserFacingAbort } from '@/utils/userFacingError'
 import { runWithOwnedRequestErrorToast } from '@/utils/request'
-import { Plus, MagicStick, Download, Upload, Delete, ChatDotRound, Picture, Film, VideoCamera, Key, Microphone, Folder, Document, Headset } from '@element-plus/icons-vue'
+import { Plus, MagicStick, ChatDotRound, Picture, Film, VideoCamera, Key, Microphone, Folder, Document, Headset } from '@element-plus/icons-vue'
 import { aiAPI } from '@/api/ai'
 import { generationSettingsAPI } from '@/api/prompts'
 import { useAiConfigGenerationSettings } from '@/composables/useAiConfigGenerationSettings.js'
@@ -592,6 +528,8 @@ import PromptEditor from '@/components/PromptEditor.vue'
 import SceneModelMap from '@/components/SceneModelMap.vue'
 import Sd2AssetManagement from '@/components/Sd2AssetManagement.vue'
 import AiConfigCoverageCards from '@/components/aiConfig/AiConfigCoverageCards.vue'
+import AiConfigDependencyErrorBar from '@/components/aiConfig/AiConfigDependencyErrorBar.vue'
+import AiConfigListToolbar from '@/components/aiConfig/AiConfigListToolbar.vue'
 import AiConfigFormDialog from '@/components/aiConfig/AiConfigFormDialog.vue'
 import AiConfigOneKeyDialogs from '@/components/aiConfig/AiConfigOneKeyDialogs.vue'
 import AiConfigBulkKeyDialog from '@/components/aiConfig/AiConfigBulkKeyDialog.vue'
@@ -1921,24 +1859,6 @@ html.dark :is(.ai-config-content, .ai-config-overlay) :is(
 .coverage-summary-card.summary-warning strong { color: var(--ai-config-warning-text, #a16207); }
 .coverage-summary-card.summary-danger strong { color: var(--ai-config-danger-text, #b91c1c); }
 .coverage-summary-card.summary-info strong { color: var(--ai-config-info-text, #0369a1); }
-.config-filter-bar {
-  min-height: 36px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 12px;
-  padding: 6px 10px;
-  border: 1px solid var(--el-color-primary-light-7, #c6e2ff);
-  border-radius: 6px;
-  background: var(--el-color-primary-light-9, #ecf5ff);
-  color: var(--el-text-color-regular, #606266);
-  font-size: 13px;
-}
-.filter-count {
-  margin-left: 6px;
-  color: var(--el-text-color-secondary, #909399);
-}
 .config-empty-state {
   min-height: 220px;
   display: flex;
@@ -1969,66 +1889,6 @@ html.dark :is(.ai-config-content, .ai-config-overlay) :is(
 }
 .config-list-section {
   scroll-margin-top: 88px;
-}
-.content-actions {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 16px;
-}
-.config-load-state {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 16px;
-  padding: 10px 12px;
-  border: 1px solid var(--ai-config-info-border, #c6e2ff);
-  border-radius: 8px;
-  background: var(--ai-config-info-surface, #ecf5ff);
-  color: var(--ai-config-info-text, #1d4ed8);
-}
-.config-load-state--error {
-  border-color: var(--ai-config-danger-border, #fbc4c4);
-  background: var(--ai-config-danger-surface, #fef0f0);
-  color: var(--ai-config-danger-text, #b42318);
-}
-.config-load-copy {
-  min-width: 0;
-  display: grid;
-  gap: 4px;
-}
-.config-load-copy strong {
-  color: inherit;
-  font-size: 13px;
-  line-height: 18px;
-}
-.config-load-copy span {
-  font-size: 12px;
-  line-height: 1.45;
-}
-.actions-left {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-.actions-right {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-shrink: 0;
-}
-/* 过渡动画 */
-.fade-slide-enter-active,
-.fade-slide-leave-active {
-  transition: all 0.2s ease;
-}
-.fade-slide-enter-from,
-.fade-slide-leave-to {
-  opacity: 0;
-  transform: translateX(8px);
 }
 /* 类型徽章 */
 .type-badge {
@@ -2100,17 +1960,6 @@ html.dark :is(.ai-config-content, .ai-config-overlay) :is(
   font-size: 13px;
   line-height: 1.5;
 }
-.one-key-not-recommended {
-  margin-left: 4px;
-  padding: 0 5px;
-  font-size: 11px;
-  line-height: 18px;
-  border-radius: 4px;
-  color: var(--el-color-warning, #e6a23c);
-  background: var(--el-color-warning-light-9, #fdf6ec);
-  border: 1px solid var(--el-color-warning-light-7, #f5dab1);
-  vertical-align: middle;
-}
 code {
   background: var(--ai-config-code-surface, #f0f2f5);
   padding: 1px 5px;
@@ -2127,24 +1976,6 @@ code {
   font-size: 13px;
   color: var(--ai-config-info-text, #0369a1);
   line-height: 1.5;
-}
-.vendor-lock-bar {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 16px;
-}
-.vendor-lock-bar .vendor-lock-tip {
-  flex: 1;
-  margin-bottom: 0;
-}
-.vendor-bulk-key-btn {
-  white-space: nowrap;
-  flex-shrink: 0;
-  color: #fff !important;
-}
-.vendor-lock-tip {
-  margin-bottom: 16px;
 }
 .generation-settings {
   max-width: 600px;
@@ -2247,8 +2078,6 @@ code {
     grid-template-columns: minmax(0, 1fr);
   }
   .coverage-header,
-  .content-actions,
-  .vendor-lock-bar,
   .generation-settings-load-state {
     align-items: stretch;
     flex-direction: column;
@@ -2269,17 +2098,11 @@ code {
   .config-workspace-mode {
     min-width: 0;
   }
-  .actions-right,
   .config-empty-actions,
   .pricing-field-row,
   .gs-row {
     flex-wrap: wrap;
   }
-  .actions-right {
-    flex-shrink: 1;
-    max-width: 100%;
-  }
-  .config-filter-bar,
   .config-section-header {
     align-items: flex-start;
     flex-direction: column;
@@ -2304,13 +2127,11 @@ code {
   .config-workspace-switch {
     grid-template-columns: minmax(0, 1fr);
   }
-  .config-empty-actions,
-  .actions-right {
+  .config-empty-actions {
     align-items: stretch;
     flex-direction: column;
     width: 100%;
   }
-  .actions-right :deep(.el-button),
   .config-empty-actions :deep(.el-button) {
     margin-left: 0;
     width: 100%;

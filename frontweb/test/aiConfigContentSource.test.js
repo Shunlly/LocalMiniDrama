@@ -33,6 +33,8 @@ const oneKeyDialogSource = readSource(new URL('../src/components/aiConfig/AiConf
 const bulkKeyDialogSource = readSource(new URL('../src/components/aiConfig/AiConfigBulkKeyDialog.vue', import.meta.url))
 const connectionDialogSource = readSource(new URL('../src/components/aiConfig/AiConfigConnectionTestDialog.vue', import.meta.url))
 const jimeng2AssetsDialogSource = readSource(new URL('../src/components/aiConfig/AiConfigJimeng2AssetsDialog.vue', import.meta.url))
+const dependencyErrorBarSource = readSource(new URL('../src/components/aiConfig/AiConfigDependencyErrorBar.vue', import.meta.url))
+const listToolbarSource = readSource(new URL('../src/components/aiConfig/AiConfigListToolbar.vue', import.meta.url))
 const overlaySource = [
   vueSource,
   formDialogSource,
@@ -40,6 +42,8 @@ const overlaySource = [
   bulkKeyDialogSource,
   connectionDialogSource,
   jimeng2AssetsDialogSource,
+  dependencyErrorBarSource,
+  listToolbarSource,
 ].join('\n')
 const generationSettingsSource = readSource(new URL('../src/composables/useAiConfigGenerationSettings.js', import.meta.url))
 const oneKeySource = readSource(new URL('../src/composables/useAiConfigOneKeyPresets.js', import.meta.url))
@@ -540,7 +544,7 @@ test('AI config dialog confirms before discarding unsaved provider or model chan
 
 test('AI config list preserves prior data on load failure and blocks auto-open while status is unresolved', () => {
   assert.match(vueSource, /configLoadError = ref\(''\)/)
-  assert.match(vueSource, /class="config-load-state config-load-state--error"/)
+  assert.match(overlaySource, /class="config-load-state config-load-state--error"/)
   assert.match(vueSource, /configLoadState\.value = list\.value\.length \? 'refreshing' : 'loading'/)
   assert.match(vueSource, /configLoadError\.value = describeServiceLoadError\(/)
   assert.match(vueSource, /configLoadState\.value = 'error'/)
@@ -707,10 +711,10 @@ test('AI configuration workspace modes expose a visible keyboard focus state', a
 test('AI 配置在 760px 和 520px 下重排且不会被固定双列撑宽', () => {
   assert.match(vueSource, /@media \(max-width: 760px\) \{[\s\S]*?\.ai-config-content,[\s\S]*?max-width: 100%;[\s\S]*?min-width: 0;/)
   assert.match(coverageCardsSource, /@media \(max-width: 760px\) \{[\s\S]*?\.coverage-grid,[\s\S]*?grid-template-columns: minmax\(0, 1fr\);/)
-  assert.match(vueSource, /@media \(max-width: 760px\) \{[\s\S]*?\.content-actions,[\s\S]*?flex-direction: column;/)
+  assert.match(overlaySource, /@media \(max-width: 760px\) \{[\s\S]*?\.content-actions,[\s\S]*?flex-direction: column;/)
   assert.match(vueSource, /@media \(max-width: 760px\) \{[\s\S]*?\.config-workspace-mode \{[\s\S]*?min-width: 0;/)
   assert.match(vueSource, /@media \(max-width: 520px\) \{[\s\S]*?\.config-workspace-switch \{[\s\S]*?grid-template-columns: minmax\(0, 1fr\);/)
-  assert.match(vueSource, /@media \(max-width: 760px\) \{[\s\S]*?:deep\(\.el-form-item__content\),[\s\S]*?max-width: 100%;/)
+  assert.match(overlaySource, /@media \(max-width: 760px\) \{[\s\S]*?:deep\(\.el-form-item__content\),[\s\S]*?max-width: 100%;/)
   assert.match(pageSource, /@media \(max-width: 760px\) \{[\s\S]*?\.ai-config \{[\s\S]*?overflow-x: clip;/)
   assert.match(pageSource, /@media \(max-width: 760px\) \{[\s\S]*?\.main \{[\s\S]*?width: calc\(100% - 24px\);[\s\S]*?overflow-x: hidden;/)
   assert.match(pageSource, /@media \(max-width: 520px\) \{[\s\S]*?\.page-title \{[\s\S]*?position: absolute;[\s\S]*?clip: rect\(0, 0, 0, 0\);/)

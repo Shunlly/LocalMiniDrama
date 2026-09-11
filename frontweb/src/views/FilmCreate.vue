@@ -3,22 +3,7 @@
     <!-- 顶部 -->
     <FilmCreateHeader
       ref="filmCreateHeaderRef"
-      :project-page-title="projectPageTitle"
-      :project-load-state="projectLoadState"
-      :drama-id="dramaId"
-      :has-any-episode="hasAnyEpisode"
-      :selected-episode-id="selectedEpisodeId"
-      :episode-switching="episodeSwitching"
-      :selected-episode-context-label="selectedEpisodeContextLabel"
-      :episodes="store.drama?.episodes || []"
-      :is-dark="isDark"
-      @go-list="goList"
-      @episode-select="onEpisodeSelect"
-      @add-episode="onAddEpisode"
-      @go-to-drama="router.push('/drama/' + dramaId)"
-      @go-canvas-mode="goCanvasMode"
-      @toggle-theme="toggleTheme"
-      @open-ai-config="openAiConfig"
+      v-bind="headerBindings"
     />
 
     <!-- 左侧固定侧边栏 -->
@@ -58,39 +43,7 @@
 
       <FilmCreatePipelinePanel
         ref="pipelinePanelRef"
-        v-model:aspect-ratio="projectAspectRatio"
-        v-model:clip-duration="videoClipDuration"
-        v-model:script-language="scriptLanguage"
-        v-model:generation-style="generationStyle"
-        :generation-style-options="generationStyleOptions"
-        :production-disabled-reason="productionPipelineActionDisabledReason"
-        :draft-disabled-reason="pipelineActionDisabledReason"
-        :production-readiness-reason="productionReadinessReason"
-        :production-readiness-state="productionReadinessState"
-        :production-readiness-service-type="productionReadinessServiceType"
-        :starting="pipelineStarting"
-        :stopping="pipelineStopping"
-        :stop-required="pipelineAbortRequested && pipelineRunning && !pipelineStopping"
-        :running="pipelineRunning"
-        :paused="pipelinePaused"
-        :error-log="pipelineErrorLog"
-        :current-step="pipelineCurrentStep"
-        :step-index="pipelineStepIndex"
-        :step-total="pipelineStepTotal"
-        :countdown="pipelineCountdown"
-        :countdown-message="pipelineCountdownMsg"
-        :active-tasks="pipelineActiveTasks"
-        :has-episode="hasAnyEpisode"
-        @save-settings="saveProjectSettings"
-        @start-one-click="startOneClickPipeline"
-        @start-text-framework="startTextFrameworkPipeline"
-        @open-ai-config="openAiConfigFromPipeline"
-        @retry-readiness="refreshProductionReadiness"
-        @pause="pipelinePaused = true"
-        @resume="onPipelineResume"
-        @cancel="cancelPipelineRun"
-        @skip-countdown="skipPipelineCountdown"
-        @add-episode="onAddEpisode"
+        v-bind="pipelinePanelBindings"
       />
 
       <!-- 剧本工作台：单卡片 + 选项卡（创作 / 选择） -->
@@ -116,33 +69,7 @@
         :batch-action-disabled-reason="batchActionDisabledReason"
       />
       <FilmCreateOutputSection
-        v-model:resolution="videoResolution"
-        v-model:subtitle="videoSubtitle"
-        v-model:burn-dialogue="videoBurnDialogue"
-        v-model:watermark="videoWatermark"
-        v-model:watermark-text="videoWatermarkText"
-        :playable-storyboard-video-count="playableStoryboardVideoCount"
-        :storyboard-count="storyboards.length"
-        :delivery-composite-status-label="deliveryCompositeStatusLabel"
-        :delivery-file-count="deliveryFileCount"
-        :compose-action-disabled-reason="composeActionDisabledReason"
-        :video-status="videoStatus"
-        :video-progress="videoProgress"
-        :current-episode-video-url="currentEpisodeVideoUrl"
-        :video-download-status="videoDownloadStatus"
-        :video-download-error="videoDownloadError"
-        :current-episode-id="currentEpisodeId"
-        :delivery-subtitle-available="deliverySubtitleAvailable"
-        :drama-id="dramaId"
-        :delivery-export-status="deliveryExportStatus"
-        :video-error-msg="videoErrorMsg"
-        :delivery-export-feedback="deliveryExportFeedback"
-        :delivery-export-has-error="deliveryExportHasError"
-        @open-ai-config="openAiConfig"
-        @generate-video="onGenerateVideo"
-        @download-video="downloadCurrentEpisodeVideo"
-        @download-subtitle="downloadCurrentEpisodeSubtitle"
-        @export-project="exportCurrentProjectPackage"
+        v-bind="outputSectionBindings"
       />
     </main>
 
@@ -219,6 +146,10 @@ import {
   userFacingVideoGenerationError,
 } from '@/utils/filmCreateActionState'
 import { createFilmCreateWorkspaceBindingSources } from '@/components/filmCreate/filmCreateWorkspaceBindings.js'
+import {
+  createFilmCreateSurfaceBindingSources,
+  createFilmCreateSurfaceBindings,
+} from '@/components/filmCreate/filmCreateSurfaceBindings.js'
 import { normalizeProjectListReturnTo } from '@/utils/projectListRoute'
 import {
   generationStyleOptions,
@@ -2025,6 +1956,36 @@ const {
   generationStyle,
   markScriptDraftSaved,
   onEpisodeSelect,
+})
+
+const {
+  headerBindings,
+  pipelinePanelBindings,
+  outputSectionBindings,
+} = createFilmCreateSurfaceBindings({
+  ...createFilmCreateSurfaceBindingSources({
+    store, router, isDark, projectPageTitle, projectLoadState,
+    dramaId, hasAnyEpisode, selectedEpisodeId, episodeSwitching,
+    selectedEpisodeContextLabel, goList, onEpisodeSelect, onAddEpisode,
+    goCanvasMode, toggleTheme, openAiConfig,
+    projectAspectRatio, videoClipDuration, scriptLanguage, generationStyle,
+    generationStyleOptions, productionPipelineActionDisabledReason, pipelineActionDisabledReason,
+    productionReadinessReason, productionReadinessState, productionReadinessServiceType,
+    pipelineStarting, pipelineStopping, pipelineAbortRequested, pipelineRunning,
+    pipelinePaused, pipelineErrorLog, pipelineCurrentStep, pipelineStepIndex,
+    pipelineStepTotal, pipelineCountdown, pipelineCountdownMsg, pipelineActiveTasks,
+    saveProjectSettings, startOneClickPipeline, startTextFrameworkPipeline,
+    openAiConfigFromPipeline, refreshProductionReadiness, onPipelineResume,
+    cancelPipelineRun, skipPipelineCountdown,
+    videoResolution, videoSubtitle, videoBurnDialogue, videoWatermark,
+    videoWatermarkText, playableStoryboardVideoCount, storyboards,
+    deliveryCompositeStatusLabel, deliveryFileCount, composeActionDisabledReason,
+    videoStatus, videoProgress, currentEpisodeVideoUrl, videoDownloadStatus,
+    videoDownloadError, currentEpisodeId, deliverySubtitleAvailable,
+    deliveryExportStatus, videoErrorMsg, deliveryExportFeedback, deliveryExportHasError,
+    onGenerateVideo, downloadCurrentEpisodeVideo, downloadCurrentEpisodeSubtitle,
+    exportCurrentProjectPackage,
+  }),
 })
 
 const {

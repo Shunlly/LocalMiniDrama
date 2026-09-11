@@ -14,6 +14,7 @@ const EPISODE_ID = 22
 assert.notEqual(DRAMA_ID, EPISODE_ID)
 
 const filmCreateSource = readFileSync(new URL('../src/views/FilmCreate.vue', import.meta.url), 'utf8')
+const surfaceBindingsSource = readFileSync(new URL('../src/components/filmCreate/filmCreateSurfaceBindings.js', import.meta.url), 'utf8')
 
 test('成片设置默认值正确，且不保存 dramaId/episodeId', () => {
   const settings = useFilmCreateDeliverySettings()
@@ -62,6 +63,8 @@ test('制作页把成片设置交给 composable，并继续传给风格和成片
   assert.doesNotMatch(filmCreateSource, /const generationStyle = ref\(''\)/)
   assert.doesNotMatch(filmCreateSource, /const videoWatermarkText = ref\(''\)/)
   assert.match(filmCreateSource, /useFilmCreateStylePrompts\(\{[\s\S]*generationStyle/)
-  assert.match(filmCreateSource, /v-model:generation-style="generationStyle"/)
-  assert.match(filmCreateSource, /v-model:watermark-text="videoWatermarkText"/)
+  assert.match(filmCreateSource, /v-bind="pipelinePanelBindings"/)
+  assert.match(filmCreateSource, /v-bind="outputSectionBindings"/)
+  assert.match(surfaceBindingsSource, /generationStyle/)
+  assert.match(surfaceBindingsSource, /watermarkText: videoWatermarkText/)
 })

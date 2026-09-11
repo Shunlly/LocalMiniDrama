@@ -1,10 +1,10 @@
 // 对应 Go application/services/drama_service.go
+// 只读查询与行装配见 dramaQueryService.js / dramaAssembly.js
 
 const storageLayout = require('./storageLayout');
 const uploadService = require('./uploadService');
 const taskService = require('./taskService');
 const { validateFreeCanvas, badRequest: canvasBadRequest } = require('./freeCanvasValidation');
-const { PRESET_VALUES, resolveStylePreset } = require('../constants/generationStylePresets');
 const seedance2AssetGuards = require('../utils/seedance2AssetGuards');
 const dramaWriteGuard = require('./dramaWriteGuard');
 const { randomUUID } = require('crypto');
@@ -12,32 +12,23 @@ const {
   assertBackgroundTasksAccepting,
   scheduleLegacyAsync,
 } = require('./legacyAsyncSchedulerService');
+const { parseJsonColumn, rowToDrama } = require('./dramaAssembly');
+const {
+  getDrama,
+  getDramaById,
+  listDramas,
+  listTrashedDramas,
+  getTrashRetentionPolicy,
+  getDramaStats,
+  getCharacters,
+  downloadEpisodeVideo,
+} = require('./dramaQueryService');
 
 const dramaRecycleRecoveryJobs = new Map();
 const DRAMA_RECYCLE_RECOVERY_BASE_DELAY_MS = 1000;
 const DRAMA_RECYCLE_RECOVERY_MAX_DELAY_MS = 10_000;
 const DRAMA_RECYCLE_RECOVERY_MAX_ELAPSED_MS = 10 * 60 * 1000;
 const DRAMA_RECYCLE_TASK_DRAIN_MAX_PASSES = 5;
-
-/**
- * 清理 image_url：如果数据库中存储的是 base64 data URL，则返回 null。
- * 图片应通过 local_path → /static/{local_path} 访问，base64 不应通过 API 透传（会严重膨胀响应体）。
- */
-function sanitizeImageUrl(url) {
-  if (!url) return null;
-  if (String(url).startsWith('data:')) return null;
-  return url;
-}
-
-function parseJsonColumn(value) {
-  if (value == null || value === '') return null;
-  if (typeof value === 'object') return value;
-  try {
-    return JSON.parse(value);
-  } catch (_) {
-    return null;
-  }
-}
 
 function dramaRecycleError(message = '项目正在移入回收站，请等待当前操作完成') {
   const error = new Error(message);
@@ -55,72 +46,6 @@ function runDramaWriteTransaction(db, dramaId, mutation) {
     return mutation();
   });
   return typeof persist.immediate === 'function' ? persist.immediate() : persist();
-}
-
-const DRAMA_GENRE_LABELS = {
-  drama: '剧情',
-  comedy: '喜剧',
-  adventure: '冒险',
-  romance: '爱情',
-  thriller: '悬疑',
-  action: '动作',
-  horror: '恐怖',
-};
-
-function localizedDramaSearchAliases(keyword) {
-  const normalized = String(keyword || '').trim().toLowerCase();
-  if (!normalized) return { styles: [], genres: [] };
-  const matches = (value) => String(value || '').toLowerCase().includes(normalized);
-  return {
-    styles: PRESET_VALUES.filter((value) => {
-      const preset = resolveStylePreset(value);
-      return matches(value) || matches(preset?.zh) || matches(preset?.en);
-    }),
-    genres: Object.entries(DRAMA_GENRE_LABELS)
-      .filter(([value, label]) => matches(value) || matches(label))
-      .map(([value]) => value),
-  };
-}
-
-function attachDramaListFallbackCover(db, drama) {
-  let candidates = [];
-  try {
-    candidates = db.prepare(`
-      SELECT image_url, local_path, source
-      FROM (
-        SELECT image_url, local_path, 'character' AS source, 1 AS source_order, id
-        FROM characters WHERE drama_id = ? AND deleted_at IS NULL
-        UNION ALL
-        SELECT image_url, local_path, 'scene' AS source, 2 AS source_order, id
-        FROM scenes WHERE drama_id = ? AND deleted_at IS NULL
-        UNION ALL
-        SELECT image_url, local_path, 'prop' AS source, 3 AS source_order, id
-        FROM props WHERE drama_id = ? AND deleted_at IS NULL
-      )
-      WHERE (
-        TRIM(COALESCE(local_path, '')) <> ''
-        AND LOWER(local_path) NOT LIKE 'placeholder://%'
-        AND LOWER(local_path) NOT LIKE 'mock://%'
-        AND LOWER(local_path) NOT LIKE 'data:%'
-      ) OR (
-        TRIM(COALESCE(image_url, '')) <> ''
-        AND LOWER(image_url) NOT LIKE 'placeholder://%'
-        AND LOWER(image_url) NOT LIKE 'mock://%'
-        AND LOWER(image_url) NOT LIKE 'data:%'
-      )
-      ORDER BY source_order ASC, id ASC
-      LIMIT 1
-    `).all(drama.id, drama.id, drama.id);
-  } catch (_) {
-    return;
-  }
-
-  const candidate = candidates[0];
-  if (!candidate) return;
-
-  drama.fallback_cover_local_path = String(candidate.local_path || '').trim() || null;
-  drama.fallback_cover_image_url = sanitizeImageUrl(candidate.image_url);
-  drama.fallback_cover_source = candidate.source;
 }
 
 function createDrama(db, log, req) {
@@ -156,223 +81,6 @@ function createDrama(db, log, req) {
   const id = info.lastInsertRowid;
   log.info('Drama created', { drama_id: id });
   return getDramaById(db, id);
-}
-
-function getDramaById(db, id) {
-  const row = db.prepare('SELECT * FROM dramas WHERE id = ? AND deleted_at IS NULL').get(id);
-  return row ? rowToDrama(row) : null;
-}
-
-function getDrama(db, dramaId, baseUrl) {
-  if (!dramaWriteGuard.canReadDrama(db, dramaId)) return null;
-  const drama = getDramaById(db, Number(dramaId));
-  if (!drama) return null;
-  // 加载 episodes、characters、scenes、props、storyboards（简化：只查当前 drama 的）
-  const episodes = db.prepare(
-    'SELECT * FROM episodes WHERE drama_id = ? AND deleted_at IS NULL ORDER BY episode_number ASC'
-  ).all(drama.id);
-  drama.episodes = episodes.map((e) => rowToEpisode(e));
-  const { dedupeStoryboardRowsByNumber } = require('./episodeStoryboardService');
-  for (const ep of drama.episodes) {
-    const storyboards = dedupeStoryboardRowsByNumber(
-      db.prepare(
-        'SELECT * FROM storyboards WHERE episode_id = ? AND deleted_at IS NULL ORDER BY storyboard_number ASC, id ASC'
-      ).all(ep.id)
-    );
-    ep.storyboards = storyboards.map((s) => rowToStoryboard(s));
-    // 批量加载 storyboard_props，附加到对应分镜
-    try {
-      const sbIds = ep.storyboards.map((s) => s.id);
-      if (sbIds.length > 0) {
-        const placeholders = sbIds.map(() => '?').join(',');
-        const spRows = db.prepare(`SELECT storyboard_id, prop_id FROM storyboard_props WHERE storyboard_id IN (${placeholders})`).all(...sbIds);
-        const spMap = {};
-        for (const row of spRows) {
-          if (!spMap[row.storyboard_id]) spMap[row.storyboard_id] = [];
-          spMap[row.storyboard_id].push(row.prop_id);
-        }
-        for (const sb of ep.storyboards) {
-          sb.prop_ids = spMap[sb.id] || [];
-        }
-      }
-    } catch (_) {}
-    ep.duration = ep.storyboards.reduce((sum, s) => sum + (s.duration || 0), 0);
-    if (ep.duration > 0) ep.duration = Math.ceil(ep.duration / 60); // 转为分钟
-    // 本集关联的角色（与 Go Preload("Episodes.Characters") 一致）
-    try {
-      const epChars = db.prepare(
-        `SELECT c.* FROM characters c
-         INNER JOIN episode_characters ec ON c.id = ec.character_id
-         WHERE ec.episode_id = ? AND c.deleted_at IS NULL
-         ORDER BY c.sort_order ASC, c.name ASC`
-      ).all(ep.id);
-      ep.characters = epChars.map((c) => rowToCharacter(c));
-    } catch (_) {
-      ep.characters = [];
-    }
-    // 本集关联的场景（与 Go Preload("Episodes.Scenes") 一致，用于提取完成后展示）
-    try {
-      const epScenes = db.prepare(
-        'SELECT * FROM scenes WHERE episode_id = ? AND deleted_at IS NULL ORDER BY id ASC'
-      ).all(ep.id);
-      ep.scenes = epScenes.map((s) => rowToScene(s));
-    } catch (_) {
-      ep.scenes = [];
-    }
-    // 本集关联的道具：本集提取的（episode_id=本集）+ 本集分镜中出现的（storyboard_props），合并去重
-    try {
-      const byEpisode = db.prepare(
-        'SELECT * FROM props WHERE episode_id = ? AND deleted_at IS NULL ORDER BY id ASC'
-      ).all(ep.id);
-      const byStoryboard = db.prepare(
-        `SELECT DISTINCT p.* FROM props p
-         INNER JOIN storyboard_props sp ON p.id = sp.prop_id
-         INNER JOIN storyboards sb ON sb.id = sp.storyboard_id AND sb.episode_id = ? AND sb.deleted_at IS NULL
-         WHERE p.deleted_at IS NULL ORDER BY p.id ASC`
-      ).all(ep.id);
-      const seen = new Set();
-      ep.props = [];
-      for (const p of byEpisode) {
-        if (!seen.has(p.id)) {
-          seen.add(p.id);
-          ep.props.push(rowToProp(p));
-        }
-      }
-      for (const p of byStoryboard) {
-        if (!seen.has(p.id)) {
-          seen.add(p.id);
-          ep.props.push(rowToProp(p));
-        }
-      }
-      ep.props.sort((a, b) => a.id - b.id);
-    } catch (_) {
-      ep.props = [];
-    }
-  }
-  const characters = db.prepare(
-    'SELECT * FROM characters WHERE drama_id = ? AND deleted_at IS NULL ORDER BY sort_order ASC, name ASC'
-  ).all(drama.id);
-  drama.characters = characters.map((c) => rowToCharacter(c));
-  const scenes = db.prepare(
-    'SELECT * FROM scenes WHERE drama_id = ? AND deleted_at IS NULL ORDER BY id ASC'
-  ).all(drama.id);
-  drama.scenes = scenes.map((s) => rowToScene(s));
-  const props = db.prepare(
-    'SELECT * FROM props WHERE drama_id = ? AND deleted_at IS NULL ORDER BY id ASC'
-  ).all(drama.id);
-  drama.props = props.map((p) => rowToProp(p));
-  return drama;
-}
-
-function listDramas(db, query = {}) {
-  let sql = 'FROM dramas WHERE deleted_at IS NULL';
-  const params = [];
-  if (query.status) {
-    sql += ' AND status = ?';
-    params.push(query.status);
-  }
-  if (query.genre) {
-    sql += ' AND genre = ?';
-    params.push(query.genre);
-  }
-  const keyword = String(query.keyword || '').trim().slice(0, 200);
-  if (keyword) {
-    const conditions = [
-      'title LIKE ?',
-      'description LIKE ?',
-      'genre LIKE ?',
-      'style LIKE ?',
-      'tags LIKE ?',
-      'metadata LIKE ?',
-    ];
-    const k = '%' + keyword + '%';
-    const searchParams = [k, k, k, k, k, k];
-    const aliases = localizedDramaSearchAliases(keyword);
-    if (aliases.styles.length) {
-      conditions.push(`style IN (${aliases.styles.map(() => '?').join(', ')})`);
-      searchParams.push(...aliases.styles);
-    }
-    if (aliases.genres.length) {
-      conditions.push(`genre IN (${aliases.genres.map(() => '?').join(', ')})`);
-      searchParams.push(...aliases.genres);
-    }
-    sql += ` AND (${conditions.join(' OR ')})`;
-    params.push(...searchParams);
-  }
-  const countRow = db.prepare('SELECT COUNT(*) as total ' + sql).get(...params);
-  const total = countRow.total || 0;
-  const page = Math.max(1, parseInt(query.page, 10) || 1);
-  const pageSize = Math.min(100, Math.max(1, parseInt(query.page_size, 10) || 20));
-  const offset = (page - 1) * pageSize;
-  const orderBy = {
-    'created-desc': 'created_at DESC, id DESC',
-    'title-asc': "LOWER(COALESCE(title, '')) ASC, id ASC",
-    'updated-desc': 'updated_at DESC, id DESC',
-  }[String(query.sort || '')] || 'updated_at DESC, id DESC';
-  const list = db.prepare(
-    'SELECT * ' + sql + ` ORDER BY ${orderBy} LIMIT ? OFFSET ?`
-  ).all(...params, pageSize, offset);
-  const dramas = list.map((r) => rowToDrama(r));
-  for (const d of dramas) {
-    const episodes = db.prepare(
-      'SELECT * FROM episodes WHERE drama_id = ? AND deleted_at IS NULL ORDER BY episode_number ASC'
-    ).all(d.id);
-    d.episodes = episodes.map((e) => {
-      const ep = rowToEpisode(e);
-      const { dedupeStoryboardRowsByNumber } = require('./episodeStoryboardService');
-      const storyboards = dedupeStoryboardRowsByNumber(
-        db.prepare(
-          'SELECT * FROM storyboards WHERE episode_id = ? AND deleted_at IS NULL ORDER BY storyboard_number ASC, id ASC'
-        ).all(ep.id)
-      );
-      ep.storyboards = storyboards.map((s) => rowToStoryboard(s));
-      try {
-        const sbIds = ep.storyboards.map((s) => s.id);
-        if (sbIds.length > 0) {
-          const placeholders = sbIds.map(() => '?').join(',');
-          const spRows = db.prepare(`SELECT storyboard_id, prop_id FROM storyboard_props WHERE storyboard_id IN (${placeholders})`).all(...sbIds);
-          const spMap = {};
-          for (const row of spRows) {
-            if (!spMap[row.storyboard_id]) spMap[row.storyboard_id] = [];
-            spMap[row.storyboard_id].push(row.prop_id);
-          }
-          for (const sb of ep.storyboards) sb.prop_ids = spMap[sb.id] || [];
-        }
-      } catch (_) {}
-      ep.duration = ep.storyboards.reduce((sum, s) => sum + (s.duration || 0), 0);
-      if (ep.duration > 0) ep.duration = Math.ceil(ep.duration / 60);
-      return ep;
-    });
-    attachDramaListFallbackCover(db, d);
-  }
-  return { dramas, total, page, pageSize };
-}
-
-function listTrashedDramas(db, query = {}) {
-  let sql = 'FROM dramas WHERE deleted_at IS NOT NULL';
-  const params = [];
-  const keyword = String(query.keyword || '').trim();
-  if (keyword) {
-    sql += ' AND (title LIKE ? OR description LIKE ?)';
-    const pattern = `%${keyword}%`;
-    params.push(pattern, pattern);
-  }
-
-  const countRow = db.prepare('SELECT COUNT(*) as total ' + sql).get(...params);
-  const total = countRow.total || 0;
-  const page = Math.max(1, parseInt(query.page, 10) || 1);
-  const pageSize = Math.min(100, Math.max(1, parseInt(query.page_size, 10) || 20));
-  const offset = (page - 1) * pageSize;
-  const rows = db.prepare(
-    'SELECT * ' + sql + ' ORDER BY deleted_at DESC, id DESC LIMIT ? OFFSET ?'
-  ).all(...params, pageSize, offset);
-  const retention = getTrashRetentionPolicy();
-  const dramas = rows.map((row) => ({
-    ...rowToDrama(row),
-    removal_policy: retention,
-  }));
-
-  return { dramas, total, page, pageSize };
 }
 
 function updateDramaUnsafe(db, log, dramaId, req) {
@@ -427,14 +135,6 @@ function generateStoryboard(db, log, episodeId, options) {
     include_narration,
     universal_omni_storyboard
   );
-}
-
-function getTrashRetentionPolicy() {
-  return {
-    recoverable: true,
-    associated_data: 'preserved',
-    hard_delete_supported: false,
-  };
 }
 
 function taskScopeConflict(message, details) {
@@ -996,194 +696,6 @@ function restoreDrama(db, log, dramaId) {
   return getDramaById(db, id);
 }
 
-function getDramaStats(db) {
-  const total = db.prepare('SELECT COUNT(*) as c FROM dramas WHERE deleted_at IS NULL').get().c;
-  const byStatus = db.prepare(
-    'SELECT status, COUNT(*) as count FROM dramas WHERE deleted_at IS NULL GROUP BY status'
-  ).all();
-  return { total, by_status: byStatus };
-}
-
-function rowToDrama(r) {
-  let metadata = r.metadata;
-  if (typeof metadata === 'string') {
-    try {
-      metadata = JSON.parse(metadata);
-    } catch (e) {
-      metadata = {};
-    }
-  }
-  return {
-    id: r.id,
-    title: r.title,
-    description: r.description,
-    genre: r.genre,
-    style: r.style || 'realistic',
-    total_episodes: r.total_episodes ?? 1,
-    total_duration: r.total_duration ?? 0,
-    status: r.status || 'draft',
-    thumbnail: r.thumbnail,
-    tags: r.tags,
-    metadata: metadata || {},
-    created_at: r.created_at,
-    updated_at: r.updated_at,
-    removed_at: r.deleted_at || null,
-    is_removed: Boolean(r.deleted_at),
-    recycle_state: r.trash_state || null,
-  };
-}
-
-function rowToEpisode(r) {
-  return {
-    id: r.id,
-    drama_id: r.drama_id,
-    episode_number: r.episode_number,
-    title: r.title,
-    script_content: r.script_content,
-    description: r.description,
-    duration: r.duration ?? 0,
-    status: r.status || 'draft',
-    video_url: r.video_url,
-    thumbnail: r.thumbnail,
-    created_at: r.created_at,
-    updated_at: r.updated_at,
-  };
-}
-
-function parseStoryboardCharacters(charactersStr) {
-  if (!charactersStr || typeof charactersStr !== 'string') return [];
-  try {
-    const parsed = JSON.parse(charactersStr);
-    if (!Array.isArray(parsed)) return [];
-    return parsed.map((c) => (typeof c === 'object' && c != null && c.id != null ? Number(c.id) : Number(c))).filter((n) => Number.isFinite(n));
-  } catch (_) {
-    return [];
-  }
-}
-
-function rowToStoryboard(r) {
-  return {
-    id: r.id,
-    episode_id: r.episode_id,
-    scene_id: r.scene_id,
-    storyboard_number: r.storyboard_number,
-    title: r.title,
-    description: r.description,
-    location: r.location,
-    time: r.time,
-    duration: r.duration ?? 0,
-    dialogue: r.dialogue,
-    narration: r.narration ?? null,
-    action: r.action,
-    result: r.result ?? null,
-    atmosphere: r.atmosphere,
-    image_prompt: r.image_prompt,
-    polished_prompt: r.polished_prompt ?? null,
-    continuity_snapshot: r.continuity_snapshot ?? null,
-    video_prompt: r.video_prompt,
-      shot_type: r.shot_type ?? null,
-      angle: r.angle ?? null,
-      angle_h: r.angle_h ?? null,
-      angle_v: r.angle_v ?? null,
-      angle_s: r.angle_s ?? null,
-      movement: r.movement ?? null,
-      lighting_style: r.lighting_style ?? null,
-      depth_of_field: r.depth_of_field ?? null,
-      segment_index: r.segment_index ?? 0,
-      segment_title: r.segment_title ?? null,
-      creation_mode: r.creation_mode === 'universal' ? 'universal' : 'classic',
-      universal_segment_text: r.universal_segment_text ?? null,
-      layout_description: r.layout_description ?? null,
-      first_frame_image_id: r.first_frame_image_id ?? null,
-      last_frame_image_id: r.last_frame_image_id ?? null,
-      last_frame_image_url: sanitizeImageUrl(r.last_frame_image_url),
-      last_frame_local_path: r.last_frame_local_path ?? null,
-      characters: parseStoryboardCharacters(r.characters),
-      composed_image: r.composed_image,
-      image_url: sanitizeImageUrl(r.image_url),
-      local_path: r.local_path ?? null,
-      main_panel_idx: r.main_panel_idx != null ? Number(r.main_panel_idx) : null,
-      video_url: r.video_url,
-      video_local_path: r.video_local_path ?? null,
-      reference_images: parseJsonColumn(r.reference_images) || [],
-      video_reference_image_id: r.video_reference_image_id ?? null,
-      audio_local_path: r.audio_local_path ?? null,
-      narration_audio_local_path: r.narration_audio_local_path ?? null,
-      status: r.status || 'pending',
-      error_msg: r.error_msg,
-      created_at: r.created_at,
-      updated_at: r.updated_at,
-    };
-}
-
-function rowToCharacter(r) {
-  return {
-    id: r.id,
-    drama_id: r.drama_id,
-    name: r.name,
-    role: r.role,
-    description: r.description,
-    appearance: r.appearance,
-    personality: r.personality,
-    voice_style: r.voice_style,
-    image_url: sanitizeImageUrl(r.image_url),
-    local_path: r.local_path,
-    extra_images: r.extra_images || null,
-    ref_image: r.ref_image || null,
-    reference_images: r.reference_images,
-    seed_value: r.seed_value,
-    sort_order: r.sort_order ?? 0,
-    error_msg: r.error_msg,
-    polished_prompt: r.polished_prompt || null,
-    negative_prompt: r.negative_prompt || null,
-    four_view_image_url: r.four_view_image_url || null,
-    seedance2_asset: parseJsonColumn(r.seedance2_asset),
-    seedance2_voice_asset: parseJsonColumn(r.seedance2_voice_asset),
-    created_at: r.created_at,
-    updated_at: r.updated_at,
-  };
-}
-
-function rowToScene(r) {
-  return {
-    id: r.id,
-    drama_id: r.drama_id,
-    location: r.location,
-    time: r.time,
-    prompt: r.prompt,
-    polished_prompt: r.polished_prompt || null,
-    negative_prompt: r.negative_prompt || null,
-    storyboard_count: r.storyboard_count ?? 1,
-    image_url: sanitizeImageUrl(r.image_url),
-    local_path: r.local_path,
-    extra_images: r.extra_images || null,
-    ref_image: r.ref_image || null,
-    status: r.status || 'pending',
-    error_msg: r.error_msg,
-    created_at: r.created_at,
-    updated_at: r.updated_at,
-  };
-}
-
-function rowToProp(r) {
-  return {
-    id: r.id,
-    drama_id: r.drama_id,
-    name: r.name,
-    type: r.type,
-    description: r.description,
-    prompt: r.prompt,
-    image_url: sanitizeImageUrl(r.image_url),
-    local_path: r.local_path,
-    extra_images: r.extra_images || null,
-    ref_image: r.ref_image || null,
-    negative_prompt: r.negative_prompt || null,
-    error_msg: r.error_msg,
-    created_at: r.created_at,
-    updated_at: r.updated_at,
-  };
-}
-
 function saveOutlineUnsafe(db, log, dramaId, req) {
   const drama = getDramaById(db, Number(dramaId));
   if (!drama) return false;
@@ -1246,37 +758,6 @@ function saveOutlineUnsafe(db, log, dramaId, req) {
 
 function saveOutline(db, log, dramaId, req) {
   return runDramaWriteTransaction(db, dramaId, () => saveOutlineUnsafe(db, log, dramaId, req));
-}
-
-function getCharacters(db, dramaId, episodeId) {
-  const did = Number(dramaId);
-  const drama = getDramaById(db, did);
-  if (!drama) return null;
-  let rows;
-  if (episodeId) {
-    const exists = db.prepare('SELECT 1 FROM episodes WHERE id = ? AND drama_id = ?').get(episodeId, did);
-    if (!exists) return null;
-    rows = db.prepare(
-      `SELECT c.* FROM characters c
-       INNER JOIN episode_characters ec ON ec.character_id = c.id
-       WHERE ec.episode_id = ? AND c.deleted_at IS NULL ORDER BY c.sort_order ASC, c.name ASC`
-    ).all(episodeId);
-  } else {
-    rows = db.prepare(
-      'SELECT * FROM characters WHERE drama_id = ? AND deleted_at IS NULL ORDER BY sort_order ASC, name ASC'
-    ).all(did);
-  }
-  const characters = rows.map((r) => rowToCharacter(r));
-  for (const c of characters) {
-    const img = db.prepare(
-      'SELECT status, error_msg FROM image_generations WHERE character_id = ? ORDER BY created_at DESC LIMIT 1'
-    ).get(c.id);
-    if (img && ['pending', 'processing', 'failed'].includes(img.status)) {
-      c.image_generation_status = img.status;
-      if (img.error_msg) c.image_generation_error = img.error_msg;
-    }
-  }
-  return characters;
 }
 
 function saveCharactersUnsafe(db, log, dramaId, req) {
@@ -1673,13 +1154,6 @@ function finalizeEpisode(db, log, episodeId, baseUrl, body = {}) {
     scenes_count: scenes.length,
     task_id: created.task_id,
   };
-}
-
-function downloadEpisodeVideo(db, episodeId) {
-  const ep = db.prepare('SELECT id, title, episode_number, video_url FROM episodes WHERE id = ? AND deleted_at IS NULL').get(episodeId);
-  if (!ep) return null;
-  if (!ep.video_url) return { error: '该剧集还没有生成视频' };
-  return { video_url: ep.video_url, title: ep.title, episode_number: ep.episode_number };
 }
 
 module.exports = {

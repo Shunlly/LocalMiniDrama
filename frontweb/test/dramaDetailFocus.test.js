@@ -7,7 +7,10 @@ import { once } from 'node:events'
 import { readDramaDetailResourceDialogSources } from './helpers/dramaDetailResourceDialogSources.js'
 
 const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8')
-const dramaDetailSource = read('../src/views/DramaDetail.vue')
+const dramaDetailPageSource = read('../src/views/DramaDetail.vue')
+const dramaDetailEpisodeSource = read('../src/components/dramaDetail/DramaDetailEpisodeList.vue')
+const dramaDetailResourceLibrarySource = read('../src/components/dramaDetail/DramaDetailResourceLibrary.vue')
+const dramaDetailSource = [dramaDetailPageSource, dramaDetailEpisodeSource, dramaDetailResourceLibrarySource].join('\n')
 const dramaDetailHeaderSource = read('../src/components/dramaDetail/DramaDetailHeader.vue')
 const dramaDetailDialogsSource = readDramaDetailResourceDialogSources(read)
 const sectionFocusSource = readFileSync(new URL('../src/utils/sectionFocus.js', import.meta.url), 'utf8')

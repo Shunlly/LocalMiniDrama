@@ -17,148 +17,33 @@
     </div>
 
     <div class="panel-body">
-      <div class="preview-col">
-        <div class="preview-box">
-          <img v-if="previewUrl && !generating" :src="previewUrl" :alt="`${displayName}${kindLabel}参考图`" />
-          <div v-else-if="!generating" class="preview-empty">
-            <span class="preview-empty-icon" aria-hidden="true">{{ kindIcon }}</span>
-            <span>暂无参考图</span>
-          </div>
-          <div v-if="generating || nodeBusy" class="preview-loading">
-            <span class="spinner" />
-            <span>{{ nodeBusy?.message || '生成参考图…' }}</span>
-          </div>
-        </div>
-        <div class="entity-status" :class="'st-' + (entityStatus || (previewUrl ? 'completed' : 'empty'))">{{ entityStatusLabel }}</div>
-        <p class="preview-source">{{ previewSourceLabel }}</p>
-        <p v-if="generateError" class="generate-error" role="alert">{{ generateError }}</p>
-      </div>
+      <CanvasAssetPanelPreview
+        :kind-label="kindLabel"
+        :kind-icon="kindIcon"
+        :display-name="displayName"
+        :preview-url="previewUrl"
+        :generating="generating"
+        :node-busy="nodeBusy"
+        :entity-status="entityStatus"
+        :entity-status-label="entityStatusLabel"
+        :preview-source-label="previewSourceLabel"
+        :generate-error="generateError"
+      />
 
-      <div class="form-col">
-        <el-form label-position="left" label-width="44px" size="small" class="panel-form compact-form">
-          <template v-if="kind === 'character'">
-            <div class="form-row-2">
-              <el-form-item label="名称" class="flex-1">
-                <el-input v-model="form.name" aria-label="角色名称" placeholder="角色名" />
-              </el-form-item>
-              <el-form-item label="类型" class="type-field">
-                <el-select
-                  v-model="form.role"
-                  :aria-label="`角色${form.name || '未命名角色'}类型`"
-                  clearable
-                  placeholder="类型"
-                  teleported
-                  popper-class="canvas-panel-popper"
-                  @visible-change="onSelectVisibleChange"
-                >
-                  <el-option label="主角" value="main" />
-                  <el-option label="配角" value="supporting" />
-                </el-select>
-              </el-form-item>
-            </div>
-            <el-form-item label="外貌">
-              <el-input
-                v-model="form.appearance"
-                type="textarea"
-                :rows="2"
-                resize="vertical"
-                aria-label="角色外貌"
-                placeholder="外貌描述"
-              />
-            </el-form-item>
-            <el-form-item label="简介">
-              <el-input
-                v-model="form.description"
-                type="textarea"
-                :rows="2"
-                resize="vertical"
-                aria-label="角色简介"
-                placeholder="角色简介"
-              />
-            </el-form-item>
-          </template>
-
-          <template v-else-if="kind === 'scene'">
-            <div class="form-row-2">
-              <el-form-item label="地点" class="flex-1">
-                <el-input v-model="form.location" aria-label="场景地点" placeholder="场景地点" />
-              </el-form-item>
-              <el-form-item label="时间" class="time-field">
-                <el-input v-model="form.time" aria-label="场景时间" placeholder="白天/夜" />
-              </el-form-item>
-            </div>
-            <el-form-item label="描述">
-              <el-input
-                v-model="form.prompt"
-                type="textarea"
-                :rows="2"
-                resize="vertical"
-                aria-label="场景描述"
-                placeholder="场景描述"
-              />
-            </el-form-item>
-            <section class="panorama-section" aria-label="场景全景图" aria-live="polite">
-              <div class="panorama-head">
-                <span>360° 全景图</span>
-                <CanvasActionGate
-                  :reason="panoramaDisabledReason"
-                  :label="panoramaPreviewUrl ? '重新生成场景全景图' : '生成场景全景图'"
-                  description-id="canvas-reason-generate-panorama"
-                >
-                  <el-button
-                    size="small"
-                    type="primary"
-                    plain
-                    :icon="panoramaPreviewUrl ? Refresh : Picture"
-                    :loading="panoramaGenerating"
-                    :disabled="Boolean(panoramaDisabledReason)"
-                    :title="panoramaDisabledReason || undefined"
-                    :aria-label="panoramaPreviewUrl ? '重新生成场景全景图' : '生成场景全景图'"
-                    @click.stop="generatePanorama"
-                  >
-                    {{ panoramaPreviewUrl ? '重新生成' : '生成全景图' }}
-                  </el-button>
-                </CanvasActionGate>
-              </div>
-              <div class="panorama-preview">
-                <img v-if="panoramaPreviewUrl" :src="panoramaPreviewUrl" alt="场景全景图" />
-                <div v-else class="panorama-empty">暂无全景图</div>
-                <div v-if="panoramaGenerating" class="panorama-loading">
-                  <span class="spinner" />
-                  <span>生成全景图…</span>
-                </div>
-              </div>
-              <p v-if="panoramaError" class="panorama-error" role="alert">{{ panoramaError }}</p>
-            </section>
-          </template>
-
-          <template v-else>
-            <el-form-item label="名称">
-              <el-input v-model="form.name" aria-label="道具名称" placeholder="道具名称" />
-            </el-form-item>
-            <el-form-item label="描述">
-              <el-input
-                v-model="form.description"
-                type="textarea"
-                :rows="2"
-                resize="vertical"
-                aria-label="道具描述"
-                placeholder="道具描述"
-              />
-            </el-form-item>
-            <el-form-item label="提示">
-              <el-input
-                v-model="form.prompt"
-                type="textarea"
-                :rows="2"
-                resize="vertical"
-                aria-label="道具提示词"
-                placeholder="生图提示词"
-              />
-            </el-form-item>
-          </template>
-        </el-form>
-      </div>
+      <CanvasAssetPanelForm
+        :kind="kind"
+        :form="form"
+        :on-select-visible-change="onSelectVisibleChange"
+      >
+        <CanvasAssetPanelPanorama
+          v-if="kind === 'scene'"
+          :panorama-preview-url="panoramaPreviewUrl"
+          :panorama-disabled-reason="panoramaDisabledReason"
+          :panorama-generating="panoramaGenerating"
+          :panorama-error="panoramaError"
+          :generate-panorama="generatePanorama"
+        />
+      </CanvasAssetPanelForm>
     </div>
 
     <div class="panel-actions">
@@ -190,7 +75,6 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from '@/utils/elementPlusFeedback.js'
-import { Picture, Refresh } from '@element-plus/icons-vue'
 import { characterAPI } from '@/api/characters'
 import { sceneAPI } from '@/api/scenes'
 import { propAPI } from '@/api/props'
@@ -199,8 +83,10 @@ import { useCanvasContext } from '@/composables/useCanvasContext'
 import { generateAssetReferenceImage } from '@/composables/useCanvasAssetGenerate'
 import { canvasUserError, isCanvasUserAbort } from '@/composables/useCanvasUserError'
 import { isRequestNetworkError, isRequestTimeout } from '@/utils/requestError'
-import CanvasActionGate from './CanvasActionGate.vue'
 import { assetImageUrl } from '@/utils/mediaUrl'
+import CanvasAssetPanelPreview from './CanvasAssetPanelPreview.vue'
+import CanvasAssetPanelForm from './CanvasAssetPanelForm.vue'
+import CanvasAssetPanelPanorama from './CanvasAssetPanelPanorama.vue'
 
 const props = defineProps({
   kind: { type: String, required: true },
@@ -496,6 +382,7 @@ function highlightRelated() {
   border: 1px solid var(--canvas-emerald-border, rgba(52, 211, 153, 0.4));
   background: var(--canvas-panel-surface, rgba(15, 15, 18, 0.97));
   box-shadow: var(--canvas-raised-shadow, 0 12px 32px rgba(0, 0, 0, 0.45));
+  --asset-spinner-color: var(--canvas-success-text, #34d399);
 }
 .panel-head {
   display: flex;
@@ -511,169 +398,6 @@ function highlightRelated() {
   gap: 12px;
   align-items: flex-start;
 }
-.preview-col {
-  flex-shrink: 0;
-  width: 108px;
-}
-.preview-box {
-  position: relative;
-  width: 108px;
-  height: 108px;
-  border-radius: 10px;
-  overflow: hidden;
-  background: var(--canvas-media-well, #09090b);
-  border: 1px solid var(--border-muted, #3f3f46);
-}
-.preview-box img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-.preview-empty {
-  width: 100%;
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  font-size: 11px;
-  color: var(--canvas-text-muted, #a1a1aa);
-  text-align: center;
-  padding: 8px;
-}
-.preview-empty-icon {
-  font-size: 28px;
-  opacity: 0.7;
-}
-.preview-loading {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  background: var(--canvas-loading-surface, rgba(9, 9, 11, 0.82));
-  font-size: 10px;
-  color: #d4d4d8;
-  text-align: center;
-  padding: 6px;
-}
-.spinner {
-  width: 20px;
-  height: 20px;
-  border: 2px solid var(--canvas-spinner-track, rgba(255, 255, 255, 0.12));
-  border-top-color: var(--canvas-success-text, #34d399);
-  border-radius: 50%;
-  animation: spin 0.75s linear infinite;
-}
-.entity-status {
-  margin-top: 6px;
-  font-size: 10px;
-  text-align: center;
-  color: var(--canvas-text-subtle, #71717a);
-}
-.entity-status.st-processing { color: var(--canvas-info-text, #60a5fa); }
-.entity-status.st-completed { color: var(--canvas-success-text, #34d399); }
-.entity-status.st-failed { color: var(--canvas-danger-text, #f87171); }
-.entity-status.st-empty { color: var(--canvas-text-muted, #a1a1aa); }
-.preview-source,
-.generate-error {
-  margin: 4px 0 0;
-  font-size: 10px;
-  line-height: 1.4;
-  text-align: center;
-  overflow-wrap: anywhere;
-}
-.preview-source {
-  color: var(--canvas-text-subtle, #71717a);
-}
-.generate-error {
-  color: var(--canvas-danger-text, #f87171);
-}
-.form-col {
-  flex: 1;
-  min-width: 0;
-}
-.compact-form :deep(.el-form-item) {
-  margin-bottom: 6px;
-}
-.compact-form :deep(.el-form-item__label) {
-  color: var(--canvas-text-subtle, #71717a);
-  font-size: 11px;
-  padding-right: 6px;
-}
-.compact-form :deep(.el-input__wrapper),
-.compact-form :deep(.el-select__wrapper) {
-  min-height: 28px;
-}
-.compact-form :deep(.el-textarea__inner) {
-  resize: vertical;
-  min-height: 52px;
-  line-height: 1.45;
-}
-.form-row-2 {
-  display: flex;
-  gap: 8px;
-  align-items: flex-start;
-}
-.flex-1 { flex: 1; min-width: 0; }
-.type-field { width: 108px; flex-shrink: 0; }
-.time-field { width: 96px; flex-shrink: 0; }
-.panorama-section {
-  margin-top: 8px;
-  padding-top: 8px;
-  border-top: 1px solid var(--canvas-divider, rgba(63, 63, 70, 0.6));
-}
-.panorama-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  margin-bottom: 6px;
-  color: var(--canvas-text-muted, #a1a1aa);
-  font-size: 11px;
-  font-weight: 600;
-}
-.panorama-preview {
-  position: relative;
-  width: 100%;
-  aspect-ratio: 2 / 1;
-  overflow: hidden;
-  border: 1px solid var(--border-muted, #3f3f46);
-  border-radius: 6px;
-  background: var(--canvas-media-well, #09090b);
-}
-.panorama-preview img {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-}
-.panorama-empty,
-.panorama-loading {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--canvas-text-subtle, #71717a);
-  font-size: 11px;
-}
-.panorama-loading {
-  flex-direction: column;
-  gap: 6px;
-  color: #d4d4d8;
-  background: var(--canvas-loading-surface, rgba(9, 9, 11, 0.82));
-}
-.panorama-error {
-  margin: 6px 0 0;
-  color: var(--canvas-danger-text, #f87171);
-  font-size: 10px;
-  line-height: 1.4;
-  overflow-wrap: anywhere;
-}
 .panel-actions {
   display: flex;
   flex-wrap: wrap;
@@ -685,22 +409,8 @@ function highlightRelated() {
 .panel-actions :deep(.el-button) {
   margin: 0;
 }
-.kind-scene { border-color: var(--canvas-blue-border, rgba(96, 165, 250, 0.45)); }
+.kind-scene { border-color: var(--canvas-blue-border, rgba(96, 165, 250, 0.45)); --asset-spinner-color: var(--canvas-blue-text, #93c5fd); }
 .kind-scene .panel-head { color: var(--canvas-blue-text, #93c5fd); }
-.kind-scene .spinner { border-top-color: var(--canvas-blue-text, #93c5fd); }
-.kind-prop { border-color: var(--canvas-amber-border, rgba(251, 191, 36, 0.45)); }
+.kind-prop { border-color: var(--canvas-amber-border, rgba(251, 191, 36, 0.45)); --asset-spinner-color: var(--canvas-amber-text, #fcd34d); }
 .kind-prop .panel-head { color: var(--canvas-amber-text, #fcd34d); }
-.kind-prop .spinner { border-top-color: var(--canvas-amber-text, #fcd34d); }
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
-</style>
-
-<style>
-.canvas-panel-popper {
-  z-index: 4000 !important;
-}
-.canvas-panel-popper.el-select__popper .el-select-dropdown__wrap {
-  max-height: 168px !important;
-}
 </style>

@@ -3,6 +3,12 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { effectScope, ref } from 'vue'
 import { createFilmCreateWorkspaceBindingSources } from '../src/components/filmCreate/filmCreateWorkspaceBindings.js'
+import {
+  FILM_CREATE_OUTPUT_SECTION_MODEL_KEYS,
+  FILM_CREATE_PIPELINE_PANEL_MODEL_KEYS,
+  createFilmCreateSurfaceBindingSources,
+  createFilmCreateSurfaceBindings,
+} from '../src/components/filmCreate/filmCreateSurfaceBindings.js'
 
 import { requestCoreJson } from '../src/utils/coreJsonRequest.js'
 import {
@@ -180,6 +186,116 @@ test('工作台绑定源只映射已有状态，不改 episodeId', () => {
     assert.equal(currentEpisodeId.value, 22)
     assert.equal(bags.resourceDialogModelKeys.includes('showAddProp'), true)
     assert.equal(bags.storyboardDialogModelKeys.includes('showSbPromptDialog'), true)
+  } finally {
+    scope.stop()
+  }
+})
+
+test('制作页把页头、流水线和交付区显式 props 交给独立绑定源', () => {
+  const filmCreateSource = readFileSync(new URL('../src/views/FilmCreate.vue', import.meta.url), 'utf8')
+  const surfaceBindingsSource = readFileSync(new URL('../src/components/filmCreate/filmCreateSurfaceBindings.js', import.meta.url), 'utf8')
+  assert.match(filmCreateSource, /createFilmCreateSurfaceBindingSources\(/)
+  assert.match(filmCreateSource, /createFilmCreateSurfaceBindings\(\{/)
+  assert.match(filmCreateSource, /v-bind="headerBindings"/)
+  assert.match(filmCreateSource, /v-bind="pipelinePanelBindings"/)
+  assert.match(filmCreateSource, /v-bind="outputSectionBindings"/)
+  assert.match(filmCreateSource, /ref="filmCreateHeaderRef"/)
+  assert.match(filmCreateSource, /<FilmCreatePipelinePanel\s+ref="pipelinePanelRef"/)
+  assert.doesNotMatch(filmCreateSource, /:project-page-title="projectPageTitle"/)
+  assert.doesNotMatch(filmCreateSource, /v-model:aspect-ratio="projectAspectRatio"/)
+  assert.doesNotMatch(filmCreateSource, /v-model:watermark-text="videoWatermarkText"/)
+  assert.doesNotMatch(filmCreateSource, /:compose-action-disabled-reason="composeActionDisabledReason"/)
+  assert.match(surfaceBindingsSource, /export function createFilmCreateSurfaceBindingSources/)
+  assert.match(surfaceBindingsSource, /header: \{[\s\S]*selectedEpisodeId[\s\S]*onGoList: goList/)
+  assert.match(surfaceBindingsSource, /pipelinePanel: \{[\s\S]*aspectRatio: projectAspectRatio[\s\S]*onOpenAiConfig: openAiConfigFromPipeline/)
+  assert.match(surfaceBindingsSource, /outputSection: \{[\s\S]*watermarkText: videoWatermarkText[\s\S]*currentEpisodeId/)
+  assert.match(surfaceBindingsSource, /outputSection: \{[\s\S]*storyboardCount: computed\(\(\) => \(unref\(storyboards\) \|\| \[\]\)\.length\)/)
+  assert.match(surfaceBindingsSource, /productionDisabledReason: productionPipelineActionDisabledReason/)
+  assert.match(surfaceBindingsSource, /draftDisabledReason: pipelineActionDisabledReason/)
+  assert.doesNotMatch(surfaceBindingsSource, /const currentEpisodeId = ref/)
+  assert.doesNotMatch(surfaceBindingsSource, /propItems/)
+  assert.doesNotMatch(surfaceBindingsSource, /allowNavigationAfterDraftFlush/)
+})
+
+test('页头/流水线/交付区绑定源只映射已有状态，不改 episodeId 和 propItems', () => {
+  const currentEpisodeId = ref(22)
+  const selectedEpisodeId = ref(33)
+  const dramaId = ref(11)
+  const props = ref([{ id: 3 }])
+  const storyboardCount = ref(8)
+  const storyboards = ref([{ id: 1 }, { id: 2 }])
+  const projectAspectRatio = ref('16:9')
+  const videoWatermarkText = ref('水印')
+  const pipelinePaused = ref(false)
+  const pipelineAbortRequested = ref(true)
+  const pipelineRunning = ref(true)
+  const pipelineStopping = ref(false)
+  const productionPipelineActionDisabledReason = ref('当前集还没有剧本，请先编写或导入剧本')
+  const pipelineActionDisabledReason = productionPipelineActionDisabledReason
+  const store = { drama: { episodes: [{ id: 11 }] } }
+  const scope = effectScope()
+  try {
+    const bags = scope.run(() => createFilmCreateSurfaceBindingSources({
+      store,
+      props,
+      currentEpisodeId,
+      selectedEpisodeId,
+      dramaId,
+      storyboardCount,
+      storyboards,
+      projectAspectRatio,
+      videoWatermarkText,
+      pipelinePaused,
+      pipelineAbortRequested,
+      pipelineRunning,
+      pipelineStopping,
+      productionPipelineActionDisabledReason,
+      pipelineActionDisabledReason,
+    }))
+    assert.equal(bags.header.selectedEpisodeId, selectedEpisodeId)
+    assert.equal(bags.outputSection.currentEpisodeId, currentEpisodeId)
+    assert.equal(bags.header.dramaId, dramaId)
+    assert.equal(bags.outputSection.dramaId, dramaId)
+    assert.equal('currentEpisodeId' in bags.header, false)
+    assert.equal('selectedEpisodeId' in bags.outputSection, false)
+    assert.equal('currentEpisodeId' in bags.pipelinePanel, false)
+    assert.equal('propItems' in bags.header, false)
+    assert.equal('propItems' in bags.pipelinePanel, false)
+    assert.equal('propItems' in bags.outputSection, false)
+    assert.equal(bags.outputSection.storyboardCount.value, 2)
+    assert.notEqual(bags.outputSection.storyboardCount.value, storyboardCount.value)
+    assert.equal(bags.header.episodes.value[0].id, 11)
+    assert.notEqual(bags.header.episodes.value[0].id, selectedEpisodeId.value)
+    assert.notEqual(bags.header.episodes.value[0].id, currentEpisodeId.value)
+    assert.equal(bags.pipelinePanel.productionDisabledReason, productionPipelineActionDisabledReason)
+    assert.equal(bags.pipelinePanel.draftDisabledReason, pipelineActionDisabledReason)
+    assert.equal(bags.pipelinePanel.stopRequired.value, true)
+    assert.equal(bags.pipelinePanel.aspectRatio, projectAspectRatio)
+    assert.equal(currentEpisodeId.value, 22)
+    assert.equal(selectedEpisodeId.value, 33)
+    assert.equal(props.value[0].id, 3)
+
+    const bindings = createFilmCreateSurfaceBindings(bags)
+    assert.equal(FILM_CREATE_PIPELINE_PANEL_MODEL_KEYS.includes('currentEpisodeId'), false)
+    assert.equal(FILM_CREATE_PIPELINE_PANEL_MODEL_KEYS.includes('selectedEpisodeId'), false)
+    assert.equal(FILM_CREATE_OUTPUT_SECTION_MODEL_KEYS.includes('currentEpisodeId'), false)
+    assert.equal(FILM_CREATE_OUTPUT_SECTION_MODEL_KEYS.includes('dramaId'), false)
+    assert.equal(Object.prototype.hasOwnProperty.call(bindings.headerBindings.value, 'onUpdate:selectedEpisodeId'), false)
+    assert.equal(Object.prototype.hasOwnProperty.call(bindings.outputSectionBindings.value, 'onUpdate:currentEpisodeId'), false)
+    assert.equal(Object.prototype.hasOwnProperty.call(bindings.pipelinePanelBindings.value, 'onUpdate:onAddEpisode'), false)
+    assert.equal(bindings.outputSectionBindings.value.currentEpisodeId, 22)
+    assert.equal(bindings.headerBindings.value.selectedEpisodeId, 33)
+    assert.notEqual(bindings.headerBindings.value.dramaId, bindings.outputSectionBindings.value.currentEpisodeId)
+    bindings.pipelinePanelBindings.value['onUpdate:aspectRatio']('9:16')
+    bindings.outputSectionBindings.value['onUpdate:watermarkText']('新水印')
+    bindings.pipelinePanelBindings.value.onPause()
+    assert.equal(projectAspectRatio.value, '9:16')
+    assert.equal(videoWatermarkText.value, '新水印')
+    assert.equal(pipelinePaused.value, true)
+    assert.equal(currentEpisodeId.value, 22)
+    assert.equal(selectedEpisodeId.value, 33)
+    assert.equal(dramaId.value, 11)
+    assert.equal(props.value[0].id, 3)
   } finally {
     scope.stop()
   }
