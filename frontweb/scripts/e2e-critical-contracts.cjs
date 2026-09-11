@@ -28,6 +28,7 @@ const CRITICAL_UI = Object.freeze({
   createBackup: '创建全量备份',
   chooseBackupFile: '选择备份文件',
   restoreConfirmTitle: '确认恢复备份',
+  restoreCancel: '取消恢复备份',
   restoreConfirm: '确认恢复',
   missingDramaTitle: '项目不存在',
   missingFilmTitle: '制作项目不存在',
@@ -478,7 +479,7 @@ async function verifyBackupRestoreEntry(page, options = {}) {
     await dialog.waitFor({ state: 'visible', timeout: 15000 })
     await dialog.getByText(/覆盖当前全部项目/).waitFor({ timeout: 10000 })
     await dialog.getByRole('button', { name: CRITICAL_UI.restoreConfirmTitle, exact: true }).waitFor({ state: 'visible' })
-    await dialog.getByRole('button', { name: CRITICAL_UI.cancel, exact: true }).click()
+    await dialog.getByRole('button', { name: CRITICAL_UI.restoreCancel, exact: true }).click()
     await dialog.waitFor({ state: 'hidden', timeout: 10000 })
     assert.deepEqual(restorePosts, [], `备份恢复入口取消后仍发出恢复请求: ${restorePosts.join(', ')}`)
     assert.equal(currentUrl(page).pathname, '/backup')

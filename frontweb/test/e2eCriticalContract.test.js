@@ -158,7 +158,7 @@ function createCriticalPageMock(options = {}) {
       openDialog(critical.CRITICAL_UI.restoreConfirmTitle, [`将用「${backupName}」覆盖当前全部项目、素材和原文`])
       return
     }
-    if (name === critical.CRITICAL_UI.cancel) {
+    if (name === critical.CRITICAL_UI.cancel || name === critical.CRITICAL_UI.restoreCancel) {
       closeDialog()
       return
     }
@@ -317,6 +317,7 @@ test('共享合同覆盖工作区入口、素材库空态、项目列表-制作�
     'async function verifyBackupRestoreEntry',
     'CRITICAL_UI.backupNav, exact: true }).first()',
     'CRITICAL_UI.restoreConfirmTitle, exact: true })',
+    'CRITICAL_UI.restoreCancel, exact: true }).click()',
     'restore_posts: restorePosts.length',
     'async function verifyMissingProjectChineseFailurePages',
     'CRITICAL_UI.missingDramaTitle, exact: true })',
