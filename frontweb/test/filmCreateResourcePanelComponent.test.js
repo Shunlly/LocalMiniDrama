@@ -64,6 +64,21 @@ function buttonsByText(root, label) {
   return findByType(root, 'button').filter((node) => textContent(node).replace(/\s+/g, ' ').trim() === label)
 }
 
+
+function emptyStateButton(root, label) {
+  const buttons = findByType(root, 'button').filter((node) => node.props?.['aria-label'] === label)
+  const empty = buttons.find((node) => {
+    let current = node
+    while (current) {
+      if (String(current.props?.class || '').includes('resource-empty-actions')) return true
+      current = current.parent
+    }
+    return false
+  })
+  assert.ok(empty, `缺少空态按钮 ${label}`)
+  return empty
+}
+
 function requireButton(root, label) {
   const button = buttonByText(root, label)
   assert.ok(button, `缺少按钮：${label}`)
@@ -164,9 +179,9 @@ test('无禁用原因时，空态提取会发出真实事件', async () => {
   const harness = mountPanel()
   try {
     await nextTick()
-    click(buttonByAriaLabel(harness.root, '剧本自动提取角色'))
-    click(buttonByAriaLabel(harness.root, '从剧本提取道具'))
-    click(buttonByAriaLabel(harness.root, '从剧本提取场景'))
+    click(emptyStateButton(harness.root, '剧本自动提取角色'))
+    click(emptyStateButton(harness.root, '从剧本提取道具'))
+    click(emptyStateButton(harness.root, '从剧本提取场景'))
     assert.deepEqual(harness.events, [
       ['generate-characters'],
       ['extract-props'],

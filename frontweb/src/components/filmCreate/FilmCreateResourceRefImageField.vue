@@ -14,15 +14,15 @@
       <span v-else class="ref-upload-hint"><span class="ref-upload-icon">🖼</span><span>点击或拖入参考图</span></span>
     </button>
     <div v-if="pendingImage" class="ref-actions">
-      <el-button type="primary" size="small" :loading="extracting" :title="extracting ? pendingExtractTitle : undefined" @click="$emit('extract-pending')">提取特征描述</el-button>
-      <el-button size="small" @click="$emit('remove-pending')">移除</el-button>
+      <el-button type="primary" size="small" :loading="extracting" :title="extracting ? pendingExtractTitle : undefined" :aria-label="extracting ? pendingExtractTitle : '提取特征描述'" @click="$emit('extract-pending')">提取特征描述</el-button>
+      <el-button size="small" aria-label="移除待上传参考图" @click="$emit('remove-pending')">移除</el-button>
     </div>
     <div v-else-if="savedSrc" class="ref-actions">
-      <el-button type="primary" size="small" :loading="extracting" :title="extracting ? savedExtractTitle : undefined" @click="$emit('extract-saved')">从参考图提取描述</el-button>
-      <el-button size="small" @click="$emit('clear-saved')">移除参考图</el-button>
+      <el-button type="primary" size="small" :loading="extracting" :title="extracting ? savedExtractTitle : undefined" :aria-label="extracting ? savedExtractTitle : '从参考图提取描述'" @click="$emit('extract-saved')">从参考图提取描述</el-button>
+      <el-button size="small" aria-label="移除参考图" @click="$emit('clear-saved')">移除参考图</el-button>
     </div>
     <div v-else-if="showMainExtract" class="ref-actions">
-      <el-button size="small" :loading="extracting" :title="extracting ? mainExtractTitle : undefined" @click="$emit('extract-main')">从主图提取描述</el-button>
+      <el-button size="small" :loading="extracting" :title="extracting ? mainExtractTitle : undefined" :aria-label="extracting ? mainExtractTitle : '从主图提取描述'" @click="$emit('extract-main')">从主图提取描述</el-button>
     </div>
   </div>
 </template>

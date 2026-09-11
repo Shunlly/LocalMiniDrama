@@ -26,7 +26,7 @@
       </el-descriptions>
     </template>
     <template #footer>
-      <el-button @click="showCharSd2Cert = false">关闭</el-button>
+      <el-button aria-label="关闭角色音色认证" @click="showCharSd2Cert = false">关闭</el-button>
     </template>
   </AccessibleDialog>
 
@@ -48,17 +48,17 @@
               <div class="library-item-desc">{{ (item.description || '').slice(0, 60) }}{{ (item.description || '').length > 60 ? '…' : '' }}</div>
               <div class="library-item-actions">
                 <ActionGate :reason="addToEpisodeDisabledReason" label="加入本集">
-                  <el-button size="small" type="primary" :loading="isCharAddToEpisodeLoading('library', item.id)" :disabled="Boolean(addToEpisodeDisabledReason)" :title="addToEpisodeDisabledReason || undefined" @click="onAddCharFromLibrary(item)">加入本集</el-button>
+                  <el-button size="small" type="primary" :loading="isCharAddToEpisodeLoading('library', item.id)" :disabled="Boolean(addToEpisodeDisabledReason)" :title="addToEpisodeDisabledReason || undefined" :aria-label="isCharAddToEpisodeLoading('library', item.id) ? '正在将角色加入本集，请稍候' : (addToEpisodeDisabledReason || `将${item.name || '未命名角色'}加入本集`)" @click="onAddCharFromLibrary(item)">加入本集</el-button>
                 </ActionGate>
-                <el-button size="small" @click="openEditCharLibrary(item)">编辑</el-button>
-                <el-button size="small" type="danger" plain @click="onDeleteCharLibrary(item)">删除</el-button>
+                <el-button size="small" :aria-label="`编辑公共角色${item.name || '未命名角色'}`" @click="openEditCharLibrary(item)">编辑</el-button>
+                <el-button size="small" type="danger" plain :aria-label="`删除公共角色${item.name || '未命名角色'}`" @click="onDeleteCharLibrary(item)">删除</el-button>
               </div>
             </div>
           </div>
           <div v-if="!charLibraryLoading && charLibraryList.length === 0" class="library-empty" role="status">
             <p>暂无本剧角色库记录，可将本剧角色「加入本剧库」后在此查看</p>
             <div class="library-empty-actions">
-              <el-button type="primary" @click="returnToCharacterPanel">去角色面板</el-button>
+              <el-button type="primary" aria-label="去角色面板" @click="returnToCharacterPanel">去角色面板</el-button>
             </div>
           </div>
         </div>
@@ -93,7 +93,7 @@
               <div class="library-item-desc">{{ (item.description || item.appearance || '').slice(0, 60) }}{{ (item.description || item.appearance || '').length > 60 ? '…' : '' }}</div>
               <div class="library-item-actions">
                 <ActionGate :reason="addToEpisodeDisabledReason" label="加入本集">
-                  <el-button size="small" type="primary" :loading="isCharAddToEpisodeLoading('drama', item.id)" :disabled="Boolean(addToEpisodeDisabledReason)" :title="addToEpisodeDisabledReason || undefined" @click="onAddDramaCharToEpisode(item)">加入本集</el-button>
+                  <el-button size="small" type="primary" :loading="isCharAddToEpisodeLoading('drama', item.id)" :disabled="Boolean(addToEpisodeDisabledReason)" :title="addToEpisodeDisabledReason || undefined" :aria-label="isCharAddToEpisodeLoading('drama', item.id) ? '正在将角色加入本集，请稍候' : (addToEpisodeDisabledReason || `将${item.name || '未命名角色'}加入本集`)" @click="onAddDramaCharToEpisode(item)">加入本集</el-button>
                 </ActionGate>
               </div>
             </div>
@@ -101,7 +101,7 @@
           <div v-if="!dramaAllCharLoading && dramaAllCharList.length === 0" class="library-empty" role="status">
             <p>本剧暂无制作角色</p>
             <div class="library-empty-actions">
-              <el-button type="primary" @click="returnToCharacterPanel">创建角色</el-button>
+              <el-button type="primary" aria-label="创建角色" @click="returnToCharacterPanel">创建角色</el-button>
             </div>
           </div>
         </div>
@@ -120,7 +120,7 @@
 
     </el-tabs>
     <template #footer>
-      <el-button @click="showCharLibrary = false">关闭</el-button>
+      <el-button aria-label="关闭本剧角色库" @click="showCharLibrary = false">关闭</el-button>
     </template>
   </AccessibleDialog>
   <!-- 编辑公共角色 -->
@@ -140,8 +140,8 @@
       </el-form-item>
     </el-form>
     <template #footer>
-      <el-button @click="showEditCharLibrary = false">取消</el-button>
-      <el-button type="primary" :loading="editCharLibrarySaving" :title="editCharLibrarySaving ? '正在保存公共角色，请稍候' : undefined" @click="submitEditCharLibrary">保存</el-button>
+      <el-button aria-label="取消编辑公共角色" @click="showEditCharLibrary = false">取消</el-button>
+      <el-button type="primary" :loading="editCharLibrarySaving" :title="editCharLibrarySaving ? '正在保存公共角色，请稍候' : undefined" :aria-label="editCharLibrarySaving ? '正在保存公共角色，请稍候' : '保存公共角色'" @click="submitEditCharLibrary">保存</el-button>
     </template>
   </AccessibleDialog>
 </template>

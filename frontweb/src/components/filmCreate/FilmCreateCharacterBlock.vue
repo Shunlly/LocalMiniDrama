@@ -2,14 +2,14 @@
 
               <div class="asset-actions">
                 <ActionGate :reason="characterGenerationDisabledReason" label="剧本自动提取角色">
-                  <el-button type="primary" size="small" :loading="charactersGenerating" :disabled="Boolean(characterGenerationDisabledReason)" :title="charactersGenerating ? '正在提取角色，请稍候' : (characterGenerationDisabledReason || undefined)" @click="emit('generate-characters')">
+                  <el-button type="primary" size="small" :loading="charactersGenerating" :disabled="Boolean(characterGenerationDisabledReason)" :title="charactersGenerating ? '正在提取角色，请稍候' : (characterGenerationDisabledReason || undefined)" :aria-label="charactersGenerating ? '正在提取角色，请稍候' : (characterGenerationDisabledReason || '剧本自动提取角色')" @click="emit('generate-characters')">
                     剧本自动提取角色
                   </el-button>
                 </ActionGate>
                 <ActionGate :reason="projectActionDisabledReason" label="添加角色">
-                  <el-button size="small" :disabled="Boolean(projectActionDisabledReason)" :title="projectActionDisabledReason || undefined" @click="emit('add-character')">添加角色</el-button>
+                  <el-button size="small" :disabled="Boolean(projectActionDisabledReason)" :title="projectActionDisabledReason || undefined" :aria-label="projectActionDisabledReason || '添加角色'" @click="emit('add-character')">添加角色</el-button>
                 </ActionGate>
-                <el-button size="small" @click="emit('open-char-library')">本剧角色库</el-button>
+                <el-button size="small" aria-label="打开本剧角色库" @click="emit('open-char-library')">本剧角色库</el-button>
               </div>
               <div class="asset-list asset-list-two">
                 <div v-for="char in characters" :key="char.id" class="asset-item asset-item-left-right">
@@ -25,14 +25,14 @@
                     </div>
                     <div class="asset-desc-full">{{ char.appearance || char.description || '暂无描述' }}</div>
                     <div class="asset-btns">
-                      <el-button size="small" @click="emit('edit-character', char)">编辑</el-button>
+                      <el-button size="small" :aria-label="`编辑角色${char.name || '未命名角色'}`" @click="emit('edit-character', char)">编辑</el-button>
                       <ActionGate :reason="missingAssetImageReason(char, 'character')" label="加入本剧库">
-                        <el-button size="small" :loading="addingCharToLibraryId === char.id" :disabled="!hasAssetImage(char)" @click="emit('add-character-to-library', char)">
+                        <el-button size="small" :loading="addingCharToLibraryId === char.id" :disabled="!hasAssetImage(char)" :aria-label="addingCharToLibraryId === char.id ? '正在将角色加入本剧库，请稍候' : `将${char.name || '未命名角色'}加入本剧库`" @click="emit('add-character-to-library', char)">
                           加入本剧库
                         </el-button>
                       </ActionGate>
                       <ActionGate :reason="missingAssetImageReason(char, 'character')" label="加入素材库">
-                        <el-button size="small" :loading="addingCharToMaterialId === char.id" :disabled="!hasAssetImage(char)" @click="emit('add-character-to-material', char)">
+                        <el-button size="small" :loading="addingCharToMaterialId === char.id" :disabled="!hasAssetImage(char)" :aria-label="addingCharToMaterialId === char.id ? '正在将角色加入素材库，请稍候' : `将${char.name || '未命名角色'}加入素材库`" @click="emit('add-character-to-material', char)">
                           加入素材库
                         </el-button>
                       </ActionGate>
@@ -116,6 +116,8 @@
                           class="asl-regen-btn"
                           :loading="regenSbImagesForAsset.has('char-' + char.id)"
                           :disabled="Boolean(storyboardMediaActionReason)"
+                          :title="storyboardMediaActionReason || undefined"
+                          :aria-label="regenSbImagesForAsset.has('char-' + char.id) ? '正在重新生成相关分镜图，请稍候' : (storyboardMediaActionReason || `重新生成${char.name || '未命名角色'}相关分镜图`)"
                           @click="emit('regen-affected-sb-images', 'char-' + char.id, getCharAffectedStoryboards(char.id))"
                         >
                           <span v-if="!regenSbImagesForAsset.has('char-' + char.id)">↻ 重新生成分镜图</span>
@@ -155,11 +157,11 @@
                       </div>
                     </div>
                     <div class="asset-cover-actions">
-                      <el-button type="primary" size="small" :loading="generatingCharIds.has(char.id)" :title="generatingCharIds.has(char.id) ? '正在生成角色图，请稍候' : undefined" @click="emit('generate-character-image', char)">
+                      <el-button type="primary" size="small" :loading="generatingCharIds.has(char.id)" :title="generatingCharIds.has(char.id) ? '正在生成角色图，请稍候' : undefined" :aria-label="generatingCharIds.has(char.id) ? '正在生成角色图，请稍候' : `AI 生成${char.name || '未命名角色'}图片`" @click="emit('generate-character-image', char)">
                         <el-icon v-if="!generatingCharIds.has(char.id)"><MagicStick /></el-icon>
                         AI 生成
                       </el-button>
-                      <el-button type="success" size="small" :loading="uploadingResourceId === 'char-' + char.id" @click="uploadResourceClick('character', char.id)">
+                      <el-button type="success" size="small" :loading="uploadingResourceId === 'char-' + char.id" :aria-label="uploadingResourceId === 'char-' + char.id ? '正在上传角色图，请稍候' : `上传${char.name || '未命名角色'}图片`" @click="uploadResourceClick('character', char.id)">
                         <el-icon v-if="uploadingResourceId !== 'char-' + char.id"><Upload /></el-icon>
                         上传
                       </el-button>

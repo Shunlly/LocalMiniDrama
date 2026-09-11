@@ -30,9 +30,10 @@
               :loading="extractingCharAppearance"
               :disabled="Boolean(extractCharAppearanceDisabledReason)"
               :title="extractCharAppearanceDisabledReason || undefined"
+              :aria-label="extractingCharAppearance ? '正在提取特征描述，请稍候' : (extractCharAppearanceDisabledReason || '提取特征描述')"
               @click="doExtractFromRef('character')"
             >提取特征描述</el-button>
-            <el-button size="small" @click="addCharRefImage = null">移除</el-button>
+            <el-button size="small" aria-label="移除待上传角色参考图" @click="addCharRefImage = null">移除</el-button>
           </div>
           <div v-else-if="editCharacterForm.ref_image" class="ref-actions">
             <el-button
@@ -41,9 +42,10 @@
               :loading="extractingCharAppearance"
               :disabled="Boolean(extractCharAppearanceDisabledReason)"
               :title="extractCharAppearanceDisabledReason || undefined"
+              :aria-label="extractingCharAppearance ? '正在提取描述，请稍候' : (extractCharAppearanceDisabledReason || '从参考图提取描述')"
               @click="doExtractCharFromImage"
             >从参考图提取描述</el-button>
-            <el-button size="small" @click="clearCharRefImage">移除参考图</el-button>
+            <el-button size="small" aria-label="移除角色参考图" @click="clearCharRefImage">移除参考图</el-button>
           </div>
           <div v-else-if="editCharacterForm.id && (editCharacterForm.image_url || editCharacterForm.local_path) && !editCharacterForm.appearance" class="ref-actions">
             <el-button
@@ -51,6 +53,7 @@
               :loading="extractingCharAppearance"
               :disabled="Boolean(extractCharAppearanceDisabledReason)"
               :title="extractCharAppearanceDisabledReason || undefined"
+              :aria-label="extractingCharAppearance ? '正在提取描述，请稍候' : (extractCharAppearanceDisabledReason || '从主图提取描述')"
               @click="doExtractCharFromImage"
             >从主图提取描述</el-button>
           </div>
@@ -84,6 +87,7 @@
               :loading="editCharacterPromptGenerating"
               :disabled="Boolean(generateCharacterPromptDisabledReason)"
               :title="generateCharacterPromptDisabledReason || undefined"
+              :aria-label="editCharacterPromptGenerating ? '正在生成提示词，请稍候' : (generateCharacterPromptDisabledReason || '重新生成提示词')"
               @click="doGenerateCharacterPrompt"
             >重新生成提示词</el-button>
           </div>
@@ -109,6 +113,7 @@
                 :loading="extractingAnchors"
                 :disabled="Boolean(extractIdentityAnchorsDisabledReason)"
                 :title="extractIdentityAnchorsDisabledReason || undefined"
+                :aria-label="extractingAnchors ? '正在提炼视觉锚点，请稍候' : (extractIdentityAnchorsDisabledReason || '提炼视觉锚点')"
                 @click="extractIdentityAnchors"
               >提炼视觉锚点</el-button>
             </ActionGate>
@@ -147,8 +152,8 @@
     </el-form>
     <p v-else class="char-edit-empty" role="status">角色信息还没有准备好。请点「取消」关闭后，再从角色列表重新打开。</p>
     <template #footer>
-      <el-button @click="requestCloseCharDialog">取消</el-button>
-      <el-button type="primary" :loading="editCharacterSaving" :disabled="Boolean(editCharacterSubmitDisabledReason)" :title="editCharacterSaving ? '正在保存角色，请稍候' : (editCharacterSubmitDisabledReason || undefined)" @click="submitEditCharacter">{{ editCharacterForm?.id ? '保存' : '添加' }}</el-button>
+      <el-button aria-label="取消编辑角色" @click="requestCloseCharDialog">取消</el-button>
+      <el-button type="primary" :loading="editCharacterSaving" :disabled="Boolean(editCharacterSubmitDisabledReason)" :title="editCharacterSaving ? '正在保存角色，请稍候' : (editCharacterSubmitDisabledReason || undefined)" :aria-label="editCharacterSaving ? '正在保存角色，请稍候' : (editCharacterSubmitDisabledReason || (editCharacterForm?.id ? '保存角色' : '添加角色'))" @click="submitEditCharacter">{{ editCharacterForm?.id ? '保存' : '添加' }}</el-button>
     </template>
   </AccessibleDialog>
 </template>

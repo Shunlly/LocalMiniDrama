@@ -44,7 +44,7 @@
         <div style="width:100%">
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
             <span style="font-size:12px;color:#909399">单图场景的完整图片提示词（不含四宫格布局），生图时直接使用；可手动修改</span>
-            <el-button size="small" :loading="editScenePromptGenerating" :title="editScenePromptGenerating ? '正在生成提示词，请稍候' : undefined" @click="doGenerateSceneSinglePrompt">重新生成提示词</el-button>
+            <el-button size="small" :loading="editScenePromptGenerating" :title="editScenePromptGenerating ? '正在生成提示词，请稍候' : undefined" :aria-label="editScenePromptGenerating ? '正在生成提示词，请稍候' : '重新生成单张提示词'" @click="doGenerateSceneSinglePrompt">重新生成提示词</el-button>
           </div>
           <el-input
             v-model="editSceneForm.polished_prompt_single"
@@ -63,7 +63,7 @@
         <div style="width:100%">
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
             <span style="font-size:12px;color:#909399">AI 生成的完整四视图图片提示词，生图时直接使用；可手动修改</span>
-            <el-button size="small" :loading="editScenePromptGenerating" :title="editScenePromptGenerating ? '正在生成提示词，请稍候' : undefined" @click="doGenerateScenePrompt">重新生成提示词</el-button>
+            <el-button size="small" :loading="editScenePromptGenerating" :title="editScenePromptGenerating ? '正在生成提示词，请稍候' : undefined" :aria-label="editScenePromptGenerating ? '正在生成提示词，请稍候' : '重新生成提示词'" @click="doGenerateScenePrompt">重新生成提示词</el-button>
           </div>
           <el-input
             v-model="editSceneForm.polished_prompt"
@@ -78,8 +78,8 @@
       </el-form-item>
     </el-form>
     <template #footer>
-      <el-button @click="showEditScene = false">取消</el-button>
-      <el-button type="primary" :loading="editSceneSaving" :disabled="!editSceneForm?.location?.trim()" :title="editSceneSaving ? '正在保存场景，请稍候' : (editSceneForm?.location?.trim() ? undefined : '请先填写地点')" @click="submitEditScene">{{ editSceneForm?.id ? '保存' : '添加' }}</el-button>
+      <el-button aria-label="取消编辑场景" @click="showEditScene = false">取消</el-button>
+      <el-button type="primary" :loading="editSceneSaving" :disabled="!editSceneForm?.location?.trim()" :title="editSceneSaving ? '正在保存场景，请稍候' : (editSceneForm?.location?.trim() ? undefined : '请先填写地点')" :aria-label="editSceneSaving ? '正在保存场景，请稍候' : (editSceneForm?.location?.trim() ? (editSceneForm?.id ? '保存场景' : '添加场景') : '请先填写地点')" @click="submitEditScene">{{ editSceneForm?.id ? '保存' : '添加' }}</el-button>
     </template>
   </AccessibleDialog>
 </template>

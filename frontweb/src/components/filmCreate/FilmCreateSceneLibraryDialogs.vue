@@ -17,17 +17,17 @@
               <div class="library-item-desc">{{ (item.description || item.prompt || '').slice(0, 60) }}{{ (item.description || item.prompt || '').length > 60 ? '…' : '' }}</div>
               <div class="library-item-actions">
                 <ActionGate :reason="addToEpisodeDisabledReason" label="加入本集">
-                  <el-button size="small" type="primary" :loading="isSceneAddToEpisodeLoading('library', item.id)" :disabled="Boolean(addToEpisodeDisabledReason)" :title="addToEpisodeDisabledReason || undefined" @click="onAddSceneFromLibrary(item)">加入本集</el-button>
+                  <el-button size="small" type="primary" :loading="isSceneAddToEpisodeLoading('library', item.id)" :disabled="Boolean(addToEpisodeDisabledReason)" :title="addToEpisodeDisabledReason || undefined" :aria-label="isSceneAddToEpisodeLoading('library', item.id) ? '正在将场景加入本集，请稍候' : (addToEpisodeDisabledReason || `将${item.location || item.time || '未命名场景'}加入本集`)" @click="onAddSceneFromLibrary(item)">加入本集</el-button>
                 </ActionGate>
-                <el-button size="small" @click="openEditSceneLibrary(item)">编辑</el-button>
-                <el-button size="small" type="danger" plain @click="onDeleteSceneLibrary(item)">删除</el-button>
+                <el-button size="small" :aria-label="`编辑公共场景${item.location || item.time || '未命名场景'}`" @click="openEditSceneLibrary(item)">编辑</el-button>
+                <el-button size="small" type="danger" plain :aria-label="`删除公共场景${item.location || item.time || '未命名场景'}`" @click="onDeleteSceneLibrary(item)">删除</el-button>
               </div>
             </div>
           </div>
           <div v-if="!sceneLibraryLoading && sceneLibraryList.length === 0" class="library-empty" role="status">
             <p>暂无本剧场景库记录，可将本剧场景「加入本剧库」后在此查看</p>
             <div class="library-empty-actions">
-              <el-button type="primary" @click="returnToScenePanel">去场景面板</el-button>
+              <el-button type="primary" aria-label="去场景面板" @click="returnToScenePanel">去场景面板</el-button>
             </div>
           </div>
         </div>
@@ -50,7 +50,7 @@
               <div class="library-item-desc">{{ (item.description || item.prompt || '').slice(0, 60) }}{{ (item.description || item.prompt || '').length > 60 ? '…' : '' }}</div>
               <div class="library-item-actions">
                 <ActionGate :reason="addToEpisodeDisabledReason" label="加入本集">
-                  <el-button size="small" type="primary" :loading="isSceneAddToEpisodeLoading('drama', item.id)" :disabled="Boolean(addToEpisodeDisabledReason)" :title="addToEpisodeDisabledReason || undefined" @click="onAddDramaSceneToEpisode(item)">加入本集</el-button>
+                  <el-button size="small" type="primary" :loading="isSceneAddToEpisodeLoading('drama', item.id)" :disabled="Boolean(addToEpisodeDisabledReason)" :title="addToEpisodeDisabledReason || undefined" :aria-label="isSceneAddToEpisodeLoading('drama', item.id) ? '正在将场景加入本集，请稍候' : (addToEpisodeDisabledReason || `将${item.location || item.time || '未命名场景'}加入本集`)" @click="onAddDramaSceneToEpisode(item)">加入本集</el-button>
                 </ActionGate>
               </div>
             </div>
@@ -58,7 +58,7 @@
           <div v-if="!dramaAllSceneLoading && dramaAllSceneList.length === 0" class="library-empty" role="status">
             <p>本剧暂无制作场景，请先在场景面板创建</p>
             <div class="library-empty-actions">
-              <el-button type="primary" @click="returnToScenePanel">创建场景</el-button>
+              <el-button type="primary" aria-label="创建场景" @click="returnToScenePanel">创建场景</el-button>
             </div>
           </div>
         </div>
@@ -68,7 +68,7 @@
       </el-tab-pane>
     </el-tabs>
     <template #footer>
-      <el-button @click="showSceneLibrary = false">关闭</el-button>
+      <el-button aria-label="关闭本剧场景库" @click="showSceneLibrary = false">关闭</el-button>
     </template>
   </AccessibleDialog>
   <!-- 编辑公共场景 -->
@@ -91,8 +91,8 @@
       </el-form-item>
     </el-form>
     <template #footer>
-      <el-button @click="showEditSceneLibrary = false">取消</el-button>
-      <el-button type="primary" :loading="editSceneLibrarySaving" :title="editSceneLibrarySaving ? '正在保存公共场景，请稍候' : undefined" @click="submitEditSceneLibrary">保存</el-button>
+      <el-button aria-label="取消编辑公共场景" @click="showEditSceneLibrary = false">取消</el-button>
+      <el-button type="primary" :loading="editSceneLibrarySaving" :title="editSceneLibrarySaving ? '正在保存公共场景，请稍候' : undefined" :aria-label="editSceneLibrarySaving ? '正在保存公共场景，请稍候' : '保存公共场景'" @click="submitEditSceneLibrary">保存</el-button>
     </template>
   </AccessibleDialog>
 </template>

@@ -2,14 +2,14 @@
 
               <div class="asset-actions">
                 <ActionGate :reason="scenesExtractionDisabledReason" label="从剧本提取场景">
-                  <el-button type="primary" size="small" :loading="scenesExtracting" :disabled="Boolean(scenesExtractionDisabledReason)" :title="scenesExtracting ? '正在提取场景，请稍候' : (scenesExtractionDisabledReason || undefined)" @click="emit('extract-scenes')">
+                  <el-button type="primary" size="small" :loading="scenesExtracting" :disabled="Boolean(scenesExtractionDisabledReason)" :title="scenesExtracting ? '正在提取场景，请稍候' : (scenesExtractionDisabledReason || undefined)" :aria-label="scenesExtracting ? '正在提取场景，请稍候' : (scenesExtractionDisabledReason || '从剧本提取场景')" @click="emit('extract-scenes')">
                     从剧本提取场景
                   </el-button>
                 </ActionGate>
                 <ActionGate :reason="projectActionDisabledReason" label="添加场景">
-                  <el-button size="small" :disabled="Boolean(projectActionDisabledReason)" :title="projectActionDisabledReason || undefined" @click="emit('add-scene')">添加场景</el-button>
+                  <el-button size="small" :disabled="Boolean(projectActionDisabledReason)" :title="projectActionDisabledReason || undefined" :aria-label="projectActionDisabledReason || '添加场景'" @click="emit('add-scene')">添加场景</el-button>
                 </ActionGate>
-                <el-button size="small" @click="emit('open-scene-library')">本剧场景库</el-button>
+                <el-button size="small" aria-label="打开本剧场景库" @click="emit('open-scene-library')">本剧场景库</el-button>
               </div>
               <div class="scene-gen-mode" style="margin: 8px 0; font-size: 13px;">
                 <el-checkbox v-model="sceneUseQuadGrid">生成四宫格场景（默认单图）</el-checkbox>
@@ -25,14 +25,14 @@
                     </div>
                     <div class="asset-desc-full">{{ scene.description || scene.prompt || scene.time || '暂无描述' }}</div>
                     <div class="asset-btns">
-                      <el-button size="small" @click="emit('edit-scene', scene)">编辑</el-button>
+                      <el-button size="small" :aria-label="`编辑场景${scene.location || '未命名场景'}`" @click="emit('edit-scene', scene)">编辑</el-button>
                       <ActionGate :reason="missingAssetImageReason(scene, 'scene')" label="加入本剧库">
-                        <el-button size="small" :loading="addingSceneToLibraryId === scene.id" :disabled="!hasAssetImage(scene)" @click="emit('add-scene-to-library', scene)">
+                        <el-button size="small" :loading="addingSceneToLibraryId === scene.id" :disabled="!hasAssetImage(scene)" :aria-label="addingSceneToLibraryId === scene.id ? '正在将场景加入本剧库，请稍候' : `将${scene.location || '未命名场景'}加入本剧库`" @click="emit('add-scene-to-library', scene)">
                           加入本剧库
                         </el-button>
                       </ActionGate>
                       <ActionGate :reason="missingAssetImageReason(scene, 'scene')" label="加入素材库">
-                        <el-button size="small" :loading="addingSceneToMaterialId === scene.id" :disabled="!hasAssetImage(scene)" @click="emit('add-scene-to-material', scene)">
+                        <el-button size="small" :loading="addingSceneToMaterialId === scene.id" :disabled="!hasAssetImage(scene)" :aria-label="addingSceneToMaterialId === scene.id ? '正在将场景加入素材库，请稍候' : `将${scene.location || '未命名场景'}加入素材库`" @click="emit('add-scene-to-material', scene)">
                           加入素材库
                         </el-button>
                       </ActionGate></div>
@@ -56,6 +56,8 @@
                           class="asl-regen-btn"
                           :loading="regenSbImagesForAsset.has('scene-' + scene.id)"
                           :disabled="Boolean(storyboardMediaActionReason)"
+                          :title="storyboardMediaActionReason || undefined"
+                          :aria-label="regenSbImagesForAsset.has('scene-' + scene.id) ? '正在重新生成相关分镜图，请稍候' : (storyboardMediaActionReason || `重新生成${scene.location || '未命名场景'}相关分镜图`)"
                           @click="emit('regen-affected-sb-images', 'scene-' + scene.id, getSceneAffectedStoryboards(scene.id))"
                         >
                           <span v-if="!regenSbImagesForAsset.has('scene-' + scene.id)">↻ 重新生成分镜图</span>
@@ -95,12 +97,12 @@
                     </div>
                     <div class="asset-cover-actions">
                       <el-tooltip :content="sceneUseQuadGrid ? '四宫格场景（正/侧/俯/仰）' : '单图场景'" placement="top">
-                        <el-button type="primary" size="small" :loading="generatingSceneIds.has(scene.id)" :title="generatingSceneIds.has(scene.id) ? '正在生成场景图，请稍候' : undefined" @click="emit('generate-scene-image', scene, sceneUseQuadGrid)">
+                        <el-button type="primary" size="small" :loading="generatingSceneIds.has(scene.id)" :title="generatingSceneIds.has(scene.id) ? '正在生成场景图，请稍候' : undefined" :aria-label="generatingSceneIds.has(scene.id) ? '正在生成场景图，请稍候' : `AI 生成${scene.location || '未命名场景'}图片`" @click="emit('generate-scene-image', scene, sceneUseQuadGrid)">
                           <el-icon v-if="!generatingSceneIds.has(scene.id)"><MagicStick /></el-icon>
                           AI 生成
                         </el-button>
                       </el-tooltip>
-                      <el-button type="success" size="small" :loading="uploadingResourceId === 'scene-' + scene.id" @click="uploadResourceClick('scene', scene.id)">
+                      <el-button type="success" size="small" :loading="uploadingResourceId === 'scene-' + scene.id" :aria-label="uploadingResourceId === 'scene-' + scene.id ? '正在上传场景图，请稍候' : `上传${scene.location || '未命名场景'}图片`" @click="uploadResourceClick('scene', scene.id)">
                         <el-icon v-if="uploadingResourceId !== 'scene-' + scene.id"><Upload /></el-icon>
                         上传
                       </el-button>

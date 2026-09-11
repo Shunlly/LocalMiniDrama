@@ -17,17 +17,17 @@
               <div class="library-item-desc">{{ (item.description || item.prompt || '').slice(0, 60) }}{{ (item.description || item.prompt || '').length > 60 ? '…' : '' }}</div>
               <div class="library-item-actions">
                 <ActionGate :reason="addToEpisodeDisabledReason" label="加入本集">
-                  <el-button size="small" type="primary" :loading="isPropAddToEpisodeLoading('library', item.id)" :disabled="Boolean(addToEpisodeDisabledReason)" :title="addToEpisodeDisabledReason || undefined" @click="onAddPropFromLibrary(item)">加入本集</el-button>
+                  <el-button size="small" type="primary" :loading="isPropAddToEpisodeLoading('library', item.id)" :disabled="Boolean(addToEpisodeDisabledReason)" :title="addToEpisodeDisabledReason || undefined" :aria-label="isPropAddToEpisodeLoading('library', item.id) ? '正在将道具加入本集，请稍候' : (addToEpisodeDisabledReason || `将${item.name || '未命名道具'}加入本集`)" @click="onAddPropFromLibrary(item)">加入本集</el-button>
                 </ActionGate>
-                <el-button size="small" @click="openEditPropLibrary(item)">编辑</el-button>
-                <el-button size="small" type="danger" plain @click="onDeletePropLibrary(item)">删除</el-button>
+                <el-button size="small" :aria-label="`编辑公共道具${item.name || '未命名道具'}`" @click="openEditPropLibrary(item)">编辑</el-button>
+                <el-button size="small" type="danger" plain :aria-label="`删除公共道具${item.name || '未命名道具'}`" @click="onDeletePropLibrary(item)">删除</el-button>
               </div>
             </div>
           </div>
           <div v-if="!propLibraryLoading && propLibraryList.length === 0" class="library-empty" role="status">
             <p>暂无本剧道具库记录，可将本剧道具「加入本剧库」后在此查看</p>
             <div class="library-empty-actions">
-              <el-button type="primary" @click="returnToPropPanel">去道具面板</el-button>
+              <el-button type="primary" aria-label="去道具面板" @click="returnToPropPanel">去道具面板</el-button>
             </div>
           </div>
         </div>
@@ -50,7 +50,7 @@
               <div class="library-item-desc">{{ (item.description || item.prompt || '').slice(0, 60) }}{{ (item.description || item.prompt || '').length > 60 ? '…' : '' }}</div>
               <div class="library-item-actions">
                 <ActionGate :reason="addToEpisodeDisabledReason" label="加入本集">
-                  <el-button size="small" type="primary" :loading="isPropAddToEpisodeLoading('drama', item.id)" :disabled="Boolean(addToEpisodeDisabledReason)" :title="addToEpisodeDisabledReason || undefined" @click="onAddDramaPropToEpisode(item)">加入本集</el-button>
+                  <el-button size="small" type="primary" :loading="isPropAddToEpisodeLoading('drama', item.id)" :disabled="Boolean(addToEpisodeDisabledReason)" :title="addToEpisodeDisabledReason || undefined" :aria-label="isPropAddToEpisodeLoading('drama', item.id) ? '正在将道具加入本集，请稍候' : (addToEpisodeDisabledReason || `将${item.name || '未命名道具'}加入本集`)" @click="onAddDramaPropToEpisode(item)">加入本集</el-button>
                 </ActionGate>
               </div>
             </div>
@@ -58,7 +58,7 @@
           <div v-if="!dramaAllPropLoading && dramaAllPropList.length === 0" class="library-empty" role="status">
             <p>本剧暂无制作道具，请先在道具面板创建</p>
             <div class="library-empty-actions">
-              <el-button type="primary" @click="returnToPropPanel">创建道具</el-button>
+              <el-button type="primary" aria-label="创建道具" @click="returnToPropPanel">创建道具</el-button>
             </div>
           </div>
         </div>
@@ -68,7 +68,7 @@
       </el-tab-pane>
     </el-tabs>
     <template #footer>
-      <el-button @click="showPropLibrary = false">关闭</el-button>
+      <el-button aria-label="关闭本剧道具库" @click="showPropLibrary = false">关闭</el-button>
     </template>
   </AccessibleDialog>
   <!-- 编辑公共道具 -->
@@ -88,8 +88,8 @@
       </el-form-item>
     </el-form>
     <template #footer>
-      <el-button @click="showEditPropLibrary = false">取消</el-button>
-      <el-button type="primary" :loading="editPropLibrarySaving" :title="editPropLibrarySaving ? '正在保存公共道具，请稍候' : undefined" @click="submitEditPropLibrary">保存</el-button>
+      <el-button aria-label="取消编辑公共道具" @click="showEditPropLibrary = false">取消</el-button>
+      <el-button type="primary" :loading="editPropLibrarySaving" :title="editPropLibrarySaving ? '正在保存公共道具，请稍候' : undefined" :aria-label="editPropLibrarySaving ? '正在保存公共道具，请稍候' : '保存公共道具'" @click="submitEditPropLibrary">保存</el-button>
     </template>
   </AccessibleDialog>
 </template>

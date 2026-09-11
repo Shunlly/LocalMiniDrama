@@ -32,8 +32,8 @@
       </el-form-item>
     </el-form>
     <template #footer>
-      <el-button @click="showAddProp = false">取消</el-button>
-      <el-button type="primary" :loading="addPropSaving" :disabled="!addPropForm.name.trim()" :title="addPropSaving ? '正在保存道具，请稍候' : (addPropForm.name.trim() ? undefined : '请先填写名称')" @click="submitAddProp">确定</el-button>
+      <el-button aria-label="取消添加道具" @click="showAddProp = false">取消</el-button>
+      <el-button type="primary" :loading="addPropSaving" :disabled="!addPropForm.name.trim()" :title="addPropSaving ? '正在保存道具，请稍候' : (addPropForm.name.trim() ? undefined : '请先填写名称')" :aria-label="addPropSaving ? '正在保存道具，请稍候' : (addPropForm.name.trim() ? '确定添加道具' : '请先填写名称')" @click="submitAddProp">确定</el-button>
     </template>
   </AccessibleDialog>
 
@@ -77,7 +77,7 @@
         <div style="width:100%">
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
             <span style="font-size:12px;color:#909399">AI 润色后的图片提示词，生成图片时直接使用；可手动修改</span>
-            <el-button size="small" :loading="editPropPromptGenerating" :title="editPropPromptGenerating ? '正在生成提示词，请稍候' : undefined" @click="doGeneratePropPrompt">重新生成提示词</el-button>
+            <el-button size="small" :loading="editPropPromptGenerating" :title="editPropPromptGenerating ? '正在生成提示词，请稍候' : undefined" :aria-label="editPropPromptGenerating ? '正在生成提示词，请稍候' : '重新生成提示词'" @click="doGeneratePropPrompt">重新生成提示词</el-button>
           </div>
           <el-input
             v-model="editPropForm.prompt"
@@ -91,8 +91,8 @@
       </el-form-item>
     </el-form>
     <template #footer>
-      <el-button @click="showEditProp = false">取消</el-button>
-      <el-button type="primary" :loading="editPropSaving" :disabled="!editPropForm?.name?.trim()" :title="editPropSaving ? '正在保存道具，请稍候' : (editPropForm?.name?.trim() ? undefined : '请先填写名称')" @click="submitEditProp">保存</el-button>
+      <el-button aria-label="取消编辑道具" @click="showEditProp = false">取消</el-button>
+      <el-button type="primary" :loading="editPropSaving" :disabled="!editPropForm?.name?.trim()" :title="editPropSaving ? '正在保存道具，请稍候' : (editPropForm?.name?.trim() ? undefined : '请先填写名称')" :aria-label="editPropSaving ? '正在保存道具，请稍候' : (editPropForm?.name?.trim() ? (editPropForm?.id ? '保存道具' : '添加道具') : '请先填写名称')" @click="submitEditProp">保存</el-button>
     </template>
   </AccessibleDialog>
 </template>

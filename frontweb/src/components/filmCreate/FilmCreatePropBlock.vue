@@ -2,12 +2,12 @@
 
               <div class="asset-actions">
                 <ActionGate :reason="propsExtractionDisabledReason" label="从剧本提取道具">
-                  <el-button type="primary" size="small" :loading="propsExtracting" :disabled="Boolean(propsExtractionDisabledReason)" :title="propsExtracting ? '正在提取道具，请稍候' : (propsExtractionDisabledReason || undefined)" @click="emit('extract-props')">从剧本提取道具</el-button>
+                  <el-button type="primary" size="small" :loading="propsExtracting" :disabled="Boolean(propsExtractionDisabledReason)" :title="propsExtracting ? '正在提取道具，请稍候' : (propsExtractionDisabledReason || undefined)" :aria-label="propsExtracting ? '正在提取道具，请稍候' : (propsExtractionDisabledReason || '从剧本提取道具')" @click="emit('extract-props')">从剧本提取道具</el-button>
                 </ActionGate>
                 <ActionGate :reason="projectActionDisabledReason" label="添加道具">
-                  <el-button size="small" :disabled="Boolean(projectActionDisabledReason)" :title="projectActionDisabledReason || undefined" @click="emit('add-prop')">添加道具</el-button>
+                  <el-button size="small" :disabled="Boolean(projectActionDisabledReason)" :title="projectActionDisabledReason || undefined" :aria-label="projectActionDisabledReason || '添加道具'" @click="emit('add-prop')">添加道具</el-button>
                 </ActionGate>
-                <el-button size="small" @click="emit('open-prop-library')">本剧道具库</el-button>
+                <el-button size="small" aria-label="打开本剧道具库" @click="emit('open-prop-library')">本剧道具库</el-button>
               </div>
               <div class="prop-gen-mode" style="margin: 8px 0; font-size: 13px;">
                 <el-checkbox v-model="propUseQuadGrid">生成四视图道具（默认单图，纯色无缝背景）</el-checkbox>
@@ -23,14 +23,14 @@
                     </div>
                     <div class="asset-desc-full">{{ prop.description || prop.prompt || '暂无描述' }}</div>
                     <div class="asset-btns">
-                      <el-button size="small" @click="emit('edit-prop', prop)">编辑</el-button>
+                      <el-button size="small" :aria-label="`编辑道具${prop.name || '未命名道具'}`" @click="emit('edit-prop', prop)">编辑</el-button>
                       <ActionGate :reason="missingAssetImageReason(prop, 'prop')" label="加入本剧库">
-                        <el-button size="small" :loading="addingPropToLibraryId === prop.id" :disabled="!hasAssetImage(prop)" @click="emit('add-prop-to-library', prop)">
+                        <el-button size="small" :loading="addingPropToLibraryId === prop.id" :disabled="!hasAssetImage(prop)" :aria-label="addingPropToLibraryId === prop.id ? '正在将道具加入本剧库，请稍候' : `将${prop.name || '未命名道具'}加入本剧库`" @click="emit('add-prop-to-library', prop)">
                           加入本剧库
                         </el-button>
                       </ActionGate>
                       <ActionGate :reason="missingAssetImageReason(prop, 'prop')" label="加入素材库">
-                        <el-button size="small" :loading="addingPropToMaterialId === prop.id" :disabled="!hasAssetImage(prop)" @click="emit('add-prop-to-material', prop)">
+                        <el-button size="small" :loading="addingPropToMaterialId === prop.id" :disabled="!hasAssetImage(prop)" :aria-label="addingPropToMaterialId === prop.id ? '正在将道具加入素材库，请稍候' : `将${prop.name || '未命名道具'}加入素材库`" @click="emit('add-prop-to-material', prop)">
                           加入素材库
                         </el-button>
                       </ActionGate></div>
@@ -54,6 +54,8 @@
                           class="asl-regen-btn"
                           :loading="regenSbImagesForAsset.has('prop-' + prop.id)"
                           :disabled="Boolean(storyboardMediaActionReason)"
+                          :title="storyboardMediaActionReason || undefined"
+                          :aria-label="regenSbImagesForAsset.has('prop-' + prop.id) ? '正在重新生成相关分镜图，请稍候' : (storyboardMediaActionReason || `重新生成${prop.name || '未命名道具'}相关分镜图`)"
                           @click="emit('regen-affected-sb-images', 'prop-' + prop.id, getPropAffectedStoryboards(prop.id))"
                         >
                           <span v-if="!regenSbImagesForAsset.has('prop-' + prop.id)">↻ 重新生成分镜图</span>
@@ -93,12 +95,12 @@
                     </div>
                     <div class="asset-cover-actions">
                       <el-tooltip :content="propUseQuadGrid ? '四视图道具（前/侧/后/顶，纯色无缝背景）' : '单图道具（纯色无缝背景）'" placement="top">
-                        <el-button type="primary" size="small" :loading="generatingPropIds.has(prop.id)" :title="generatingPropIds.has(prop.id) ? '正在生成道具图，请稍候' : undefined" @click="emit('generate-prop-image', prop, propUseQuadGrid)">
+                        <el-button type="primary" size="small" :loading="generatingPropIds.has(prop.id)" :title="generatingPropIds.has(prop.id) ? '正在生成道具图，请稍候' : undefined" :aria-label="generatingPropIds.has(prop.id) ? '正在生成道具图，请稍候' : `AI 生成${prop.name || '未命名道具'}图片`" @click="emit('generate-prop-image', prop, propUseQuadGrid)">
                           <el-icon v-if="!generatingPropIds.has(prop.id)"><MagicStick /></el-icon>
                           AI 生成
                         </el-button>
                       </el-tooltip>
-                      <el-button type="success" size="small" :loading="uploadingResourceId === 'prop-' + prop.id" @click="uploadResourceClick('prop', prop.id)">
+                      <el-button type="success" size="small" :loading="uploadingResourceId === 'prop-' + prop.id" :aria-label="uploadingResourceId === 'prop-' + prop.id ? '正在上传道具图，请稍候' : `上传${prop.name || '未命名道具'}图片`" @click="uploadResourceClick('prop', prop.id)">
                         <el-icon v-if="uploadingResourceId !== 'prop-' + prop.id"><Upload /></el-icon>
                         上传
                       </el-button>

@@ -16,6 +16,7 @@
             type="button"
             class="collapse-header"
             :aria-expanded="!resourcePanelCollapsed"
+            :aria-label="resourcePanelCollapsed ? '展开资源管理' : '收起资源管理'"
             aria-controls="resource-panel-body"
             @click="resourcePanelCollapsed = !resourcePanelCollapsed"
           >
@@ -31,6 +32,7 @@
                 type="button"
                 class="collapse-header resource-block-header"
                 :aria-expanded="!charactersBlockCollapsed"
+                :aria-label="charactersBlockCollapsed ? '展开角色' : '收起角色'"
                 aria-controls="characters-block-body"
                 @click="charactersBlockCollapsed = !charactersBlockCollapsed"
               >
@@ -74,6 +76,7 @@
                 type="button"
                 class="collapse-header resource-block-header"
                 :aria-expanded="!propsBlockCollapsed"
+                :aria-label="propsBlockCollapsed ? '展开道具' : '收起道具'"
                 aria-controls="props-block-body"
                 @click="propsBlockCollapsed = !propsBlockCollapsed"
               >
@@ -117,6 +120,7 @@
                 type="button"
                 class="collapse-header resource-block-header"
                 :aria-expanded="!scenesBlockCollapsed"
+                :aria-label="scenesBlockCollapsed ? '展开场景' : '收起场景'"
                 aria-controls="scenes-block-body"
                 @click="scenesBlockCollapsed = !scenesBlockCollapsed"
               >
