@@ -74,7 +74,7 @@ function buildModelArkContext(db, log, options = {}) {
         ready: false,
         row,
         settings,
-        diag: { db_model_ark_row_found: true, missing: 'base_url 或 api_key' },
+        diag: { db_model_ark_row_found: true, missing: '接口地址或密钥' },
       };
     }
   } else {
@@ -86,7 +86,7 @@ function buildModelArkContext(db, log, options = {}) {
         ready: false,
         row,
         settings,
-        diag: { db_model_ark_row_found: true, missing: 'base_url 或 AK/SK' },
+        diag: { db_model_ark_row_found: true, missing: '接口地址或访问密钥和签名密钥' },
       };
     }
   }
@@ -97,7 +97,7 @@ function buildModelArkContext(db, log, options = {}) {
       row,
       settings,
       callOpts,
-      diag: { db_model_ark_row_found: true, missing: 'asset_group_id（默认资产组 Id）' },
+      diag: { db_model_ark_row_found: true, missing: '默认资产组编号' },
     };
   }
 

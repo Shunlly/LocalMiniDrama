@@ -1,364 +1,54 @@
 <template>
   <div class="free-create-page">
-    <div class="page-header">
-      <div class="header-left">
-        <el-button text aria-label="返回项目首页" @click="goBack">
-          <el-icon><ArrowLeft /></el-icon>
-          项目首页
-        </el-button>
-        <h2 class="page-title">自由创作</h2>
-      </div>
-      <p class="page-desc">不绑定剧集，直接输入文字生成图片或视频</p>
-    </div>
+    <FreeCreateHeader @go-back="goBack" />
 
     <div class="create-layout">
-      <!-- 左侧：输入面板 -->
-      <div class="input-panel">
-        <el-tabs v-model="mode" class="mode-tabs">
-          <el-tab-pane name="image">
-            <template #label>
-              <span class="mode-tab-label"><el-icon><Picture /></el-icon>生成图片</span>
-            </template>
-          </el-tab-pane>
-          <el-tab-pane name="video">
-            <template #label>
-              <span class="mode-tab-label"><el-icon><VideoCamera /></el-icon>生成视频</span>
-            </template>
-          </el-tab-pane>
-        </el-tabs>
+      <FreeCreateInputPanel
+        ref="inputPanelRef"
+        v-model:mode="mode"
+        v-model:prompt="prompt"
+        v-model:style="style"
+        v-model:aspect-ratio="aspectRatio"
+        v-model:duration="duration"
+        :generation-capability="generationCapability"
+        :active-service-label="activeServiceLabel"
+        :aspect-ratio-options="aspectRatioOptions"
+        :ref-image-upload-status="refImageUploadStatus"
+        :ref-image-data-url="refImageDataUrl"
+        :ref-image-file-name="refImageFileName"
+        :ref-image-trigger-label="refImageTriggerLabel"
+        :ref-image-upload-message="refImageUploadMessage"
+        :generating="generating"
+        :generate-disabled="generateDisabled"
+        :generate-disabled-reason="generateDisabledReason"
+        :result-busy-disabled-reason="resultBusyDisabledReason"
+        @load-service-configs="loadServiceConfigs"
+        @open-ai-config="openAiConfig"
+        @generate="generate"
+        @trigger-ref-image-upload="triggerRefImageUpload"
+        @ref-image-drop="onRefImageDrop"
+        @ref-image-change="onRefImageChange"
+        @retry-ref-image-upload="retryRefImageUpload"
+        @clear-ref-image="clearRefImage"
+      />
 
-        <div
-          class="service-readiness"
-          :class="`is-${generationCapability.status}`"
-          role="status"
-          aria-live="polite"
-        >
-          <el-icon aria-hidden="true">
-            <Loading v-if="generationCapability.status === 'loading'" class="is-loading" />
-            <CircleCheck v-else-if="generationCapability.ready" />
-            <Warning v-else />
-          </el-icon>
-          <span>{{ generationCapability.message }}</span>
-          <el-button
-            v-if="generationCapability.status === 'error'"
-            link
-            type="primary"
-            @click="loadServiceConfigs"
-          >
-            重新检查
-          </el-button>
-          <el-button
-            v-if="generationCapability.status !== 'loading' && !generationCapability.ready"
-            link
-            type="primary"
-            @click="openAiConfig"
-          >
-            配置{{ activeServiceLabel }}服务
-          </el-button>
-        </div>
-
-        <div class="form-section">
-          <div class="form-label">提示词 <span class="required">*</span></div>
-          <el-input
-            v-model="prompt"
-            type="textarea"
-            :rows="5"
-            aria-label="提示词"
-            placeholder="描述你想要生成的画面内容..."
-            class="prompt-input"
-          />
-        </div>
-
-        <div v-if="mode === 'video'" class="form-section">
-          <div class="form-label">参考图（可选）</div>
-          <div
-            class="ref-image-zone"
-            :class="`is-${refImageUploadStatus}`"
-            :aria-busy="refImageUploadStatus === 'uploading'"
-            @dragover.prevent
-            @drop.prevent="onRefImageDrop"
-          >
-            <button
-              type="button"
-              class="ref-image-trigger"
-              :aria-label="refImageTriggerLabel"
-              :aria-describedby="refImageUploadStatus === 'idle' ? undefined : 'ref-image-upload-status'"
-              :disabled="refImageUploadStatus === 'uploading'"
-              :title="refImageUploadStatus === 'uploading' ? '正在上传参考图，请稍候' : undefined"
-              @click="triggerRefImageUpload"
-            >
-              <template v-if="refImageUploadStatus === 'success' && refImageDataUrl">
-                <img :src="refImageDataUrl" class="ref-preview" alt="当前视频参考图" />
-              </template>
-              <template v-else-if="refImageUploadStatus === 'uploading'">
-                <el-icon class="upload-icon is-loading" aria-hidden="true"><Loading /></el-icon>
-                <span class="upload-tip">正在上传 {{ refImageFileName }}</span>
-              </template>
-              <template v-else-if="refImageUploadStatus === 'error'">
-                <el-icon class="upload-icon is-error" aria-hidden="true"><CircleClose /></el-icon>
-                <span class="upload-tip is-error">参考图上传失败</span>
-              </template>
-              <template v-else>
-                <el-icon class="upload-icon" aria-hidden="true"><Picture /></el-icon>
-                <span class="upload-tip">点击或拖拽上传参考图</span>
-              </template>
-            </button>
-          </div>
-        </div>
-
-        <div
-          v-if="refImageUploadStatus !== 'idle'"
-          id="ref-image-upload-status"
-          ref="refImageUploadStatusRef"
-          class="ref-upload-status"
-          :class="`is-${refImageUploadStatus}`"
-          :role="refImageUploadStatus === 'error' ? 'alert' : 'status'"
-          :aria-live="refImageUploadStatus === 'error' ? 'assertive' : 'polite'"
-          :tabindex="refImageUploadStatus === 'error' ? -1 : undefined"
-        >
-          <el-icon aria-hidden="true">
-            <Loading v-if="refImageUploadStatus === 'uploading'" class="is-loading" />
-            <CircleCheck v-else-if="refImageUploadStatus === 'success'" />
-            <CircleClose v-else />
-          </el-icon>
-          <span class="ref-upload-message">{{ refImageUploadMessage }}</span>
-          <div class="ref-actions">
-            <el-button
-              v-if="refImageUploadStatus === 'error'"
-              size="small"
-              type="primary"
-              plain
-              @click="retryRefImageUpload"
-            >
-              重试上传
-            </el-button>
-            <el-button
-              v-if="refImageUploadStatus !== 'uploading'"
-              size="small"
-              type="danger"
-              plain
-              @click="clearRefImage"
-            >
-              移除
-            </el-button>
-            <el-button v-else size="small" plain @click="clearRefImage">取消上传</el-button>
-          </div>
-        </div>
-        <input
-          ref="refImageInput"
-          class="visually-hidden"
-          type="file"
-          accept="image/*"
-          :disabled="refImageUploadStatus === 'uploading'"
-          :title="refImageUploadStatus === 'uploading' ? '正在上传参考图，请稍候' : undefined"
-          @change="onRefImageChange"
-        />
-
-        <div class="form-section form-row">
-          <div class="form-item">
-            <div class="form-label">风格</div>
-            <el-input v-model="style" aria-label="风格" placeholder="例如：电影感 cinematic、日式动漫 anime…" />
-          </div>
-          <div class="form-item">
-            <div class="form-label">{{ mode === 'video' ? '视频比例' : '画面比例' }}</div>
-            <el-radio-group
-              v-if="mode === 'video'"
-              v-model="aspectRatio"
-              aria-label="视频画面比例"
-              class="aspect-ratio-group"
-            >
-              <el-radio-button
-                v-for="option in aspectRatioOptions"
-                :key="option.value"
-                :label="option.value"
-              >
-                {{ option.label }}
-              </el-radio-button>
-            </el-radio-group>
-            <el-select v-else v-model="aspectRatio" aria-label="画面比例">
-              <el-option
-                v-for="option in aspectRatioOptions"
-                :key="option.value"
-                :label="option.label"
-                :value="option.value"
-              />
-            </el-select>
-          </div>
-          <div v-if="mode === 'video'" class="form-item">
-            <div class="form-label">时长</div>
-            <el-select v-model="duration" aria-label="视频时长">
-              <el-option label="3秒" :value="3" />
-              <el-option label="5秒" :value="5" />
-              <el-option label="8秒" :value="8" />
-              <el-option label="10秒" :value="10" />
-            </el-select>
-          </div>
-        </div>
-
-        <div
-          class="generate-action"
-          :tabindex="generateDisabledReason ? 0 : undefined"
-          :aria-label="generateDisabledReason ? `${mode === 'image' ? '生成图片' : '生成视频'}不可用：${generateDisabledReason}` : undefined"
-        >
-          <el-button
-            type="primary"
-            size="large"
-            :loading="generating"
-            :disabled="generateDisabled"
-            :title="(generating ? resultBusyDisabledReason : generateDisabledReason) || undefined"
-            :aria-describedby="generateDisabledReason ? 'free-create-generate-reason' : undefined"
-            class="generate-btn"
-            @click="generate"
-          >
-            {{ generating ? '生成中...' : (mode === 'image' ? '生成图片' : '生成视频') }}
-          </el-button>
-          <p
-            v-if="generateDisabledReason"
-            id="free-create-generate-reason"
-            class="generate-disabled-reason"
-            data-testid="generate-disabled-reason"
-            role="status"
-          >
-            {{ generateDisabledReason }}
-          </p>
-        </div>
-      </div>
-
-      <!-- 右侧：结果展示 -->
-      <div class="result-panel">
-        <div class="result-header">
-          <span class="result-title">生成结果</span>
-          <el-button
-            v-if="results.length > 0"
-            size="small"
-            plain
-            :loading="cancelling"
-            :disabled="cancelling"
-            :title="cancelling ? resultBusyDisabledReason : undefined"
-            @click="clearResults"
-          >
-            {{ generating ? '取消并清空' : '清空' }}
-          </el-button>
-        </div>
-
-        <div v-if="results.length === 0 && !generating" class="empty-result">
-          <el-icon class="empty-icon">
-            <Picture v-if="mode === 'image'" />
-            <VideoCamera v-else />
-          </el-icon>
-          <p>{{ emptyResultCopy }}</p>
-          <el-button
-            v-if="generationCapability.status === 'error'"
-            size="small"
-            type="primary"
-            plain
-            @click="loadServiceConfigs"
-          >
-            重新检查服务
-          </el-button>
-        </div>
-
-        <div v-if="generating" class="generating-tip">
-          <el-icon class="is-loading"><Loading /></el-icon>
-          <span>{{ cancelling ? '正在取消生成...' : '正在生成，请稍候...' }}</span>
-          <el-button
-            type="danger"
-            size="small"
-            plain
-            :loading="cancelling"
-            :disabled="cancelling"
-            :title="cancelling ? resultBusyDisabledReason : undefined"
-            @click="cancelGeneration"
-          >
-            <el-icon v-if="!cancelling"><CircleClose /></el-icon>
-            <span>取消生成</span>
-          </el-button>
-        </div>
-
-        <div class="result-grid">
-          <div v-for="(item, idx) in results" :key="idx" class="result-item">
-            <div class="result-media">
-              <video
-                v-if="item.type === 'video' && item.url"
-                :src="item.url"
-                controls
-                class="result-video"
-                loop
-                :aria-label="`第 ${idx + 1} 个生成视频`"
-              />
-              <button
-                v-else-if="item.type === 'image' && item.url"
-                type="button"
-                class="result-image-button"
-                :aria-label="`预览${resultImageAlt(item, idx)}`"
-                @click="openImagePreview(item, idx)"
-              >
-                <img :src="item.url" class="result-image" :alt="resultImageAlt(item, idx)" />
-              </button>
-              <div v-else-if="item.status === 'pending' || item.status === 'processing'" class="media-loading">
-                <el-icon class="is-loading"><Loading /></el-icon>
-                <span>{{ item.status === 'processing' ? '生成中...' : '排队中...' }}</span>
-              </div>
-              <div v-else-if="item.status === 'failed'" class="media-error">
-                <el-icon><CircleClose /></el-icon>
-                <span>{{ item.error || '生成失败' }}</span>
-                <el-button
-                  size="small"
-                  type="primary"
-                  plain
-                  :disabled="generating || cancelling"
-                  :title="resultBusyDisabledReason || undefined"
-                  @click="retryGeneration(item)"
-                >
-                  重试
-                </el-button>
-              </div>
-              <div v-else-if="item.status === 'cancelled'" class="media-cancelled">
-                <el-icon><CircleClose /></el-icon>
-                <span>{{ item.error || '生成已取消' }}</span>
-                <el-button
-                  size="small"
-                  type="primary"
-                  plain
-                  :disabled="generating || cancelling"
-                  :title="resultBusyDisabledReason || undefined"
-                  @click="retryGeneration(item)"
-                >
-                  重试
-                </el-button>
-              </div>
-              <div v-else class="media-error">
-                <el-icon><CircleClose /></el-icon>
-                <span>{{ item.error || '暂无生成结果' }}</span>
-                <el-button
-                  v-if="canRetryItem(item)"
-                  size="small"
-                  type="primary"
-                  plain
-                  :disabled="generating || cancelling"
-                  :title="resultBusyDisabledReason || undefined"
-                  @click="retryGeneration(item)"
-                >
-                  重试
-                </el-button>
-              </div>
-            </div>
-            <div class="result-meta">
-              <span class="result-prompt">{{ item.prompt }}</span>
-              <div class="result-actions">
-                <el-button
-                  v-if="item.url"
-                  size="small"
-                  plain
-                  :disabled="generating || cancelling"
-                  :title="resultBusyDisabledReason || undefined"
-                  @click="downloadItem(item)"
-                >下载</el-button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
+      <FreeCreateResultPanel
+        :results="results"
+        :generating="generating"
+        :cancelling="cancelling"
+        :mode="mode"
+        :empty-result-copy="emptyResultCopy"
+        :generation-capability="generationCapability"
+        :result-busy-disabled-reason="resultBusyDisabledReason"
+        :result-image-alt="resultImageAlt"
+        :can-retry-item="canRetryItem"
+        @clear-results="clearResults"
+        @load-service-configs="loadServiceConfigs"
+        @cancel-generation="cancelGeneration"
+        @retry-generation="retryGeneration"
+        @download-item="downloadItem"
+        @preview-image="openImagePreview"
+      />
     </div>
 
     <ImagePreviewDialog
@@ -373,7 +63,6 @@
 import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { ElMessage } from '@/utils/elementPlusFeedback.js'
-import { ArrowLeft, CircleCheck, Picture, Loading, CircleClose, VideoCamera, Warning } from '@element-plus/icons-vue'
 import { aiAPI } from '@/api/ai'
 import { imagesAPI } from '@/api/images'
 import { taskAPI } from '@/api/task'
@@ -381,6 +70,9 @@ import { videosAPI } from '@/api/videos'
 import { uploadAPI } from '@/api/upload'
 import { generationSettingsAPI } from '@/api/prompts'
 import ImagePreviewDialog from '@/components/ImagePreviewDialog.vue'
+import FreeCreateHeader from '@/components/freeCreate/FreeCreateHeader.vue'
+import FreeCreateInputPanel from '@/components/freeCreate/FreeCreateInputPanel.vue'
+import FreeCreateResultPanel from '@/components/freeCreate/FreeCreateResultPanel.vue'
 import { getServiceConfigReadiness } from '@/utils/aiServiceReadiness'
 import {
   buildFreeCreateGenerationPayload,
@@ -407,14 +99,23 @@ const activeTaskId = ref('')
 const results = ref([])
 const showImagePreview = ref(false)
 const previewImage = ref({ src: '', alt: '生成图片预览' })
+const inputPanelRef = ref(null)
 const refImageDataUrl = ref(null)
 const refImageLocalPath = ref(null)
-const refImageInput = ref(null)
 const refImageFile = ref(null)
 const refImageFileName = ref('参考图')
 const refImageUploadStatus = ref('idle')
 const refImageUploadError = ref('')
-const refImageUploadStatusRef = ref(null)
+const refImageInput = {
+  get value() {
+    return inputPanelRef.value?.refImageInput ?? null
+  },
+}
+const refImageUploadStatusRef = {
+  get value() {
+    return inputPanelRef.value?.refImageUploadStatusRef ?? null
+  },
+}
 let refImageUploadAttempt = 0
 /** 与后端视频异步超时一致（分钟 → 毫秒） */
 const videoPollMaxMs = ref(30 * 60 * 1000)
@@ -1034,424 +735,9 @@ async function pollVideoTask(taskId, item, run) {
   padding: 20px;
 }
 
-.page-header {
-  margin-bottom: 20px;
-}
-
-.header-left {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 6px;
-}
-
-.page-title {
-  font-size: 22px;
-  font-weight: 600;
-  color: #1a1a2e;
-  margin: 0;
-}
-
-.page-desc {
-  color: #6b7280;
-  font-size: 14px;
-  margin: 0;
-}
-
 .create-layout {
   display: flex;
   gap: 20px;
   align-items: flex-start;
 }
-
-.input-panel {
-  width: 380px;
-  flex-shrink: 0;
-  background: #fff;
-  border-radius: 12px;
-  padding: 20px;
-  box-shadow: 0 2px 8px rgba(0,0,0,.06);
-}
-
-.mode-tabs {
-  margin-bottom: 16px;
-}
-
-.mode-tab-label {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.service-readiness {
-  min-height: 40px;
-  margin: -6px 0 16px;
-  padding: 9px 10px;
-  border: 1px solid #d1d5db;
-  border-radius: 6px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: #4b5563;
-  font-size: 13px;
-}
-
-.service-readiness span {
-  min-width: 0;
-  flex: 1;
-  overflow-wrap: anywhere;
-}
-
-.service-readiness.is-ready {
-  border-color: #86efac;
-  background: #f0fdf4;
-  color: #166534;
-}
-
-.service-readiness.is-missing,
-.service-readiness.is-error {
-  border-color: #fcd34d;
-  background: #fffbeb;
-  color: #92400e;
-}
-
-.form-section {
-  margin-bottom: 16px;
-}
-
-.form-label {
-  font-size: 13px;
-  font-weight: 500;
-  color: #374151;
-  margin-bottom: 6px;
-}
-
-.required {
-  color: #ef4444;
-}
-
-.prompt-input :deep(.el-textarea__inner) {
-  font-size: 14px;
-}
-
-.form-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-}
-
-.form-item {
-  flex: 1;
-  min-width: 100px;
-}
-
-.form-item .el-select {
-  width: 100%;
-}
-
-.aspect-ratio-group {
-  display: flex;
-  width: 100%;
-}
-
-.aspect-ratio-group :deep(.el-radio-button) {
-  flex: 1 1 0;
-}
-
-.aspect-ratio-group :deep(.el-radio-button__inner) {
-  width: 100%;
-  padding: 8px 0;
-}
-
-.ref-image-zone {
-  border: 2px dashed #d1d5db;
-  border-radius: 8px;
-  padding: 0;
-  text-align: center;
-  transition: border-color .2s;
-  min-height: 100px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  position: relative;
-}
-
-.ref-image-zone:hover,
-.ref-image-zone:focus-within {
-  border-color: #409eff;
-}
-
-.ref-image-zone.is-error {
-  border-color: #f87171;
-  background: #fef2f2;
-}
-
-.ref-image-zone.is-success {
-  border-color: #86efac;
-}
-
-.ref-image-trigger {
-  width: 100%;
-  min-height: 96px;
-  padding: 20px;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  cursor: pointer;
-}
-
-.ref-image-trigger:disabled {
-  cursor: wait;
-}
-
-.ref-image-trigger:focus-visible {
-  outline: 2px solid #2563eb;
-  outline-offset: -4px;
-}
-
-.ref-preview {
-  max-width: 100%;
-  max-height: 150px;
-  border-radius: 6px;
-}
-
-.upload-icon {
-  font-size: 28px;
-  color: #9ca3af;
-}
-
-.upload-icon.is-error,
-.upload-tip.is-error {
-  color: #b91c1c;
-}
-
-.upload-tip {
-  font-size: 12px;
-  color: #9ca3af;
-  max-width: 100%;
-  overflow-wrap: anywhere;
-}
-
-.ref-upload-status {
-  min-height: 40px;
-  margin: -8px 0 16px;
-  padding: 8px 10px;
-  border: 1px solid #d1d5db;
-  border-radius: 6px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: #4b5563;
-  font-size: 12px;
-}
-
-.ref-upload-status.is-success {
-  border-color: #86efac;
-  background: #f0fdf4;
-  color: #166534;
-}
-
-.ref-upload-status.is-error {
-  border-color: #f87171;
-  background: #fef2f2;
-  color: #991b1b;
-}
-
-.ref-upload-status:focus-visible {
-  outline: 2px solid #b91c1c;
-  outline-offset: 2px;
-}
-
-.ref-upload-message {
-  min-width: 0;
-  flex: 1;
-  overflow-wrap: anywhere;
-}
-
-.ref-actions {
-  flex: 0 0 auto;
-  display: flex;
-  gap: 6px;
-}
-
-.visually-hidden {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
-  white-space: nowrap;
-  border: 0;
-}
-
-.generate-action {
-  width: 100%;
-  margin-top: 4px;
-}
-
-.generate-action:focus-visible {
-  outline: 2px solid #2563eb;
-  outline-offset: 2px;
-}
-
-.generate-btn {
-  width: 100%;
-}
-
-.generate-disabled-reason {
-  margin: 8px 0 0;
-  color: #b45309;
-  font-size: 12px;
-  line-height: 1.5;
-}
-
-.empty-result p {
-  margin: 0;
-  max-width: 22em;
-  text-align: center;
-  overflow-wrap: anywhere;
-}
-
-.result-panel {
-  flex: 1;
-  background: #fff;
-  border-radius: 12px;
-  padding: 20px;
-  box-shadow: 0 2px 8px rgba(0,0,0,.06);
-  min-height: 400px;
-}
-
-.result-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 16px;
-}
-
-.result-title {
-  font-size: 16px;
-  font-weight: 600;
-  color: #1a1a2e;
-}
-
-.empty-result {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  height: 300px;
-  color: #9ca3af;
-  gap: 12px;
-}
-
-.empty-icon {
-  font-size: 48px;
-}
-
-.generating-tip {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: #409eff;
-  font-size: 14px;
-  margin-bottom: 12px;
-}
-
-.result-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: 16px;
-}
-
-.result-item {
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
-  overflow: hidden;
-}
-
-.result-media {
-  background: #f9fafb;
-  aspect-ratio: 16/9;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-}
-
-.result-image {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-}
-
-.result-image-button {
-  width: 100%;
-  height: 100%;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  cursor: zoom-in;
-}
-
-.result-image-button:focus-visible {
-  outline: 3px solid #2563eb;
-  outline-offset: -3px;
-}
-
-.result-video {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.media-loading,
-.media-error,
-.media-cancelled {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  color: #6b7280;
-  font-size: 12px;
-}
-
-.media-error {
-  color: #ef4444;
-}
-
-.media-cancelled {
-  color: #6b7280;
-}
-
-.result-meta {
-  padding: 8px 10px;
-}
-
-.result-prompt {
-  font-size: 12px;
-  color: #6b7280;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-.result-actions {
-  margin-top: 6px;
-  display: flex;
-  gap: 6px;
-}
-
 </style>

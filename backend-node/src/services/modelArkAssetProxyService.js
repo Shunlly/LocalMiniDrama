@@ -254,7 +254,7 @@ async function callModelArkAsset(opts, log) {
       throw new Error('控制面 OpenAPI 须填写访问密钥和签名密钥（控制台 IAM 密钥，不是推理密钥）');
     }
     if (pathMode !== 'open_api_query') {
-      throw new Error('AK/SK 签名仅支持与「官方 OpenAPI」路径模式一起使用');
+      throw new Error('访问密钥签名仅支持与「官方 OpenAPI」路径模式一起使用');
     }
     res = await fetchSignedOpenApi({
       base,

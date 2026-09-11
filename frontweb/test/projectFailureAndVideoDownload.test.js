@@ -15,6 +15,7 @@ import { useFilmCreateDeliveryActions } from '../src/composables/filmCreate/useF
 import { useFilmCreateProjectLoad } from '../src/composables/filmCreate/useFilmCreateProjectLoad.js'
 import { useFilmCreateStoryboardMedia } from '../src/composables/filmCreate/useFilmCreateStoryboardMedia.js'
 import { remainingImportedFunctionSource } from './helpers/remainingSourceBetween.js'
+import { readFilmCreateResourceDialogTree } from './helpers/filmCreateResourceDialogSources.js'
 
 import { ref } from 'vue'
 import { useCanvasEpisodeGenerate } from '../src/composables/useCanvasEpisodeGenerate.js'
@@ -29,9 +30,13 @@ assert.notEqual(STORYBOARD_OK_ID, STORYBOARD_FAIL_ID)
 
 const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8')
 const dramaDetailSource = read('../src/views/DramaDetail.vue')
+const dramaDetailHeaderSource = read('../src/components/dramaDetail/DramaDetailHeader.vue')
+const dramaDetailLoadStateSource = read('../src/components/dramaDetail/DramaDetailLoadState.vue')
+const dramaDetailInfoCardSource = read('../src/components/dramaDetail/DramaDetailInfoCard.vue')
+const dramaDetailChromeSource = [dramaDetailSource, dramaDetailHeaderSource, dramaDetailLoadStateSource, dramaDetailInfoCardSource].join('\n')
 const filmCreateSource = read('../src/views/FilmCreate.vue')
 const deliveryPanelSource = read('../src/components/filmCreate/FilmCreateDeliveryPanel.vue')
-const resourceDialogsSource = read('../src/components/filmCreate/FilmCreateResourceDialogs.vue')
+const resourceDialogsSource = readFilmCreateResourceDialogTree(read)
 const filmCreateHeaderSource = read('../src/components/filmCreate/FilmCreateHeader.vue')
 const filmCreateQuickNavSource = read('../src/components/filmCreate/FilmCreateQuickNav.vue')
 const filmCreateLoadStateSource = read('../src/components/filmCreate/FilmCreateProjectLoadState.vue')
@@ -176,10 +181,10 @@ function installBlobDownloadEnvironment() {
 
 test('project pages keep core load failures outside every editable project surface', () => {
   for (const [name, source] of [
-    ['DramaDetail', dramaDetailSource],
+    ['DramaDetail', dramaDetailChromeSource],
     ['FilmCreate', filmCreateChromeSource],
   ]) {
-    const parsed = parse(name === 'FilmCreate' ? filmCreateSource : source, { filename: name + '.vue' })
+    const parsed = parse(name === 'FilmCreate' ? filmCreateSource : dramaDetailSource, { filename: name + '.vue' })
     assert.deepEqual(parsed.errors, [], name + ' must remain a valid Vue SFC')
     assert.match(source, /role="alert"/)
     assert.match(source, /项目数据没有被删除/)
@@ -191,9 +196,11 @@ test('project pages keep core load failures outside every editable project surfa
   assert.match(dramaDetailSource, /dramaLoadFailureRef\.value\?\.focus\(\)/)
   assert.match(remainingImportedFunctionSource(useFilmCreateProjectLoad), /LoadFailureRef\.value\?\.focus\(\)/)
 
-  assert.match(dramaDetailSource, /<template v-else-if="isDramaReady">[\s\S]*剧集信息/)
+  assert.match(dramaDetailSource, /<template v-else-if="isDramaReady">[\s\S]*<DramaDetailInfoCard/)
+  assert.match(dramaDetailInfoCardSource, /剧集信息/)
   assert.match(dramaDetailSource, /<template v-if="isDramaReady">\s*<DramaDetailResourceDialogs v-bind="resourceDialogsBindings"/)
-  assert.match(dramaDetailSource, /<el-tooltip[\s\S]*v-if="isDramaReady"[\s\S]*content="请先新增一集，再进入制作"[\s\S]*:disabled="!currentEpisodeId"[\s\S]*@click="goCreate"/)
+  assert.match(dramaDetailHeaderSource, /<el-tooltip[\s\S]*v-if="isDramaReady"[\s\S]*content="请先新增一集，再进入制作"[\s\S]*:disabled="!currentEpisodeId"[\s\S]*emit\('go-create'\)/)
+  assert.match(dramaDetailSource, /@go-create="goCreate"/)
 
   assert.match(filmCreateSource, /<FilmCreateQuickNav[\s\S]*v-if="projectLoadState === 'ready'"/)
   assert.match(filmCreateLoadStateSource, /<main v-if="state === 'loading'"/)
@@ -204,7 +211,7 @@ test('project pages keep core load failures outside every editable project surfa
   assert.match(filmCreateSource, /@open-ai-config="openAiConfig"/)
   assert.match(filmCreateHeaderSource, /:disabled="projectLoadState !== 'ready'"[\s\S]*open-ai-config/)
   assert.match(filmCreateLoadStateSource, /v-if="!notFound"[\s\S]*重试加载/)
-  assert.match(dramaDetailSource, /v-if="!dramaLoadNotFound"[\s\S]*重试加载/)
+  assert.match(dramaDetailLoadStateSource, /v-if="!notFound"[\s\S]*重试加载/)
 })
 
 test('core drama request failures use stable page state instead of raw request toasts', async () => {

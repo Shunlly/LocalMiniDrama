@@ -3,7 +3,6 @@ const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
 const net = require('net');
-const { randomUUID } = require('crypto');
 const { getDb, closeDb } = require('./db/index.js');
 const { loadConfig } = require('./config/index.js');
 const logger = require('./logger.js');
@@ -77,11 +76,10 @@ function securityHeaders(_req, res, next) {
 }
 
 function requestContext(req, res, next) {
-  const supplied = String(req.headers?.['x-request-id'] || '').trim();
-  const requestId = /^[A-Za-z0-9._:-]{1,128}$/.test(supplied) ? supplied : randomUUID();
+  const requestId = response.resolveRequestId(req, res);
   req.requestId = requestId;
   res.setHeader('X-Request-Id', requestId);
-  next();
+  logger.runWithRequestId(requestId, () => next());
 }
 
 function createBackgroundTaskContextMiddleware(tasks = backgroundTasks, log = logger) {
@@ -474,12 +472,14 @@ function classifyLogCategory(error, status) {
     || code === 'ECONNABORTED'
     || code === 'UND_ERR_CONNECT_TIMEOUT'
     || code === 'TIMEOUT'
+    || name === 'TimeoutError'
   ) {
     return 'timeout';
   }
   if (
     code === 'ERR_CANCELED'
     || code === 'ABORT_ERR'
+    || code === 'OPERATION_CANCELLED'
     || name === 'AbortError'
     || name === 'CanceledError'
   ) {
@@ -499,13 +499,30 @@ function classifyLogCategory(error, status) {
   return 'unknown';
 }
 
+function isSafePublicServerError(body) {
+  if (!body || typeof body !== 'object' || Array.isArray(body) || body.success !== false) return false;
+  const topKeys = Object.keys(body).filter((key) => key !== 'timestamp');
+  if (topKeys.some((key) => !['success', 'error', 'request_id'].includes(key))) return false;
+  const err = body.error;
+  if (!err || typeof err !== 'object' || Array.isArray(err)) return false;
+  if (Object.keys(err).some((key) => !['code', 'message', 'request_id'].includes(key))) return false;
+  return err.message === '服务器内部错误'
+    || err.message === '请求超时，请稍后重试'
+    || err.message === '操作已取消';
+}
+
 function createProductionErrorResponseSanitizer(options = {}) {
   const production = options.production ?? process.env.NODE_ENV === 'production';
   return (req, res, next) => {
     const sendJson = res.json.bind(res);
     res.json = (body) => {
-      const requestId = req.requestId || randomUUID();
-      if (production && res.statusCode === 500) {
+      const requestId = response.resolveRequestId(req, res);
+      req.requestId = requestId;
+      if (!res.headersSent && typeof res.setHeader === 'function') {
+        res.setHeader('X-Request-Id', requestId);
+      }
+      const sanitized = response.attachRequestIdToErrorBody(sanitizePublicErrorBody(body), requestId);
+      if (production && res.statusCode === 500 && !isSafePublicServerError(sanitized)) {
         return sendJson({
           success: false,
           error: {
@@ -517,7 +534,7 @@ function createProductionErrorResponseSanitizer(options = {}) {
           timestamp: new Date().toISOString(),
         });
       }
-      return sendJson(sanitizePublicErrorBody(body));
+      return sendJson(sanitized);
     };
     return next();
   };
@@ -560,6 +577,12 @@ function classifyExpectedError(error) {
   ) {
     return { status: 400, code: code || 'BAD_REQUEST', message: error.message || '请求无效' };
   }
+  if (
+    error?.type === 'entity.parse.failed'
+    || (error instanceof SyntaxError && Number(error?.status || error?.statusCode) === 400)
+  ) {
+    return { status: 400, code: 'REQUEST_REJECTED', message: '请求数据格式无效' };
+  }
   const status = Number(error?.status || error?.statusCode);
   if (Number.isInteger(status) && status >= 400 && status < 500) {
     return { status, code: code || 'REQUEST_REJECTED', message: error.message || '请求被拒绝' };
@@ -570,13 +593,25 @@ function classifyExpectedError(error) {
 function createErrorHandler(log, options = {}) {
   const production = options.production ?? process.env.NODE_ENV === 'production';
   return (err, req, res, next) => {
-    const requestId = req.requestId || randomUUID();
+    const requestId = response.resolveRequestId(req, res);
+    req.requestId = requestId;
+    if (!res.headersSent && typeof res.setHeader === 'function') {
+      res.setHeader('X-Request-Id', requestId);
+    }
     const expected = classifyExpectedError(err);
     const status = expected?.status || 500;
     const code = expected?.code || 'INTERNAL_ERROR';
     const category = classifyLogCategory(err, status);
-    const rawMessage = expected?.message || (production ? '服务器内部错误' : (err?.message || '服务器内部错误'));
-    const message = stripUserFacingStack(rawMessage) || (production ? '服务器内部错误' : '服务器内部错误');
+    const fallback = '服务器内部错误';
+    let rawMessage;
+    if (category === 'timeout') {
+      rawMessage = '请求超时，请稍后重试';
+    } else if (category === 'cancel') {
+      rawMessage = '操作已取消';
+    } else {
+      rawMessage = expected?.message || (production ? fallback : (err?.message || fallback));
+    }
+    const message = stripUserFacingStack(rawMessage) || fallback;
     log.errorw?.('Unhandled request error', {
       request_id: requestId,
       method: req.method,
@@ -591,6 +626,7 @@ function createErrorHandler(log, options = {}) {
       log.operation?.({
         operation: 'http_request',
         operationId: requestId,
+        request_id: requestId,
         phase: category === 'cancel' ? 'cancel' : 'error',
         method: req.method,
         path: req.path,

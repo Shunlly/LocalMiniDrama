@@ -15,63 +15,29 @@
     </div>
 
     <div v-if="compactCompletionVisible" data-testid="source-workflow-complete" class="source-workflow-complete">
-      <div class="workflow-complete-heading">
-        <strong>{{ completionTitle }}</strong>
-        <span>{{ qaPresentation.scoreLabel }}</span>
-      </div>
-      <div v-if="completionSummaryReady" class="workflow-complete-metrics" aria-label="完成摘要">
-        <span><small>QA</small><strong>{{ qaPresentation.statusLabel }}</strong></span>
-        <span><small>分集</small><strong>{{ completionEpisodeCount }} 集</strong></span>
-        <span><small>轨道</small><strong>{{ timelineSummary.trackCount }} 轨</strong></span>
-        <span><small>时长</small><strong>{{ formatDuration(timelineSummary.durationSec) }}</strong></span>
-        <span><small>占位</small><strong>{{ completionPlaceholderCount }} 项</strong></span>
-      </div>
-      <p v-else class="workflow-complete-pending" role="status" aria-live="polite">
-        交付摘要整理中，轨道、时长和占位统计将在时间线加载后显示。
-      </p>
-      <div class="workflow-complete-actions">
-        <el-button type="primary" @click="$emit('enter-production')">进入制作</el-button>
-        <el-button plain @click="$emit('focus-episode-list')">查看分集</el-button>
-        <el-button
-          class="workflow-history-toggle"
-          text
-          :aria-controls="'source-workflow-history'"
-          :aria-expanded="workflowHistoryExpanded"
-          @click="workflowHistoryExpanded = !workflowHistoryExpanded"
-        >
-          <el-icon><ArrowUp v-if="workflowHistoryExpanded" /><ArrowDown v-else /></el-icon>
-          流程记录
-        </el-button>
-      </div>
+      <SourceIntakeCompletionBanner
+        :completion-title="completionTitle"
+        :qa-presentation="qaPresentation"
+        :completion-summary-ready="completionSummaryReady"
+        :completion-episode-count="completionEpisodeCount"
+        :timeline-summary="timelineSummary"
+        :format-duration="formatDuration"
+        :completion-placeholder-count="completionPlaceholderCount"
+        v-model:workflow-history-expanded="workflowHistoryExpanded"
+        @enter-production="$emit('enter-production')"
+        @focus-episode-list="$emit('focus-episode-list')"
+      />
     </div>
 
     <div
       id="source-workflow-history"
       v-show="!compactCompletionVisible || workflowHistoryExpanded"
     >
-    <nav class="flow-stepper" aria-label="素材处理步骤">
-      <button
-        v-for="step in flowState.steps"
-        :key="step.id"
-        type="button"
-        class="flow-step"
-        :class="[
-          `is-${step.status}`,
-          { 'is-current': flowState.activeStepId === step.id },
-          { 'is-selected': inspectedFlowStep.id === step.id },
-        ]"
-        :aria-current="flowState.activeStepId === step.id ? 'step' : undefined"
-        :aria-pressed="inspectedFlowStep.id === step.id"
-        @click="selectFlowStep(step.id)"
-      >
-        <span class="flow-step-number">{{ step.status === 'done' ? '✓' : step.number }}</span>
-        <span class="flow-step-copy">
-          <strong>{{ step.label }}</strong>
-          <small>{{ step.statusLabel }}</small>
-          <small class="flow-step-summary">{{ step.summary }}</small>
-        </span>
-      </button>
-    </nav>
+    <SourceIntakeStepper
+      :flow-state="flowState"
+      :inspected-flow-step="inspectedFlowStep"
+      @select="selectFlowStep"
+    />
 
     <div
       v-if="workflowDataError"
@@ -519,10 +485,12 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from '@/utils/elementPlusFeedback.js'
+import SourceIntakeCompletionBanner from '@/components/sourceIntake/SourceIntakeCompletionBanner.vue'
 import SourceIntakeRunRecordsPanel from '@/components/sourceIntake/SourceIntakeRunRecordsPanel.vue'
 import SourceIntakeSourceDetailDrawer from '@/components/sourceIntake/SourceIntakeSourceDetailDrawer.vue'
 import SourceIntakeSourceTextPanel from '@/components/sourceIntake/SourceIntakeSourceTextPanel.vue'
-import { ArrowDown, ArrowUp, Setting } from '@element-plus/icons-vue'
+import SourceIntakeStepper from '@/components/sourceIntake/SourceIntakeStepper.vue'
+import { Setting } from '@element-plus/icons-vue'
 import ActionGate from '@/components/filmCreate/ActionGate.vue'
 import { sourceIntakeAPI as rawSourceIntakeAPI } from '@/api/sourceIntake'
 import { workflowRunsAPI as rawWorkflowRunsAPI } from '@/api/workflowRuns'
@@ -1784,96 +1752,6 @@ onBeforeUnmount(() => {
   background: rgba(127, 29, 29, 0.16);
   color: #fecaca;
 }
-.flow-stepper {
-  display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 10px;
-  margin: 0 0 18px;
-}
-.flow-step {
-  appearance: none;
-  min-width: 0;
-  min-height: 88px;
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  padding: 12px;
-  border: 1px solid rgba(63, 63, 70, 0.7);
-  background: rgba(18, 18, 22, 0.48);
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-.flow-step:focus-visible {
-  outline: 2px solid var(--el-color-primary);
-  outline-offset: 2px;
-}
-.flow-step.is-selected {
-  border-color: var(--el-text-color-secondary);
-  outline: 1px solid var(--el-text-color-secondary);
-  outline-offset: -2px;
-}
-
-.flow-step.is-selected:focus-visible {
-  outline: 2px solid var(--el-color-primary);
-  outline-offset: 2px;
-}
-.flow-step.is-current {
-  background: rgba(139, 92, 246, 0.12);
-  box-shadow: inset 3px 0 0 var(--el-color-primary);
-}
-.flow-step-number {
-  width: 24px;
-  height: 24px;
-  flex: 0 0 24px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid #52525b;
-  border-radius: 50%;
-  color: var(--source-text-muted);
-  font-size: 11px;
-  font-weight: 700;
-}
-.flow-step-copy {
-  min-width: 0;
-  display: grid;
-  gap: 2px;
-}
-.flow-step-copy strong {
-  color: #e4e4e7;
-  font-size: 12px;
-  font-weight: 600;
-}
-.flow-step-copy small {
-  color: var(--source-text-muted);
-  font-size: 10px;
-  line-height: 1.35;
-}
-.flow-step-summary {
-  display: -webkit-box;
-  overflow: hidden;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-}
-.flow-step.is-done .flow-step-number {
-  border-color: #22c55e;
-  color: var(--status-success);
-  background: rgba(34, 197, 94, 0.12);
-}
-.flow-step.is-active .flow-step-number,
-.flow-step.is-ready .flow-step-number {
-  border-color: #8b5cf6;
-  color: #c4b5fd;
-  background: rgba(139, 92, 246, 0.14);
-}
-.flow-step.is-error .flow-step-number,
-.flow-step.is-blocked .flow-step-number {
-  border-color: #ef4444;
-  color: #fca5a5;
-  background: rgba(239, 68, 68, 0.12);
-}
 .workflow-focus {
   display: grid;
   gap: 12px;
@@ -2314,18 +2192,6 @@ html.light .poll-status-banner.is-error {
   border-color: rgba(239, 68, 68, 0.24);
   color: #b91c1c;
 }
-html.light .flow-step {
-  background: #f8fafc;
-  border-color: #e5e7eb;
-}
-html.light .flow-step.is-selected {
-  border-color: #94a3b8;
-  outline-color: #94a3b8;
-}
-html.light .flow-step.is-current {
-  background: rgba(99, 102, 241, 0.08);
-}
-html.light .flow-step-copy strong,
 html.light .stage-heading strong,
 html.light .block-head,
 html.light .step-name,
@@ -2360,7 +2226,6 @@ html.light .detail-row {
   border-bottom-color: #e5e7eb;
 }
 @media (max-width: 900px) {
-  .flow-stepper,
   .intake-stage-layout,
   .form-row {
     grid-template-columns: 1fr;
@@ -2385,65 +2250,5 @@ html.light .detail-row {
   border-bottom: 1px solid var(--el-border-color);
 }
 
-.workflow-complete-heading,
-.workflow-complete-metrics,
-.workflow-complete-actions {
-  min-width: 0;
-}
-
-.workflow-complete-heading {
-  display: grid;
-  gap: 4px;
-}
-
-.workflow-complete-heading strong {
-  font-size: 15px;
-  color: var(--source-text-primary);
-}
-
-.workflow-complete-heading span,
-.workflow-complete-metrics small {
-  color: var(--source-text-muted);
-  font-size: 12px;
-}
-
-.workflow-complete-metrics {
-  display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.workflow-complete-metrics span {
-  display: grid;
-  gap: 2px;
-  min-width: 0;
-}
-
-.workflow-complete-metrics strong {
-  overflow: hidden;
-  color: var(--source-text-secondary);
-  font-size: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.workflow-complete-pending {
-  margin: 0;
-  color: var(--source-text-muted);
-  font-size: 12px;
-  line-height: 1.6;
-}
-
-.workflow-complete-actions {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 6px;
-}
-
-.workflow-history-toggle:focus-visible {
-  outline: 2px solid var(--el-color-primary);
-  outline-offset: 2px;
-}
 
 </style>

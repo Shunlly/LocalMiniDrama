@@ -28,12 +28,14 @@ function readSource(url) {
 }
 
 const vueSource = readSource(new URL('../src/components/AIConfigContent.vue', import.meta.url))
+const formDialogSource = readSource(new URL('../src/components/aiConfig/AiConfigFormDialog.vue', import.meta.url))
 const oneKeyDialogSource = readSource(new URL('../src/components/aiConfig/AiConfigOneKeyDialogs.vue', import.meta.url))
 const bulkKeyDialogSource = readSource(new URL('../src/components/aiConfig/AiConfigBulkKeyDialog.vue', import.meta.url))
 const connectionDialogSource = readSource(new URL('../src/components/aiConfig/AiConfigConnectionTestDialog.vue', import.meta.url))
 const jimeng2AssetsDialogSource = readSource(new URL('../src/components/aiConfig/AiConfigJimeng2AssetsDialog.vue', import.meta.url))
 const overlaySource = [
   vueSource,
+  formDialogSource,
   oneKeyDialogSource,
   bulkKeyDialogSource,
   connectionDialogSource,
@@ -148,11 +150,13 @@ function createMemoryStorage() {
 
 test('AIConfigContent wires coverage, model list and preset help components without extracting loadList', () => {
   assert.match(vueSource, /import AiConfigCoverageCards from '@\/components\/aiConfig\/AiConfigCoverageCards\.vue'/)
-  assert.match(vueSource, /import AiConfigModelListSection from '@\/components\/aiConfig\/AiConfigModelListSection\.vue'/)
-  assert.match(vueSource, /import AiConfigPresetHelpCollapse from '@\/components\/aiConfig\/AiConfigPresetHelpCollapse\.vue'/)
+  assert.match(vueSource, /import AiConfigFormDialog from '@\/components\/aiConfig\/AiConfigFormDialog\.vue'/)
+  assert.match(overlaySource, /import AiConfigModelListSection from '@\/components\/aiConfig\/AiConfigModelListSection\.vue'/)
+  assert.match(overlaySource, /import AiConfigPresetHelpCollapse from '@\/components\/aiConfig\/AiConfigPresetHelpCollapse\.vue'/)
   assert.match(vueSource, /<AiConfigCoverageCards/)
-  assert.match(vueSource, /<AiConfigModelListSection/)
-  assert.match(vueSource, /<AiConfigPresetHelpCollapse/)
+  assert.match(vueSource, /<AiConfigFormDialog/)
+  assert.match(overlaySource, /<AiConfigModelListSection/)
+  assert.match(overlaySource, /<AiConfigPresetHelpCollapse/)
   assert.match(vueSource, /async function loadList\(\)/)
   assert.match(vueSource, /async function openTest\(row\)/)
   assert.match(vueSource, /useAiConfigGenerationSettings\(/)
@@ -174,15 +178,15 @@ test('AIConfigContent wires coverage, model list and preset help components with
 
 test('AI config dialog keeps advanced API settings collapsed by default', () => {
   assert.match(vueSource, /const advancedFormSections = ref\(\[\]\)/)
-  assert.match(vueSource, /<el-collapse v-model="advancedFormSections" class="advanced-config-collapse">/)
-  assert.match(vueSource, /<strong>高级接口设置<\/strong>/)
+  assert.match(overlaySource, /<el-collapse v-model="advancedFormSections" class="advanced-config-collapse">/)
+  assert.match(overlaySource, /<strong>高级接口设置<\/strong>/)
 })
 
 test('AI config dialog stays grouped into basic, provider, model, and policy sections', () => {
-  assert.match(vueSource, /<h4>基础信息<\/h4>/)
-  assert.match(vueSource, /<h4>厂商与认证<\/h4>/)
-  assert.match(vueSource, /<h4>模型<\/h4>/)
-  assert.match(vueSource, /<h4>调用策略<\/h4>/)
+  assert.match(overlaySource, /<h4>基础信息<\/h4>/)
+  assert.match(overlaySource, /<h4>厂商与认证<\/h4>/)
+  assert.match(overlaySource, /<h4>模型<\/h4>/)
+  assert.match(overlaySource, /<h4>调用策略<\/h4>/)
 })
 
 test('service coverage panel exposes summary cards and per-service action links', () => {
@@ -519,15 +523,15 @@ test('project readiness service links are consumed as an AI configuration filter
 })
 
 test('ComfyUI configuration exposes a validated workflow editor and persists the parsed object', () => {
-  assert.match(vueSource, /v-if="isComfyUiForm" prop="comfy_workflow_json" label="工作流 JSON"/)
+  assert.match(overlaySource, /v-if="isComfyUiForm" prop="comfy_workflow_json" label="工作流 JSON"/)
   assert.match(formSettingsSource, /function parseComfyWorkflowJson\(value\)/)
   assert.match(submitPayloadSource, /settingsObject\.workflow = parseComfyWorkflowJson\(form\.comfy_workflow_json\)/)
   assert.match(submitPayloadSource, /delete settingsObject\.workflow/)
 })
 
 test('AI config dialog confirms before discarding unsaved provider or model changes', () => {
-  assert.match(vueSource, /:before-close="confirmConfigDialogClose"/)
-  assert.match(vueSource, /@click="requestConfigDialogClose"/)
+  assert.match(overlaySource, /:before-close="confirmConfigDialogClose"/)
+  assert.match(overlaySource, /@click="requestConfigDialogClose"/)
   assert.match(vueSource, /const configFormDirty = computed/)
   assert.match(vueSource, /configFormFingerprint\(\) !== configFormBaseline\.value/)
   assert.match(vueSource, /当前 AI 配置尚未保存/)
@@ -608,11 +612,11 @@ test('AI config import keeps a successful server import unconfirmed until list r
 })
 
 test('coverage repair actions open and focus the concrete missing configuration field', async () => {
-  assert.match(vueSource, /ref="apiKeyInputRef"[\s\S]*v-model="form\.api_key"/)
+  assert.match(overlaySource, /:ref="bindApiKeyInputRef"[\s\S]*v-model="form\.api_key"/)
   assert.match(vueSource, /function setModelListInputRef\(element\)/)
   assert.match(vueSource, /model: modelListInputRef/)
   assert.match(modelListSource, /:ref="setModelListInputRef"[\s\S]*v-model="form\.modelText"/)
-  assert.match(vueSource, /ref="workflowInputRef"[\s\S]*v-model="form\.comfy_workflow_json"/)
+  assert.match(overlaySource, /:ref="bindWorkflowInputRef"[\s\S]*v-model="form\.comfy_workflow_json"/)
   assert.match(vueSource, /async function openEdit\(row, \{ repairIssue = '' \} = \{\}\)[\s\S]*applyAiConfigRepairTarget\(repairIssue/)
   assert.match(vueSource, /credentials: apiKeyInputRef/)
   assert.match(vueSource, /model: modelListInputRef/)
@@ -727,7 +731,7 @@ test('AI 配置保存、导入和连接测试失败不再直出 e.message', () =
   assert.match(generationSettingsSource, /if \(isUserFacingAbort\(e\)\) return\s*ElMessage\.error\(toUserFacingError\(e, '保存失败'\)\)/)
   assert.match(importExportSource, /if \(isUserFacingAbort\(e\)\) return\s*ElMessage\.error\(toUserFacingError\(e, '导入失败'\)\)/)
   assert.match(listMutationsSource, /toUserFacingError\(error, '删除失败'/)
-  assert.match(vueSource, /configFieldDisplayLabel\(item\.label\)/)
+  assert.match(overlaySource, /configFieldDisplayLabel\(item\.label\)/)
   assert.match(connectionTestSource, /toUserFacingError\(error, '暂时无法完成连接测试，请稍后重试。'/)
   assert.match(vueSource, /isUserFacingAbort\(e, controller\.signal\)/)
   assert.match(generationSettingsSource, /runWithOwnedRequestErrorToast\(\(\) => generationSettingsAPI\.update/)
@@ -739,9 +743,9 @@ test('AI 配置保存、导入和连接测试失败不再直出 e.message', () =
 
 
 test('AI 配置厂商和模型选择保留中文空状态、无障碍名称，以及删除/保存确认', () => {
-  const providerTag = vueSource.match(/<el-select[^>]*data-ai-config-field="provider"[^>]*>/)?.[0]
+  const providerTag = overlaySource.match(/<el-select[^>]*data-ai-config-field="provider"[^>]*>/)?.[0]
   const modelPickTag = modelListSource.match(/<el-select[^>]*aria-label="追加预设模型"[^>]*>/)?.[0]
-  const defaultModelTags = [...vueSource.matchAll(/<el-select[^>]*data-ai-config-field="default_model"[^>]*>/g)].map((item) => item[0])
+  const defaultModelTags = [...overlaySource.matchAll(/<el-select[^>]*data-ai-config-field="default_model"[^>]*>/g)].map((item) => item[0])
   assert.ok(providerTag, 'missing provider select')
   assert.ok(modelPickTag, 'missing preset model select')
   assert.equal(defaultModelTags.length, 2)
@@ -759,8 +763,8 @@ test('AI 配置厂商和模型选择保留中文空状态、无障碍名称，�
   assert.match(providerOptionsSource, /当前厂商没有预设模型，可直接输入模型名。/)
   assert.match(vueSource, /:aria-label="configActionLabel\('测试', row\)"/)
   assert.match(vueSource, /:aria-label="configActionLabel\('删除', row\)"/)
-  assert.match(vueSource, /aria-label="保存配置"/)
-  assert.match(vueSource, /@click="submit">保存<\/el-button>/)
+  assert.match(overlaySource, /aria-label="保存配置"/)
+  assert.match(overlaySource, /@click="submit">保存<\/el-button>/)
   assert.match(submitPayloadSource, /title: '保存确认'/)
   assert.match(submitPayloadSource, /confirmButtonText: '确认保存'/)
   assert.match(vueSource, /copy.title/)
@@ -773,6 +777,7 @@ test('AI 配置厂商和模型选择保留中文空状态、无障碍名称，�
 
 
 test('即梦素材库弹窗去掉接口路径，列名和时间改为中文', () => {
+  assert.match(vueSource, /<AiConfigFormDialog/)
   assert.match(vueSource, /<AiConfigJimeng2AssetsDialog/)
   assert.match(vueSource, /v-model:jimeng2-assets-dialog-visible="jimeng2AssetsDialogVisible"/)
   assert.match(jimeng2AssetsDialogSource, /v-model="jimeng2AssetsDialogVisible"\s+title="素材库列表"/)
@@ -809,24 +814,25 @@ test('即梦素材库弹窗去掉接口路径，列名和时间改为中文', ()
 })
 
 test('AI 配置页 GET 帮助、429 说明和一键配置空密钥禁用改为中文，写锁优先', () => {
-  assert.doesNotMatch(vueSource, /GET \/api/)
-  assert.doesNotMatch(vueSource, /POST \/api\/business/)
-  assert.doesNotMatch(vueSource, /storage\.base_url/)
-  assert.match(vueSource, /调用网关的素材列表接口/)
-  assert.match(vueSource, /网关地址与令牌/)
-  assert.match(vueSource, /素材登记接口/)
-  assert.match(vueSource, /对外访问地址/)
+  assert.doesNotMatch(overlaySource, /GET \/api/)
+  assert.doesNotMatch(overlaySource, /POST \/api\/business/)
+  assert.doesNotMatch(overlaySource, /storage\.base_url/)
+  assert.match(overlaySource, /调用网关的素材列表接口/)
+  assert.match(overlaySource, /网关地址与令牌/)
+  assert.match(overlaySource, /素材登记接口/)
+  assert.match(overlaySource, /对外访问地址/)
   assert.doesNotMatch(vueSource, /429 错误/)
   assert.match(vueSource, /接口限流（请求过于频繁）/)
   assert.match(vueSource, /async function loadList\(\)/)
   assert.match(vueSource, /async function openTest\(row\)/)
+  assert.match(vueSource, /<AiConfigFormDialog/)
   assert.match(vueSource, /<AiConfigOneKeyDialogs/)
   assert.match(vueSource, /<AiConfigBulkKeyDialog/)
   assert.match(vueSource, /<AiConfigConnectionTestDialog/)
   assert.match(vueSource, /<AiConfigJimeng2AssetsDialog/)
   assert.doesNotMatch(vueSource, /useAiConfigList/)
   assert.doesNotMatch(vueSource, /from '@\/composables\/useAiConfigList/)
-  for (const overlay of [oneKeyDialogSource, bulkKeyDialogSource, connectionDialogSource, jimeng2AssetsDialogSource]) {
+  for (const overlay of [formDialogSource, oneKeyDialogSource, bulkKeyDialogSource, connectionDialogSource, jimeng2AssetsDialogSource]) {
     assert.doesNotMatch(overlay, /async function loadList\(/)
     assert.doesNotMatch(overlay, /async function openTest\(/)
     assert.doesNotMatch(overlay, /useAiConfigList/)

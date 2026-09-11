@@ -20,6 +20,14 @@ function nowIso() {
   return new Date().toISOString();
 }
 
+function productionProviderTypeLabel(providerType) {
+  if (providerType === 'image') return '图片供应商';
+  if (providerType === 'video') return '视频供应商';
+  if (providerType === 'tts') return '配音供应商';
+  if (providerType === 'compositor') return '合成供应商';
+  return '供应商';
+}
+
 function toJson(value) {
   return JSON.stringify(value == null ? {} : value);
 }
@@ -528,10 +536,10 @@ function assertProductionReadiness(db, params = {}) {
   const mediaTools = validateFfmpegTools();
   const missing = [];
   if (!storyboards.length) missing.push('分镜');
-  if (!assetImageConfig) missing.push('素材图 Provider');
-  if (!imageConfig) missing.push('分镜图 Provider');
-  if (!videoConfig) missing.push('视频 Provider');
-  if (needsTts && !ttsConfig) missing.push('TTS Provider');
+  if (!assetImageConfig) missing.push('素材图供应商');
+  if (!imageConfig) missing.push('分镜图供应商');
+  if (!videoConfig) missing.push('视频供应商');
+  if (needsTts && !ttsConfig) missing.push('配音供应商');
   if (!mediaTools.ok) missing.push('FFmpeg/FFprobe');
   if (missing.length) {
     throw new Error(`生产工作流尚未就绪，缺少：${missing.join('、')}`);
@@ -580,7 +588,7 @@ function recordFailedInvocation(db, params, providerType, providerName, model) {
     idempotency_key: params.call_key ? `${params.call_key}:${providerType}:failed` : null,
     input: { drama_id: params.drama_id, call_key: params.call_key || null },
     output: {},
-    error_message: `${providerType} Provider 请求失败`,
+    error_message: `${productionProviderTypeLabel(providerType)}请求失败，请稍后重试`,
   });
 }
 
@@ -771,7 +779,7 @@ async function generateAssetBibleImagesProduction(db, log, params) {
     params.asset_image_provider,
     'image'
   );
-  if (!config) throw new Error('素材图 Provider 不可用，请在「AI 配置」中启用图片模型');
+  if (!config) throw new Error('素材图供应商不可用，请在「AI 配置」中启用图片模型');
   const provider = config.provider || params.asset_image_provider || 'openai';
   const model = configuredModel(config, params.asset_image_model, 'image');
   const targets = [

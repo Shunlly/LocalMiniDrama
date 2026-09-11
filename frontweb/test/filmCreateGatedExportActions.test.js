@@ -10,7 +10,12 @@ import { remainingExtractNamedFunction } from './helpers/remainingSourceBetween.
 const storyboardPanel = readFileSync(new URL('../src/components/filmCreate/FilmCreateStoryboardPanel.vue', import.meta.url), 'utf8') + '\n' + readFileSync(new URL('../src/components/filmCreate/FilmCreateStoryboardPanel.css', import.meta.url), 'utf8')
 const storyboardConfigBar = readFileSync(new URL('../src/components/filmCreate/FilmCreateStoryboardConfigBar.vue', import.meta.url), 'utf8')
 const scriptWorkbench = readFileSync(new URL('../src/components/filmCreate/FilmCreateScriptWorkbench.vue', import.meta.url), 'utf8')
-const resourcePanel = readFileSync(new URL('../src/components/filmCreate/FilmCreateResourcePanel.vue', import.meta.url), 'utf8')
+const resourcePanel = [
+  readFileSync(new URL('../src/components/filmCreate/FilmCreateResourcePanel.vue', import.meta.url), 'utf8'),
+  readFileSync(new URL('../src/components/filmCreate/FilmCreateCharacterBlock.vue', import.meta.url), 'utf8'),
+  readFileSync(new URL('../src/components/filmCreate/FilmCreatePropBlock.vue', import.meta.url), 'utf8'),
+  readFileSync(new URL('../src/components/filmCreate/FilmCreateSceneBlock.vue', import.meta.url), 'utf8'),
+].join('\n')
 const outputSection = readFileSync(new URL('../src/components/filmCreate/FilmCreateOutputSection.vue', import.meta.url), 'utf8')
 const deliveryPanel = readFileSync(new URL('../src/components/filmCreate/FilmCreateDeliveryPanel.vue', import.meta.url), 'utf8')
 const warningSource = readFileSync(new URL('../src/components/filmCreate/FilmCreateProjectDependencyWarning.vue', import.meta.url), 'utf8')

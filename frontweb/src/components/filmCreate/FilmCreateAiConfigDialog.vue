@@ -11,7 +11,7 @@
   >
     <template #header="{ titleId, titleClass }">
       <div class="ai-config-dialog-header">
-        <el-button class="ai-config-dialog-back" text @click="emit('back')">
+        <el-button class="ai-config-dialog-back" text aria-label="返回制作" @click="emit('back')">
           <el-icon><ArrowLeft /></el-icon>
           <span>返回制作</span>
         </el-button>

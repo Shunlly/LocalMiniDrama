@@ -729,11 +729,11 @@ function formatSd2HubError(errMsg, hubCtx) {
   if (!isHubAuthTokenError(out)) return out;
   const diag = hubCtx?.hubAuthDiag || {};
   const parts = [
-    `即梦2素材库拒绝了当前 Token（${out}）。`,
-    '请在「AI 配置」→「即梦2角色认证」中重新粘贴与 curl 测试完全相同的密钥并点击保存（勿带 Bearer 前缀、勿多空格）。',
+    `即梦2素材库拒绝了当前密钥（${out}）。`,
+    '请在「AI 配置」→「即梦2角色认证」中重新粘贴与接口测试完全相同的密钥并点击保存（不要带鉴权前缀、不要多空格）。',
     '保存前可用「列出素材」验证；若列出成功而 SD2 仍失败，说明未保存或存在多条配置未设为默认。',
   ];
-  if (diag.db_config_id != null) parts.push(`当前读取的配置：id=${diag.db_config_id}${diag.db_config_name ? `「${diag.db_config_name}」` : ''}。`);
+  if (diag.db_config_id != null) parts.push(`当前读取的配置编号：${diag.db_config_id}${diag.db_config_name ? `「${diag.db_config_name}」` : ''}。`);
   return parts.join('');
 }
 
@@ -787,8 +787,8 @@ function resolveSd2RegisterProvider(cfg, db, log) {
 function sd2ConfigMissingError(hubCtx, arkCtx) {
   const parts = [
     '未配置 SD2 认证，请在「AI 配置」中任选其一：',
-    '① 添加「即梦2角色认证」（网关 URL + Token）；',
-    '② 或在「SD2 资产管理」点击「保存到 AI 配置」，填写 AK/SK 与默认资产组 Id。',
+    '① 添加「即梦2角色认证」，并填写网关地址与密钥；',
+    '② 或在「SD2 资产管理」点击「保存到 AI 配置」，填写访问密钥、签名密钥与默认资产组编号。',
   ];
   if (arkCtx?.diag?.missing) {
     parts.push(`（ModelArk 配置不完整：缺少 ${arkCtx.diag.missing}）`);

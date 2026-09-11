@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs'
 
 import { buildDramaCanvasGraph } from '../src/utils/dramaCanvasAdapter.js'
 import { getStoryboardMediaAvailability } from '../src/utils/storyboardMedia.js'
+import { readCanvasStoryboardPanelSource } from './helpers/canvasStoryboardPanelSource.js'
 
 function read(path) {
   return readFileSync(new URL(path, import.meta.url), 'utf8')
@@ -42,7 +43,7 @@ test('canvas disabled actions associate reasons with aria-describedby', () => {
   const gate = read('../src/components/dramaCanvas/CanvasActionGate.vue')
   const toolbar = read('../src/components/dramaCanvas/CanvasDesktopToolbar.vue')
   const workflowToolbar = read('../src/components/dramaCanvas/CanvasWorkflowToolbarGroup.vue')
-  const storyboardPanel = read('../src/components/dramaCanvas/CanvasStoryboardPanel.vue')
+  const storyboardPanel = readCanvasStoryboardPanelSource()
   const mediaPanel = read('../src/components/dramaCanvas/CanvasMediaPanel.vue')
 
   assert.match(gate, /v-bind="\{ 'aria-describedby': descriptionId \}"/)
@@ -78,7 +79,7 @@ test('canvas disabled actions associate reasons with aria-describedby', () => {
 
 test('canvas production actions load authoritative readiness and guard execution entry points', () => {
   const canvas = canvasRuntimeSource
-  const storyboardPanel = read('../src/components/dramaCanvas/CanvasStoryboardPanel.vue')
+  const storyboardPanel = readCanvasStoryboardPanelSource()
   const mediaPanel = read('../src/components/dramaCanvas/CanvasMediaPanel.vue')
 
   assert.match(canvas, /workflowRunsAPI\.getNovel2AnimeReadiness\(\{[\s\S]*?qa_mode: 'production'/)

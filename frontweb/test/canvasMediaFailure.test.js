@@ -9,10 +9,11 @@ import { fetchStoryboardMediaSnapshot } from '../src/composables/useCanvasStoryb
 import { generateAssetReferenceImage } from '../src/composables/useCanvasAssetGenerate.js'
 
 const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8')
-const canvasSource = [read('../src/views/DramaCanvas.vue'), read('../src/components/dramaCanvas/CanvasPageHeader.vue'), read('../src/views/DramaCanvas.css'), read('../src/composables/useDramaCanvasProjectLoad.js'), read('../src/composables/useDramaCanvasGraph.js')].join('\n')
+const canvasSource = [read('../src/views/DramaCanvas.vue'), read('../src/components/dramaCanvas/CanvasPageHeader.vue'), read('../src/components/dramaCanvas/CanvasLoadFailureCard.vue'), read('../src/views/DramaCanvas.css'), read('../src/composables/useDramaCanvasProjectLoad.js'), read('../src/composables/useDramaCanvasGraph.js')].join('\n')
 const storyboardNodeSource = read('../src/components/dramaCanvas/CanvasStoryboardNode.vue')
 const inspectorDockSource = read('../src/components/dramaCanvas/CanvasInspectorDock.vue')
 const storyboardPanelSource = read('../src/components/dramaCanvas/CanvasStoryboardPanel.vue')
+const storyboardPanelHeaderSource = read('../src/components/dramaCanvas/CanvasStoryboardPanelHeader.vue')
 const mediaPanelSource = read('../src/components/dramaCanvas/CanvasMediaPanel.vue')
 const mediaNodeSource = read('../src/components/dramaCanvas/CanvasMediaNode.vue')
 const assetPanelSource = read('../src/components/dramaCanvas/CanvasAssetPanel.vue')
@@ -165,7 +166,7 @@ test('both single-node generation panels register one cancellable run and forwar
     assert.match(source, /runAudioStep\([\s\S]*?\{ signal: generationRun\.signal \}/)
     assert.match(source, /onBeforeUnmount\([\s\S]*?generationRun\?\.abort/)
     assert.match(source, /audioOutcomeUnknown/)
-    assert.match(source, /刷新分镜状态/)
+    assert.match(name === 'CanvasStoryboardPanel' ? storyboardPanelHeaderSource : source, /刷新分镜状态/)
   }
   assert.match(canvasSource, /nodeGenerationCoordinator.hasActive()/)
   assert.match(canvasSource, /ensureNodeGenerationFinished()/)

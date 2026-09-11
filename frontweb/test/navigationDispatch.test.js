@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
+import { readFilmListSources } from './helpers/filmListSources.js'
 
 import { normalizeBackupReturnTo } from '../src/composables/useBackupSettings.js'
 import {
@@ -15,7 +16,7 @@ import {
 } from '../src/router/routeRestore.js'
 import { openWorkspaceNavItem, resolveWorkspaceNavItem } from '../src/layouts/AppWorkspaceNav.js'
 
-const filmListSource = readFileSync(new URL('../src/views/FilmList.vue', import.meta.url), 'utf8')
+const filmListSource = readFilmListSources().ui
 
 test('workspace nav dispatches only registered views', () => {
   assert.deepEqual(

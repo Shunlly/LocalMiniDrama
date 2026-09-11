@@ -31,11 +31,6 @@ const {
   normalizeAspectRatioForApi,
 } = require('./videoGateway/helpers');
 const {
-  isRequestCanceled,
-  isRequestTimeout,
-  operationCancelledError,
-} = require('./videoGateway/requestError');
-const {
   validateVideoMediaReferences,
   validateProviderDispatch,
   validateProviderRequestUrl,
@@ -63,6 +58,12 @@ const {
   buildVideoPollRequest,
   interpretVideoPollResponse,
 } = require('./videoGateway/pollDispatch');
+const {
+  isVideoPollCancelled,
+  throwVideoTaskCancelled,
+  throwIfVideoPollAborted,
+  delayVideoPoll,
+} = require('./videoGateway/pollControl');
 
 // 按 is_default、priority 选择当前启用的视频配置。
 function getDefaultVideoConfig(db, preferredModel, preferredProvider) {
@@ -230,44 +231,6 @@ async function callVideoApi(db, log, opts = {}) {
       if (error?.code === 'VIDEO_INPUT_INVALID') throw error;
       throw sanitizeProviderException(error, { provider, operation: '视频生成' });
     }
-  });
-}
-
-/** 本地 abort 与厂商 cancelled 都视为取消，不得落到超时。 */
-const VIDEO_TASK_CANCELLED_MESSAGE = '视频任务已取消';
-
-function isVideoPollCancelled(error, signal) {
-  return !isRequestTimeout(error, signal)
-    && (isRequestCanceled(error, signal) || signal?.aborted === true);
-}
-
-function throwVideoTaskCancelled() {
-  throw operationCancelledError(VIDEO_TASK_CANCELLED_MESSAGE);
-}
-
-function throwIfVideoPollAborted(signal) {
-  if (signal?.aborted) throwVideoTaskCancelled();
-}
-
-function delayVideoPoll(intervalMs, signal) {
-  throwIfVideoPollAborted(signal);
-  return new Promise((resolve, reject) => {
-    const finish = () => {
-      signal?.removeEventListener('abort', onAbort);
-      resolve();
-    };
-    const onAbort = () => {
-      clearTimeout(timer);
-      signal.removeEventListener('abort', onAbort);
-      reject(operationCancelledError(VIDEO_TASK_CANCELLED_MESSAGE));
-    };
-    const timer = setTimeout(finish, intervalMs);
-    if (!signal) return;
-    if (signal.aborted) {
-      onAbort();
-      return;
-    }
-    signal.addEventListener('abort', onAbort, { once: true });
   });
 }
 

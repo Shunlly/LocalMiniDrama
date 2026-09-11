@@ -144,7 +144,7 @@ function normalizeProviderBaseUrl(value, config = {}) {
     throw providerUrlValidationError('服务地址指向被拦截或不可路由的网络位置');
   }
   if (localTarget && !localMode) {
-    throw providerUrlValidationError('私有或本地服务地址需要使用已识别的本地 Provider 模式');
+    throw providerUrlValidationError('私有或本地服务地址需要使用已识别的本地供应商模式');
   }
   if (parsed.protocol === 'http:' && (!localTarget || !localMode)) {
     throw providerUrlValidationError('公网服务地址必须使用 HTTPS');
@@ -237,6 +237,7 @@ function isSafeProviderQueryParameter(key) {
 }
 
 function normalizeProviderEndpoint(value, fieldName = 'endpoint') {
+  const fieldLabel = fieldName === 'query_endpoint' ? '查询路径' : '接口路径';
   const raw = String(value || '').trim();
   if (!raw) return '';
   if (raw.length > 2048
@@ -244,9 +245,9 @@ function normalizeProviderEndpoint(value, fieldName = 'endpoint') {
     || raw.startsWith('//')
     || raw.includes('\\')
     || /[\u0000-\u0020\u007f]/.test(raw)) {
-    throw providerUrlValidationError(`${fieldName} 必须是受控的相对 URL 路径`);
+    throw providerUrlValidationError(`${fieldLabel}必须是受控的相对路径，请检查后重试`);
   }
-  if (raw.includes('#')) throw providerUrlValidationError(`${fieldName} 不得包含 URL 片段`);
+  if (raw.includes('#')) throw providerUrlValidationError(`${fieldLabel}不得包含网址片段`);
   const queryIndex = raw.indexOf('?');
   const pathname = queryIndex >= 0 ? raw.slice(0, queryIndex) : raw;
   const query = queryIndex >= 0 ? raw.slice(queryIndex + 1) : '';
@@ -254,14 +255,14 @@ function normalizeProviderEndpoint(value, fieldName = 'endpoint') {
   try {
     decodedPath = decodeURIComponent(pathname);
   } catch (_) {
-    throw providerUrlValidationError(`${fieldName} 包含无效的 URL 编码`);
+    throw providerUrlValidationError(`${fieldLabel}包含无效的网址编码`);
   }
   if (decodedPath.includes('\\') || decodedPath.split('/').some((segment) => segment === '.' || segment === '..')) {
-    throw providerUrlValidationError(`${fieldName} 包含不安全的路径段`);
+    throw providerUrlValidationError(`${fieldLabel}包含不安全的路径段`);
   }
   for (const key of new URLSearchParams(query).keys()) {
     if (isSensitiveQueryParameter(key) || !isSafeProviderQueryParameter(key)) {
-      throw providerUrlValidationError(`${fieldName} 不得在查询参数中携带凭据`);
+      throw providerUrlValidationError(`${fieldLabel}不得在查询参数中携带凭据`);
     }
   }
   return raw;

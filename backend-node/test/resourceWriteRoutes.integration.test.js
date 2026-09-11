@@ -226,22 +226,32 @@ test('真实 Express 应用对项目子资源写入口执行统一回收边界',
   }
 
   await t.test('未注册的 API URL 经过全局 404 中间件', async () => {
-    const result = await request(baseUrl, '/api/v1/resource-write-route-that-does-not-exist');
+    const result = await request(baseUrl, '/api/v1/resource-write-route-that-does-not-exist', {
+      headers: { 'X-Request-Id': 'client-404-1' },
+    });
     assert.equal(result.response.status, 404);
     assert.deepEqual(
       { success: result.body?.success, code: result.body?.error?.code },
       { success: false, code: 'NOT_FOUND' }
     );
+    assert.equal(result.response.headers.get('x-request-id'), 'client-404-1');
+    assert.equal(result.body?.request_id, 'client-404-1');
+    assert.equal(result.body?.error?.request_id, 'client-404-1');
   });
 
   await t.test('路由前的 JSON 解析异常经过全局错误中间件', async () => {
     const result = await request(baseUrl, '/api/v1/assets', {
       method: 'POST',
+      headers: { 'X-Request-Id': 'client-json-1' },
       body: '{',
     });
     assert.equal(result.response.status, 400);
     assert.equal(result.body?.success, false);
     assert.equal(result.body?.error?.code, 'REQUEST_REJECTED');
-    assert.equal(result.body?.request_id, result.response.headers.get('x-request-id'));
+    assert.equal(result.body?.error?.message, '请求数据格式无效');
+    assert.equal(result.response.headers.get('x-request-id'), 'client-json-1');
+    assert.equal(result.body?.request_id, 'client-json-1');
+    assert.equal(result.body?.error?.request_id, 'client-json-1');
+    assert.doesNotMatch(JSON.stringify(result.body), /Expected property|SyntaxError|position 1/);
   });
 });

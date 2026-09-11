@@ -3,12 +3,14 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
 import { remainingExtractNamedFunction } from './helpers/remainingSourceBetween.js'
+import { readFilmCreateResourceDialogTree } from './helpers/filmCreateResourceDialogSources.js'
 import { useFilmCreateEpisodeCompose } from '../src/composables/filmCreate/useFilmCreateEpisodeCompose.js'
 import { toUserFacingError } from '../src/utils/userFacingError.js'
 
-const resourceDialogs = readFileSync(new URL('../src/components/filmCreate/FilmCreateResourceDialogs.vue', import.meta.url), 'utf8')
+const resourceDialogsParent = readFileSync(new URL('../src/components/filmCreate/FilmCreateResourceDialogs.vue', import.meta.url), 'utf8')
+const resourceDialogs = readFilmCreateResourceDialogTree()
 const imageColumn = readFileSync(new URL('../src/components/filmCreate/FilmCreateStoryboardImageColumn.vue', import.meta.url), 'utf8').replace(/\r\n?/g, '\n')
-const panel = readFileSync(new URL('../src/components/filmCreate/FilmCreateStoryboardPanel.vue', import.meta.url), 'utf8')
+const panel = readFileSync(new URL('../src/components/filmCreate/FilmCreateStoryboardPanel.vue', import.meta.url), 'utf8') + '\n' + readFileSync(new URL('../src/components/filmCreate/FilmCreateStoryboardList.vue', import.meta.url), 'utf8')
 const filmCreate = readFileSync(new URL('../src/views/FilmCreate.vue', import.meta.url), 'utf8')
 const workspaceBindingsSource = readFileSync(new URL('../src/components/filmCreate/filmCreateWorkspaceBindings.js', import.meta.url), 'utf8')
 const novelUx = readFileSync(new URL('../src/components/filmCreate/novelIntakeUx.js', import.meta.url), 'utf8')
@@ -20,7 +22,7 @@ const EPISODE_ID = 22
 assert.notEqual(DRAMA_ID, EPISODE_ID)
 
 const describeAddToEpisodeDisabledReason = new Function(
-  `'use strict'; ${remainingExtractNamedFunction(resourceDialogs, 'describeAddToEpisodeDisabledReason')}; return describeAddToEpisodeDisabledReason;`,
+  `'use strict'; ${remainingExtractNamedFunction(resourceDialogsParent, 'describeAddToEpisodeDisabledReason')}; return describeAddToEpisodeDisabledReason;`,
 )()
 const describeImageGenerateDisabledReason = new Function(
   `'use strict'; ${remainingExtractNamedFunction(imageColumn, 'describeImageGenerateDisabledReason')}; return describeImageGenerateDisabledReason;`,

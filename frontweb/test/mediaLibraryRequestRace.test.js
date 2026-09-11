@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs'
 
 import * as mediaLibrary from '../src/utils/mediaLibrary.js'
 import { remainingExtractNamedFunction } from './helpers/remainingSourceBetween.js'
+import { readMediaLibrarySources } from './helpers/mediaLibrarySources.js'
 
 const {
   createLatestMediaRequestGuard,
@@ -23,7 +24,7 @@ const {
   isMediaPickerItemInScope,
   mediaPickerIncompatibleReason,
 } = mediaLibrary
-const mediaLibrarySource = readFileSync(new URL('../src/views/MediaLibrary.vue', import.meta.url), 'utf8')
+const mediaLibrarySource = readMediaLibrarySources()
 
 test('an out-of-order successful response cannot replace the latest media results', () => {
   const guard = createLatestMediaRequestGuard()

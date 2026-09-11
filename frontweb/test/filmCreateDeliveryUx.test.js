@@ -310,4 +310,7 @@ test('交付区用户可见文案保持简体中文', () => {
   assert.match(outputSectionSource, /可继续点「重试下载」/)
   assert.match(outputSectionSource, /可继续点「重试字幕」/)
   assert.match(outputSectionSource, /可继续点「重试项目包」/)
+  assert.match(deliveryPanelSource, /视频正在生成，请稍候/)
+  assert.match(deliveryPanelSource, /正在验证并下载成片，请稍候/)
+  assert.doesNotMatch(deliveryPanelSource, /视频生成中\.\.\./)
 })

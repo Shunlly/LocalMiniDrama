@@ -13,7 +13,7 @@ const HUB_REQUEST_TIMEOUT_MS = 30000;
 
 /**
  * 即梦2角色认证 — 业务侧「素材管理」HTTP API（与官方路径一致，如 /api/business/v1/assets）。
- * 网关 URL 与 Token 从 AI 配置（service_type = jimeng2_character_auth）读取；可选兼容旧版 config 中的 jimeng_material_hub / silvamux_hub。
+ * 网关地址与密钥从 AI 配置（service_type = jimeng2_character_auth）读取；可选兼容旧版配置中的素材库网关。
  * 参考：https://83zi.com/sd2realperson.html
  */
 
@@ -292,7 +292,7 @@ async function hubJson(path, ctx, { method, body, log } = {}) {
     return {
       ok: false,
       error:
-        '未配置即梦2角色认证：请在「AI 配置」中添加类型为「即梦2角色认证」的一条配置，填写网关 URL 与 Token（或设置环境变量 JIMENG2_CHARACTER_AUTH_*；兼容旧 config / SILVAMUX_*）',
+        '未配置即梦2角色认证：请在「AI 配置」中添加类型为「即梦2角色认证」的一条配置，并填写网关地址与密钥。',
     };
   }
   let networkOptions;

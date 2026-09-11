@@ -12,10 +12,11 @@ const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8')
 const routerSource = read('../src/router/index.js').replace(/\r\n?/g, '\n')
 const aiConfigSource = read('../src/views/AiConfig.vue')
 const dramaDetailSource = read('../src/views/DramaDetail.vue')
-const sourceIntakeSource = read('../src/components/SourceIntakeWorkflowPanel.vue')
+const dramaDetailHeaderSource = read('../src/components/dramaDetail/DramaDetailHeader.vue')
+const sourceIntakeSource = read('../src/components/SourceIntakeWorkflowPanel.vue') + '\n' + read('../src/components/sourceIntake/SourceIntakeCompletionBanner.vue')
 const readinessSource = read('../src/components/ProjectReadinessPanel.vue')
 const filmListSource = read('../src/views/FilmList.vue')
-const freeCreateSource = read('../src/views/FreeCreate.vue')
+const freeCreateSource = read('../src/views/FreeCreate.vue') + '\n' + read('../src/components/freeCreate/FreeCreateHeader.vue') + '\n' + read('../src/components/freeCreate/FreeCreateInputPanel.vue') + '\n' + read('../src/components/freeCreate/FreeCreateResultPanel.vue')
 const canvasSource = read('../src/views/DramaCanvas.vue') + '\n' + read('../src/composables/useDramaCanvasFreeCanvas.js') + '\n' + read('../src/composables/useDramaCanvasPersist.js') + '\n' + read('../src/composables/useDramaCanvasProjectLoad.js') + '\n' + read('../src/composables/useDramaCanvasWorkflow.js')
 const filmCreateSource = read('../src/views/FilmCreate.vue')
 const filmCreateStyleSource = read('../src/views/FilmCreate.css')
@@ -173,9 +174,9 @@ test('project cards use a keyboard link while keeping the action menu outside it
 })
 
 test('project detail sticky header stays opaque over scrolled content', () => {
-  assert.match(dramaDetailSource, /\.header\s*\{[\s\S]*?background:\s*#121216;/)
+  assert.match(dramaDetailHeaderSource, /\.header\s*\{[\s\S]*?background:\s*#121216;/)
   assert.match(
-    dramaDetailSource,
+    dramaDetailHeaderSource,
     /html\.light \.drama-detail \.header\s*\{[\s\S]*?background:\s*#ffffff !important;/,
   )
 })

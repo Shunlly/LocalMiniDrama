@@ -12,8 +12,10 @@ const oneKeyDialogsSource = readFileSync(new URL('../src/components/aiConfig/AiC
 const bulkKeyDialogSource = readFileSync(new URL('../src/components/aiConfig/AiConfigBulkKeyDialog.vue', import.meta.url), 'utf8')
 const connectionTestDialogSource = readFileSync(new URL('../src/components/aiConfig/AiConfigConnectionTestDialog.vue', import.meta.url), 'utf8')
 const jimeng2AssetsDialogSource = readFileSync(new URL('../src/components/aiConfig/AiConfigJimeng2AssetsDialog.vue', import.meta.url), 'utf8')
+const formDialogSource = readFileSync(new URL('../src/components/aiConfig/AiConfigFormDialog.vue', import.meta.url), 'utf8')
 const writeSurfaceSources = [
   source,
+  formDialogSource,
   oneKeyDialogsSource,
   bulkKeyDialogSource,
   connectionTestDialogSource,

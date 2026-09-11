@@ -8,6 +8,7 @@ const {
   initializeWithMaintenanceGuard,
   requestContext,
 } = require('../src/app');
+const logger = require('../src/logger');
 const response = require('../src/response');
 
 function responseRecorder() {
@@ -80,6 +81,8 @@ test('production 500 response hides details and returns its request id', () => {
   assert.equal(res.body.error.code, 'INTERNAL_ERROR');
   assert.equal(res.body.error.message, '服务器内部错误');
   assert.equal(res.body.request_id, 'req-500');
+  assert.equal(res.body.error.request_id, 'req-500');
+  assert.equal(res.headers['x-request-id'], 'req-500');
   assert.doesNotMatch(JSON.stringify(res.body), /private|database\.sqlite|upstream token/);
   assert.match(entries[0].fields.error, /database\.sqlite/);
   assert.equal(entries[0].fields.request_id, 'req-500');
@@ -101,6 +104,7 @@ test('expected client errors retain actionable messages', () => {
   assert.equal(res.body.error.code, 'BAD_REQUEST');
   assert.equal(res.body.error.message, 'reference image URL must be public');
   assert.equal(res.body.error.request_id, 'req-400');
+  assert.equal(res.body.request_id, 'req-400');
 });
 
 test('response internalError sanitizes production messages and preserves development details', (t) => {
@@ -149,6 +153,8 @@ test('production sanitizer hides route-handled 500 messages but preserves client
   middleware({ requestId: 'req-route-400' }, response400, () => {});
   response400.json({ success: false, error: { code: 'BAD_REQUEST', message: 'Select a valid model' } });
   assert.equal(response400.body.error.message, 'Select a valid model');
+  assert.equal(response400.body.request_id, 'req-route-400');
+  assert.equal(response400.body.error.request_id, 'req-route-400');
 });
 
 test('unknown API routes use the standard error envelope', () => {
@@ -158,10 +164,11 @@ test('unknown API routes use the standard error envelope', () => {
 
   assert.equal(res.statusCode, 404);
   assert.equal(res.body.success, false);
-  assert.deepEqual(res.body.error, {
-    code: 'NOT_FOUND',
-    message: '接口不存在',
-  });
+  assert.equal(res.body.error.code, 'NOT_FOUND');
+  assert.equal(res.body.error.message, '接口不存在');
+  assert.equal(res.body.error.request_id, res.body.request_id);
+  assert.equal(res.headers['x-request-id'], res.body.request_id);
+  assert.match(res.body.request_id, /^[A-Za-z0-9._:-]{1,128}$/);
   assert.match(res.body.timestamp, /^\d{4}-\d{2}-\d{2}T/);
 });
 
@@ -196,10 +203,12 @@ test('timeout failures keep generic production copy and classify logs as timeout
 
   assert.equal(res.statusCode, 500);
   assert.equal(res.body.error.code, 'INTERNAL_ERROR');
-  assert.equal(res.body.error.message, '服务器内部错误');
+  assert.equal(res.body.error.message, '请求超时，请稍后重试');
   assert.equal(res.body.request_id, 'req-timeout');
+  assert.equal(res.body.error.request_id, 'req-timeout');
+  assert.equal(res.headers['x-request-id'], 'req-timeout');
   assert.equal(entries[0].fields.category, 'timeout');
-  assert.doesNotMatch(JSON.stringify(res.body), /ETIMEDOUT|10\.0\.0\.1/);
+  assert.doesNotMatch(JSON.stringify(res.body), /ETIMEDOUT|10\.0\.0\.1|connect /);
 });
 
 test('cancel failures classify logs as cancel without exposing stack', () => {
@@ -214,8 +223,10 @@ test('cancel failures classify logs as cancel without exposing stack', () => {
   error.name = 'AbortError';
   handler(error, { requestId: 'req-cancel', method: 'POST', path: '/api/v1/tasks' }, res, () => {});
 
-  assert.equal(res.body.error.message, '服务器内部错误');
+  assert.equal(res.body.error.message, '操作已取消');
   assert.equal(res.body.error.stack, undefined);
+  assert.equal(res.body.request_id, 'req-cancel');
+  assert.equal(res.body.error.request_id, 'req-cancel');
   assert.equal(entries[0].fields.category, 'cancel');
   assert.doesNotMatch(JSON.stringify(res.body), /internal\.js|aborted/);
 });
@@ -235,5 +246,140 @@ test('error sanitizer strips stack from development error envelopes', () => {
   });
   assert.equal(response500.body.error.message, 'boom');
   assert.equal(response500.body.error.stack, undefined);
+  assert.equal(response500.body.request_id, 'req-dev-stack');
+  assert.equal(response500.body.error.request_id, 'req-dev-stack');
   assert.doesNotMatch(JSON.stringify(response500.body), /private|db\.sqlite/);
+});
+
+
+test('client X-Request-Id is echoed on 4xx JSON and rejected unsafe ids are replaced', () => {
+  const middleware = createProductionErrorResponseSanitizer({ production: false });
+
+  const accepted = responseRecorder();
+  accepted.statusCode = 404;
+  const acceptedReq = { headers: { 'x-request-id': 'client-trace-1' } };
+  requestContext(acceptedReq, accepted, () => {});
+  middleware(acceptedReq, accepted, () => {});
+  accepted.json({ success: false, error: { code: 'NOT_FOUND', message: '接口不存在' } });
+  assert.equal(acceptedReq.requestId, 'client-trace-1');
+  assert.equal(accepted.headers['x-request-id'], 'client-trace-1');
+  assert.equal(accepted.body.request_id, 'client-trace-1');
+  assert.equal(accepted.body.error.request_id, 'client-trace-1');
+  assert.equal(accepted.body.error.message, '接口不存在');
+
+  const replaced = responseRecorder();
+  replaced.statusCode = 400;
+  const replacedReq = { headers: { 'x-request-id': '../secret\r\nInjected: yes' } };
+  requestContext(replacedReq, replaced, () => {});
+  middleware(replacedReq, replaced, () => {});
+  replaced.json({ success: false, error: { code: 'BAD_REQUEST', message: '参数无效' } });
+  assert.match(replacedReq.requestId, /^[a-f0-9-]{36}$/);
+  assert.equal(replaced.body.request_id, replacedReq.requestId);
+  assert.equal(replaced.body.error.request_id, replacedReq.requestId);
+  assert.doesNotMatch(JSON.stringify(replaced.body), /secret|Injected/);
+});
+
+test('response helpers reuse the existing request id instead of inventing another field', () => {
+  const res = responseRecorder();
+  res.setHeader('X-Request-Id', 'from-header');
+  response.badRequest(res, '参数无效');
+  assert.equal(res.statusCode, 400);
+  assert.equal(res.body.error.code, 'BAD_REQUEST');
+  assert.equal(res.body.error.message, '参数无效');
+  assert.equal(res.body.request_id, 'from-header');
+  assert.equal(res.body.error.request_id, 'from-header');
+  assert.equal(res.body.error.requestId, undefined);
+  assert.equal(res.body.requestId, undefined);
+});
+
+test('development timeout and cancel copy stays Chinese and hides internals', () => {
+  const timeoutHandler = createErrorHandler({ errorw() {}, operation() {} }, { production: false });
+  const timeoutRes = responseRecorder();
+  const timeoutError = new Error('connect ETIMEDOUT 10.0.0.1');
+  timeoutError.name = 'TimeoutError';
+  timeoutHandler(timeoutError, { requestId: 'req-dev-timeout', method: 'GET', path: '/api/v1/ai' }, timeoutRes, () => {});
+  assert.equal(timeoutRes.body.error.message, '请求超时，请稍后重试');
+  assert.equal(timeoutRes.body.request_id, 'req-dev-timeout');
+  assert.doesNotMatch(JSON.stringify(timeoutRes.body), /ETIMEDOUT|10\.0\.0\.1|TimeoutError|connect /);
+
+  const cancelHandler = createErrorHandler({
+    errorw() {},
+    operation() {},
+  }, { production: false });
+  const cancelRes = responseRecorder();
+  const cancelError = new Error('aborted\n    at abort (C:\\private\\internal.js:1:1)');
+  cancelError.code = 'OPERATION_CANCELLED';
+  cancelError.name = 'AbortError';
+  cancelHandler(cancelError, { requestId: 'req-dev-cancel', method: 'POST', path: '/api/v1/tasks' }, cancelRes, () => {});
+  assert.equal(cancelRes.body.error.message, '操作已取消');
+  assert.equal(cancelRes.body.error.stack, undefined);
+  assert.equal(cancelRes.body.request_id, 'req-dev-cancel');
+  assert.doesNotMatch(JSON.stringify(cancelRes.body), /internal\.js|aborted|private/);
+});
+
+test('request context binds logger metadata to the same request id', () => {
+  const lines = [];
+  const originalLog = console.log;
+  console.log = (msg) => { lines.push(String(msg)); };
+  try {
+    const res = responseRecorder();
+    const req = { headers: { 'x-request-id': 'trace-bind-1' } };
+    requestContext(req, res, () => {
+      logger.info('inside-request', { path: '/api/v1/demo' });
+    });
+    logger.info('outside-request', { path: '/api/v1/demo' });
+  } finally {
+    console.log = originalLog;
+  }
+  const inside = lines.find((line) => line.includes('inside-request'));
+  const outside = lines.find((line) => line.includes('outside-request'));
+  assert.match(String(inside), /trace-bind-1/);
+  assert.match(String(inside), /\/api\/v1\/demo/);
+  assert.equal(String(outside).includes('trace-bind-1'), false);
+});
+
+test('JSON parse failures return Chinese copy and keep the request id', () => {
+  const handler = createErrorHandler({ errorw() {}, operation() {} }, { production: true });
+  const res = responseRecorder();
+  const error = new SyntaxError("Expected property name or '}' in JSON at position 1");
+  error.status = 400;
+  error.type = 'entity.parse.failed';
+  handler(error, { requestId: 'req-json', method: 'POST', path: '/api/v1/assets' }, res, () => {});
+
+  assert.equal(res.statusCode, 400);
+  assert.equal(res.body.error.code, 'REQUEST_REJECTED');
+  assert.equal(res.body.error.message, '请求数据格式无效');
+  assert.equal(res.body.request_id, 'req-json');
+  assert.equal(res.body.error.request_id, 'req-json');
+  assert.doesNotMatch(JSON.stringify(res.body), /Expected property|position 1|SyntaxError/);
+});
+
+test('production sanitizer keeps safe timeout copy but still hides extra internals', () => {
+  const middleware = createProductionErrorResponseSanitizer({ production: true });
+
+  const timeoutRes = responseRecorder();
+  timeoutRes.statusCode = 500;
+  middleware({ requestId: 'req-safe-timeout' }, timeoutRes, () => {});
+  timeoutRes.json({
+    success: false,
+    error: { code: 'INTERNAL_ERROR', message: '请求超时，请稍后重试', request_id: 'req-safe-timeout' },
+    request_id: 'req-safe-timeout',
+  });
+  assert.equal(timeoutRes.body.error.message, '请求超时，请稍后重试');
+  assert.equal(timeoutRes.body.request_id, 'req-safe-timeout');
+
+  const leaked = responseRecorder();
+  leaked.statusCode = 500;
+  middleware({ requestId: 'req-leaked-timeout' }, leaked, () => {});
+  leaked.json({
+    success: false,
+    error: {
+      code: 'INTERNAL_ERROR',
+      message: '请求超时，请稍后重试',
+      path: 'C:\\private\\db.sqlite',
+    },
+    request_id: 'req-leaked-timeout',
+  });
+  assert.equal(leaked.body.error.message, '服务器内部错误');
+  assert.doesNotMatch(JSON.stringify(leaked.body), /private|db\.sqlite/);
 });

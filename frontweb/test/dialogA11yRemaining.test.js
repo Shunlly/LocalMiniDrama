@@ -81,10 +81,35 @@ function hasKeyboardSemantics(opening) {
     || /@keydown/.test(opening)
 }
 
-const resourcePanelSource = read('../src/components/filmCreate/FilmCreateResourcePanel.vue')
-const resourceDialogsSource = read('../src/components/filmCreate/FilmCreateResourceDialogs.vue')
+const resourcePanelSource = [
+  read('../src/components/filmCreate/FilmCreateResourcePanel.vue'),
+  read('../src/components/filmCreate/FilmCreateCharacterBlock.vue'),
+  read('../src/components/filmCreate/FilmCreatePropBlock.vue'),
+  read('../src/components/filmCreate/FilmCreateSceneBlock.vue'),
+  read('../src/components/filmCreate/filmCreateResourceBlock.css'),
+].join('\n')
+const resourceDialogsSource = [
+  read('../src/components/filmCreate/FilmCreateResourceDialogs.vue'),
+  read('../src/components/filmCreate/FilmCreateResourceRefImageField.vue'),
+  read('../src/components/filmCreate/FilmCreatePropEditDialog.vue'),
+  read('../src/components/filmCreate/FilmCreateSceneEditDialog.vue'),
+  read('../src/components/filmCreate/FilmCreateCharacterLibraryDialogs.vue'),
+  read('../src/components/filmCreate/FilmCreatePropLibraryDialogs.vue'),
+  read('../src/components/filmCreate/FilmCreateSceneLibraryDialogs.vue'),
+].join('\n')
 const characterEditDialogSource = read('../src/components/filmCreate/FilmCreateCharacterEditDialog.vue')
-const storyboardDialogsSource = read('../src/components/filmCreate/FilmCreateStoryboardDialogs.vue')
+const storyboardDialogsParentSource = read('../src/components/filmCreate/FilmCreateStoryboardDialogs.vue')
+const storyboardPromptDialogSource = read('../src/components/filmCreate/FilmCreateStoryboardPromptDialog.vue')
+const storyboardFramePromptDialogSource = read('../src/components/filmCreate/FilmCreateStoryboardFramePromptDialog.vue')
+const storyboardVideoParamsDialogSource = read('../src/components/filmCreate/FilmCreateStoryboardVideoParamsDialog.vue')
+const storyboardFreeReferencePreviewSource = read('../src/components/filmCreate/FilmCreateStoryboardFreeReferencePreview.vue')
+const storyboardDialogsSource = [
+  storyboardDialogsParentSource,
+  storyboardPromptDialogSource,
+  storyboardFramePromptDialogSource,
+  storyboardVideoParamsDialogSource,
+  storyboardFreeReferencePreviewSource,
+].join('\n')
 const novelImportSource = read('../src/components/filmCreate/FilmCreateNovelImportDialog.vue')
 const stylePickerSource = read('../src/components/StylePickerButton.vue')
 const canvasCreateSource = read('../src/components/dramaCanvas/CanvasCreateDialog.vue')
@@ -99,9 +124,19 @@ const dialogSources = [
   { name: 'StylePickerButton.vue', source: stylePickerSource },
   { name: 'CanvasCreateDialog.vue', source: canvasCreateSource },
   { name: 'FilmCreateNovelImportDialog.vue', source: novelImportSource },
-  { name: 'FilmCreateResourceDialogs.vue', source: resourceDialogsSource },
+  { name: 'FilmCreateResourceDialogs.vue', source: read('../src/components/filmCreate/FilmCreateResourceDialogs.vue') },
+  { name: 'FilmCreateResourceRefImageField.vue', source: read('../src/components/filmCreate/FilmCreateResourceRefImageField.vue') },
+  { name: 'FilmCreatePropEditDialog.vue', source: read('../src/components/filmCreate/FilmCreatePropEditDialog.vue') },
+  { name: 'FilmCreateSceneEditDialog.vue', source: read('../src/components/filmCreate/FilmCreateSceneEditDialog.vue') },
+  { name: 'FilmCreateCharacterLibraryDialogs.vue', source: read('../src/components/filmCreate/FilmCreateCharacterLibraryDialogs.vue') },
+  { name: 'FilmCreatePropLibraryDialogs.vue', source: read('../src/components/filmCreate/FilmCreatePropLibraryDialogs.vue') },
+  { name: 'FilmCreateSceneLibraryDialogs.vue', source: read('../src/components/filmCreate/FilmCreateSceneLibraryDialogs.vue') },
   { name: 'FilmCreateCharacterEditDialog.vue', source: characterEditDialogSource },
-  { name: 'FilmCreateStoryboardDialogs.vue', source: storyboardDialogsSource },
+  { name: 'FilmCreateStoryboardDialogs.vue', source: storyboardDialogsParentSource },
+  { name: 'FilmCreateStoryboardPromptDialog.vue', source: storyboardPromptDialogSource },
+  { name: 'FilmCreateStoryboardFramePromptDialog.vue', source: storyboardFramePromptDialogSource },
+  { name: 'FilmCreateStoryboardVideoParamsDialog.vue', source: storyboardVideoParamsDialogSource },
+  { name: 'FilmCreateStoryboardFreeReferencePreview.vue', source: storyboardFreeReferencePreviewSource },
   { name: 'FilmCreateScriptWorkbench.vue', source: scriptWorkbenchSource },
   { name: 'GlobalMediaPickerDialog.vue', source: read('../src/components/GlobalMediaPickerDialog.vue') },
   { name: 'ImagePreviewDialog.vue', source: imagePreviewSource },

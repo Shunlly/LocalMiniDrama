@@ -20,6 +20,9 @@ import {
 
 const actionGateUrl = new URL('../src/components/filmCreate/ActionGate.vue', import.meta.url)
 const panelUrl = new URL('../src/components/filmCreate/FilmCreateResourcePanel.vue', import.meta.url)
+const characterBlockUrl = new URL('../src/components/filmCreate/FilmCreateCharacterBlock.vue', import.meta.url)
+const propBlockUrl = new URL('../src/components/filmCreate/FilmCreatePropBlock.vue', import.meta.url)
+const sceneBlockUrl = new URL('../src/components/filmCreate/FilmCreateSceneBlock.vue', import.meta.url)
 
 const EMPTY_SCRIPT_REASON = '当前集还没有剧本，请先编写或导入剧本'
 const EPISODE_REQUIRED_REASON = '请先创建或选择剧集'
@@ -34,6 +37,14 @@ const iconStubUrl = compileIconStub([
   'ZoomIn',
 ])
 const compiledActionGateUrl = compileSfc(actionGateUrl, 'resource-panel-action-gate', new Map([['vue', vueUrl]]))
+const blockReplacements = new Map([
+  ['vue', vueUrl],
+  ['@element-plus/icons-vue', iconStubUrl],
+  ['@/components/filmCreate/ActionGate.vue', compiledActionGateUrl],
+])
+const compiledCharacterBlockUrl = compileSfc(characterBlockUrl, 'film-create-character-block', blockReplacements)
+const compiledPropBlockUrl = compileSfc(propBlockUrl, 'film-create-prop-block', blockReplacements)
+const compiledSceneBlockUrl = compileSfc(sceneBlockUrl, 'film-create-scene-block', blockReplacements)
 const FilmCreateResourcePanel = await loadCompiledSfc(
   panelUrl,
   'film-create-resource-panel-component',
@@ -41,6 +52,9 @@ const FilmCreateResourcePanel = await loadCompiledSfc(
     ['vue', vueUrl],
     ['@element-plus/icons-vue', iconStubUrl],
     ['@/components/filmCreate/ActionGate.vue', compiledActionGateUrl],
+    ['@/components/filmCreate/FilmCreateCharacterBlock.vue', compiledCharacterBlockUrl],
+    ['@/components/filmCreate/FilmCreatePropBlock.vue', compiledPropBlockUrl],
+    ['@/components/filmCreate/FilmCreateSceneBlock.vue', compiledSceneBlockUrl],
   ]),
 )
 

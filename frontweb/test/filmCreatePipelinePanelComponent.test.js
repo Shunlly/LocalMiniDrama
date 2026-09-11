@@ -119,6 +119,10 @@ test('空剧本时一键成片和文本框架都展示中文禁用原因，不�
     const draft = requireButton(harness.root, '仅生成文本框架')
     assert.equal(production.props.disabled, true)
     assert.equal(draft.props.disabled, true)
+    assert.equal(production.props.title, EMPTY_SCRIPT_REASON)
+    assert.equal(draft.props.title, EMPTY_SCRIPT_REASON)
+    assert.equal(production.props['aria-label'], `一键生成成片不可用：${EMPTY_SCRIPT_REASON}`)
+    assert.equal(draft.props['aria-label'], `仅生成文本框架不可用：${EMPTY_SCRIPT_REASON}`)
     assert.deepEqual(actionGateReasons(harness.root), [EMPTY_SCRIPT_REASON, EMPTY_SCRIPT_REASON])
     const gates = findByType(harness.root, 'span').filter((node) => node.props?.role === 'group')
     assert.ok(gates.some((gate) => gate.props['aria-label'] === `一键生成成片不可用：${EMPTY_SCRIPT_REASON}`))
@@ -215,6 +219,51 @@ test('倒计时暂停后展示继续提示，英文错误日志收成中文', as
     assert.deepEqual(harness.events, [['resume']])
     assert.match(textContent(harness.root), /\[分镜生图\] 操作失败，请稍后重试/)
     assert.doesNotMatch(textContent(harness.root), /Network Error/)
+  } finally {
+    harness.app.unmount()
+  }
+})
+
+test('展开按钮有中文名称，启动中一键成片给出读屏原因', async () => {
+  const harness = mountPipeline({
+    starting: true,
+    productionReadinessState: 'ready',
+  })
+  try {
+    await nextTick()
+    const toggle = findByTestId(harness.root, 'film-pipeline-toggle')[0]
+    assert.ok(toggle)
+    assert.equal(toggle.props['aria-label'], '展开全流程详情')
+    assert.equal(toggle.props.title, '展开全流程详情')
+    const compact = findByTestId(harness.root, 'film-pipeline-action')[0]
+    assert.ok(compact)
+    assert.equal(compact.props.title, '正在确认完整成片的运行条件')
+    assert.equal(compact.props['aria-label'], '一键生成成片不可用：正在确认完整成片的运行条件')
+    const production = findByType(harness.root, 'button').find((node) => (
+      textContent(node).replace(/\s+/g, ' ').trim() === '一键生成成片' && node !== compact
+    ))
+    assert.ok(production)
+    assert.equal(production.props.disabled, true)
+    assert.equal(production.props.title, '正在确认完整成片的运行条件')
+    assert.equal(production.props['aria-label'], '正在确认完整成片的运行条件')
+    const settings = requireButton(harness.root, '生成设置')
+    assert.equal(settings.props['aria-label'], '全流程生成设置')
+  } finally {
+    harness.app.unmount()
+  }
+})
+
+test('没有剧集时空态下一步是添加一集', async () => {
+  const harness = mountPipeline({ hasEpisode: false })
+  try {
+    await nextTick()
+    assert.match(textContent(harness.root), /还没有剧集/)
+    assert.match(textContent(harness.root), /下一步/)
+    const add = findByTestId(harness.root, 'film-pipeline-empty-action')[0]
+    assert.ok(add)
+    assert.equal(add.props['aria-label'], '添加一集')
+    click(add)
+    assert.deepEqual(harness.events, [['add-episode']])
   } finally {
     harness.app.unmount()
   }

@@ -90,9 +90,9 @@
         </el-button>
       </ActionGate>
     </div>
-    <div v-if="videoStatus === 'generating'" class="video-progress">
+    <div v-if="videoStatus === 'generating'" class="video-progress" role="status" aria-live="polite">
       <el-progress :percentage="videoProgress" :status="videoProgress >= 100 ? 'success' : undefined" />
-      <p>视频生成中...</p>
+      <p>视频正在生成，请稍候</p>
     </div>
     <div v-if="videoStatus === 'done'" class="video-done">
       <el-alert type="success" title="视频生成完成" show-icon />
@@ -119,7 +119,7 @@
         aria-live="polite"
       >
         {{ videoDownloadStatus === 'downloading'
-          ? '正在验证并下载成片...'
+          ? '正在验证并下载成片，请稍候'
           : videoDownloadStatus === 'success'
             ? '成片下载已完成。'
             : panelState.videoDownloadError }}

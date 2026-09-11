@@ -382,7 +382,7 @@ function checkNovel2AnimeReadiness(db, params = {}, options = {}) {
           : configReadiness.issue === 'invalid_default_model'
             ? `${definition.label}配置的默认模型不在可用模型列表中，请在 AI 配置中重新选择默认模型`
           : configReadiness.issue === 'missing_workflow'
-            ? `${definition.label}配置缺少 ComfyUI workflow 模板`
+            ? `${definition.label}配置缺少 ComfyUI 工作流模板`
           : configReadiness.issue === 'missing_credentials'
             ? `${definition.label}配置缺少生产凭据`
             : `缺少启用的${definition.label}配置`,

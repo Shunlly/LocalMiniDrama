@@ -2,7 +2,20 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
-const source = readFileSync(new URL('../src/components/AIConfigContent.vue', import.meta.url), 'utf8')
+const pageSource = readFileSync(new URL('../src/components/AIConfigContent.vue', import.meta.url), 'utf8')
+const formDialogSource = readFileSync(new URL('../src/components/aiConfig/AiConfigFormDialog.vue', import.meta.url), 'utf8')
+const oneKeyDialogsSource = readFileSync(new URL('../src/components/aiConfig/AiConfigOneKeyDialogs.vue', import.meta.url), 'utf8')
+const bulkKeyDialogSource = readFileSync(new URL('../src/components/aiConfig/AiConfigBulkKeyDialog.vue', import.meta.url), 'utf8')
+const connectionDialogSource = readFileSync(new URL('../src/components/aiConfig/AiConfigConnectionTestDialog.vue', import.meta.url), 'utf8')
+const jimeng2AssetsDialogSource = readFileSync(new URL('../src/components/aiConfig/AiConfigJimeng2AssetsDialog.vue', import.meta.url), 'utf8')
+const source = [
+  pageSource,
+  formDialogSource,
+  oneKeyDialogsSource,
+  bulkKeyDialogSource,
+  connectionDialogSource,
+  jimeng2AssetsDialogSource,
+].join('\n')
 
 test('AI config dark theme covers page surfaces, teleported dialogs, controls, tables, and states', () => {
   const dialogTags = [...source.matchAll(/<AccessibleDialog\b[\s\S]*?>/g)].map((match) => match[0])

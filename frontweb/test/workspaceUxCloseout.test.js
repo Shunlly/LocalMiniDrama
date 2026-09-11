@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
+import { readFilmListSources } from './helpers/filmListSources.js'
 
 import { isRecoverableNotFoundBackPath } from '../src/utils/notFoundNavigation.js'
 import { requireValidDramaId } from '../src/utils/routeValidation.js'
@@ -11,16 +12,23 @@ const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8')
 
 const scopedSources = [
   { name: 'App.vue', source: read('../src/App.vue') },
-  { name: 'FilmList.vue', source: read('../src/views/FilmList.vue') },
+  { name: 'FilmList.vue', source: readFilmListSources().ui },
   { name: 'DramaDetail.vue', source: read('../src/views/DramaDetail.vue') },
+  { name: 'DramaDetailHeader.vue', source: read('../src/components/dramaDetail/DramaDetailHeader.vue') },
+  { name: 'DramaDetailLoadState.vue', source: read('../src/components/dramaDetail/DramaDetailLoadState.vue') },
+  { name: 'DramaDetailInfoCard.vue', source: read('../src/components/dramaDetail/DramaDetailInfoCard.vue') },
   { name: 'MediaLibrary.vue', source: read('../src/views/MediaLibrary.vue') },
+  { name: 'MediaLibraryHeader.vue', source: read('../src/components/mediaLibrary/MediaLibraryHeader.vue') },
+  { name: 'MediaLibraryFilterBar.vue', source: read('../src/components/mediaLibrary/MediaLibraryFilterBar.vue') },
+  { name: 'MediaLibraryLocalGrid.vue', source: read('../src/components/mediaLibrary/MediaLibraryLocalGrid.vue') },
+  { name: 'MediaLibraryNetworkPanel.vue', source: read('../src/components/mediaLibrary/MediaLibraryNetworkPanel.vue') },
   { name: 'Backup.vue', source: read('../src/views/Backup.vue') },
   { name: 'NotFound.vue', source: read('../src/views/NotFound.vue') },
 ]
 const routerSource = read('../src/router/index.js')
 const viewsSource = read('../src/router/views.js')
 const filmListSource = scopedSources.find((item) => item.name === 'FilmList.vue').source
-const mediaLibrarySource = scopedSources.find((item) => item.name === 'MediaLibrary.vue').source
+const mediaLibrarySource = scopedSources.filter((item) => item.name.startsWith('MediaLibrary')).map((item) => item.source).join('\n')
 const backupSource = scopedSources.find((item) => item.name === 'Backup.vue').source
 
 function templateOnly(source) {

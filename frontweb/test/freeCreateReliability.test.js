@@ -16,14 +16,43 @@ import {
 } from '../src/utils/freeCreate.js'
 const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8')
 
-const freeCreateSource = read('../src/views/FreeCreate.vue')
+const freeCreatePageSource = read('../src/views/FreeCreate.vue')
+const freeCreateHeaderSource = read('../src/components/freeCreate/FreeCreateHeader.vue')
+const freeCreateInputSource = read('../src/components/freeCreate/FreeCreateInputPanel.vue')
+const freeCreateResultSource = read('../src/components/freeCreate/FreeCreateResultPanel.vue')
+const freeCreateSource = [
+  freeCreatePageSource,
+  freeCreateHeaderSource,
+  freeCreateInputSource,
+  freeCreateResultSource,
+].join('\n')
 const taskApiSource = read('../src/api/task.js')
 const videosApiSource = read('../src/api/videos.js')
 
 test('FreeCreate script compiles without duplicate bindings', () => {
-  const parsed = parse(freeCreateSource, { filename: 'FreeCreate.vue' })
-  assert.deepEqual(parsed.errors, [])
-  assert.doesNotThrow(() => compileScript(parsed.descriptor, { id: 'free-create-reliability' }))
+  for (const [filename, source] of [
+    ['FreeCreate.vue', freeCreatePageSource],
+    ['FreeCreateHeader.vue', freeCreateHeaderSource],
+    ['FreeCreateInputPanel.vue', freeCreateInputSource],
+    ['FreeCreateResultPanel.vue', freeCreateResultSource],
+  ]) {
+    const parsed = parse(source, { filename })
+    assert.deepEqual(parsed.errors, [], filename)
+    assert.doesNotThrow(() => compileScript(parsed.descriptor, { id: `free-create-${filename}` }))
+  }
+})
+
+test('自由创作页把头、输入和结果区接到子组件', () => {
+  assert.match(freeCreatePageSource, /import FreeCreateHeader from '@\/components\/freeCreate\/FreeCreateHeader\.vue'/)
+  assert.match(freeCreatePageSource, /import FreeCreateInputPanel from '@\/components\/freeCreate\/FreeCreateInputPanel\.vue'/)
+  assert.match(freeCreatePageSource, /import FreeCreateResultPanel from '@\/components\/freeCreate\/FreeCreateResultPanel\.vue'/)
+  assert.match(freeCreatePageSource, /<FreeCreateHeader @go-back="goBack" \/>/)
+  assert.match(freeCreatePageSource, /<FreeCreateInputPanel/)
+  assert.match(freeCreatePageSource, /<FreeCreateResultPanel/)
+  assert.match(freeCreatePageSource, /ref="inputPanelRef"/)
+  assert.doesNotMatch(freeCreatePageSource, /class="page-header"/)
+  assert.doesNotMatch(freeCreatePageSource, /class="input-panel"/)
+  assert.doesNotMatch(freeCreatePageSource, /class="result-panel"/)
 })
 
 test('video aspect ratios stay within the supported set', () => {

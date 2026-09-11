@@ -6,8 +6,9 @@ import {
   describeMediaLibraryUserError,
   isMediaLibraryUserAbort,
 } from '../src/utils/mediaLibraryUserError.js'
+import { readMediaLibrarySources } from './helpers/mediaLibrarySources.js'
 
-const source = readFileSync(new URL('../src/views/MediaLibrary.vue', import.meta.url), 'utf8')
+const source = readMediaLibrarySources()
 
 test('网络素材英文技术错误转成中文，中文原文保留', () => {
   assert.equal(

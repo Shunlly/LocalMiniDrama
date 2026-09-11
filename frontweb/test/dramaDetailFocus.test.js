@@ -4,8 +4,12 @@ import { createServer } from 'node:http'
 import { existsSync, readFileSync } from 'node:fs'
 import { once } from 'node:events'
 
-const dramaDetailSource = readFileSync(new URL('../src/views/DramaDetail.vue', import.meta.url), 'utf8')
-const dramaDetailDialogsSource = readFileSync(new URL('../src/components/dramaDetail/DramaDetailResourceDialogs.vue', import.meta.url), 'utf8')
+import { readDramaDetailResourceDialogSources } from './helpers/dramaDetailResourceDialogSources.js'
+
+const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8')
+const dramaDetailSource = read('../src/views/DramaDetail.vue')
+const dramaDetailHeaderSource = read('../src/components/dramaDetail/DramaDetailHeader.vue')
+const dramaDetailDialogsSource = readDramaDetailResourceDialogSources(read)
 const sectionFocusSource = readFileSync(new URL('../src/utils/sectionFocus.js', import.meta.url), 'utf8')
 
 async function launchChromium(chromium) {
@@ -137,7 +141,7 @@ test('source-url intent keeps the URL input focused after the parent scroll dela
 })
 
 test('DramaDetail 禁用按钮外包可焦点且空封面不再是 disabled button', () => {
-  assert.match(dramaDetailSource, /class="tooltip-trigger"[\s\S]*:tabindex="currentEpisodeId \? undefined : 0"/)
+  assert.match(dramaDetailHeaderSource, /class="tooltip-trigger"[\s\S]*:tabindex="currentEpisodeId \? undefined : 0"/)
   assert.match(dramaDetailSource, /:tabindex="episodeEmptyState.primaryDisabledReason \? 0 : undefined"/)
   assert.match(dramaDetailSource, /v-if="assetImageUrl\(item\)"[\s\S]*class="library-item-cover"/)
   assert.match(dramaDetailSource, /class="library-item-cover library-item-cover--empty"/)
@@ -149,6 +153,7 @@ test('DramaDetail 禁用按钮外包可焦点且空封面不再是 disabled butt
 
 
 test('编辑弹窗无图缩略图禁用时给出中文原因', () => {
-  assert.match(dramaDetailDialogsSource, /:title="assetImageUrl\(editDramaCharForm\) \? undefined : '暂无图片'"/)
-  assert.match(dramaDetailDialogsSource, /:title="assetImageUrl\(editPropForm\) \? undefined : '暂无图片'"/)
+  assert.match(dramaDetailDialogsSource, /const previewTitle = computed\(\(\) => \(imageUrl\.value \? undefined : '暂无图片'\)\)/)
+  assert.match(dramaDetailDialogsSource, /<DramaDetailResourceImageEditor\s+:form="editDramaCharForm"/)
+  assert.match(dramaDetailDialogsSource, /<DramaDetailResourceImageEditor\s+:form="editPropForm"/)
 })

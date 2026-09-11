@@ -39,21 +39,21 @@ function parseSettings(config) {
     const nested = parsed.comfyui && typeof parsed.comfyui === 'object' ? parsed.comfyui : {};
     return { ...parsed, ...nested };
   } catch (_) {
-    throw new ComfyUiError('ComfyUI settings 不是有效的 JSON', 'INVALID_SETTINGS');
+    throw new ComfyUiError('ComfyUI 配置不是有效的 JSON', 'INVALID_SETTINGS');
   }
 }
 
 function normalizeBaseUrl(value) {
   const text = String(value || '').trim().replace(/\/+$/, '');
-  if (!text) throw new ComfyUiError('ComfyUI Base URL 未配置', 'INVALID_CONFIG');
+  if (!text) throw new ComfyUiError('ComfyUI 接口地址未配置', 'INVALID_CONFIG');
   let parsed;
   try {
     parsed = new URL(text);
   } catch (_) {
-    throw new ComfyUiError('ComfyUI Base URL 无效', 'INVALID_CONFIG');
+    throw new ComfyUiError('ComfyUI 接口地址无效', 'INVALID_CONFIG');
   }
   if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password) {
-    throw new ComfyUiError('ComfyUI Base URL 必须是无内嵌凭据的 HTTP(S) 地址', 'INVALID_CONFIG');
+    throw new ComfyUiError('ComfyUI 接口地址必须是无内嵌凭据的 HTTP(S) 地址', 'INVALID_CONFIG');
   }
   return text;
 }
@@ -273,7 +273,7 @@ function parseDataUrl(value) {
       : Buffer.from(decodeURIComponent(match[3]));
     return { buffer, mimeType, filename: `reference.${extensionForMime(mimeType)}` };
   } catch (_) {
-    throw new ComfyUiError('ComfyUI 参考图 data URL 无效', 'INVALID_REFERENCE');
+    throw new ComfyUiError('ComfyUI 参考图内嵌地址无效', 'INVALID_REFERENCE');
   }
 }
 
@@ -402,11 +402,11 @@ function getWorkflowTemplate(config, settings) {
     try {
       template = JSON.parse(template);
     } catch (_) {
-      throw new ComfyUiError('ComfyUI workflow 模板不是有效的 JSON', 'INVALID_WORKFLOW');
+      throw new ComfyUiError('ComfyUI 工作流模板不是有效的 JSON', 'INVALID_WORKFLOW');
     }
   }
   if (!template || typeof template !== 'object' || Array.isArray(template)) {
-    throw new ComfyUiError('ComfyUI workflow 模板未配置', 'INVALID_WORKFLOW');
+    throw new ComfyUiError('ComfyUI 工作流模板未配置', 'INVALID_WORKFLOW');
   }
   return template;
 }
@@ -451,7 +451,7 @@ function replaceWorkflowPlaceholders(template, replacements) {
   };
   const workflow = visit(template);
   if (unresolved.size > 0) {
-    throw new ComfyUiError(`ComfyUI workflow 存在未定义占位符: ${Array.from(unresolved).join(', ')}`, 'INVALID_WORKFLOW');
+    throw new ComfyUiError(`ComfyUI 工作流存在未定义占位符：${Array.from(unresolved).join(', ')}`, 'INVALID_WORKFLOW');
   }
   return workflow;
 }
@@ -512,7 +512,7 @@ function historyErrorMessage(entry) {
     const message = payload?.exception_message || payload?.message || payload?.error;
     if (message) return String(message);
   }
-  return 'workflow 执行失败';
+  return '工作流执行失败';
 }
 
 function extractOutputs(entry, settings) {
@@ -550,12 +550,12 @@ async function waitForCompletion(baseUrl, config, settings, promptId, context) {
       const providerError = historyErrorMessage(entry);
       if (providerError) {
         const safe = trustedChineseDetail(providerError, context.secrets);
-        throw new ComfyUiError(safe ? `ComfyUI workflow 执行失败：${safe}` : 'ComfyUI workflow 执行失败', 'COMFYUI_EXECUTION', { promptId });
+        throw new ComfyUiError(safe ? `ComfyUI 工作流执行失败：${safe}` : 'ComfyUI 工作流执行失败', 'COMFYUI_EXECUTION', { promptId });
       }
       const images = extractOutputs(entry, settings);
       if (images.length > 0) return images;
       if (entry?.status?.completed === true) {
-        throw new ComfyUiError('ComfyUI workflow 已完成但没有图片输出', 'COMFYUI_NO_OUTPUT', { promptId });
+        throw new ComfyUiError('ComfyUI 工作流已完成但没有图片输出', 'COMFYUI_NO_OUTPUT', { promptId });
       }
     }
     await abortableDelay(context.pollIntervalMs, context.signal, promptId);
@@ -654,7 +654,7 @@ async function generateComfyUiImage(config, log, opts = {}) {
     maxResponseBytes: numericSetting(settings.max_response_bytes, DEFAULT_MAX_IMAGE_BYTES),
   };
   if (typeof context.fetchImpl !== 'function') {
-    throw new ComfyUiError('当前 Node.js 环境不支持 fetch', 'COMFYUI_UNSUPPORTED');
+    throw new ComfyUiError('当前运行环境不支持网络请求', 'COMFYUI_UNSUPPORTED');
   }
   const references = Array.isArray(opts.reference_image_urls) ? opts.reference_image_urls.filter(Boolean) : [];
   const referenceOptions = {

@@ -1,69 +1,24 @@
 <template>
   <div class="film-list">
-    <header class="header">
-      <div class="header-inner">
-        <h1 class="logo">
-          <span class="logo-main">本地短剧助手</span>
-          <span class="logo-sub">LocalMiniDrama</span>
-        </h1>
-        <!-- 素材入口：通用媒体为一级入口，语义素材保留在分类菜单中 -->
-        <div class="header-library">
-          <el-button class="btn-library btn-material-center" title="打开素材中心" aria-label="打开素材中心" @click="goMaterialCenter">
-            <el-icon><Files /></el-icon>素材中心
-          </el-button>
-          <el-dropdown :disabled="listWriteLocked" trigger="click" placement="bottom-start" @command="openSemanticLibrary">
-            <el-button class="btn-library btn-semantic-library" :disabled="listWriteLocked" aria-label="打开分类素材" :title="listWriteLocked ? listWriteLockReason : '打开分类素材'" :aria-describedby="listError ? 'project-list-load-error' : undefined">
-              <el-icon><Collection /></el-icon>分类素材
-              <el-icon class="dropdown-caret"><ArrowDown /></el-icon>
-            </el-button>
-            <template #dropdown>
-              <el-dropdown-menu>
-                <el-dropdown-item command="character"><el-icon><User /></el-icon>角色素材库</el-dropdown-item>
-                <el-dropdown-item command="scene"><el-icon><PictureFilled /></el-icon>场景素材库</el-dropdown-item>
-                <el-dropdown-item command="prop"><el-icon><Box /></el-icon>道具素材库</el-dropdown-item>
-              </el-dropdown-menu>
-            </template>
-          </el-dropdown>
-        </div>
-        <!-- 右侧操作区 -->
-        <div class="header-actions">
-          <el-button class="btn-library" title="打开自由创作" aria-label="打开自由创作" @click="goFreeCreate">
-            <el-icon><MagicStick /></el-icon>自由创作
-          </el-button>
-          <el-tooltip content="项目回收站" placement="bottom">
-            <el-button class="btn-trash utility-icon-button" title="项目回收站" aria-label="打开项目回收站" @click="openTrash">
-              <el-icon><Delete /></el-icon>
-              <span class="visually-hidden">打开项目回收站</span>
-            </el-button>
-          </el-tooltip>
-          <el-tooltip :content="isDark ? '切换到浅色模式' : '切换到暗色模式'" placement="bottom">
-            <el-button class="btn-theme utility-icon-button" :title="isDark ? '切换到浅色模式' : '切换到暗色模式'" :aria-label="isDark ? '切换到浅色模式' : '切换到暗色模式'" @click="toggleTheme">
-              <el-icon><Sunny v-if="isDark" /><Moon v-else /></el-icon>
-              <span class="visually-hidden">{{ isDark ? '切换到浅色模式' : '切换到暗色模式' }}</span>
-            </el-button>
-          </el-tooltip>
-          <el-button class="btn-settings" title="打开 AI 配置" aria-label="打开 AI 配置" @click="showAiConfigDialog = true">
-            <el-icon><Setting /></el-icon>AI 配置
-          </el-button>
-          <el-button
-            v-if="backupNavItem"
-            class="btn-library btn-backup"
-            title="打开数据备份"
-            aria-label="打开数据备份与维护"
-            @click="goBackup"
-          >
-            <el-icon><Download /></el-icon>数据备份
-          </el-button>
-          <el-button ref="importTriggerButton" class="btn-import" :loading="importing" :disabled="listWriteLocked" aria-label="导入项目包" :title="listWriteLocked ? listWriteLockReason : undefined" :aria-describedby="listError ? 'project-list-load-error' : undefined" @click="triggerImport">
-            <el-icon><Upload /></el-icon>导入项目包
-          </el-button>
-          <input ref="importFileInput" type="file" accept=".zip" style="display:none" @change="onImportFile" />
-          <el-button type="primary" class="btn-new" :disabled="listWriteLocked" aria-label="新建项目" :title="listWriteLocked ? listWriteLockReason : undefined" :aria-describedby="listError ? 'project-list-load-error' : undefined" @click="goNewProject">
-            <el-icon><Plus /></el-icon>新建项目
-          </el-button>
-        </div>
-      </div>
-    </header>
+    <FilmListHeader
+      ref="headerRef"
+      v-model:show-ai-config-dialog="showAiConfigDialog"
+      :is-dark="isDark"
+      :list-write-locked="listWriteLocked"
+      :list-write-lock-reason="listWriteLockReason"
+      :list-error="listError"
+      :backup-nav-item="backupNavItem"
+      :importing="importing"
+      :go-material-center="goMaterialCenter"
+      :open-semantic-library="openSemanticLibrary"
+      :go-free-create="goFreeCreate"
+      :open-trash="openTrash"
+      :toggle-theme="toggleTheme"
+      :go-backup="goBackup"
+      :trigger-import="triggerImport"
+      :go-new-project="goNewProject"
+    />
+    <input ref="importFileInput" type="file" accept=".zip" style="display:none" @change="onImportFile" />
 
     <main class="main">
       <section v-if="sourceImportIntent" class="source-import-intent" role="status" aria-live="polite">
@@ -73,178 +28,47 @@
         </el-button>
       </section>
       <div v-loading="loading" class="projects-wrap" :aria-busy="loading">
-        <section
-          v-if="listError"
-          id="project-list-load-error"
-          class="data-load-state"
-          role="alert"
-          aria-live="assertive"
-          aria-atomic="true"
-        >
-          <div class="data-load-state__content">
-            <h2>{{ listIsStale ? '项目列表刷新失败' : '项目数据加载失败' }}</h2>
-            <p>暂时无法确认服务器中的最新项目。您的项目数据没有被删除。</p>
-            <p v-if="listIsStale" class="data-load-state__stale">下方显示上次成功加载的数据，当前内容已过期；成功重试前不能新增、导入、编辑或移除项目。</p>
-            <p v-else class="data-load-state__detail">项目空态不会在连接恢复前显示，也不会执行任何项目写操作。</p>
-            <p class="data-load-state__detail">错误详情：{{ listError }}</p>
-          </div>
-          <el-button type="primary" plain :loading="loading" @click="loadList">
-            <el-icon><RefreshLeft /></el-icon>重试加载
-          </el-button>
-        </section>
+        <FilmListFailureBanners
+          :list-error="listError"
+          :list-is-stale="listIsStale"
+          :loading="loading"
+          :export-failure="exportFailure"
+          :exporting-id="exportingId"
+          :import-failure="importFailure"
+          :importing="importing"
+          :list-write-locked="listWriteLocked"
+          :list-write-lock-reason="listWriteLockReason"
+          :load-list="loadList"
+          :on-export="onExport"
+          :trigger-import="triggerImport"
+          :dismiss-import-failure="dismissImportFailure"
+        />
 
-        <section
-          v-if="exportFailure"
-          class="export-failure-state"
-          role="alert"
-          aria-live="assertive"
-        >
-          <div>
-            <strong>项目“{{ exportFailure.drama.title || '未命名项目' }}”导出失败</strong>
-            <p>{{ exportFailure.message }}。项目内容未受影响，可以重试。</p>
-          </div>
-          <el-button
-            type="primary"
-            plain
-            :loading="exportingId === exportFailure.drama.id"
-            :disabled="exportingId !== null && exportingId !== exportFailure.drama.id"
-            :title="exportingId !== null && exportingId !== exportFailure.drama.id ? '正在导出其他项目，请稍候' : undefined"
-            @click="onExport(exportFailure.drama)"
-          >
-            <el-icon><RefreshLeft /></el-icon>重试导出
-          </el-button>
-        </section>
-
-        <section
-          v-if="importFailure"
-          class="export-failure-state import-failure-state"
-          role="alert"
-          aria-live="assertive"
-          aria-atomic="true"
-        >
-          <div>
-            <strong>项目包导入失败</strong>
-            <p class="import-failure-filename">文件：{{ importFailure.fileName }}</p>
-            <p>{{ importFailure.message }}</p>
-          </div>
-          <div class="import-failure-actions">
-            <el-button
-              type="primary"
-              plain
-              :loading="importing"
-              :disabled="listWriteLocked"
-              :title="listWriteLocked ? listWriteLockReason : undefined"
-              :aria-describedby="listError ? 'project-list-load-error' : undefined"
-              @click="triggerImport"
-            >
-              <el-icon><RefreshLeft /></el-icon>重新选择项目包
-            </el-button>
-            <el-button plain :disabled="importing" :title="importing ? '正在导入项目包，请稍候' : undefined" @click="dismissImportFailure">
-              关闭
-            </el-button>
-          </div>
-        </section>
-
-        <section
-          v-if="hasSuccessfulListLoad && !listError && (dramas.length > 0 || hasProjectFilters)"
-          class="workspace-overview"
-          aria-labelledby="project-list-title"
-        >
-            <div class="workspace-copy">
-              <h2 id="project-list-title" class="workspace-title">项目列表</h2>
-              <p class="workspace-count">
-              {{ projectListCountLabel }}
-              </p>
-            </div>
-          <div class="workspace-controls" role="search" aria-label="项目列表筛选">
-            <el-input
-              v-model="projectSearch"
-              class="workspace-search"
-              clearable
-              placeholder="搜索项目标题、描述、风格或类型"
-              aria-label="搜索项目"
-            >
-              <template #prefix><el-icon><Search /></el-icon></template>
-            </el-input>
-            <el-select
-              v-model="projectStatusFilter"
-              class="workspace-status"
-              aria-label="按项目状态筛选"
-            >
-              <el-option label="全部状态" value="all" />
-              <el-option label="草稿" value="draft" />
-              <el-option label="生成中" value="generating" />
-              <el-option label="已发布" value="published" />
-            </el-select>
-            <el-select
-              v-model="projectSort"
-              class="workspace-sort"
-              aria-label="项目排序"
-            >
-              <el-option label="更新时间优先" value="updated-desc" />
-              <el-option label="创建时间优先" value="created-desc" />
-              <el-option label="标题升序" value="title-asc" />
-            </el-select>
-          </div>
-        </section>
+        <FilmListWorkspaceToolbar
+          v-model:project-search="projectSearch"
+          v-model:project-status-filter="projectStatusFilter"
+          v-model:project-sort="projectSort"
+          :loading="loading"
+          :has-successful-list-load="hasSuccessfulListLoad"
+          :list-error="listError"
+          :dramas="dramas"
+          :filtered-dramas="filteredDramas"
+          :has-project-filters="hasProjectFilters"
+          :project-list-count-label="projectListCountLabel"
+          :list-write-locked="listWriteLocked"
+          :list-write-lock-reason="listWriteLockReason"
+          :importing="importing"
+          :example-list="exampleList"
+          :importing-example="importingExample"
+          :go-new-project="goNewProject"
+          :trigger-import="triggerImport"
+          :go-material-center="goMaterialCenter"
+          :open-trash="openTrash"
+          :on-import-example="onImportExample"
+          :clear-project-filters="clearProjectFilters"
+        />
 
         <div class="project-grid">
-          <!-- 空项目时提供完整起步路径；已有项目时使用顶部主操作，避免重复入口。 -->
-          <section v-if="!loading && hasSuccessfulListLoad && !listError && dramas.length === 0 && !hasProjectFilters" class="action-card action-card--empty" role="status">
-            <div class="action-card-inner">
-              <h2 class="action-card-title">还没有短剧项目</h2>
-              <p class="action-card-desc">新建空白项目，或继续已有项目包。</p>
-              <div class="action-card-buttons">
-                <el-button type="primary" size="large" class="action-btn action-btn-new" :disabled="listWriteLocked" aria-label="新建项目" :title="listWriteLocked ? listWriteLockReason : undefined" @click="goNewProject">
-                  <el-icon><Plus /></el-icon>新建项目
-                </el-button>
-                <el-button size="large" class="action-btn action-btn-import" :loading="importing" :disabled="listWriteLocked" aria-label="导入项目包" :title="listWriteLocked ? listWriteLockReason : undefined" @click="triggerImport">
-                  <el-icon><Upload /></el-icon>导入项目包
-                </el-button>
-              </div>
-              <div class="action-card-secondary">
-                <el-button class="action-btn-material" @click="goMaterialCenter">
-                  <el-icon><Files /></el-icon>前往素材中心
-                </el-button>
-                <el-button class="action-btn-trash" @click="openTrash">
-                  <el-icon><Delete /></el-icon>查看回收站
-                </el-button>
-              </div>
-              <div v-if="exampleList.length > 0" class="action-card-example">
-                <div class="example-hint">
-                  <el-icon class="example-hint-icon"><QuestionFilled /></el-icon>
-                  <span class="example-hint-text">新手？试试导入示例项目快速体验</span>
-                </div>
-                <div class="example-list">
-                  <el-button
-                    v-for="ex in exampleList"
-                    :key="ex.filename"
-                    size="small"
-                    class="example-btn"
-                    :loading="importingExample === ex.filename"
-                    :disabled="listWriteLocked"
-                    :title="listWriteLocked ? listWriteLockReason : undefined"
-                    @click="onImportExample(ex)"
-                  >
-                    <el-icon><FolderOpened /></el-icon>{{ ex.name }}
-                  </el-button>
-                </div>
-              </div>
-            </div>
-          </section>
-          <section
-            v-if="!loading && hasSuccessfulListLoad && !listError && hasProjectFilters && filteredDramas.length === 0"
-            class="action-card action-card--empty action-card--search-empty"
-            role="status"
-          >
-            <div class="action-card-inner">
-              <h2 class="action-card-title">没有匹配的项目</h2>
-              <p class="action-card-desc">换一个关键词或状态，或清除筛选后查看全部项目。</p>
-              <el-button class="action-btn" @click="clearProjectFilters">
-                清除筛选
-              </el-button>
-            </div>
-          </section>
           <article
             v-for="d in filteredDramas"
             :key="d.id"
@@ -513,11 +337,14 @@
 import { computed, ref, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from '@/utils/elementPlusFeedback.js'
-import { Edit, Delete, Setting, Plus, User, PictureFilled, Box, Sunny, Moon, Download, Upload, QuestionFilled, FolderOpened, MagicStick, Files, Collection, ArrowDown, MoreFilled, RefreshLeft, Search, ArrowRight } from '@element-plus/icons-vue'
+import { Edit, Delete, Plus, PictureFilled, Download, FolderOpened, Files, MoreFilled, RefreshLeft, ArrowRight } from '@element-plus/icons-vue'
 import { useTheme } from '@/composables/useTheme'
 import { newProjectDestination, projectCardDestination } from '@/utils/sourceImportNavigation.js'
 import { dramaAPI } from '@/api/drama'
 import AIConfigContent from '@/components/AIConfigContent.vue'
+import FilmListHeader from '@/components/filmList/FilmListHeader.vue'
+import FilmListFailureBanners from '@/components/filmList/FilmListFailureBanners.vue'
+import FilmListWorkspaceToolbar from '@/components/filmList/FilmListWorkspaceToolbar.vue'
 import FilmListLibraryDialogs from '@/components/filmList/FilmListLibraryDialogs.vue'
 import { aiAPI } from '@/api/ai'
 import { filterProjectList, getProjectCover } from '@/utils/projectList'
@@ -691,7 +518,7 @@ const exportFailure = ref(null)
 const importing = ref(false)
 const importFailure = ref(null)
 const importFileInput = ref(null)
-const importTriggerButton = ref(null)
+const headerRef = ref(null)
 
 const showTrashDialog = ref(false)
 const trashItems = ref([])
@@ -1114,7 +941,7 @@ function clearImportFailure() {
 async function dismissImportFailure() {
   clearImportFailure()
   await nextTick()
-  const trigger = importTriggerButton.value?.$el || importTriggerButton.value
+  const trigger = headerRef.value?.importTriggerButton?.$el || headerRef.value?.importTriggerButton
   trigger?.focus?.()
 }
 
@@ -1262,176 +1089,9 @@ onBeforeUnmount(() => {
   background: var(--el-fill-color-light);
   color: var(--el-text-color-regular);
 }
-.header {
-  background: rgba(12, 12, 18, 0.82);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border-bottom: 1px solid rgba(99, 102, 241, 0.18);
-  padding: 12px 24px;
-  position: sticky;
-  top: 0;
-  z-index: 100;
-  box-shadow: 0 1px 0 rgba(99, 102, 241, 0.08), 0 4px 24px rgba(0, 0, 0, 0.3);
-}
-.header-inner {
-  max-width: min(1400px, 96vw);
-  margin: 0 auto;
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  flex-wrap: wrap;
-}
-.logo {
-  margin: 0;
-  cursor: default;
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  line-height: 1;
-}
-.logo-main {
-  font-size: 1.1rem;
-  font-weight: 700;
-  letter-spacing: 0;
-  color: #c7d2fe;
-}
-.logo-sub {
-  font-size: 0.68rem;
-  font-weight: 400;
-  letter-spacing: 0;
-  color: #6d6d7a;
-  -webkit-text-fill-color: #6d6d7a;
-  filter: none;
-}
 .page-title {
   color: #a1a1aa;
   font-size: 0.95rem;
-}
-.header-library {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-left: 20px;
-}
-.btn-material-center {
-  font-weight: 600;
-  --el-button-bg-color: rgba(99, 102, 241, 0.2);
-  --el-button-border-color: rgba(129, 140, 248, 0.55);
-  --el-button-text-color: #c7d2fe;
-}
-.btn-semantic-library .dropdown-caret {
-  margin-left: 2px;
-  font-size: 12px;
-}
-.header-actions {
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.utility-icon-button {
-  width: 34px;
-  min-width: 34px;
-  padding: 0;
-}
-.visually-hidden {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
-  border: 0;
-}
-
-.btn-trash {
-  --el-button-bg-color: rgba(148, 163, 184, 0.08);
-  --el-button-border-color: rgba(148, 163, 184, 0.28);
-  --el-button-text-color: #cbd5e1;
-  --el-button-hover-bg-color: rgba(148, 163, 184, 0.16);
-  --el-button-hover-border-color: rgba(148, 163, 184, 0.46);
-  --el-button-hover-text-color: #f1f5f9;
-}
-html.light .btn-trash {
-  --el-button-bg-color: #ffffff;
-  --el-button-border-color: #cbd1d9;
-  --el-button-text-color: #4b5563;
-  --el-button-hover-bg-color: #f3f4f6;
-  --el-button-hover-border-color: #8b95a3;
-  --el-button-hover-text-color: #1f2937;
-}
-
-/* 资源库按钮 —— 靛紫调 */
-.btn-library {
-  --el-button-bg-color: rgba(99, 102, 241, 0.12);
-  --el-button-border-color: rgba(99, 102, 241, 0.35);
-  --el-button-text-color: #a5b4fc;
-  --el-button-hover-bg-color: rgba(99, 102, 241, 0.22);
-  --el-button-hover-border-color: rgba(99, 102, 241, 0.55);
-  --el-button-hover-text-color: #c7d2fe;
-  --el-button-active-bg-color: rgba(99, 102, 241, 0.3);
-  --el-button-active-border-color: rgba(99, 102, 241, 0.7);
-}
-html.light .btn-library {
-  --el-button-bg-color: rgba(79, 70, 229, 0.08);
-  --el-button-border-color: rgba(79, 70, 229, 0.3);
-  --el-button-text-color: #3730a3;
-  --el-button-hover-bg-color: rgba(79, 70, 229, 0.14);
-  --el-button-hover-border-color: rgba(79, 70, 229, 0.5);
-  --el-button-hover-text-color: #312e81;
-  --el-button-active-bg-color: rgba(79, 70, 229, 0.2);
-  --el-button-active-border-color: rgba(79, 70, 229, 0.65);
-}
-
-/* 主题切换按钮 */
-.btn-theme {
-  --el-button-bg-color: rgba(148, 163, 184, 0.1);
-  --el-button-border-color: rgba(148, 163, 184, 0.3);
-  --el-button-text-color: #94a3b8;
-  --el-button-hover-bg-color: rgba(148, 163, 184, 0.2);
-  --el-button-hover-border-color: rgba(148, 163, 184, 0.5);
-  --el-button-hover-text-color: #cbd5e1;
-  transition: all 0.2s;
-}
-html.light .btn-theme {
-  --el-button-bg-color: rgba(99, 102, 241, 0.08);
-  --el-button-border-color: rgba(99, 102, 241, 0.3);
-  --el-button-text-color: #6366f1;
-  --el-button-hover-bg-color: rgba(99, 102, 241, 0.15);
-  --el-button-hover-border-color: rgba(99, 102, 241, 0.5);
-  --el-button-hover-text-color: #4f46e5;
-}
-
-/* AI 配置按钮 —— 琥珀调 */
-.btn-settings {
-  --el-button-bg-color: rgba(234, 179, 8, 0.1);
-  --el-button-border-color: rgba(234, 179, 8, 0.32);
-  --el-button-text-color: #fcd34d;
-  --el-button-hover-bg-color: rgba(234, 179, 8, 0.2);
-  --el-button-hover-border-color: rgba(234, 179, 8, 0.5);
-  --el-button-hover-text-color: #fde68a;
-  --el-button-active-bg-color: rgba(234, 179, 8, 0.28);
-  --el-button-active-border-color: rgba(234, 179, 8, 0.65);
-}
-html.light .btn-settings {
-  --el-button-bg-color: rgba(180, 83, 9, 0.07);
-  --el-button-border-color: rgba(180, 83, 9, 0.28);
-  --el-button-text-color: #92400e;
-  --el-button-hover-bg-color: rgba(180, 83, 9, 0.12);
-  --el-button-hover-border-color: rgba(180, 83, 9, 0.45);
-  --el-button-hover-text-color: #78350f;
-  --el-button-active-bg-color: rgba(180, 83, 9, 0.18);
-  --el-button-active-border-color: rgba(180, 83, 9, 0.6);
-}
-
-/* 导入按钮 —— 亮色模式下提升可读性 */
-html.light .btn-import {
-  --el-button-text-color: #374151;
-  --el-button-border-color: #d1d5db;
-  --el-button-hover-text-color: #1f2937;
-  --el-button-hover-border-color: #9ca3af;
 }
 
 .main {
@@ -1448,114 +1108,6 @@ html.light .btn-import {
   min-height: 56px;
   margin-top: 18px;
   padding: 10px 0 2px;
-}
-.workspace-overview {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 20px;
-  margin-bottom: 18px;
-  padding: 4px 0 2px;
-}
-.workspace-copy {
-  min-width: 0;
-}
-.workspace-title {
-  margin: 0;
-  color: #f4f4f5;
-  font-size: 1.2rem;
-  font-weight: 650;
-  line-height: 1.25;
-}
-.workspace-count {
-  margin: 5px 0 0;
-  color: #8b8b97;
-  font-size: 0.82rem;
-  line-height: 1.4;
-}
-.workspace-controls {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 10px;
-  min-width: min(520px, 100%);
-}
-.workspace-search {
-  width: 320px;
-}
-.workspace-status {
-  width: 124px;
-}
-.workspace-sort {
-  width: 150px;
-}
-html.dark .workspace-search :deep(.el-input__wrapper),
-html.dark .workspace-sort :deep(.el-select__wrapper) {
-  background: #18181b;
-  box-shadow: 0 0 0 1px #3f3f46;
-}
-html.dark .workspace-search :deep(.el-input__inner),
-html.dark .workspace-sort :deep(.el-select__selected-item),
-html.dark .workspace-sort :deep(.el-select__placeholder) {
-  color: #e4e4e7;
-}
-html.dark .workspace-search :deep(.el-input__inner::placeholder) {
-  color: #71717a;
-}
-.data-load-state,
-.export-failure-state {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 24px;
-  margin-bottom: 18px;
-  padding: 16px 18px;
-  border: 1px solid rgba(248, 113, 113, 0.45);
-  border-left: 4px solid #f87171;
-  border-radius: 8px;
-  background: rgba(127, 29, 29, 0.16);
-  color: #fecaca;
-}
-.export-failure-state {
-  border-color: rgba(251, 191, 36, 0.42);
-  border-left-color: #fbbf24;
-  background: rgba(120, 53, 15, 0.14);
-  color: #fde68a;
-}
-.data-load-state__content,
-.export-failure-state > div {
-  min-width: 0;
-}
-.import-failure-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  align-items: center;
-}
-.import-failure-filename {
-  color: inherit;
-  overflow-wrap: anywhere;
-}
-.data-load-state h2,
-.export-failure-state strong {
-  display: block;
-  margin: 0 0 5px;
-  color: #fff7ed;
-  font-size: 0.96rem;
-  line-height: 1.4;
-}
-.data-load-state p,
-.export-failure-state p {
-  margin: 3px 0 0;
-  font-size: 0.84rem;
-  line-height: 1.55;
-}
-.data-load-state__stale {
-  color: #fde68a;
-}
-.data-load-state__detail {
-  color: #fca5a5;
-  overflow-wrap: anywhere;
 }
 .empty {
   text-align: center;
@@ -1619,137 +1171,6 @@ html.dark .workspace-search :deep(.el-input__inner::placeholder) {
   box-shadow: 0 10px 28px rgba(99, 102, 241, 0.12), 0 0 0 1px rgba(99, 102, 241, 0.08), 0 2px 8px rgba(0, 0, 0, 0.4);
 }
 
-/* 操作卡片 */
-.action-card {
-  cursor: default;
-  display: flex;
-  align-items: center;
-  justify-content: flex-start;
-}
-.action-card:hover {
-  transform: none;
-  box-shadow: none;
-}
-.action-card::before {
-  display: none;
-}
-.action-card-inner {
-  width: min(680px, 100%);
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 14px;
-}
-.action-card--empty {
-  grid-column: 1 / -1;
-  min-height: 260px;
-  padding: 44px 12px;
-}
-.action-card--search-empty {
-  min-height: 210px;
-  align-items: center;
-  justify-content: center;
-  border: 1px dashed rgba(148, 163, 184, 0.34);
-  background: rgba(24, 24, 30, 0.42);
-}
-.action-card--search-empty .action-card-inner {
-  align-items: center;
-  text-align: center;
-}
-.action-card-title {
-  font-size: 1.35rem;
-  font-weight: 650;
-  color: #f4f4f5;
-  margin: 0;
-}
-.action-card-desc {
-  margin: -4px 0 4px;
-  color: #a1a1aa;
-  font-size: 0.875rem;
-}
-.action-card-buttons {
-  display: flex;
-  gap: 12px;
-  width: 100%;
-  flex-wrap: wrap;
-  justify-content: flex-start;
-}
-.action-btn {
-  min-width: 150px;
-}
-.action-btn-new {
-  --el-button-bg-color: var(--el-color-primary);
-}
-.action-btn-import {
-  --el-button-bg-color: rgba(99, 102, 241, 0.12);
-  --el-button-border-color: rgba(99, 102, 241, 0.35);
-  --el-button-text-color: #a5b4fc;
-  --el-button-hover-bg-color: rgba(99, 102, 241, 0.22);
-  --el-button-hover-border-color: rgba(99, 102, 241, 0.55);
-  --el-button-hover-text-color: #c7d2fe;
-}
-.action-card-secondary {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 8px;
-}
-.action-btn-material {
-  --el-button-bg-color: rgba(255, 255, 255, 0.02);
-  --el-button-border-color: rgba(99, 102, 241, 0.28);
-  --el-button-text-color: #c7d2fe;
-  --el-button-hover-bg-color: rgba(99, 102, 241, 0.14);
-  --el-button-hover-border-color: rgba(129, 140, 248, 0.5);
-  --el-button-hover-text-color: #e0e7ff;
-}
-.action-btn-trash {
-  --el-button-bg-color: transparent;
-  --el-button-border-color: rgba(148, 163, 184, 0.28);
-  --el-button-text-color: #a1a1aa;
-  --el-button-hover-bg-color: rgba(148, 163, 184, 0.1);
-  --el-button-hover-border-color: rgba(148, 163, 184, 0.5);
-  --el-button-hover-text-color: #e4e4e7;
-}
-.action-card-note {
-  margin: 0;
-  color: #8b8b97;
-  font-size: 0.82rem;
-  text-align: center;
-}
-.action-card-example {
-  width: 100%;
-  padding-top: 8px;
-  border-top: 1px solid rgba(99, 102, 241, 0.15);
-}
-.example-hint {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  justify-content: center;
-  margin-bottom: 8px;
-}
-.example-hint-icon {
-  color: #a5b4fc;
-  font-size: 15px;
-}
-.example-hint-text {
-  font-size: 0.8rem;
-  color: #71717a;
-}
-.example-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  justify-content: center;
-}
-.example-btn {
-  --el-button-bg-color: rgba(34, 197, 94, 0.1);
-  --el-button-border-color: rgba(34, 197, 94, 0.3);
-  --el-button-text-color: #4ade80;
-  --el-button-hover-bg-color: rgba(34, 197, 94, 0.2);
-  --el-button-hover-border-color: rgba(34, 197, 94, 0.5);
-  --el-button-hover-text-color: #22c55e;
-}
 .project-card-body {
   min-width: 0;
 }
@@ -2137,37 +1558,6 @@ html.light .film-list {
   background: #f7f8fa;
   color: #20242c;
 }
-html.light .data-load-state,
-html.light .export-failure-state {
-  background: #fff7ed;
-  border-color: #fdba74;
-  border-left-color: #dc2626;
-  color: #9a3412;
-}
-html.light .export-failure-state {
-  background: #fffbeb;
-  border-color: #fcd34d;
-  border-left-color: #d97706;
-  color: #92400e;
-}
-html.light .data-load-state h2,
-html.light .export-failure-state strong {
-  color: #7f1d1d;
-}
-html.light .data-load-state__stale { color: #92400e; }
-html.light .data-load-state__detail { color: #b91c1c; }
-html.light .header {
-  background: rgba(255, 255, 255, 0.92);
-  border-bottom-color: #e4e7ec;
-  box-shadow: 0 1px 0 rgba(15, 23, 42, 0.04), 0 4px 16px rgba(15, 23, 42, 0.04);
-}
-html.light .logo-main {
-  color: #4f46e5;
-}
-html.light .logo-sub {
-  color: #9ca3af;
-  -webkit-text-fill-color: #9ca3af;
-}
 html.light .project-card {
   background: #ffffff;
   border-color: #e1e5eb;
@@ -2212,24 +1602,11 @@ html.light .project-card-link:hover .project-card-continue,
 html.light .project-card-link:focus-visible .project-card-continue {
   color: #3730a3;
 }
-html.light .action-card {
-  background: transparent;
-}
-html.light .action-card:hover {
-  background: transparent;
-}
-html.light .action-card-title { color: #20242c; }
-html.light .workspace-title { color: #20242c; }
-html.light .workspace-count,
+
 html.light .project-updated { color: #6b7280; }
 html.light .project-title { color: #20242c; }
 html.light .project-desc { color: #4b5563; }
 html.light .project-meta { color: #6b7280; }
-html.light .action-card--search-empty {
-  background: #ffffff;
-  border-color: #d6dbe3;
-}
-html.light .action-card-desc { color: #6b7280; }
 html.light .project-stat {
   background: #f8fafc;
   border-color: #e1e5eb;
@@ -2237,38 +1614,12 @@ html.light .project-stat {
 }
 html.light .project-stat strong { color: #20242c; }
 html.light .project-stat--compact { color: #92400e; }
-html.light .action-btn-import {
-  --el-button-bg-color: #ffffff;
-  --el-button-border-color: #b8c0cc;
-  --el-button-text-color: #374151;
-  --el-button-hover-bg-color: #f3f4f6;
-  --el-button-hover-border-color: #7c8796;
-  --el-button-hover-text-color: #111827;
-}
-html.light .action-btn-material {
-  --el-button-bg-color: rgba(79, 70, 229, 0.04);
-  --el-button-border-color: rgba(79, 70, 229, 0.22);
-  --el-button-text-color: #4338ca;
-  --el-button-hover-bg-color: rgba(79, 70, 229, 0.1);
-  --el-button-hover-border-color: rgba(79, 70, 229, 0.38);
-  --el-button-hover-text-color: #3730a3;
-}
-html.light .action-btn-trash {
-  --el-button-bg-color: transparent;
-  --el-button-border-color: #cbd1d9;
-  --el-button-text-color: #4b5563;
-  --el-button-hover-bg-color: #f3f4f6;
-  --el-button-hover-border-color: #8b95a3;
-  --el-button-hover-text-color: #1f2937;
-}
-html.light .action-card-note { color: #6b7280; }
 html.light .project-menu-button { color: #6b7280; }
 html.light .project-menu-button:hover,
 html.light .project-menu-button:focus-visible {
   color: #3730a3;
   background: rgba(79, 70, 229, 0.1);
 }
-html.light .example-hint-text { color: #6b7280; }
 html.light .trash-policy {
   background: #ecfdf5;
   border-left-color: #0f766e;
@@ -2293,36 +1644,8 @@ html.light .badge-status--draft {
   border-color: rgba(107, 114, 128, 0.25);
 }
 
-@media (max-width: 860px) {
-  .workspace-overview {
-    align-items: stretch;
-    flex-direction: column;
-    gap: 12px;
-  }
-  .workspace-controls {
-    justify-content: stretch;
-    min-width: 0;
-  }
-  .workspace-search {
-    flex: 1 1 auto;
-    width: auto;
-  }
-  .workspace-status,
-  .workspace-sort {
-    flex: 0 1 150px;
-  }
-}
 
 @media (max-width: 620px) {
-  .workspace-controls {
-    align-items: stretch;
-    flex-direction: column;
-  }
-  .workspace-search,
-  .workspace-status,
-  .workspace-sort {
-    width: 100%;
-  }
   .project-card-topline {
     align-items: flex-start;
     flex-direction: column;
@@ -2337,5 +1660,4 @@ html.light .badge-status--draft {
     min-height: 168px;
   }
 }
-
 </style>

@@ -198,7 +198,9 @@ test('旧图片入口最终绑定失败时，图片、场景与任务完成必�
 
   assert.equal(failedGeneration.image_url, null);
   assert.equal(failedGeneration.local_path, null);
-  assert.match(failedGeneration.error_msg, /SQLITE_CONSTRAINT_TRIGGER/);
+  assert.ok(failedGeneration.error_msg, '绑定失败必须写入错误信息');
+  assert.match(failedGeneration.error_msg, /失败/);
+  assert.doesNotMatch(failedGeneration.error_msg, /SQLITE_CONSTRAINT_TRIGGER/);
   assert.equal(taskService.getTask(fixture.db, created.task_id).status, 'failed');
   assert.equal(fs.existsSync(absolutePath), false, '事务回滚后不得留下无数据库归属的文件');
   assertOriginalScene(fixture);

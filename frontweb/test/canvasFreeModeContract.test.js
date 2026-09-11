@@ -2,18 +2,22 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
+import { readCanvasStoryboardPanelSource } from './helpers/canvasStoryboardPanelSource.js'
+
 const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8')
 
 const toolbarSource = read('../src/components/dramaCanvas/FreeCanvasToolbar.vue')
 const nodeSource = read('../src/components/dramaCanvas/FreeCanvasNode.vue')
 const inspectorSource = read('../src/components/dramaCanvas/FreeCanvasInspector.vue')
 const inspectorMediaSource = read('../src/components/dramaCanvas/CanvasMediaPanel.vue')
-const storyboardPanelSource = read('../src/components/dramaCanvas/CanvasStoryboardPanel.vue')
+const storyboardPanelSource = readCanvasStoryboardPanelSource()
 const assetSidebarSource = read('../src/components/dramaCanvas/FreeCanvasAssetSidebar.vue')
 const desktopToolbarSource = read('../src/components/dramaCanvas/CanvasDesktopToolbar.vue')
 const contextMenuSource = read('../src/components/dramaCanvas/CanvasContextMenu.vue')
 const pageHeaderSource = read('../src/components/dramaCanvas/CanvasPageHeader.vue')
 const productionSidebarSource = read('../src/components/dramaCanvas/CanvasProductionSidebar.vue')
+const loadFailureCardSource = read('../src/components/dramaCanvas/CanvasLoadFailureCard.vue')
+const freeCanvasEmptySource = read('../src/components/dramaCanvas/FreeCanvasEmptyStart.vue')
 const dramaCanvasViewSource = read('../src/views/DramaCanvas.vue')
 const dramaCanvasStyleSource = read('../src/views/DramaCanvas.css')
 const freeCanvasLogicSource = read('../src/composables/useDramaCanvasFreeCanvas.js')
@@ -22,7 +26,7 @@ const projectLoadLogicSource = read('../src/composables/useDramaCanvasProjectLoa
 const workflowLogicSource = read('../src/composables/useDramaCanvasWorkflow.js')
 const graphLogicSource = read('../src/composables/useDramaCanvasGraph.js')
 const viewportLogicSource = read('../src/composables/useDramaCanvasViewport.js')
-const dramaCanvasSource = `${dramaCanvasViewSource}\n${pageHeaderSource}\n${productionSidebarSource}\n${dramaCanvasStyleSource}\n${freeCanvasLogicSource}\n${persistLogicSource}\n${projectLoadLogicSource}\n${workflowLogicSource}\n${graphLogicSource}\n${viewportLogicSource}`
+const dramaCanvasSource = `${dramaCanvasViewSource}\n${pageHeaderSource}\n${productionSidebarSource}\n${loadFailureCardSource}\n${freeCanvasEmptySource}\n${dramaCanvasStyleSource}\n${freeCanvasLogicSource}\n${persistLogicSource}\n${projectLoadLogicSource}\n${workflowLogicSource}\n${graphLogicSource}\n${viewportLogicSource}`
 
 test('free canvas toolbar names every icon-only action and exposes mode selection', () => {
   assert.match(toolbarSource, /:title="canUndo \? '撤销' : '没有可撤销的操作'"/)

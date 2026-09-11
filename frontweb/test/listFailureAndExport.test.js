@@ -5,11 +5,19 @@ import { readFileSync } from 'node:fs'
 import { describeServiceLoadError } from '../src/utils/requestError.js'
 import { mediaLibraryAccessState } from '../src/utils/mediaLibrary.js'
 import { sanitizeExportFilename, validateExportBlob, resolveExportFailureMessage } from '../src/utils/projectExport.js'
+import { readFilmListLibrarySource } from './helpers/filmListLibrarySource.js'
+import { readFilmListSources } from './helpers/filmListSources.js'
 
 const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8')
-const filmListSource = read('../src/views/FilmList.vue')
-const filmListLibrarySource = read('../src/components/filmList/FilmListLibraryDialogs.vue')
-const mediaLibrarySource = read('../src/views/MediaLibrary.vue')
+const filmListSource = readFilmListSources().ui
+const filmListLibrarySource = readFilmListLibrarySource()
+const mediaLibrarySource = [
+  read('../src/views/MediaLibrary.vue'),
+  read('../src/components/mediaLibrary/MediaLibraryHeader.vue'),
+  read('../src/components/mediaLibrary/MediaLibraryFilterBar.vue'),
+  read('../src/components/mediaLibrary/MediaLibraryLocalGrid.vue'),
+  read('../src/components/mediaLibrary/MediaLibraryNetworkPanel.vue'),
+].join('\n')
 const dramaApiSource = read('../src/api/drama.js')
 
 test('project list uses a persistent failure state without replacing it with an empty state', () => {
@@ -129,6 +137,7 @@ test('project import failures stay persistent with retry and dismiss actions', (
   )
   assert.match(filmListSource, /@click="dismissImportFailure"[\s\S]*关闭/)
   assert.match(filmListSource, /ref="importTriggerButton"[\s\S]*导入项目包/)
+  assert.match(filmListSource, /class="export-failure-state import-failure-state"[\s\S]*tabindex="-1"/)
   assert.match(filmListSource, /function dismissImportFailure\(\)[\s\S]*await nextTick\(\)[\s\S]*trigger\?\.focus\?\.\(\)/)
 
   assert.match(filmListSource, /function clearImportFailure\(\)/)

@@ -10,147 +10,41 @@
     @wheel.stop
     @keydown.esc.stop.prevent="closePanel"
   >
-    <div class="panel-head">
-      <span>分镜 #{{ storyboard?.storyboard_number ?? storyboard?.id }}</span>
-      <div class="head-actions">
-        <span v-if="busyLabel" class="busy-tag">{{ busyLabel }}</span>
-        <el-button link size="small" type="primary" aria-label="打开列表详情" @click.stop="openListMode">列表详情</el-button>
-        <el-button link size="small" aria-label="收起面板" @click.stop="closePanel">收起</el-button>
-      </div>
-    </div>
-    <div v-if="audioOutcomeUnknown" class="media-query-blocker" role="alert">
-      <span>上一次配音结果待确认，服务端可能仍在合成并产生费用。</span>
-      <el-button size="small" type="warning" plain @click.stop="refreshAfterUnknownAudio">刷新分镜状态</el-button>
-    </div>
+    <CanvasStoryboardPanelHeader
+      :storyboard="storyboard"
+      :busy-label="busyLabel"
+      :audio-outcome-unknown="audioOutcomeUnknown"
+      :open-list-mode="openListMode"
+      :close-panel="closePanel"
+      :refresh-after-unknown-audio="refreshAfterUnknownAudio"
+    />
 
     <el-form label-position="left" label-width="36px" size="small" class="panel-form compact-form">
       <el-form-item label="标题">
         <el-input v-model="form.title" :aria-label="storyboardControlLabel('标题')" placeholder="分镜标题" @blur="saveMeta" />
       </el-form-item>
 
-      <div class="relation-row">
-        <el-form-item label="角色" class="rel-item">
-          <el-select
-            v-model="characterIds"
-            :aria-label="storyboardControlLabel('角色')"
-            multiple
-            collapse-tags
-            collapse-tags-tooltip
-            filterable
-            placeholder="角色"
-            teleported
-            popper-class="canvas-panel-popper"
-            @visible-change="onSelectVisibleChange"
-            @change="onRelationChange"
-          >
-            <el-option
-              v-for="c in characters"
-              :key="c.id"
-              :label="c.name || '未命名'"
-              :value="normalizeEntityId(c.id)"
-            />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="场景" class="rel-item">
-          <el-select
-            v-model="sceneId"
-            :aria-label="storyboardControlLabel('场景')"
-            clearable
-            filterable
-            placeholder="场景"
-            teleported
-            popper-class="canvas-panel-popper"
-            @visible-change="onSelectVisibleChange"
-            @change="onRelationChange"
-          >
-            <el-option
-              v-for="s in scenes"
-              :key="s.id"
-              :label="s.location || '未命名'"
-              :value="normalizeEntityId(s.id)"
-            />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="道具" class="rel-item">
-          <el-select
-            v-model="propIds"
-            :aria-label="storyboardControlLabel('道具')"
-            multiple
-            collapse-tags
-            collapse-tags-tooltip
-            filterable
-            placeholder="道具"
-            teleported
-            popper-class="canvas-panel-popper"
-            @visible-change="onSelectVisibleChange"
-            @change="onRelationChange"
-          >
-            <el-option
-              v-for="p in propsList"
-              :key="p.id"
-              :label="p.name || '未命名'"
-              :value="normalizeEntityId(p.id)"
-            />
-          </el-select>
-        </el-form-item>
-      </div>
-      <div class="inline-add-row">
-        <el-button link type="primary" size="small" :aria-label="storyboardControlLabel('添加角色')" @click.stop="createAsset('character')">+角色</el-button>
-        <el-button link type="primary" size="small" :aria-label="storyboardControlLabel('添加场景')" @click.stop="createAsset('scene')">+场景</el-button>
-        <el-button link type="primary" size="small" :aria-label="storyboardControlLabel('添加道具')" @click.stop="createAsset('prop')">+道具</el-button>
-      </div>
+      <CanvasStoryboardPanelRelations
+        v-model:character-ids="characterIds"
+        v-model:scene-id="sceneId"
+        v-model:prop-ids="propIds"
+        :characters="characters"
+        :scenes="scenes"
+        :props-list="propsList"
+        :storyboard-control-label="storyboardControlLabel"
+        :on-select-visible-change="onSelectVisibleChange"
+        :on-relation-change="onRelationChange"
+        :create-asset="createAsset"
+      />
 
-      <div class="reference-row">
-        <span class="reference-label">参考图 {{ referenceSlots.length }}/10</span>
-        <div class="reference-list">
-          <p v-if="!referenceDisplaySlots.length" class="reference-empty" role="status">
-            尚未加入参考图。绑定带图的场景、角色或道具后会自动出现，也可上传自由参考图。
-          </p>
-          <div
-            v-for="slot in referenceDisplaySlots"
-            :key="`${slot.kind}-${slot.index}-${slot.url || slot.name}`"
-            class="reference-thumb"
-            :class="{ pending: !slot.url }"
-            :title="canvasReferenceSourceLabel(slot)"
-          >
-            <img v-if="slot.url" :src="slot.url" :alt="canvasReferenceSourceLabel(slot)" />
-            <div v-else class="reference-missing">暂无图</div>
-            <span class="reference-kind">{{ canvasReferenceKindLabel(slot.kind) }}</span>
-            <el-button
-              v-if="slot.kind === 'free' && slot.freeIndex != null"
-              class="reference-remove"
-              :icon="Close"
-              circle
-              size="small"
-              title="移除自由参考图"
-              :aria-label="storyboardControlLabel(`移除自由参考图${slot.freeIndex + 1}`)"
-              @click.stop="removeFreeReference(slot.freeIndex)"
-            />
-          </div>
-          <el-tooltip content="上传自由参考图" placement="top">
-            <el-button
-              class="reference-upload"
-              :icon="Upload"
-              circle
-              :loading="uploadingReference"
-              :disabled="referenceSlots.length >= 10"
-              :title="referenceSlots.length >= 10 ? '每个分镜最多保存 10 张自由参考图' : undefined"
-              :aria-label="storyboardControlLabel('上传自由参考图')"
-              @click.stop="openReferenceUpload"
-            />
-          </el-tooltip>
-        </div>
-        <input
-          ref="referenceFileInput"
-          class="reference-file-input"
-          type="file"
-          accept="image/png,image/jpeg,image/webp,image/gif"
-          multiple
-          tabindex="-1"
-          aria-hidden="true"
-          @change="onReferenceFiles"
-        />
-      </div>
+      <CanvasStoryboardPanelReferences
+        :reference-slots="referenceSlots"
+        :reference-display-slots="referenceDisplaySlots"
+        :uploading-reference="uploadingReference"
+        :storyboard-control-label="storyboardControlLabel"
+        :on-reference-files="onReferenceFiles"
+        :remove-free-reference="removeFreeReference"
+      />
 
       <div class="meta-row">
         <el-form-item label="景别" class="meta-item">
@@ -161,22 +55,12 @@
         </el-form-item>
       </div>
 
-      <section
+      <CanvasStoryboardPanelFrames
         v-if="useFirstLast && !isUniversal"
-        class="frame-preview-row"
-        aria-label="首尾帧"
-      >
-        <div class="frame-slot">
-          <img v-if="firstFrameUrl" :src="firstFrameUrl" :alt="storyboardControlLabel('首帧')" />
-          <div v-else class="frame-empty">暂无首帧</div>
-          <span class="frame-slot-label">首帧</span>
-        </div>
-        <div class="frame-slot">
-          <img v-if="lastFrameUrl" :src="lastFrameUrl" :alt="storyboardControlLabel('尾帧')" />
-          <div v-else class="frame-empty">暂无尾帧</div>
-          <span class="frame-slot-label">尾帧</span>
-        </div>
-      </section>
+        :first-frame-url="firstFrameUrl"
+        :last-frame-url="lastFrameUrl"
+        :storyboard-control-label="storyboardControlLabel"
+      />
 
       <el-form-item v-if="gridImages.length" label="宫格">
         <el-select v-model="form.video_reference_image_id" :aria-label="storyboardControlLabel('视频参考图')" clearable placeholder="视频使用主图/首帧">
@@ -257,58 +141,23 @@
       </template>
     </el-form>
 
-    <div class="panel-actions">
-      <el-button size="small" :loading="saving" @click.stop="saveFields">保存</el-button>
-      <el-button v-if="!isUniversal" size="small" :loading="busyStep === 'polish'" @click.stop="polishPrompt">润色</el-button>
-      <el-button
-        v-if="isUniversal"
-        size="small"
-        :icon="MagicStick"
-        :loading="busyStep === 'universal-generate'"
-        @click.stop="runUniversalPrompt('generate')"
-      >生成全能词</el-button>
-      <el-button
-        v-if="isUniversal && form.universal_segment_text.trim()"
-        size="small"
-        :icon="Refresh"
-        :loading="busyStep === 'universal-polish'"
-        @click.stop="runUniversalPrompt('polish')"
-      >流式润色</el-button>
-      <el-button v-if="!isUniversal && !useFirstLast" size="small" type="primary" :loading="busyStep === 'image'" @click.stop="runStep('image')">生图</el-button>
-      <el-button v-if="!isUniversal && useFirstLast" size="small" type="primary" :loading="busyStep === 'first-frame'" @click.stop="runStep('first-frame')">生成首帧</el-button>
-      <el-button v-if="!isUniversal && useFirstLast" size="small" type="primary" :loading="busyStep === 'last-frame'" @click.stop="runStep('last-frame')">生成尾帧</el-button>
-      <CanvasActionGate
-        :reason="videoAction.reason"
-        label="生成单镜视频"
-        :description-id="videoReasonId"
-        :config-service-type="videoAction.serviceType"
-      >
-        <el-button
-          size="small"
-          type="primary"
-          :loading="busyStep === 'video'"
-          :disabled="Boolean(videoAction.reason)"
-          :title="videoAction.reason || undefined"
-          @click.stop="runStep('video')"
-        >生视频</el-button>
-      </CanvasActionGate>
-      <CanvasActionGate
-        :reason="ttsAction.reason"
-        label="生成单镜配音"
-        :description-id="ttsReasonId"
-        :config-service-type="ttsAction.serviceType"
-      >
-        <el-button
-          size="small"
-          type="warning"
-          :loading="busyStep === 'audio'"
-          :disabled="Boolean(audioActionDisabledReason)"
-          :title="audioActionDisabledReason || undefined"
-          @click.stop="runStep('audio')"
-        >配音</el-button>
-      </CanvasActionGate>
-      <el-button size="small" type="danger" plain @click.stop="deleteStoryboard">删除</el-button>
-    </div>
+    <CanvasStoryboardPanelActions
+      :saving="saving"
+      :busy-step="busyStep"
+      :is-universal="isUniversal"
+      :use-first-last="useFirstLast"
+      :universal-segment-text="form.universal_segment_text"
+      :video-action="videoAction"
+      :tts-action="ttsAction"
+      :video-reason-id="videoReasonId"
+      :tts-reason-id="ttsReasonId"
+      :audio-action-disabled-reason="audioActionDisabledReason"
+      :save-fields="saveFields"
+      :polish-prompt="polishPrompt"
+      :run-universal-prompt="runUniversalPrompt"
+      :run-step="runStep"
+      :delete-storyboard="deleteStoryboard"
+    />
   </div>
 </template>
 
@@ -316,13 +165,11 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from '@/utils/elementPlusFeedback.js'
-import { Close, MagicStick, Refresh, Upload } from '@element-plus/icons-vue'
 import { storyboardsAPI } from '@/api/storyboards'
 import { uploadAPI } from '@/api/upload'
 import { useCanvasContext } from '@/composables/useCanvasContext'
 import { CANVAS_NODE_STATUS_LABELS } from '@/composables/useCanvasNodeStatus'
 import {
-  normalizeEntityId,
   parseStoryboardCharacterIds,
   parseStoryboardPropIds,
   parseStoryboardSceneId,
@@ -331,15 +178,15 @@ import { runImageStep, runFrameImageStep, runVideoStep, runAudioStep } from '@/c
 import { findStoryboardInDrama, getDramaGenerationOptions } from '@/utils/canvasWorkflow'
 import { collectStoryboardReferenceSlots } from '@/utils/storyboardVideoRequest'
 import { assetImageUrl } from '@/utils/mediaUrl'
-import {
-  buildCanvasReferenceDisplaySlots,
-  canvasReferenceKindLabel,
-  canvasReferenceSourceLabel,
-} from '@/composables/useCanvasReferenceDisplay'
+import { buildCanvasReferenceDisplaySlots } from '@/composables/useCanvasReferenceDisplay'
 import { canvasUserError, isCanvasUserAbort } from '@/composables/useCanvasUserError'
 import { dramaUsesFirstLastFrame, resolveSbFirstImageRecord, resolveSbLastImageRecord } from '@/utils/storyboardMedia'
 import { createStoryboardDraftFingerprint, hasStoryboardDraftChanges } from '@/utils/storyboardDraft'
-import CanvasActionGate from './CanvasActionGate.vue'
+import CanvasStoryboardPanelHeader from './CanvasStoryboardPanelHeader.vue'
+import CanvasStoryboardPanelRelations from './CanvasStoryboardPanelRelations.vue'
+import CanvasStoryboardPanelReferences from './CanvasStoryboardPanelReferences.vue'
+import CanvasStoryboardPanelFrames from './CanvasStoryboardPanelFrames.vue'
+import CanvasStoryboardPanelActions from './CanvasStoryboardPanelActions.vue'
 
 const props = defineProps({
   storyboard: { type: Object, required: true },
@@ -354,7 +201,6 @@ const saving = ref(false)
 const busyStep = ref('')
 const uploadingReference = ref(false)
 const audioOutcomeUnknown = ref(false)
-const referenceFileInput = ref(null)
 const characterIds = ref([])
 const sceneId = ref(null)
 const propIds = ref([])
@@ -715,14 +561,6 @@ async function polishPrompt() {
   }
 }
 
-function openReferenceUpload() {
-  if (referenceSlots.value.length >= 10 || uploadingReference.value) return
-  if (referenceFileInput.value) {
-    referenceFileInput.value.value = ''
-    referenceFileInput.value.click()
-  }
-}
-
 async function persistReferences() {
   const draftSnapshot = currentDraftValue()
   await storyboardsAPI.update(props.storyboard.id, {
@@ -950,28 +788,6 @@ async function refreshAfterUnknownAudio() {
   background: var(--canvas-panel-surface, rgba(15, 15, 18, 0.97));
   box-shadow: var(--canvas-raised-shadow, 0 12px 32px rgba(0, 0, 0, 0.45));
 }
-.panel-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 8px;
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--canvas-indigo-text, #c7d2fe);
-}
-.head-actions {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.busy-tag {
-  font-size: 10px;
-  padding: 2px 8px;
-  border-radius: 999px;
-  background: rgba(96, 165, 250, 0.18);
-  color: var(--canvas-blue-text, #93c5fd);
-  animation: pulse-tag 1.2s ease-in-out infinite;
-}
 .compact-form :deep(.el-form-item) {
   margin-bottom: 6px;
 }
@@ -988,142 +804,6 @@ async function refreshAfterUnknownAudio() {
   min-height: 52px;
   line-height: 1.45;
 }
-.relation-row {
-  display: flex;
-  gap: 8px;
-  align-items: flex-start;
-}
-.rel-item {
-  flex: 1;
-  min-width: 0;
-  margin-bottom: 4px !important;
-}
-.inline-add-row {
-  display: flex;
-  gap: 10px;
-  margin: 0 0 8px 36px;
-}
-.reference-row {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  margin: 0 0 8px 36px;
-}
-.reference-label {
-  flex: 0 0 auto;
-  padding-top: 14px;
-  font-size: 10px;
-  color: var(--canvas-text-subtle, #71717a);
-}
-.reference-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  min-width: 0;
-}
-.reference-thumb,
-.reference-upload {
-  width: 44px;
-  height: 44px;
-  flex: 0 0 44px;
-}
-.reference-empty {
-  flex: 1 1 100%;
-  margin: 0;
-  padding-top: 10px;
-  font-size: 11px;
-  line-height: 1.45;
-  color: var(--canvas-text-muted, #a1a1aa);
-}
-.reference-thumb {
-  position: relative;
-  overflow: visible;
-  border: 1px solid var(--canvas-divider-strong, #3f3f46);
-  border-radius: 6px;
-  background: var(--canvas-media-well, #09090b);
-}
-.reference-thumb.pending {
-  border-style: dashed;
-}
-.reference-missing {
-  display: grid;
-  place-items: center;
-  width: 100%;
-  height: 100%;
-  color: var(--canvas-text-subtle, #71717a);
-  font-size: 9px;
-}
-.reference-thumb img {
-  width: 100%;
-  height: 100%;
-  display: block;
-  object-fit: cover;
-  border-radius: 5px;
-}
-.reference-kind {
-  position: absolute;
-  left: 2px;
-  bottom: 2px;
-  min-width: 22px;
-  height: 16px;
-  padding: 0 3px;
-  border-radius: 4px;
-  background: rgba(0, 0, 0, 0.72);
-  color: #fff;
-  font-size: 9px;
-  line-height: 16px;
-  text-align: center;
-}
-.reference-remove {
-  position: absolute;
-  top: -7px;
-  right: -7px;
-  width: 20px !important;
-  height: 20px !important;
-  min-height: 20px !important;
-  z-index: 1;
-}
-.reference-file-input {
-  display: none;
-}
-.frame-preview-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
-  margin: 0 0 10px;
-}
-.frame-slot {
-  position: relative;
-  overflow: hidden;
-  min-height: 72px;
-  border: 1px solid var(--canvas-divider-strong, #3f3f46);
-  border-radius: 6px;
-  background: var(--canvas-media-well, #09090b);
-}
-.frame-slot img {
-  display: block;
-  width: 100%;
-  height: 72px;
-  object-fit: cover;
-}
-.frame-empty {
-  display: grid;
-  place-items: center;
-  height: 72px;
-  color: var(--canvas-text-subtle, #71717a);
-  font-size: 11px;
-}
-.frame-slot-label {
-  position: absolute;
-  left: 4px;
-  bottom: 4px;
-  padding: 0 5px;
-  border-radius: 4px;
-  background: rgba(0, 0, 0, 0.72);
-  color: #fff;
-  font-size: 10px;
-  line-height: 18px;
-}
 .meta-row {
   display: flex;
   gap: 10px;
@@ -1136,21 +816,6 @@ async function refreshAfterUnknownAudio() {
   align-items: flex-start;
 }
 .flex-1 { flex: 1; min-width: 0; }
-.panel-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 8px;
-  padding-top: 8px;
-  border-top: 1px solid var(--canvas-divider-strong, rgba(63, 63, 70, 0.8));
-}
-.panel-actions :deep(.el-button) {
-  margin: 0;
-}
-@keyframes pulse-tag {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.65; }
-}
 </style>
 
 <style>

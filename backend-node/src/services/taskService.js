@@ -636,7 +636,7 @@ function syncEpisodeStatusAfterMergeTerminal(db, task, terminalStatus, updatedAt
 
 const ORPHAN_ASYNC_TASK_MSG = '服务重启后任务中断，请重新操作';
 const USER_CANCEL_TASK_MSG = '用户已取消';
-const REMOTE_CANCEL_EXHAUSTED_MSG = '远端取消多次未确认，任务已停止本地接收结果，请在 Provider 控制台核验';
+const REMOTE_CANCEL_EXHAUSTED_MSG = '远端取消多次未确认，任务已停止本地接收结果，请在供应商控制台核验';
 const REMOTE_CANCEL_SUPERSEDED_MSG = '取消请求已由更新的操作接管，请查看最新任务状态';
 
 function clearCancellationRetry(taskId) {

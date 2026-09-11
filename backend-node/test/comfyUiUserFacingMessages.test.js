@@ -21,6 +21,12 @@ const leftoverEnglish = [
   'ComfyUI local reference exceeds the size limit',
   'HTTP ${response.status}',
   '(HTTP ${',
+  'ComfyUI settings 不是有效的 JSON',
+  'ComfyUI Base URL',
+  'ComfyUI 参考图 data URL',
+  'ComfyUI workflow',
+  '当前 Node.js 环境不支持 fetch',
+  'workflow 执行失败',
 ];
 
 const servers = [];

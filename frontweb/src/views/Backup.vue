@@ -37,6 +37,8 @@
           type="file"
           accept=".zip"
           style="display:none"
+          aria-hidden="true"
+          tabindex="-1"
           :disabled="accessState.writeLocked"
           @change="onFileChange"
         >
@@ -68,6 +70,16 @@
       >
         <el-icon><Refresh /></el-icon>重试加载
       </el-button>
+    </section>
+    <section
+      v-else-if="readinessLoading && !hasSuccessfulReadinessLoad"
+      class="maintenance-status"
+      role="status"
+      aria-live="polite"
+      data-testid="backup-readiness-loading"
+    >
+      <strong>正在确认维护租约</strong>
+      <p>请稍候，正在确认当前能否安全执行备份或恢复。</p>
     </section>
     <section
       v-else-if="!readinessLoading && hasSuccessfulReadinessLoad && readiness"
@@ -259,7 +271,7 @@
     >
       <p>{{ restoreCopy.body }}</p>
       <template #footer>
-        <el-button :disabled="restoring" :title="restoring ? '正在恢复备份，请稍候' : undefined" @click="cancelRestore">{{ restoreCopy.cancelButtonText }}</el-button>
+        <el-button :disabled="restoring" :title="restoring ? '正在恢复备份，请稍候' : undefined" aria-label="取消恢复备份" @click="cancelRestore">{{ restoreCopy.cancelButtonText }}</el-button>
         <el-button
           type="danger"
           :loading="restoring"

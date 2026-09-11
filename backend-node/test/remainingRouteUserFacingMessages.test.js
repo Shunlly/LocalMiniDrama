@@ -105,6 +105,8 @@ describe('剩余路由对用户返回中文错误', () => {
       '请提供新的 API Key',
       '条配置的 API Key',
       '无效的分镜 id',
+      '无效的配置ID',
+      '无效的ID',
       '提供 text 参数',
       '请改为调用 POST /api/v1/scenes/generate-image，并传入 scene_id',
       '请改为调用 POST /api/v1/scenes/generate-image，并传入场景 ID',

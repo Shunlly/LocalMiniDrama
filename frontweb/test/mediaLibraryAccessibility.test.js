@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
 import { remainingExtractNamedFunction } from './helpers/remainingSourceBetween.js'
+import { readMediaLibrarySources } from './helpers/mediaLibrarySources.js'
 import {
   describeMediaLibraryBatchDeleteDisableReason,
   describeMediaLibraryNetworkSearchDisableReason,
@@ -12,7 +13,7 @@ import {
   MEDIA_LIBRARY_DISABLE_REASON,
 } from '../src/utils/mediaLibraryUserError.js'
 
-const source = readFileSync(new URL('../src/views/MediaLibrary.vue', import.meta.url), 'utf8')
+const source = readMediaLibrarySources()
 const userErrorSource = readFileSync(new URL('../src/utils/mediaLibraryUserError.js', import.meta.url), 'utf8')
 
 function mediaCardTemplate() {

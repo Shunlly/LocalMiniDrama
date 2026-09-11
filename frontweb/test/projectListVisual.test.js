@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { readFileSync } from 'node:fs'
+import { readFilmListSources } from './helpers/filmListSources.js'
 
 import {
   filterProjectList,
@@ -8,10 +8,7 @@ import {
 } from '../src/utils/projectList.js'
 import { projectCardDestination } from '../src/utils/sourceImportNavigation.js'
 
-const filmListSource = readFileSync(
-  new URL('../src/views/FilmList.vue', import.meta.url),
-  'utf8',
-).replace(/\r\n?/g, '\n')
+const filmListSource = readFilmListSources().ui.replace(/\r\n?/g, '\n')
 
 test('project cover prefers the first usable storyboard image', () => {
   const project = {

@@ -22,11 +22,11 @@ function pinHttpsCertificateVerification() {
 function assertTlsVerificationRequired(options = {}) {
   const env = options.env || process.env;
   if (String(env.NODE_TLS_REJECT_UNAUTHORIZED) === '0') {
-    throw tlsPolicyError('NODE_TLS_REJECT_UNAUTHORIZED=0 会关闭 TLS 证书校验，已被拒绝。');
+    throw tlsPolicyError('禁止通过环境变量关闭 TLS 证书校验。');
   }
   const server = options.config?.server || {};
   if (isEnabledFlag(server.insecure_tls) || isEnabledFlag(server.INSECURE_TLS)) {
-    throw tlsPolicyError('server.insecure_tls 会关闭 TLS 证书校验，已被拒绝。');
+    throw tlsPolicyError('禁止通过服务配置关闭 TLS 证书校验。');
   }
   if (options.applyGlobalPin !== false) pinHttpsCertificateVerification();
 }

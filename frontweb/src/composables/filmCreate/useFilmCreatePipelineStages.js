@@ -2,24 +2,7 @@ import { ElMessage } from '@/utils/elementPlusFeedback.js'
 import { isUserFacingAbort, toUserFacingError } from '@/utils/userFacingError'
 import { GEN_RESOURCE } from '@/stores/generationTaskStore'
 import { buildStoryboardVideoRequest } from '@/utils/storyboardVideoRequest'
-
-function isCancelledPollStatus(status) {
-  const value = String(status || '').toLowerCase()
-  return value === 'cancelled' || value === 'canceled'
-}
-
-function toPipelinePollUserFacingError(result, failedFallback, timeoutFallback) {
-  if (!result) return ''
-  const status = String(result.status || '').toLowerCase()
-  if (isCancelledPollStatus(status)) {
-    const error = new Error(toUserFacingError(result.error, '操作已取消'))
-    error.name = 'AbortError'
-    throw error
-  }
-  if (status === 'timeout') return toUserFacingError(result.error, timeoutFallback || '任务超时，请稍后重试')
-  if (result.error) return toUserFacingError(result.error, failedFallback)
-  return ''
-}
+import { toPipelinePollUserFacingError } from './filmCreatePipelinePollError.js'
 
 export function useFilmCreatePipelineStages(deps = {}) {
   const {

@@ -23,7 +23,8 @@
         class="nav-step"
         :class="['status-' + step.status, { 'is-current': activeNavAnchor === step.anchor }]"
         :aria-current="activeNavAnchor === step.anchor ? 'step' : undefined"
-        :title="`跳转到${step.label}`"
+        :title="navStepLabel(step)"
+        :aria-label="navStepLabel(step)"
         @click="emit('scroll-to-anchor', step.anchor, step.anchor)"
       >
         <span class="step-connector-wrap">
@@ -42,10 +43,10 @@
         <span class="step-body">
           <span class="step-label">{{ step.label }}</span>
           <span v-if="step.count > 0 && step.status !== 'done'" class="step-count">{{ step.count }}</span>
-          <span v-if="step.status === 'partial'" class="step-badge partial-badge" title="部分完成">
+          <span v-if="step.status === 'partial'" class="step-badge partial-badge" title="部分完成" aria-hidden="true">
             <el-icon><WarningFilled /></el-icon>
           </span>
-          <span v-else-if="step.status === 'generating'" class="step-badge gen-badge" title="生成中">
+          <span v-else-if="step.status === 'generating'" class="step-badge gen-badge" title="生成中" aria-hidden="true">
             <el-icon class="spin"><Loading /></el-icon>
           </span>
         </span>
@@ -56,6 +57,7 @@
       <button
         type="button"
         class="nav-sub-toggle"
+        :title="storyboardMenuExpanded ? '收起分镜列表' : '展开分镜列表'"
         :aria-label="storyboardMenuExpanded ? '收起分镜列表' : '展开分镜列表'"
         :aria-expanded="storyboardMenuExpanded"
         aria-controls="storyboard-nav-list"
@@ -76,7 +78,8 @@
           <button
             type="button"
             class="nav-sub-item"
-            :title="sb.title || '分镜 ' + (i + 1)"
+            :title="sb.title || ('分镜 ' + (i + 1))"
+            :aria-label="'跳转到分镜 ' + (i + 1) + '：' + (sb.title || '未命名')"
             @click="emit('scroll-to-anchor', 'sb-' + sb.id, 'anchor-storyboard-images')"
           >
             {{ i + 1 }}. {{ sb.title || '分镜' }}
@@ -118,16 +121,15 @@
               <el-icon v-else :size="12"><Close /></el-icon>
             </button>
           </div>
-          <el-tooltip
-            v-if="allActiveTaskItems.length > 8"
-            :content="allActiveTaskItems.slice(8).map((t) => t.label).join('\n')"
-            placement="right"
-            :show-after="200"
+          <div
+            v-if="overflowTaskCount > 0"
+            class="atp-more"
+            role="status"
+            :title="overflowTaskTitle"
+            :aria-label="overflowTaskAriaLabel"
           >
-            <div class="atp-more">
-              还有 {{ allActiveTaskItems.length - 8 }} 个任务...
-            </div>
-          </el-tooltip>
+            还有 {{ overflowTaskCount }} 个任务未列出
+          </div>
         </div>
       </template>
     </div>
@@ -135,9 +137,10 @@
 </template>
 
 <script setup>
+import { computed } from 'vue'
 import { Check, Close, Expand, Fold, Loading, Minus, Plus, WarningFilled } from '@element-plus/icons-vue'
 
-defineProps({
+const props = defineProps({
   navCollapsed: { type: Boolean, default: false },
   navSteps: { type: Array, default: () => [] },
   activeNavAnchor: { type: String, default: '' },
@@ -148,6 +151,27 @@ defineProps({
 })
 
 const storyboardMenuExpanded = defineModel('storyboardMenuExpanded', { type: Boolean, default: false })
+
+function navStepStatusLabel(status) {
+  if (status === 'done') return '已完成'
+  if (status === 'partial') return '部分完成'
+  if (status === 'generating') return '生成中'
+  return '未开始'
+}
+
+function navStepLabel(step) {
+  return `跳转到${step.label}（${navStepStatusLabel(step.status)}）`
+}
+
+const overflowTaskItems = computed(() => (props.allActiveTaskItems || []).slice(8))
+const overflowTaskCount = computed(() => overflowTaskItems.value.length)
+const overflowTaskTitle = computed(() => overflowTaskItems.value.map((item) => item.label).filter(Boolean).join('\n'))
+const overflowTaskAriaLabel = computed(() => {
+  const labels = overflowTaskItems.value.map((item) => item.label).filter(Boolean).join('、')
+  return labels
+    ? `还有 ${overflowTaskCount.value} 个任务未列出：${labels}`
+    : `还有 ${overflowTaskCount.value} 个任务未列出`
+})
 
 const emit = defineEmits([
   'toggle-nav',

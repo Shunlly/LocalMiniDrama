@@ -42,14 +42,15 @@
                 <el-button
                   type="primary"
                   :loading="isStoryGenRunning"
-                  :disabled="Boolean(generateStoryDisabledReason)"
+                  :disabled="Boolean(generateStoryDisabledReason) || isStoryGenRunning"
                   :title="isStoryGenRunning ? '正在生成剧本，请稍候' : (generateStoryDisabledReason || undefined)"
+                  :aria-label="generateStoryButtonAriaLabel"
                   @click="emit('generate-story')"
                 >
                   生成剧本
                 </el-button>
               </ActionGate>
-              <el-button plain @click="emit('open-novel-import')">
+              <el-button plain aria-label="导入小说" @click="emit('open-novel-import')">
                 <el-icon><DocumentAdd /></el-icon>
                 导入小说
               </el-button>
@@ -89,8 +90,9 @@
                 <ActionGate :reason="saveCurrentEpisodeDisabledReason" label="保存当前集">
                   <el-button
                     :loading="scriptGenerating"
-                    :disabled="Boolean(saveCurrentEpisodeDisabledReason)"
+                    :disabled="Boolean(saveCurrentEpisodeDisabledReason) || scriptGenerating"
                     :title="scriptGenerating ? '正在保存当前集，请稍候' : (saveCurrentEpisodeDisabledReason || undefined)"
+                    :aria-label="saveCurrentEpisodeButtonAriaLabel"
                     @click="emit('generate-script')"
                   >
                     保存当前集
@@ -112,9 +114,15 @@
         <p class="section-desc script-mode-hint">
           从剧本库选择后，仅把「故事梗概」与「各集剧本正文」写入当前工程，不会导入角色、分镜、图片或视频。
         </p>
-        <el-button type="primary" @click="emit('open-select-script')">
+        <el-button
+          type="primary"
+          :disabled="selectScriptImporting"
+          :title="selectScriptImporting ? '正在导入剧本，请稍候' : undefined"
+          :aria-label="selectScriptImporting ? '从已有剧本中选择不可用：正在导入剧本，请稍候' : '从已有剧本中选择'"
+          @click="emit('open-select-script')"
+        >
           <el-icon><Document /></el-icon>
-          从已有剧本中选择…
+          从已有剧本中选择
         </el-button>
         <div v-if="dramaId && (episodes.length || storyInput)" class="script-preview-wrap">
           <h3 class="preview-block-title">故事梗概</h3>
@@ -158,14 +166,20 @@
             />
           </template>
           <div class="preview-actions">
-            <el-button type="primary" plain @click="scriptWorkbenchMode = 'create'">切换到创作剧本以编辑</el-button>
+            <el-button type="primary" plain aria-label="切换到创作剧本以编辑" @click="scriptWorkbenchMode = 'create'">切换到创作剧本以编辑</el-button>
           </div>
         </div>
         <div v-else class="script-select-empty">
           <p>尚未选择剧本，可从剧本库导入，或回到创作页手写</p>
           <div class="script-select-empty-actions">
-            <el-button type="primary" @click="emit('open-select-script')">从已有剧本中选择</el-button>
-            <el-button @click="emit('return-to-creation')">开始创作剧本</el-button>
+            <el-button
+              type="primary"
+              :disabled="selectScriptImporting"
+              :title="selectScriptImporting ? '正在导入剧本，请稍候' : undefined"
+              :aria-label="selectScriptImporting ? '从已有剧本中选择不可用：正在导入剧本，请稍候' : '从已有剧本中选择'"
+              @click="emit('open-select-script')"
+            >从已有剧本中选择</el-button>
+            <el-button aria-label="开始创作剧本" @click="emit('return-to-creation')">开始创作剧本</el-button>
           </div>
         </div>
       </el-tab-pane>
@@ -196,11 +210,11 @@
       </button>
       <div v-if="!selectScriptLoading && selectScriptDramas.length === 0" class="select-script-empty">
         <p>剧本库为空，可直接在当前项目创作剧本</p>
-        <el-button type="primary" @click="emit('return-to-creation')">开始创作剧本</el-button>
+        <el-button type="primary" aria-label="开始创作剧本" @click="emit('return-to-creation')">开始创作剧本</el-button>
       </div>
       <div v-else-if="!selectScriptLoading && selectableScriptDramas.length === 0" class="select-script-empty">
         <p>没有可导入的其他剧本</p>
-        <el-button type="primary" @click="emit('return-to-creation')">返回创作剧本</el-button>
+        <el-button type="primary" aria-label="返回创作剧本" @click="emit('return-to-creation')">返回创作剧本</el-button>
       </div>
     </div>
   </AccessibleDialog>
@@ -244,6 +258,24 @@ const generateStoryDisabledReason = computed(() => {
   if (!(storyInput.value || '').toString().trim()) return '请先输入故事梗概'
   return ''
 })
+
+function actionAriaLabel(actionLabel, { loading, loadingLabel, disabledReason } = {}) {
+  if (loading) return String(loadingLabel || `正在${actionLabel}`).trim()
+  const reason = String(disabledReason || '').trim()
+  if (reason) return `${actionLabel}不可用：${reason}`
+  return String(actionLabel || '').trim()
+}
+
+const generateStoryButtonAriaLabel = computed(() => actionAriaLabel('生成剧本', {
+  loading: props.isStoryGenRunning,
+  loadingLabel: '正在生成剧本',
+  disabledReason: generateStoryDisabledReason.value,
+}))
+const saveCurrentEpisodeButtonAriaLabel = computed(() => actionAriaLabel('保存当前集', {
+  loading: props.scriptGenerating,
+  loadingLabel: '正在保存当前集',
+  disabledReason: saveCurrentEpisodeDisabledReason.value,
+}))
 const storyStyle = defineModel('storyStyle', { type: String, default: '' })
 const storyType = defineModel('storyType', { type: String, default: '' })
 const storyEpisodeCount = defineModel('storyEpisodeCount', { type: Number, default: 1 })

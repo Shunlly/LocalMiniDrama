@@ -9,6 +9,9 @@ function readStoryboardFile(name) {
 const panelSource = [
   'FilmCreateStoryboardPanel.vue',
   'FilmCreateStoryboardPanel.css',
+  'FilmCreateStoryboardEmptyState.vue',
+  'FilmCreateStoryboardToolbar.vue',
+  'FilmCreateStoryboardList.vue',
   'FilmCreateStoryboardScriptColumn.vue',
   'FilmCreateStoryboardScriptColumn.css',
 ].map(readStoryboardFile).join('\n')

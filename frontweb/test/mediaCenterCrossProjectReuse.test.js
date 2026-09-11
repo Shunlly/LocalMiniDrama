@@ -15,8 +15,19 @@ import { remainingImportedFunctionSource } from './helpers/remainingSourceBetwee
 
 const filmCreateSource = readFileSync(new URL('../src/views/FilmCreate.vue', import.meta.url), 'utf8')
 const storyboardPanelSource = readFileSync(new URL('../src/components/filmCreate/FilmCreateStoryboardPanel.vue', import.meta.url), 'utf8') + '\n' + readFileSync(new URL('../src/components/filmCreate/FilmCreateStoryboardPanel.css', import.meta.url), 'utf8')
-const storyboardDialogsSource = readFileSync(new URL('../src/components/filmCreate/FilmCreateStoryboardDialogs.vue', import.meta.url), 'utf8')
-const mediaLibrarySource = readFileSync(new URL('../src/views/MediaLibrary.vue', import.meta.url), 'utf8')
+const storyboardDialogsSource = [
+  'FilmCreateStoryboardDialogs.vue',
+  'FilmCreateStoryboardPromptDialog.vue',
+  'FilmCreateStoryboardFramePromptDialog.vue',
+  'FilmCreateStoryboardVideoParamsDialog.vue',
+  'FilmCreateStoryboardFreeReferencePreview.vue',
+].map((name) => readFileSync(new URL(`../src/components/filmCreate/${name}`, import.meta.url), 'utf8')).join('\n')
+const mediaLibraryPageSource = readFileSync(new URL('../src/views/MediaLibrary.vue', import.meta.url), 'utf8')
+const mediaLibraryHeaderSource = readFileSync(new URL('../src/components/mediaLibrary/MediaLibraryHeader.vue', import.meta.url), 'utf8')
+const mediaLibraryFilterSource = readFileSync(new URL('../src/components/mediaLibrary/MediaLibraryFilterBar.vue', import.meta.url), 'utf8')
+const mediaLibraryLocalGridSource = readFileSync(new URL('../src/components/mediaLibrary/MediaLibraryLocalGrid.vue', import.meta.url), 'utf8')
+const mediaLibraryNetworkSource = readFileSync(new URL('../src/components/mediaLibrary/MediaLibraryNetworkPanel.vue', import.meta.url), 'utf8')
+const mediaLibrarySource = [mediaLibraryPageSource, mediaLibraryHeaderSource, mediaLibraryFilterSource, mediaLibraryLocalGridSource, mediaLibraryNetworkSource].join('\n')
 const pickerSource = readFileSync(new URL('../src/components/GlobalMediaPickerDialog.vue', import.meta.url), 'utf8')
 const deliveryPanelSource = readFileSync(new URL('../src/components/filmCreate/FilmCreateDeliveryPanel.vue', import.meta.url), 'utf8')
 const dramaCanvasSource = readFileSync(new URL('../src/views/DramaCanvas.vue', import.meta.url), 'utf8')
@@ -32,7 +43,11 @@ function refOf(value) {
 }
 
 test('media center SFCs stay parseable after cross-project reuse wiring', () => {
-  assertValidVueSfc('MediaLibrary.vue', mediaLibrarySource)
+  assertValidVueSfc('MediaLibrary.vue', mediaLibraryPageSource)
+  assertValidVueSfc('MediaLibraryHeader.vue', mediaLibraryHeaderSource)
+  assertValidVueSfc('MediaLibraryFilterBar.vue', mediaLibraryFilterSource)
+  assertValidVueSfc('MediaLibraryLocalGrid.vue', mediaLibraryLocalGridSource)
+  assertValidVueSfc('MediaLibraryNetworkPanel.vue', mediaLibraryNetworkSource)
   assertValidVueSfc('GlobalMediaPickerDialog.vue', pickerSource)
   assertValidVueSfc('FilmCreate.vue', filmCreateSource)
   assert.match(mediaLibrarySource, /from '@\/utils\/elementPlusFeedback\.js'/)

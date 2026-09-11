@@ -18,6 +18,7 @@ import {
 } from '../src/composables/filmCreate/useFilmCreateStoryboardReorder.js'
 
 const panelSource = readFileSync(new URL('../src/components/filmCreate/FilmCreateStoryboardPanel.vue', import.meta.url), 'utf8')
+const toolbarSource = readFileSync(new URL('../src/components/filmCreate/FilmCreateStoryboardToolbar.vue', import.meta.url), 'utf8')
 const crudSource = readFileSync(new URL('../src/composables/filmCreate/useFilmCreateStoryboardCrud.js', import.meta.url), 'utf8')
 const filmCreateSource = readFileSync(new URL('../src/views/FilmCreate.vue', import.meta.url), 'utf8')
 const workspaceBindingsSource = readFileSync(new URL('../src/components/filmCreate/filmCreateWorkspaceBindings.js', import.meta.url), 'utf8')
@@ -266,20 +267,20 @@ test('拖拽保存失败把英文异常收成中文', async () => {
 })
 
 test('编译后的上移下移是原生按钮，title 和 aria 绑到按钮上', () => {
-  const parsed = parse(panelSource, { filename: 'FilmCreateStoryboardPanel.vue' })
+  const parsed = parse(toolbarSource, { filename: 'FilmCreateStoryboardToolbar.vue' })
   const compiled = compileTemplate({
     source: parsed.descriptor.template.content,
-    filename: 'FilmCreateStoryboardPanel.vue',
+    filename: 'FilmCreateStoryboardToolbar.vue',
     id: 'storyboard-reorder-native-buttons',
   })
   assert.deepEqual(compiled.errors, [])
   assert.match(compiled.code, /_createElementVNode\("button"[\s\S]{0,800}storyboardMoveCopies/)
   assert.match(compiled.code, /title:\s*[^\n]*storyboardMoveCopies/)
   assert.match(compiled.code, /"aria-label":\s*[^\n]*storyboardMoveCopies/)
-  assert.match(panelSource, /class="sb-ctrl-reorder-wrap"/)
-  assert.match(panelSource, /:title="storyboardMoveCopies\[i\]\.up\.title"/)
-  assert.match(panelSource, /:aria-label="storyboardMoveCopies\[i\]\.up\.ariaLabel"/)
-  assert.match(panelSource, /:title="storyboardMoveCopies\[i\]\.down\.title"/)
-  assert.match(panelSource, /:aria-label="storyboardMoveCopies\[i\]\.down\.ariaLabel"/)
-  assert.doesNotMatch(panelSource, /<el-button[\s\S]{0,180}sb-ctrl-reorder-btn/)
+  assert.match(toolbarSource, /class="sb-ctrl-reorder-wrap"/)
+  assert.match(toolbarSource, /:title="storyboardMoveCopies\[i\]\.up\.title"/)
+  assert.match(toolbarSource, /:aria-label="storyboardMoveCopies\[i\]\.up\.ariaLabel"/)
+  assert.match(toolbarSource, /:title="storyboardMoveCopies\[i\]\.down\.title"/)
+  assert.match(toolbarSource, /:aria-label="storyboardMoveCopies\[i\]\.down\.ariaLabel"/)
+  assert.doesNotMatch(toolbarSource, /<el-button[\s\S]{0,180}sb-ctrl-reorder-btn/)
 })

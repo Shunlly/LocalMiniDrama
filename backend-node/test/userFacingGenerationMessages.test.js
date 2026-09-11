@@ -94,12 +94,12 @@ test('userFacingGeneration messages 抽取/生成/合成错误为可操作简体
 
   await assert.rejects(
     () => providerSdkService.generateAssetBibleImagesProduction(mockDb(undefined), silentLog, { drama_id: 1 }),
-    (error) => error.message === '素材图 Provider 不可用，请在「AI 配置」中启用图片模型'
+    (error) => error.message === '素材图供应商不可用，请在「AI 配置」中启用图片模型'
   );
 
   assert.throws(
     () => providerSdkService.assertProductionReadiness(mockDb(undefined), { drama_id: 1 }),
-    (error) => /生产工作流尚未就绪，缺少：/.test(error.message) && /分镜/.test(error.message) && /素材图 Provider/.test(error.message)
+    (error) => /生产工作流尚未就绪，缺少：/.test(error.message) && /分镜/.test(error.message) && /素材图供应商/.test(error.message)
   );
 
   const originalGetEpisodeTimeline = timelineService.getEpisodeTimeline;

@@ -20,6 +20,8 @@ import { toUserFacingError, isUserFacingAbort } from '../src/utils/userFacingErr
 function readSourceIntakeWorkflowSources() {
   const files = [
     '../src/components/SourceIntakeWorkflowPanel.vue',
+    '../src/components/sourceIntake/SourceIntakeCompletionBanner.vue',
+    '../src/components/sourceIntake/SourceIntakeStepper.vue',
     '../src/components/sourceIntake/SourceIntakeSourceTextPanel.vue',
     '../src/components/sourceIntake/SourceIntakeRunRecordsPanel.vue',
     '../src/components/sourceIntake/SourceIntakeSourceDetailDrawer.vue',
@@ -840,11 +842,15 @@ test('源工作流空状态和失败文案保持简体中文', () => {
   assert.equal(localizeSourceIntakeFailure(''), '')
 })
 
-test('素材流程面板拆出源文本、运行记录和详情抽屉', () => {
+test('素材流程面板拆出完成横幅、步骤条、源文本、运行记录和详情抽屉', () => {
   assert.match(source, /from '@\/utils\/elementPlusFeedback\.js'/)
+  assert.match(source, /from '@\/components\/sourceIntake\/SourceIntakeCompletionBanner\.vue'/)
+  assert.match(source, /from '@\/components\/sourceIntake\/SourceIntakeStepper\.vue'/)
   assert.match(source, /from '@\/components\/sourceIntake\/SourceIntakeSourceTextPanel\.vue'/)
   assert.match(source, /from '@\/components\/sourceIntake\/SourceIntakeRunRecordsPanel\.vue'/)
   assert.match(source, /from '@\/components\/sourceIntake\/SourceIntakeSourceDetailDrawer\.vue'/)
+  assert.match(source, /<SourceIntakeCompletionBanner/)
+  assert.match(source, /<SourceIntakeStepper/)
   assert.match(source, /<SourceIntakeSourceTextPanel v-model:text="form\.text" \/>/)
   assert.match(source, /<SourceIntakeRunRecordsPanel/)
   assert.match(source, /<SourceIntakeSourceDetailDrawer/)

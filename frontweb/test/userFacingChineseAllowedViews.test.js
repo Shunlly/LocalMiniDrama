@@ -1,15 +1,50 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
+import { readFilmListSources } from './helpers/filmListSources.js'
+
+import { readDramaDetailResourceDialogSources } from './helpers/dramaDetailResourceDialogSources.js'
 
 const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8')
 
 const mediaLibrarySource = read('../src/views/MediaLibrary.vue')
+const mediaLibraryHeaderSource = read('../src/components/mediaLibrary/MediaLibraryHeader.vue')
+const mediaLibraryFilterSource = read('../src/components/mediaLibrary/MediaLibraryFilterBar.vue')
+const mediaLibraryLocalGridSource = read('../src/components/mediaLibrary/MediaLibraryLocalGrid.vue')
+const mediaLibraryNetworkSource = read('../src/components/mediaLibrary/MediaLibraryNetworkPanel.vue')
+const mediaLibraryCombinedSource = [mediaLibrarySource, mediaLibraryHeaderSource, mediaLibraryFilterSource, mediaLibraryLocalGridSource, mediaLibraryNetworkSource].join('\n')
 const dramaDetailSource = read('../src/views/DramaDetail.vue')
-const dramaDetailDialogsSource = read('../src/components/dramaDetail/DramaDetailResourceDialogs.vue')
-const filmListSource = read('../src/views/FilmList.vue')
+const dramaDetailHeaderSource = read('../src/components/dramaDetail/DramaDetailHeader.vue')
+const dramaDetailLoadStateSource = read('../src/components/dramaDetail/DramaDetailLoadState.vue')
+const dramaDetailInfoCardSource = read('../src/components/dramaDetail/DramaDetailInfoCard.vue')
+const dramaDetailDialogsSource = readDramaDetailResourceDialogSources(read)
+const filmListFiles = readFilmListSources()
+const filmListSource = filmListFiles.ui
+const filmListHeaderSource = filmListFiles.header
+const filmListBannersSource = filmListFiles.banners
+const filmListToolbarSource = filmListFiles.toolbar
 const filmListLibraryDialogsSource = read('../src/components/filmList/FilmListLibraryDialogs.vue')
-const freeCreateSource = read('../src/views/FreeCreate.vue')
+const filmListCharLibraryDialogsSource = read('../src/components/filmList/FilmListCharLibraryDialogs.vue')
+const filmListSceneLibraryDialogsSource = read('../src/components/filmList/FilmListSceneLibraryDialogs.vue')
+const filmListPropLibraryDialogsSource = read('../src/components/filmList/FilmListPropLibraryDialogs.vue')
+const filmListLibraryImageSource = read('../src/components/filmList/filmListLibraryImage.js')
+const filmListLibraryUiSource = [
+  filmListLibraryDialogsSource,
+  filmListCharLibraryDialogsSource,
+  filmListSceneLibraryDialogsSource,
+  filmListPropLibraryDialogsSource,
+  filmListLibraryImageSource,
+].join('\n')
+const freeCreatePageSource = read('../src/views/FreeCreate.vue')
+const freeCreateHeaderSource = read('../src/components/freeCreate/FreeCreateHeader.vue')
+const freeCreateInputSource = read('../src/components/freeCreate/FreeCreateInputPanel.vue')
+const freeCreateResultSource = read('../src/components/freeCreate/FreeCreateResultPanel.vue')
+const freeCreateSource = [
+  freeCreatePageSource,
+  freeCreateHeaderSource,
+  freeCreateInputSource,
+  freeCreateResultSource,
+].join('\n')
 const generationTaskStoreSource = read('../src/stores/generationTaskStore.js')
 const storyGenerationSource = read('../src/composables/useStoryGeneration.js')
 const episodeBatchImportSource = read('../src/components/EpisodeBatchImportDialog.vue')
@@ -17,12 +52,14 @@ const sceneModelMapSource = read('../src/components/SceneModelMap.vue')
 const promptEditorSource = read('../src/components/PromptEditor.vue')
 const sd2Source = read('../src/components/Sd2AssetManagement.vue')
 const aiConfigSource = read('../src/components/AIConfigContent.vue')
+const aiConfigFormDialogSource = read('../src/components/aiConfig/AiConfigFormDialog.vue')
 const aiConfigOneKeyDialogsSource = read('../src/components/aiConfig/AiConfigOneKeyDialogs.vue')
 const aiConfigBulkKeyDialogSource = read('../src/components/aiConfig/AiConfigBulkKeyDialog.vue')
 const aiConfigConnectionTestDialogSource = read('../src/components/aiConfig/AiConfigConnectionTestDialog.vue')
 const aiConfigJimeng2AssetsDialogSource = read('../src/components/aiConfig/AiConfigJimeng2AssetsDialog.vue')
 const aiConfigOverlaySource = [
   aiConfigSource,
+  aiConfigFormDialogSource,
   aiConfigOneKeyDialogsSource,
   aiConfigBulkKeyDialogSource,
   aiConfigConnectionTestDialogSource,
@@ -34,11 +71,28 @@ const notFoundSource = read('../src/views/NotFound.vue')
 
 const ALLOWED_SOURCES = {
   'MediaLibrary.vue': mediaLibrarySource,
+  'MediaLibraryHeader.vue': mediaLibraryHeaderSource,
+  'MediaLibraryFilterBar.vue': mediaLibraryFilterSource,
+  'MediaLibraryLocalGrid.vue': mediaLibraryLocalGridSource,
+  'MediaLibraryNetworkPanel.vue': mediaLibraryNetworkSource,
   'DramaDetail.vue': dramaDetailSource,
+  'DramaDetailHeader.vue': dramaDetailHeaderSource,
+  'DramaDetailLoadState.vue': dramaDetailLoadStateSource,
+  'DramaDetailInfoCard.vue': dramaDetailInfoCardSource,
   'DramaDetailResourceDialogs.vue': dramaDetailDialogsSource,
-  'FilmList.vue': filmListSource,
+  'FilmList.vue': filmListFiles.view,
+  'FilmListHeader.vue': filmListHeaderSource,
+  'FilmListFailureBanners.vue': filmListBannersSource,
+  'FilmListWorkspaceToolbar.vue': filmListToolbarSource,
   'FilmListLibraryDialogs.vue': filmListLibraryDialogsSource,
-  'FreeCreate.vue': freeCreateSource,
+  'FilmListCharLibraryDialogs.vue': filmListCharLibraryDialogsSource,
+  'FilmListSceneLibraryDialogs.vue': filmListSceneLibraryDialogsSource,
+  'FilmListPropLibraryDialogs.vue': filmListPropLibraryDialogsSource,
+  'filmListLibraryImage.js': filmListLibraryImageSource,
+  'FreeCreate.vue': freeCreatePageSource,
+  'FreeCreateHeader.vue': freeCreateHeaderSource,
+  'FreeCreateInputPanel.vue': freeCreateInputSource,
+  'FreeCreateResultPanel.vue': freeCreateResultSource,
   'generationTaskStore.js': generationTaskStoreSource,
   'useStoryGeneration.js': storyGenerationSource,
   'EpisodeBatchImportDialog.vue': episodeBatchImportSource,
@@ -181,9 +235,9 @@ test('自由创作、项目列表、提示词和场景映射的用户可见句�
   assert.doesNotMatch(filmListSource, /微信我/)
   assert.match(filmListSource, /将移入回收站/)
   assert.match(filmListSource, /confirmButtonText: '移入回收站'/)
-  assert.match(filmListLibraryDialogsSource, /ElMessageBox\.confirm\(`确定删除公共角色「/)
-  assert.match(filmListLibraryDialogsSource, /正在上传图片，请稍候/)
-  assert.match(filmListLibraryDialogsSource, /正在生成图片，请稍候/)
+  assert.match(filmListLibraryUiSource, /ElMessageBox\.confirm\(`确定删除公共角色「/)
+  assert.match(filmListLibraryUiSource, /正在上传图片，请稍候/)
+  assert.match(filmListLibraryUiSource, /正在生成图片，请稍候/)
 
   assert.match(sceneModelMapSource, /当文本生成请求指定业务场景时/)
   assert.match(sceneModelMapSource, /description="暂无场景模型映射配置"/)
@@ -207,7 +261,7 @@ test('提示词编辑页用户可见句子是简体中文', () => {
 
 test('素材中心、剧详情、剧本生成和任务轮询的反馈文案保持简体中文', () => {
   assert.match(mediaLibrarySource, /aria-label="素材来源"/)
-  assert.match(mediaLibrarySource, /placeholder="搜索素材..."/)
+  assert.match(mediaLibraryCombinedSource, /placeholder="搜索素材..."/)
   assert.match(mediaLibrarySource, /title="素材预览"/)
   assert.match(mediaLibrarySource, /import \{ ElMessage, ElMessageBox \} from '@\/utils\/elementPlusFeedback\.js'/)
   assert.doesNotMatch(mediaLibrarySource, /from 'element-plus'/)
@@ -246,21 +300,21 @@ test('AI 配置页按钮、占位、表单标签和错误提示改为简体中�
   assert.doesNotMatch(aiConfigSource, /一键换Key/)
   assert.match(aiConfigSource, /修改密钥/)
   assert.doesNotMatch(aiConfigSource, /修改Key/)
-  assert.match(aiConfigSource, /label="接口地址（Base URL）"/)
-  assert.match(aiConfigSource, /label="工作流 JSON"/)
+  assert.match(aiConfigOverlaySource, /label="接口地址（Base URL）"/)
+  assert.match(aiConfigOverlaySource, /label="工作流 JSON"/)
   assert.match(aiConfigJimeng2AssetsDialogSource, /label="素材地址"/)
-  assert.match(aiConfigSource, /请输入 Bearer 令牌/)
-  assert.match(aiConfigSource, /<span class="form-label-tip">API 密钥<\/span>/)
-  assert.match(aiConfigSource, /访问密钥（AccessKey）/)
-  assert.match(aiConfigSource, /私有密钥（SecretKey）/)
-  assert.match(aiConfigSource, /组 ID（GroupId）/)
+  assert.match(aiConfigOverlaySource, /请输入 Bearer 令牌/)
+  assert.match(aiConfigOverlaySource, /<span class="form-label-tip">API 密钥<\/span>/)
+  assert.match(aiConfigOverlaySource, /访问密钥（AccessKey）/)
+  assert.match(aiConfigOverlaySource, /私有密钥（SecretKey）/)
+  assert.match(aiConfigOverlaySource, /组 ID（GroupId）/)
   assert.match(aiConfigBulkKeyDialogSource, /placeholder="粘贴新的 API 密钥"/)
   assert.match(aiConfigRowMutationsSource, /ElMessage\.success\(res\?\.message \|\| '所有配置的 API 密钥已更新'\)/)
   assert.match(aiConfigJimeng2AssetsDialogSource, /jimeng2AssetStatusLabel\(row\.status\)/)
   assert.match(aiConfigJimeng2AssetsDialogSource, /jimeng2AssetTypeLabel\(row\.asset_type\)/)
   assert.match(aiConfigFormSettingsSource, /throw new Error\('工作流 JSON 格式无效'\)/)
-  assert.doesNotMatch(aiConfigSource, /label="Base URL"/)
-  assert.doesNotMatch(aiConfigSource, /label="Workflow JSON"/)
+  assert.doesNotMatch(aiConfigOverlaySource, /label="Base URL"/)
+  assert.doesNotMatch(aiConfigOverlaySource, /label="Workflow JSON"/)
   assert.doesNotMatch(aiConfigSource, /label="asset_url"/)
   assert.doesNotMatch(aiConfigSource, /placeholder=.Bearer Token/)
 })

@@ -1,12 +1,13 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
+import { readFilmListSources } from './helpers/filmListSources.js'
 
 import { remainingExtractNamedFunction } from './helpers/remainingSourceBetween.js'
 
 const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8')
 
-const filmListSource = read('../src/views/FilmList.vue')
+const filmListSource = readFilmListSources().ui
 const dramaApiSource = read('../src/api/drama.js')
 
 test('project API exposes a recoverable trash contract', () => {

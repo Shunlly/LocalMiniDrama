@@ -69,13 +69,13 @@ function parseHttpUrl(rawUrl) {
   try {
     parsed = new URL(String(rawUrl || '').trim());
   } catch (_) {
-    throw badRequest('请输入有效的网页 URL');
+    throw badRequest('请输入有效的网页地址');
   }
   if (!['http:', 'https:'].includes(parsed.protocol)) {
-    throw badRequest('网页素材只支持 http/https URL');
+    throw badRequest('网页素材只支持 HTTP 或 HTTPS 网址');
   }
   if (!parsed.hostname || /\.local$/i.test(parsed.hostname) || /(^|\.)localhost$/i.test(parsed.hostname)) {
-    throw badRequest('不允许导入 localhost 或本地域名');
+    throw badRequest('不允许导入本机或本地域名');
   }
   if (net.isIP(parsed.hostname) && isPrivateAddress(parsed.hostname)) {
     throw badRequest('不允许导入内网、回环或链路本地地址');

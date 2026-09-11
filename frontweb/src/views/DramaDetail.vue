@@ -1,196 +1,37 @@
 <template>
   <div class="drama-detail">
-    <header class="header">
-      <div class="header-inner">
-        <button type="button" class="logo" aria-label="返回项目列表" @click="goList">
-          <span class="logo-main">本地短剧助手</span>
-          <span class="logo-sub">LocalMiniDrama</span>
-        </button>
-        <span class="breadcrumb-sep">›</span>
-        <span class="page-title">{{ dramaLoadState === 'error' ? '项目加载失败' : drama?.title || '剧集管理' }}</span>
-        <el-button class="btn-back-list" @click="goList">
-          <el-icon><ArrowLeft /></el-icon>返回列表
-        </el-button>
-        <div class="header-actions">
-          <el-button class="btn-theme" :title="isDark ? '切换到浅色模式' : '切换到暗色模式'" :aria-label="isDark ? '切换到浅色模式' : '切换到暗色模式'" @click="toggleTheme">
-            <el-icon><Sunny v-if="isDark" /><Moon v-else /></el-icon>
-            {{ isDark ? '浅色' : '暗色' }}
-          </el-button>
-          <el-tooltip
-            v-if="isDramaReady"
-            content="请先新增一集，再进入制作"
-            :disabled="Boolean(currentEpisodeId)"
-            placement="bottom"
-          >
-            <span
-              class="tooltip-trigger"
-              :tabindex="currentEpisodeId ? undefined : 0"
-              :aria-label="currentEpisodeId ? undefined : '进入制作不可用：请先新增一集'"
-            >
-              <el-button
-                type="primary"
-                :disabled="!currentEpisodeId"
-                :aria-label="currentEpisodeId ? '进入制作' : '进入制作不可用：请先新增一集'"
-                @click="goCreate"
-              >
-                <el-icon><VideoPlay /></el-icon>进入制作
-              </el-button>
-            </span>
-          </el-tooltip>
-          <el-tooltip
-            v-if="isDramaReady"
-            content="请先新增一集，再进入画布"
-            :disabled="Boolean(currentEpisodeId)"
-            placement="bottom"
-          >
-            <span
-              class="tooltip-trigger"
-              :tabindex="currentEpisodeId ? undefined : 0"
-              :aria-label="currentEpisodeId ? undefined : '画布模式不可用：请先新增一集'"
-            >
-              <el-button
-                type="primary"
-                plain
-                :disabled="!currentEpisodeId"
-                :aria-label="currentEpisodeId ? '画布模式' : '画布模式不可用：请先新增一集'"
-                @click="goCanvasMode"
-              >
-                <el-icon><Grid /></el-icon>画布模式
-              </el-button>
-            </span>
-          </el-tooltip>
-        </div>
-      </div>
-    </header>
+    <DramaDetailHeader
+      :page-title="dramaLoadState === 'error' ? '项目加载失败' : drama?.title || '剧集管理'"
+      :is-dark="isDark"
+      :is-drama-ready="isDramaReady"
+      :current-episode-id="currentEpisodeId"
+      @go-list="goList"
+      @toggle-theme="toggleTheme"
+      @go-create="goCreate"
+      @go-canvas-mode="goCanvasMode"
+    />
 
     <main class="main" :aria-busy="dramaLoadState === 'loading'">
-      <section
-        v-if="dramaLoadState === 'loading'"
-        class="project-load-state"
-        role="status"
-        aria-live="polite"
-      >
-        <el-icon class="project-load-state-icon is-loading"><Loading /></el-icon>
-        <h2>正在加载项目</h2>
-        <p>正在读取剧集、分集和制作资源。</p>
-      </section>
-
-      <section
-        v-else-if="dramaLoadState === 'error'"
+      <DramaDetailLoadState
+        v-if="dramaLoadState === 'loading' || dramaLoadState === 'error'"
         ref="dramaLoadFailureRef"
-        class="project-load-state project-load-state--error"
-        role="alert"
-        aria-labelledby="drama-load-error-title"
-        tabindex="-1"
-      >
-        <el-icon class="project-load-state-icon"><WarningFilled /></el-icon>
-        <h2 id="drama-load-error-title">{{ dramaLoadNotFound ? '项目不存在' : '暂时无法加载项目' }}</h2>
-        <p>{{ dramaLoadError }}</p>
-        <p v-if="dramaLoadNotFound" class="project-load-state-assurance">项目可能已移入回收站或被删除，请返回项目列表确认。</p>
-        <p v-else class="project-load-state-assurance">项目数据没有被删除，当前页面已停止所有项目编辑操作。</p>
-        <div class="project-load-state-actions">
-          <el-button v-if="!dramaLoadNotFound" type="primary" :loading="loading" @click="retryDramaLoad">
-            <el-icon><Refresh /></el-icon>重试加载
-          </el-button>
-          <el-button @click="goList">
-            <el-icon><ArrowLeft /></el-icon>返回项目列表
-          </el-button>
-        </div>
-      </section>
+        :state="dramaLoadState"
+        :error-text="dramaLoadError"
+        :not-found="dramaLoadNotFound"
+        :pending="loading"
+        @retry="retryDramaLoad"
+        @go-list="goList"
+      />
 
       <template v-else-if="isDramaReady">
-      <!-- 基本信息 + 设置 -->
-      <section class="section card">
-        <div class="section-header section-header--info">
-          <div class="section-title">剧集信息</div>
-          <div
-            class="info-save-status"
-            :class="`is-${infoSaveState}`"
-            :role="infoSaveState === 'error' ? 'alert' : 'status'"
-            aria-live="polite"
-          >
-            <el-icon v-if="infoSaveState === 'saving' || infoSaveScheduled" class="is-loading"><Loading /></el-icon>
-            <el-icon v-else-if="infoSaveState === 'error'"><WarningFilled /></el-icon>
-            <span>{{ infoSaveStatusLabel }}</span>
-            <el-button v-if="infoSaveState === 'error'" link type="primary" @click="retryInfoSave">
-              重试
-            </el-button>
-          </div>
-        </div>
-        <el-form :model="infoForm" label-width="110px" label-position="left" class="info-form">
-          <el-row :gutter="24">
-            <el-col :span="12">
-              <el-form-item label="标题">
-                <el-input v-model="infoForm.title" placeholder="剧集标题" aria-label="剧集标题" @blur="saveInfo" />
-              </el-form-item>
-            </el-col>
-            <el-col :span="12">
-              <el-form-item label="图片/视频风格">
-                <el-select v-model="infoForm.style" placeholder="选择全剧统一风格" aria-label="图片/视频风格" clearable style="width: 100%" @change="saveInfo">
-                  <el-option-group label="写实 / 影视">
-                    <el-option label="写实" value="realistic" />
-                    <el-option label="电影感" value="cinematic" />
-                    <el-option label="纪录片" value="documentary" />
-                    <el-option label="黑色电影" value="noir" />
-                    <el-option label="复古胶片" value="retro film" />
-                    <el-option label="恐怖" value="horror" />
-                  </el-option-group>
-                  <el-option-group label="动漫 / 卡通">
-                    <el-option label="日本动漫" value="anime style" />
-                    <el-option label="欧美漫画" value="comic style" />
-                    <el-option label="卡通" value="cartoon" />
-                  </el-option-group>
-                  <el-option-group label="中国风格">
-                    <el-option label="国画水墨" value="ink wash" />
-                    <el-option label="中国风" value="chinese style" />
-                    <el-option label="古装" value="historical" />
-                    <el-option label="武侠" value="wuxia" />
-                  </el-option-group>
-                  <el-option-group label="绘画艺术">
-                    <el-option label="水彩" value="watercolor" />
-                    <el-option label="油画" value="oil painting" />
-                    <el-option label="素描" value="sketch" />
-                    <el-option label="版画" value="woodblock print" />
-                    <el-option label="印象派" value="impressionist" />
-                  </el-option-group>
-                  <el-option-group label="幻想 / 科幻">
-                    <el-option label="奇幻" value="fantasy" />
-                    <el-option label="暗黑奇幻" value="dark fantasy" />
-                    <el-option label="科幻" value="sci-fi" />
-                    <el-option label="赛博朋克" value="cyberpunk" />
-                    <el-option label="蒸汽朋克" value="steampunk" />
-                    <el-option label="末世废土" value="post-apocalyptic" />
-                  </el-option-group>
-                  <el-option-group label="数字 / 现代">
-                    <el-option label="3D 渲染" value="3d render" />
-                    <el-option label="像素风" value="pixel art" />
-                    <el-option label="低多边形" value="low poly" />
-                    <el-option label="极简" value="minimalist" />
-                    <el-option label="唯美梦幻" value="dreamy" />
-                  </el-option-group>
-                </el-select>
-              </el-form-item>
-            </el-col>
-            <el-col :span="12">
-              <el-form-item label="画面比例">
-                <el-select v-model="infoForm.aspect_ratio" aria-label="画面比例" style="width: 100%" @change="saveInfo">
-                  <el-option label="16:9 横屏（默认）" value="16:9" />
-                  <el-option label="9:16 竖屏（短视频）" value="9:16" />
-                  <el-option label="3:4 竖版" value="3:4" />
-                  <el-option label="1:1 方形" value="1:1" />
-                  <el-option label="4:3 传统横屏" value="4:3" />
-                  <el-option label="21:9 宽银幕" value="21:9" />
-                </el-select>
-              </el-form-item>
-            </el-col>
-            <el-col :span="24">
-              <el-form-item label="故事梗概">
-                <el-input v-model="infoForm.description" type="textarea" :rows="3" placeholder="一句话描述故事梗概" aria-label="故事梗概" @blur="saveInfo" />
-              </el-form-item>
-            </el-col>
-          </el-row>
-        </el-form>
-      </section>
+      <DramaDetailInfoCard
+        :info-form="infoForm"
+        :info-save-state="infoSaveState"
+        :info-save-scheduled="infoSaveScheduled"
+        :info-save-status-label="infoSaveStatusLabel"
+        @save="saveInfo"
+        @retry-save="retryInfoSave"
+      />
 
       <div
         v-if="readinessDependencyState === 'loading' && !hasReadinessSnapshot"
@@ -662,7 +503,10 @@
 import { ref, reactive, onMounted, onBeforeUnmount, watch, computed, nextTick } from 'vue'
 import { useRoute, useRouter, onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router'
 import { ElMessage as RawElMessage, ElMessageBox } from '@/utils/elementPlusFeedback.js'
-import { ArrowLeft, VideoPlay, Plus, Delete, Sunny, Moon, Grid, Loading, Refresh, WarningFilled } from '@element-plus/icons-vue'
+import { VideoPlay, Plus, Delete } from '@element-plus/icons-vue'
+import DramaDetailHeader from '@/components/dramaDetail/DramaDetailHeader.vue'
+import DramaDetailLoadState from '@/components/dramaDetail/DramaDetailLoadState.vue'
+import DramaDetailInfoCard from '@/components/dramaDetail/DramaDetailInfoCard.vue'
 import DramaDetailResourceDialogs from '@/components/dramaDetail/DramaDetailResourceDialogs.vue'
 import { createDramaDetailResourceDialogBindings } from '@/components/dramaDetail/dramaDetailResourceDialogBindings.js'
 import EpisodeBatchImportDialog from '@/components/EpisodeBatchImportDialog.vue'
@@ -2079,127 +1923,13 @@ const resourceDialogsBindings = createDramaDetailResourceDialogBindings({
     radial-gradient(ellipse 60% 40% at 80% 110%, rgba(60, 100, 220, 0.12) 0%, transparent 60%);
   color: #e4e4e7;
 }
-.header {
-  background: #121216;
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border-bottom: 1px solid rgba(139, 92, 246, 0.18);
-  padding: 12px 24px;
-  position: sticky;
-  top: 0;
-  z-index: 100;
-  box-shadow: 0 2px 20px rgba(0, 0, 0, 0.4);
-}
 html.light .drama-detail {
   background: #f5f3ff;
   background-image:
     radial-gradient(ellipse 80% 50% at 20% -20%, rgba(139, 92, 246, 0.12) 0%, transparent 60%),
     radial-gradient(ellipse 60% 40% at 80% 110%, rgba(99, 102, 241, 0.08) 0%, transparent 60%);
 }
-html.light .drama-detail .header {
-  background: #ffffff !important;
-  border-bottom-color: rgba(139, 92, 246, 0.2) !important;
-  box-shadow: 0 2px 16px rgba(139, 92, 246, 0.08) !important;
-}
-.logo {
-  margin: 0;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  line-height: 1;
-  transition: filter 0.3s;
-}
-.logo:hover { filter: drop-shadow(0 0 10px rgba(139, 92, 246, 0.5)); }
-.logo-main {
-  font-size: 1.1rem;
-  font-weight: 700;
-  background: linear-gradient(135deg, #c4b5fd 0%, #818cf8 50%, #a78bfa 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-}
-.logo-sub {
-  font-size: 0.68rem;
-  font-weight: 400;
-  letter-spacing: 0.02em;
-  color: #6d6d7a;
-  -webkit-text-fill-color: #6d6d7a;
-}
-html.light .drama-detail .logo-main {
-  background: linear-gradient(135deg, #7c3aed, #6366f1);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-}
-html.light .drama-detail .logo-sub {
-  color: #9ca3af;
-  -webkit-text-fill-color: #9ca3af;
-}
-.header-inner { max-width: min(1200px, 96vw); margin: 0 auto; display: flex; align-items: center; gap: 16px; }
-.breadcrumb-sep {
-  color: #3f3f46;
-  font-size: 1rem;
-  font-weight: 300;
-  flex-shrink: 0;
-  user-select: none;
-}
-html.light .breadcrumb-sep { color: #d1d5db; }
-.page-title {
-  font-size: 0.88rem;
-  font-weight: 500;
-  color: #a1a1aa;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 6px;
-  padding: 3px 10px;
-  max-width: 220px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-html.light .page-title {
-  color: #6b7280;
-  background: rgba(99, 102, 241, 0.06);
-  border-color: rgba(99, 102, 241, 0.15);
-}
-.btn-back-list {
-  flex-shrink: 0;
-}
-.header-actions { margin-left: auto; display: flex; gap: 8px; flex-shrink: 0; }
 .main { max-width: min(1200px, 96vw); margin: 0 auto; padding: 24px 16px 48px; display: flex; flex-direction: column; gap: 20px; }
-.project-load-state {
-  min-height: 320px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  padding: 40px;
-  border: 1px solid rgba(113, 113, 122, 0.45);
-  border-radius: 8px;
-  background: rgba(24, 24, 27, 0.88);
-  text-align: center;
-}
-.project-load-state:focus { outline: none; }
-.project-load-state:focus-visible { outline: 2px solid #818cf8; outline-offset: 3px; }
-.project-load-state--error { border-color: rgba(248, 113, 113, 0.45); }
-.project-load-state-icon { font-size: 34px; color: #a1a1aa; }
-.project-load-state--error .project-load-state-icon { color: #f87171; }
-.project-load-state h2 { margin: 4px 0 0; font-size: 1.25rem; color: #f4f4f5; }
-.project-load-state p { max-width: 620px; margin: 0; color: #a1a1aa; line-height: 1.65; }
-.project-load-state .project-load-state-assurance { color: #d4d4d8; }
-.project-load-state-actions { display: flex; gap: 10px; margin-top: 12px; }
-html.light .project-load-state { background: #fff; border-color: #d4d4d8; }
-html.light .project-load-state--error { border-color: #fca5a5; }
-html.light .project-load-state h2 { color: #18181b; }
-html.light .project-load-state p { color: #52525b; }
 .section.card {
   background: rgba(24, 24, 27, 0.75);
   backdrop-filter: blur(12px);
@@ -2225,14 +1955,6 @@ html.light .section.card:hover {
 }
 .section-title { font-size: 1rem; font-weight: 600; color: #fafafa; margin-bottom: 16px; }
 html.light .section-title { color: #18181b; }
-html.light .info-save-status {
-  border-color: rgba(99, 102, 241, 0.18);
-  color: #4b5563;
-  background: rgba(255, 255, 255, 0.9);
-}
-html.light .info-save-status.is-saved { color: #166534; border-color: rgba(34, 197, 94, 0.24); }
-html.light .info-save-status.is-saving { color: #1d4ed8; border-color: rgba(59, 130, 246, 0.24); }
-html.light .info-save-status.is-error { color: #b91c1c; border-color: rgba(239, 68, 68, 0.24); }
 html.light .dependency-status {
   background: rgba(239, 246, 255, 0.88);
   border-color: rgba(59, 130, 246, 0.22);
@@ -2245,34 +1967,7 @@ html.light .dependency-status--error {
 }
 .section-header { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
 .section-header .section-title { margin-bottom: 0; }
-.section-header--info { justify-content: space-between; align-items: flex-start; }
 .section-count { color: #71717a; font-size: 0.85rem; }
-.info-form { max-width: 100%; }
-.info-save-status {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 32px;
-  padding: 6px 10px;
-  border: 1px solid rgba(113, 113, 122, 0.35);
-  border-radius: 999px;
-  color: #d4d4d8;
-  background: rgba(39, 39, 42, 0.72);
-  font-size: 12px;
-  line-height: 1.4;
-}
-.info-save-status.is-saved {
-  border-color: rgba(74, 222, 128, 0.28);
-  color: #86efac;
-}
-.info-save-status.is-saving {
-  border-color: rgba(96, 165, 250, 0.28);
-  color: #bfdbfe;
-}
-.info-save-status.is-error {
-  border-color: rgba(248, 113, 113, 0.35);
-  color: #fecaca;
-}
 .dependency-status {
   display: flex;
   align-items: center;
@@ -2301,7 +1996,6 @@ html.light .dependency-status--error {
   background: var(--bg-inner);
   text-align: center;
 }
-.logo:focus-visible { outline: 2px solid #818cf8; outline-offset: 4px; }
 .empty-state-title { color: var(--text-primary); font-size: 15px; font-weight: 600; }
 .empty-state-copy { max-width: 620px; color: var(--text-subtle); font-size: 12px; line-height: 1.6; }
 .empty-state-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 8px; }
@@ -2529,24 +2223,6 @@ html.light .res-tab--drama.active::after { background: #7c3aed; }
 .drama-res-cover:disabled,
 .drama-res-cover--empty { cursor: default; }
 
-/* 主题切换按钮 */
-.btn-theme {
-  --el-button-bg-color: rgba(148, 163, 184, 0.1);
-  --el-button-border-color: rgba(148, 163, 184, 0.3);
-  --el-button-text-color: #94a3b8;
-  --el-button-hover-bg-color: rgba(148, 163, 184, 0.2);
-  --el-button-hover-border-color: rgba(148, 163, 184, 0.5);
-  --el-button-hover-text-color: #cbd5e1;
-  transition: all 0.2s;
-}
-html.light .btn-theme {
-  --el-button-bg-color: rgba(99, 102, 241, 0.08);
-  --el-button-border-color: rgba(99, 102, 241, 0.3);
-  --el-button-text-color: #6366f1;
-  --el-button-hover-bg-color: rgba(99, 102, 241, 0.15);
-  --el-button-hover-border-color: rgba(99, 102, 241, 0.5);
-  --el-button-hover-text-color: #4f46e5;
-}
 
 #episode-list,
 #project-resources {
@@ -2556,31 +2232,6 @@ html.light .btn-theme {
 @media (max-width: 760px) {
   .drama-detail {
     overflow-x: hidden;
-  }
-  .header {
-    padding: 10px 12px;
-  }
-  .header-inner {
-    max-width: 100%;
-    gap: 8px;
-    flex-wrap: wrap;
-  }
-  .breadcrumb-sep,
-  .page-title {
-    display: none;
-  }
-  .btn-back-list {
-    margin-left: auto;
-  }
-  .header-actions {
-    width: 100%;
-    margin-left: 0;
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-  .header-actions :deep(.el-button) {
-    min-width: 0;
-    margin-left: 0;
   }
   .main {
     max-width: 100%;

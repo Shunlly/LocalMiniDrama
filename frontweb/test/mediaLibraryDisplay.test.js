@@ -1,7 +1,5 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
-
 import {
   formatMediaSize,
   getMediaItemFileSize,
@@ -9,8 +7,9 @@ import {
   buildMediaLibraryNetworkImportFeedback,
 } from '../src/utils/mediaLibrary.js'
 import { createMediaLibraryAPI } from '../src/api/mediaLibrary.js'
+import { readMediaLibrarySources } from './helpers/mediaLibrarySources.js'
 
-const mediaLibrarySource = readFileSync(new URL('../src/views/MediaLibrary.vue', import.meta.url), 'utf8')
+const mediaLibrarySource = readMediaLibrarySources()
 
 test('素材卡片大小优先读取后端 file_size，兼容仅有 size 的旧载荷', () => {
   const fromBackend = normalizeMediaItem({

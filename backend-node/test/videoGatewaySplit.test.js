@@ -161,6 +161,7 @@ describe('videoGateway 客户端拆分', () => {
       'mediaRefs.js',
       'minimaxVideoAdapter.js',
       'openAiSoraAdapter.js',
+      'pollControl.js',
       'pollDispatch.js',
       'protocolDispatch.js',
       'providerRuntime.js',

@@ -27,7 +27,7 @@
               class="pipeline-compact-action"
               data-testid="film-pipeline-action"
               :disabled="starting || stopping"
-              :title="compactDisabledReason"
+              :title="compactDisabledReason || undefined"
               :aria-label="compactActionAriaLabel"
               @click="runCompactAction"
             >
@@ -40,6 +40,8 @@
           type="button"
           class="pipeline-toggle"
           data-testid="film-pipeline-toggle"
+          :title="expanded ? '收起全流程详情' : '展开全流程详情'"
+          :aria-label="expanded ? '收起全流程详情' : '展开全流程详情'"
           :aria-expanded="expanded"
           aria-controls="film-pipeline-details"
           @click="toggle"
@@ -60,7 +62,7 @@
       <div class="pipeline-utility-actions">
         <el-popover placement="bottom-start" :width="390" trigger="click">
           <template #reference>
-            <el-button plain>
+            <el-button plain aria-label="全流程生成设置" title="全流程生成设置">
               <el-icon><Setting /></el-icon>
               生成设置
             </el-button>
@@ -145,7 +147,8 @@
               type="primary"
               :loading="starting || (running && !paused && !stopping)"
               :disabled="Boolean(productionReason) || starting"
-              :title="productionButtonTitle"
+              :title="productionButtonTitle || undefined"
+              :aria-label="productionButtonAriaLabel"
               @click="$emit('start-one-click')"
             >
               一键生成成片
@@ -158,7 +161,8 @@
             <el-button
               :loading="starting || (running && !paused && !stopping)"
               :disabled="Boolean(draftReason) || starting"
-              :title="draftButtonTitle"
+              :title="draftButtonTitle || undefined"
+              :aria-label="draftButtonAriaLabel"
               @click="$emit('start-text-framework')"
             >
               仅生成文本框架
@@ -310,6 +314,22 @@ function describePipelinePanelUx(input = {}) {
     || (productionBusy ? (starting ? '正在确认完整成片的运行条件' : '正在生成完整成片，请稍候') : '')
   const draftButtonTitle = String(input.draftReason || '').trim()
     || (productionBusy ? (starting ? '正在确认完整成片的运行条件' : '正在生成文本框架，请稍候') : '')
+  function actionAriaLabel(actionLabel, { loading, loadingLabel, disabledReason } = {}) {
+    if (loading) return String(loadingLabel || `正在${actionLabel}`).trim()
+    const reason = String(disabledReason || '').trim()
+    if (reason) return `${actionLabel}不可用：${reason}`
+    return String(actionLabel || '').trim()
+  }
+  const productionButtonAriaLabel = actionAriaLabel('一键生成成片', {
+    loading: productionBusy,
+    loadingLabel: starting ? '正在确认完整成片的运行条件' : '正在生成完整成片',
+    disabledReason: input.productionReason,
+  })
+  const draftButtonAriaLabel = actionAriaLabel('仅生成文本框架', {
+    loading: productionBusy,
+    loadingLabel: starting ? '正在确认完整成片的运行条件' : '正在生成文本框架',
+    disabledReason: input.draftReason,
+  })
   const cleanCurrentStep = String(input.currentStep || '').replace(/^\[步骤 \d+\/\d+\] /, '')
   let progressKicker = ''
   if (stopRequired) progressKicker = '停止受阻'
@@ -327,6 +347,8 @@ function describePipelinePanelUx(input = {}) {
     compactDisabledReason,
     productionButtonTitle,
     draftButtonTitle,
+    productionButtonAriaLabel,
+    draftButtonAriaLabel,
     progressKicker,
     progressStatusText,
     emptyNextStep: isEmpty ? '添加一集后再保存剧本或启动生成' : '',
@@ -428,10 +450,12 @@ const cancelDisabledReason = computed(() => panelUx.value.cancelDisabledReason)
 const compactDisabledReason = computed(() => panelUx.value.compactDisabledReason)
 const productionButtonTitle = computed(() => panelUx.value.productionButtonTitle || undefined)
 const draftButtonTitle = computed(() => panelUx.value.draftButtonTitle || undefined)
+const productionButtonAriaLabel = computed(() => panelUx.value.productionButtonAriaLabel)
+const draftButtonAriaLabel = computed(() => panelUx.value.draftButtonAriaLabel)
 const progressStatusText = computed(() => panelUx.value.progressStatusText)
 const emptyGuidanceText = computed(() => panelUx.value.emptyGuidanceText)
 const emptyActionLabel = computed(() => panelUx.value.emptyActionLabel)
-const emptyActionAriaLabel = computed(() => panelUx.value.emptyNextStep || panelUx.value.emptyActionLabel)
+const emptyActionAriaLabel = computed(() => panelUx.value.emptyActionLabel)
 const retryDisabledReason = computed(() => toPipelineDisabledReason(controlReasons.value.retry, '当前不能重试全流程'))
 const focusReason = computed(() => props.running ? '' : productionReason.value)
 const longFocusReason = computed(() => focusReason.value.length > 56)

@@ -6,13 +6,21 @@ import { createPinia, setActivePinia } from 'pinia'
 
 import { useCharacters } from '../src/composables/filmCreate/useCharacters.js'
 import { remainingExtractNamedFunction } from './helpers/remainingSourceBetween.js'
+import { readFilmCreateResourceDialogTree } from './helpers/filmCreateResourceDialogSources.js'
 
 const panel = readFileSync(new URL('../src/components/filmCreate/FilmCreateResourcePanel.vue', import.meta.url), 'utf8')
-const dialogs = readFileSync(new URL('../src/components/filmCreate/FilmCreateResourceDialogs.vue', import.meta.url), 'utf8')
+const characterBlock = readFileSync(new URL('../src/components/filmCreate/FilmCreateCharacterBlock.vue', import.meta.url), 'utf8')
+const propBlock = readFileSync(new URL('../src/components/filmCreate/FilmCreatePropBlock.vue', import.meta.url), 'utf8')
+const sceneBlock = readFileSync(new URL('../src/components/filmCreate/FilmCreateSceneBlock.vue', import.meta.url), 'utf8')
+const dialogs = readFilmCreateResourceDialogTree()
 const charactersSource = readFileSync(new URL('../src/composables/filmCreate/useCharacters.js', import.meta.url), 'utf8')
+const resourceSurface = panel + '\n' + characterBlock + '\n' + propBlock + '\n' + sceneBlock
 
 const USER_VISIBLE_SOURCES = {
   'FilmCreateResourcePanel.vue': panel,
+  'FilmCreateCharacterBlock.vue': characterBlock,
+  'FilmCreatePropBlock.vue': propBlock,
+  'FilmCreateSceneBlock.vue': sceneBlock,
   'FilmCreateResourceDialogs.vue': dialogs,
   'useCharacters.js': charactersSource,
 }
@@ -89,7 +97,7 @@ test('资源区用户可见文案不再出现 SD2认证 或 SD2 认证详情', (
       assert.doesNotMatch(value, /\bSD2\b/, `${name} 的 title/aria-label/label 仍写 SD2：${value}`)
     }
   }
-  assert.match(panel, /@click="emit\('sd2-primary-action', char\)"/)
+  assert.match(characterBlock, /@click="emit\('sd2-primary-action', char\)"/)
   assert.match(dialogs, /class="sd2-cert-dialog"/)
 })
 
@@ -112,19 +120,19 @@ test('认证按钮文案保持认证资产，帮助与无障碍不再写 SD2', (
   assert.equal(chars.sd2ActionLabel({ seedance2_asset: { status: 'active' } }), '查看认证')
   assert.equal(chars.sd2ActionLabel({ seedance2_asset: { status: 'processing' } }), '刷新认证')
   assert.equal(chars.sd2ActionLabel({ seedance2_asset: { status: 'failed' } }), '重新认证')
-  assert.match(panel, /:title="sd2CertActionTitle\(char\)"/)
-  assert.match(panel, /:aria-label="sd2ActionLabel\(char\)"/)
+  assert.match(characterBlock, /:title="sd2CertActionTitle\(char\)"/)
+  assert.match(characterBlock, /:aria-label="sd2ActionLabel\(char\)"/)
   assert.match(panel, /将角色主图登记为认证资产/)
   assert.match(panel, /查看认证资产详情/)
-  assert.doesNotMatch(panel, /title="[^"]*SD2/)
-  assert.doesNotMatch(panel, /aria-label="[^"]*SD2/)
+  assert.doesNotMatch(resourceSurface, /title="[^"]*SD2/)
+  assert.doesNotMatch(resourceSurface, /aria-label="[^"]*SD2/)
 })
 
 test('角色道具场景空状态与缺图禁用原因使用完整中文', () => {
   assert.match(panel, /暂无角色，可用「剧本自动提取角色」或「添加角色」/)
   assert.match(panel, /暂无道具，可用「从剧本提取道具」或「添加道具」/)
   assert.match(panel, /暂无场景，可用「从剧本提取场景」或「添加场景」/)
-  assert.match(panel, /class="asset-desc-full">\{\{ char\.appearance \|\| char\.description \|\| '暂无描述' \}\}<\/div>/)
+  assert.match(characterBlock, /class="asset-desc-full">\{\{ char\.appearance \|\| char\.description \|\| '暂无描述' \}\}<\/div>/)
 
   const missingReason = loadPanelFunction('missingAssetImageReason', () => false)
   const readyReason = loadPanelFunction('missingAssetImageReason', () => true)
@@ -132,7 +140,7 @@ test('角色道具场景空状态与缺图禁用原因使用完整中文', () =>
   assert.equal(missingReason({}, 'prop'), '请先为该道具生成或上传主图')
   assert.equal(missingReason({}, 'scene'), '请先为该场景生成或上传主图')
   assert.equal(readyReason({}, 'character'), '')
-  assert.match(panel, /<ActionGate :reason="missingAssetImageReason\(char, 'character'\)" :label="sd2ActionLabel\(char\)">/)
+  assert.match(characterBlock, /<ActionGate :reason="missingAssetImageReason\(char, 'character'\)" :label="sd2ActionLabel\(char\)">/)
 })
 
 test('无主图时认证按钮禁用原因和提交提示使用完整中文', async () => {

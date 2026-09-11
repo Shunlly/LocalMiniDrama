@@ -4,8 +4,13 @@ import { readFileSync } from 'node:fs'
 
 import { parse } from '@vue/compiler-sfc'
 
-const dramaDetailSource = readFileSync(new URL('../src/views/DramaDetail.vue', import.meta.url), 'utf8')
-const dramaDetailDialogsSource = readFileSync(new URL('../src/components/dramaDetail/DramaDetailResourceDialogs.vue', import.meta.url), 'utf8')
+import { DRAMA_DETAIL_RESOURCE_DIALOG_FILES, readDramaDetailResourceDialogSources } from './helpers/dramaDetailResourceDialogSources.js'
+
+const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8')
+const dramaDetailSource = read('../src/views/DramaDetail.vue')
+const dramaDetailHeaderSource = read('../src/components/dramaDetail/DramaDetailHeader.vue')
+const dramaDetailDialogsSource = readDramaDetailResourceDialogSources(read)
+const imageEditorSource = read('../src/components/dramaDetail/DramaDetailResourceImageEditor.vue')
 
 function readTopLevelFunction(source, name) {
   const marker = `function ${name}(`
@@ -72,14 +77,15 @@ test('角色场景道具编辑弹窗未保存关闭和离开都要中文确认',
     'editSceneForm',
     'editPropForm',
   ]
+  assert.match(imageEditorSource, /const previewTitle = computed\(\(\) => \(imageUrl\.value \? undefined : '暂无图片'\)\)/)
   for (const form of untitledForms) {
     assert.match(
       dramaDetailDialogsSource,
-      new RegExp(`:title="assetImageUrl\\(${form}\\) \\? undefined : '暂无图片'"`),
+      new RegExp(`<DramaDetailResourceImageEditor\\s+:form="${form}"`),
     )
   }
-  assert.match(dramaDetailSource, /<header class="header">/)
-  assert.match(dramaDetailSource, /@click="goList"/)
+  assert.match(dramaDetailHeaderSource, /<header class="header">/)
+  assert.match(dramaDetailSource, /@go-list="goList"/)
   for (const visible of [
     'editDramaCharVisible',
     'editDramaSceneVisible',
@@ -133,8 +139,10 @@ test('资源编辑脏检查只看未保存字段，图片单独变更不算脏',
 })
 
 test('剧集详情资源弹窗互斥上传生成并给出中文禁用原因', () => {
-  const parsed = parse(dramaDetailDialogsSource, { filename: 'DramaDetailResourceDialogs.vue' })
-  assert.deepEqual(parsed.errors, [])
+  for (const file of DRAMA_DETAIL_RESOURCE_DIALOG_FILES) {
+    const parsed = parse(read(file), { filename: file.split('/').pop() })
+    assert.deepEqual(parsed.errors, [])
+  }
   const forms = [
     'editDramaCharForm',
     'editDramaSceneForm',
@@ -143,14 +151,14 @@ test('剧集详情资源弹窗互斥上传生成并给出中文禁用原因', ()
     'editSceneForm',
     'editPropForm',
   ]
+  assert.match(imageEditorSource, /form\?\.imgGenerating \? '正在生成图片，请稍候' : ''/)
+  assert.match(imageEditorSource, /form\?\.imgUploading \? '正在上传图片，请稍候' : ''/)
+  assert.match(imageEditorSource, /:disabled="Boolean\(uploadDisabledReason\)"/)
+  assert.match(imageEditorSource, /:disabled="Boolean\(generateDisabledReason\)"/)
   for (const form of forms) {
     assert.match(
       dramaDetailDialogsSource,
-      new RegExp(`:disabled="${form}\\.imgGenerating" :title="${form}\\.imgGenerating \\? '正在生成图片，请稍候' : undefined"`),
-    )
-    assert.match(
-      dramaDetailDialogsSource,
-      new RegExp(`:disabled="${form}\\.imgUploading" :title="${form}\\.imgUploading \\? '正在上传图片，请稍候' : undefined"`),
+      new RegExp(`<DramaDetailResourceImageEditor\\s+:form="${form}"`),
     )
   }
   for (const saving of [

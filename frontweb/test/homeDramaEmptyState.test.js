@@ -3,11 +3,14 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
 import { buildProjectReadiness } from '../src/utils/projectReadiness.js'
+import { readFilmListLibrarySource } from './helpers/filmListLibrarySource.js'
+import { readFilmListSources } from './helpers/filmListSources.js'
 
 const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8')
-const filmListSource = read('../src/views/FilmList.vue')
-const filmListLibrarySource = read('../src/components/filmList/FilmListLibraryDialogs.vue')
+const filmListSource = readFilmListSources().ui
+const filmListLibrarySource = readFilmListLibrarySource()
 const dramaDetailSource = read('../src/views/DramaDetail.vue')
+const dramaDetailHeaderSource = read('../src/components/dramaDetail/DramaDetailHeader.vue')
 const dramaDetailDialogsSource = read('../src/components/dramaDetail/DramaDetailResourceDialogs.vue')
 const readinessPanelSource = read('../src/components/ProjectReadinessPanel.vue')
 const CHINESE_RE = /[\u4e00-\u9fff]/
@@ -56,6 +59,8 @@ test('首页空项目和下一步入口是中文，且空态按钮可点', () =>
   assert.match(filmListSource, /没有匹配的项目/)
   assert.match(filmListSource, /换一个关键词或状态，或清除筛选后查看全部项目。/)
   assert.match(filmListSource, /@click="clearProjectFilters"/)
+  assert.match(filmListSource, /class="workspace-clear-filters"/)
+  assert.match(filmListSource, /aria-label="清除筛选并查看全部项目"/)
   assert.match(filmListSource, /回收站中没有项目/)
   assert.equal((filmListLibrarySource.match(/class="library-empty" role="status"/g) || []).length, 3)
   assert.match(filmListLibrarySource, /aria-label="清除角色素材搜索"/)
@@ -142,12 +147,12 @@ test('无剧集时资源空状态会新增一集，而不是点页头或只滚�
     /@click="goCreate(?:\(\))?"[^>]*>\{\{ currentEpisodeId/,
   )
   assert.match(
-    dramaDetailSource,
+    dramaDetailHeaderSource,
     /:disabled="!currentEpisodeId"/,
   )
-  assert.match(dramaDetailSource, /@click="goCreate"/)
-  assert.match(dramaDetailSource, /进入制作不可用：请先新增一集/)
-  assert.match(dramaDetailSource, /画布模式不可用：请先新增一集/)
+  assert.match(dramaDetailSource, /@go-create="goCreate"/)
+  assert.match(dramaDetailHeaderSource, /进入制作不可用：请先新增一集/)
+  assert.match(dramaDetailHeaderSource, /画布模式不可用：请先新增一集/)
 })
 
 test('成片就绪度的下一步始终可点，且文案为中文', () => {

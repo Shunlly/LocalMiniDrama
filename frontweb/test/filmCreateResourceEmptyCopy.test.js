@@ -3,9 +3,10 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
 import { useFilmCreateNavSteps } from '../src/composables/filmCreate/useFilmCreateNavSteps.js'
+import { readFilmCreateResourceDialogTree } from './helpers/filmCreateResourceDialogSources.js'
 
 const panel = readFileSync(new URL('../src/components/filmCreate/FilmCreateResourcePanel.vue', import.meta.url), 'utf8')
-const dialogs = readFileSync(new URL('../src/components/filmCreate/FilmCreateResourceDialogs.vue', import.meta.url), 'utf8')
+const dialogs = readFilmCreateResourceDialogTree()
 
 function refOf(value) {
   return { value }

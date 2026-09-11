@@ -112,4 +112,39 @@ describe('logger redaction', () => {
     assert.equal(record.phase, 'error');
     assert.equal(record.api_key, '[REDACTED]');
   });
+
+  it('request-scoped logs reuse the same request_id without inventing a second field', () => {
+    const lines = [];
+    const originalLog = console.log;
+    console.log = (msg) => { lines.push(String(msg)); };
+    try {
+      logger.runWithRequestId('trace-logger-1', () => {
+        logger.info('scoped-event', { path: '/health' });
+        logger.info('provider-event', { request_id: 'provider-task-9', path: '/health' });
+        logger.operation({ operation: 'http_request', phase: 'error', code: 'INTERNAL_ERROR' });
+      });
+      logger.info('unscoped-event', { path: '/health' });
+    } finally {
+      console.log = originalLog;
+    }
+
+    const scoped = lines.find((line) => line.includes('scoped-event'));
+    const provider = lines.find((line) => line.includes('provider-event'));
+    const operation = lines.find((line) => line.includes('"event":"operation"'));
+    const unscoped = lines.find((line) => line.includes('unscoped-event'));
+    assert.match(String(scoped), /"request_id":"trace-logger-1"/);
+    assert.doesNotMatch(String(scoped), /requestId/);
+    assert.match(String(provider), /"request_id":"provider-task-9"/);
+    assert.doesNotMatch(String(provider), /trace-logger-1/);
+    assert.match(String(operation), /"request_id":"trace-logger-1"/);
+    assert.equal(String(unscoped).includes('trace-logger-1'), false);
+  });
+
+  it('unsafe request ids are not bound into the log context', () => {
+    logger.runWithRequestId('../secret\r\nInjected: yes', () => {
+      assert.equal(logger.getRequestId(), undefined);
+    });
+    assert.equal(logger.isSafeRequestId('trace-123:child'), true);
+    assert.equal(logger.isSafeRequestId('../secret'), false);
+  });
 });

@@ -195,3 +195,39 @@ test('未选剧集的空态不会误导去生成分镜视频，合成入口保�
     harness.app.unmount()
   }
 })
+
+test('合成和下载进行中使用中文状态，不用英文省略号', async () => {
+  const generating = mountDelivery({
+    playableStoryboardVideoCount: 2,
+    storyboardCount: 2,
+    videoStatus: 'generating',
+    videoProgress: 40,
+  })
+  try {
+    await nextTick()
+    const progress = findByClass(generating.root, 'video-progress')[0]
+    assert.ok(progress)
+    assert.equal(progress.props.role, 'status')
+    assert.match(textContent(progress), /视频正在生成，请稍候/)
+    assert.doesNotMatch(textContent(generating.root), /\.\.\./)
+  } finally {
+    generating.app.unmount()
+  }
+
+  const downloading = mountDelivery({
+    playableStoryboardVideoCount: 2,
+    storyboardCount: 2,
+    currentEpisodeVideoUrl: '/static/final.mp4',
+    currentEpisodeId: EPISODE_ID,
+    dramaId: DRAMA_ID,
+    videoDownloadStatus: 'downloading',
+  })
+  try {
+    await nextTick()
+    assert.match(textContent(downloading.root), /正在验证并下载成片，请稍候/)
+    assert.doesNotMatch(textContent(downloading.root), /\.\.\./)
+    assert.equal(requireButton(downloading.root, '下载成片').props.title, '正在下载成片，请稍候')
+  } finally {
+    downloading.app.unmount()
+  }
+})

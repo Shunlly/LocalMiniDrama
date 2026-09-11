@@ -35,7 +35,7 @@ const storyboardScriptColumnSource = read('../src/components/filmCreate/FilmCrea
 const storyboardImageColumnSource = read('../src/components/filmCreate/FilmCreateStoryboardImageColumn.vue')
 const storyboardConfigBarSource = targetSources.find(({ name }) => name.endsWith('/FilmCreateStoryboardConfigBar.vue')).source
 const novelImportSource = targetSources.find(({ name }) => name.endsWith('/FilmCreateNovelImportDialog.vue')).source
-const storyboardPanelSource = targetSources.find(({ name }) => name.endsWith('/CanvasStoryboardPanel.vue')).source
+const storyboardPanelSource = targetSources.filter(({ name }) => name.includes('CanvasStoryboardPanel')).map(({ source }) => source).join('\n')
 const workflowToolbarSource = targetSources.find(({ name }) => name.endsWith('/CanvasWorkflowToolbarGroup.vue')).source
 
 function templateOnly(source) {

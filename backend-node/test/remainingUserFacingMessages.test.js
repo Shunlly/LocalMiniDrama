@@ -152,8 +152,17 @@ const leftoverEnglish = [
   'free_canvas version 不受支持',
   'storyboardId 和 storyboard_ref',
   '请先填写网关 URL 与 Token',
+  '填写网关 URL 与 Token',
+  '网关 URL + Token',
   'ModelArk 返回缺少资产 Id',
   '填写 Token',
+  '当前 Token（',
+  '勿带 Bearer 前缀',
+  'curl 测试',
+  '资产组 Id',
+  'base_url 或 api_key',
+  'base_url 或 AK/SK',
+  'asset_group_id（默认资产组 Id）',
   '缺少分镜 id',
   'image_prompt / action / dialogue',
   '该分镜暂无可优化的内容（image_prompt / action / dialogue 均为空）',
@@ -169,10 +178,34 @@ const leftoverEnglish = [
   'Provider 已返回任务 ID',
   'Provider 协议',
   '厂商任务 ID',
+  '素材图 Provider',
+  '分镜图 Provider',
+  '视频 Provider',
+  'TTS Provider',
+  'Provider 请求失败',
+  'Provider 不可用',
+  'Provider 控制台',
+  '本地 Provider 模式',
   'stale after adaptation overwrite',
   '无效的分镜 id',
   'Sora 当前不支持尾帧参考，请移除 last_frame_url',
   'ComfyUI 任务提交未返回 prompt_id',
+  'ComfyUI settings 不是有效的 JSON',
+  'ComfyUI Base URL',
+  'ComfyUI 参考图 data URL',
+  'ComfyUI workflow',
+  '当前 Node.js 环境不支持 fetch',
+  'workflow 执行失败',
+  '视觉参考图 data URL',
+  'http/https URL',
+  '不允许导入 localhost 或本地域名',
+  'NODE_TLS_REJECT_UNAUTHORIZED=0 会关闭',
+  'server.insecure_tls 会关闭',
+  '无效的配置ID',
+  'AK/SK 签名',
+  '必须是受控的相对 URL 路径',
+  '不得包含 URL 片段',
+  '包含无效的 URL 编码',
   '请提供新的 API Key',
   '条配置的 API Key',
   'AccessKey 与 SecretKey 不能为空',
@@ -337,6 +370,9 @@ test('\u5269\u4f59\u7528\u6237\u9519\u8bef\u6e90\u7801\u4e0d\u518d\u5305\u542b\u
     'services/storyboardService.js',
     'services/workflowService.js',
     'services/videoGateway/agnesVideoAdapter.js',
+    'services/tlsPolicy.js',
+    'services/taskService.js',
+    'routes/prop.js',
   ];
   for (const name of files) {
     const sourcePath = name.startsWith('scripts/')
@@ -656,7 +692,8 @@ test('图片持久化失败不会把英文系统错误漏给用户', () => {
 test('videoClient 用户错误不再是问号乱码', () => {
   const source = fs.readFileSync(path.join(__dirname, '../src/services/videoClient.js'), 'utf8');
   const pollSource = fs.readFileSync(path.join(__dirname, '../src/services/videoGateway/pollDispatch.js'), 'utf8');
-  const userFacing = [source, pollSource].join('\n')
+  const pollControlSource = fs.readFileSync(path.join(__dirname, '../src/services/videoGateway/pollControl.js'), 'utf8');
+  const userFacing = [source, pollSource, pollControlSource].join('\n')
     .split('\n')
     .filter((line) => /throw new Error\(|return \{ error:/.test(line))
     .join('\n');
@@ -665,8 +702,9 @@ test('videoClient 用户错误不再是问号乱码', () => {
   assert.match(pollSource, /Vidu 任务完成但未返回视频地址/);
   assert.match(pollSource, /Gemini 任务完成但未返回视频地址/);
   assert.match(source, /视频生成超时，请稍后重试/);
-  assert.match(source, /视频任务已取消/);
+  assert.match(pollControlSource, /视频任务已取消/);
   assert.equal(source.includes('throw signal.reason'), false);
+  assert.equal(pollControlSource.includes('throw signal.reason'), false);
 });
 test('角色生成在 episode_id 与 drama_id 不相等时返回中文 BAD_REQUEST', () => {
   const characterGenerationService = require('../src/services/characterGenerationService');
@@ -794,6 +832,8 @@ test('剩余路由缺参和空分镜优化返回简体中文用户错误', async
     '缺少 scene_id',
     '缺少分镜 id',
     '无效的分镜 id',
+    '无效的配置ID',
+    '无效的ID',
     '请提供新的 API Key',
     '条配置的 API Key',
     '该分镜暂无可优化的内容（image_prompt / action / dialogue 均为空）',

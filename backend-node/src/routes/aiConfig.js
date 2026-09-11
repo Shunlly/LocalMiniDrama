@@ -12,7 +12,7 @@ function list(db) {
 function get(db) {
   return (req, res) => {
     const id = parseInt(req.params.id, 10);
-    if (isNaN(id)) return response.badRequest(res, '无效的配置ID');
+    if (isNaN(id)) return response.badRequest(res, '无效的配置 ID');
     const config = aiConfigService.getConfig(db, id);
     if (!config) return response.notFound(res, '配置不存在');
     response.success(res, aiConfigService.configForResponse(config));
@@ -57,7 +57,7 @@ function create(db, log, cfg) {
 function update(db, log, cfg) {
   return (req, res) => {
     const id = parseInt(req.params.id, 10);
-    if (isNaN(id)) return response.badRequest(res, '无效的配置ID');
+    if (isNaN(id)) return response.badRequest(res, '无效的配置 ID');
 
     let body = req.body || {};
     // 锁定模式下只允许修改 api_key、default_model、is_default
@@ -90,7 +90,7 @@ function remove(db, log, cfg) {
       return response.badRequest(res, '当前为厂商锁定模式，不允许删除配置');
     }
     const id = parseInt(req.params.id, 10);
-    if (isNaN(id)) return response.badRequest(res, '无效的配置ID');
+    if (isNaN(id)) return response.badRequest(res, '无效的配置 ID');
     const ok = aiConfigService.deleteConfig(db, log, id);
     if (!ok) return response.notFound(res, '配置不存在');
     response.success(res, { message: '删除成功' });
@@ -123,7 +123,7 @@ function getSavedConfigFromBody(db, body) {
   if (body.id == null && body.config_id == null) return null;
   const id = parseInt(body.id ?? body.config_id, 10);
   if (isNaN(id)) {
-    const err = new Error('无效的配置ID');
+    const err = new Error('无效的配置 ID');
     err.status = 400;
     throw err;
   }

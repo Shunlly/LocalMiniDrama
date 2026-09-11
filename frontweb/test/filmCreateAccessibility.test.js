@@ -2,6 +2,8 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
+import { readFilmCreateResourceDialogTree } from './helpers/filmCreateResourceDialogSources.js'
+
 const filmCreateSource = readFileSync(
   new URL('../src/views/FilmCreate.vue', import.meta.url),
   'utf8',
@@ -42,10 +44,13 @@ const scriptWorkbenchSource = readFileSync(
   new URL('../src/components/filmCreate/FilmCreateScriptWorkbench.vue', import.meta.url),
   'utf8',
 )
-const storyboardDialogsSource = readFileSync(
-  new URL('../src/components/filmCreate/FilmCreateStoryboardDialogs.vue', import.meta.url),
-  'utf8',
-)
+const storyboardDialogsSource = [
+  'FilmCreateStoryboardDialogs.vue',
+  'FilmCreateStoryboardPromptDialog.vue',
+  'FilmCreateStoryboardFramePromptDialog.vue',
+  'FilmCreateStoryboardVideoParamsDialog.vue',
+  'FilmCreateStoryboardFreeReferencePreview.vue',
+].map((name) => readFileSync(new URL(`../src/components/filmCreate/${name}`, import.meta.url), 'utf8')).join('\n')
 const resourcePanelSource = readFileSync(
   new URL('../src/components/filmCreate/FilmCreateResourcePanel.vue', import.meta.url),
   'utf8',
@@ -57,6 +62,9 @@ const storyboardPanelSource = readFileSync(
   new URL('../src/components/filmCreate/FilmCreateStoryboardPanel.css', import.meta.url),
   'utf8',
 ) + '\n' + readFileSync(
+  new URL('../src/components/filmCreate/FilmCreateStoryboardEmptyState.vue', import.meta.url),
+  'utf8',
+) + '\n' + readFileSync(
   new URL('../src/components/filmCreate/FilmCreateStoryboardVideoColumn.vue', import.meta.url),
   'utf8',
 )
@@ -64,10 +72,7 @@ const storyboardConfigBarSource = readFileSync(
   new URL('../src/components/filmCreate/FilmCreateStoryboardConfigBar.vue', import.meta.url),
   'utf8',
 )
-const resourceDialogsSource = readFileSync(
-  new URL('../src/components/filmCreate/FilmCreateResourceDialogs.vue', import.meta.url),
-  'utf8',
-)
+const resourceDialogsSource = readFilmCreateResourceDialogTree()
 const headerSource = readFileSync(
   new URL('../src/components/filmCreate/FilmCreateHeader.vue', import.meta.url),
   'utf8',
@@ -227,7 +232,19 @@ test('every FilmCreate ActionGate identifies its button action', () => {
     new URL('../src/components/filmCreate/FilmCreateStoryboardImageColumn.vue', import.meta.url),
     'utf8',
   )
-  const actionGates = [filmCreateSource, deliveryPanelSource, scriptWorkbenchSource, resourcePanelSource, storyboardPanelSource, storyboardConfigBarSource, resourceDialogsSource, imageColumnSource]
+  const characterBlockSource = readFileSync(
+    new URL('../src/components/filmCreate/FilmCreateCharacterBlock.vue', import.meta.url),
+    'utf8',
+  )
+  const propBlockSource = readFileSync(
+    new URL('../src/components/filmCreate/FilmCreatePropBlock.vue', import.meta.url),
+    'utf8',
+  )
+  const sceneBlockSource = readFileSync(
+    new URL('../src/components/filmCreate/FilmCreateSceneBlock.vue', import.meta.url),
+    'utf8',
+  )
+  const actionGates = [filmCreateSource, deliveryPanelSource, scriptWorkbenchSource, resourcePanelSource, characterBlockSource, propBlockSource, sceneBlockSource, storyboardPanelSource, storyboardConfigBarSource, resourceDialogsSource, imageColumnSource]
     .flatMap((source) => source.match(/<ActionGate\b[^>]*>/g) || [])
   assert.ok(actionGates.length >= 13)
   for (const gate of actionGates) {

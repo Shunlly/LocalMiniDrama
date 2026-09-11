@@ -5,6 +5,8 @@ import { readFileSync } from 'node:fs'
 import { parse } from '@vue/compiler-sfc'
 
 const dramaDetailSource = readFileSync(new URL('../src/views/DramaDetail.vue', import.meta.url), 'utf8')
+const dramaDetailHeaderSource = readFileSync(new URL('../src/components/dramaDetail/DramaDetailHeader.vue', import.meta.url), 'utf8')
+const dramaDetailInfoCardSource = readFileSync(new URL('../src/components/dramaDetail/DramaDetailInfoCard.vue', import.meta.url), 'utf8')
 const sourceWorkflowSource = readFileSync(new URL('../src/components/SourceIntakeWorkflowPanel.vue', import.meta.url), 'utf8')
 
 test('DramaDetail remains a valid SFC with explicit readiness dependency retry and autosave status UI', () => {
@@ -25,7 +27,7 @@ test('DramaDetail remains a valid SFC with explicit readiness dependency retry a
   assert.match(dramaDetailSource, /async function retryInfoSave\(\)/)
   assert.match(dramaDetailSource, /onBeforeRouteLeave\(\(\) => confirmInfoLeave\(\)\)/)
   assert.match(dramaDetailSource, /window\.addEventListener\('beforeunload', handleInfoBeforeUnload\)/)
-  assert.match(dramaDetailSource, /class="info-save-status"/)
+  assert.match(dramaDetailInfoCardSource, /class="info-save-status"/)
   assert.match(dramaDetailSource, /class="dependency-status dependency-status--error"/)
 })
 
@@ -52,22 +54,22 @@ test('剧集资源库失败与空搜索分开展示，无分集时进入制作�
   assert.match(dramaDetailSource, /v-if="!charLoading && !charError && charList\.length === 0"/)
   assert.match(dramaDetailSource, /charKw\.trim\(\) \? '没有匹配的角色' : '暂无本剧角色库记录'/)
   assert.match(dramaDetailSource, /ElMessage\.warning\('请先新增一集，再进入制作'\)/)
-  assert.match(dramaDetailSource, /:disabled="!currentEpisodeId"/)
-  assert.match(dramaDetailSource, /@click="goCreate"/)
-  assert.match(dramaDetailSource, /进入制作不可用：请先新增一集/)
+  assert.match(dramaDetailHeaderSource, /:disabled="!currentEpisodeId"/)
+  assert.match(dramaDetailSource, /@go-create="goCreate"/)
+  assert.match(dramaDetailHeaderSource, /进入制作不可用：请先新增一集/)
   assert.match(dramaDetailSource, /ElMessage.warning\('请先新增一集，再进入画布'\)/)
-  assert.match(dramaDetailSource, /@click="goCanvasMode"/)
-  assert.match(dramaDetailSource, /画布模式不可用：请先新增一集/)
+  assert.match(dramaDetailSource, /@go-canvas-mode="goCanvasMode"/)
+  assert.match(dramaDetailHeaderSource, /画布模式不可用：请先新增一集/)
 })
 
 test('DramaDetail 禁用操作和空封面提供可焦点的中文说明', () => {
-  assert.match(dramaDetailSource, /:tabindex="currentEpisodeId \? undefined : 0"/)
+  assert.match(dramaDetailHeaderSource, /:tabindex="currentEpisodeId \? undefined : 0"/)
   assert.match(
-    dramaDetailSource,
+    dramaDetailHeaderSource,
     /:aria-label="currentEpisodeId \? undefined : '进入制作不可用：请先新增一集'"/,
   )
   assert.match(
-    dramaDetailSource,
+    dramaDetailHeaderSource,
     /:aria-label="currentEpisodeId \? undefined : '画布模式不可用：请先新增一集'"/,
   )
   assert.match(dramaDetailSource, /:tabindex="episodeEmptyState.primaryDisabledReason \? 0 : undefined"/)

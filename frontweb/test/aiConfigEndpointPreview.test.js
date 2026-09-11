@@ -5,6 +5,8 @@ import { readFileSync } from 'node:fs'
 import { buildEndpointPreviewInfo } from '../src/utils/aiConfigEndpointPreview.js'
 
 const vueSource = readFileSync(new URL('../src/components/AIConfigContent.vue', import.meta.url), 'utf8')
+const formDialogSource = readFileSync(new URL('../src/components/aiConfig/AiConfigFormDialog.vue', import.meta.url), 'utf8')
+const overlaySource = `${vueSource}\n${formDialogSource}`
 
 test('空表单不预览；即梦2认证会提示填写网关 URL', () => {
   assert.equal(buildEndpointPreviewInfo({}), null)
@@ -47,7 +49,7 @@ test('OCR 和语音转写会预览真实调用地址，未填接口时给出中�
 
 test('页面仍展示预览框，loadList/openTest 留在页面', () => {
   assert.match(vueSource, /buildEndpointPreviewInfo\(form\.value\)/)
-  assert.match(vueSource, /class="endpoint-preview-box"/)
+  assert.match(overlaySource, /class="endpoint-preview-box"/)
   assert.match(vueSource, /async function loadList\(\)/)
   assert.match(vueSource, /async function openTest\(row\)/)
 })

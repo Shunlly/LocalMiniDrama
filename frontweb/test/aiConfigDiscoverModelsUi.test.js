@@ -13,6 +13,9 @@ function readSource(url) {
 }
 
 const vueSource = readSource(new URL('../src/components/AIConfigContent.vue', import.meta.url))
+const formDialogSource = readSource(new URL('../src/components/aiConfig/AiConfigFormDialog.vue', import.meta.url))
+const connectionDialogSource = readSource(new URL('../src/components/aiConfig/AiConfigConnectionTestDialog.vue', import.meta.url))
+const overlaySource = `${vueSource}\n${formDialogSource}\n${connectionDialogSource}`
 const discoverSource = readSource(new URL('../src/composables/useAiConfigDiscoverModels.js', import.meta.url))
 const providerOptionsSource = readSource(new URL('../src/utils/aiConfigProviderOptions.js', import.meta.url))
 const labelsSource = readSource(new URL('../src/utils/aiConfigLabels.js', import.meta.url))
@@ -76,7 +79,7 @@ function collectUserFacingText(source) {
 
 test('AI 配置页提供从服务读取模型按钮，并接上 discoverModels API', () => {
   assert.match(apiSource, /discoverModels\(body, options = \{\}\) \{\s*return request\.post\('\/ai-configs\/discover-models', body, options\)/)
-  assert.match(vueSource, /:discover-models-from-service="discoverModelsFromService"/)
+  assert.match(overlaySource, /:discover-models-from-service="discoverModelsFromService"/)
   assert.match(modelListSource, /@click="discoverModelsFromService"/)
   assert.match(modelListSource, />从服务读取模型</)
   assert.match(modelListSource, /:disabled="discoverModelsDisabled"/)
@@ -87,8 +90,8 @@ test('AI 配置页提供从服务读取模型按钮，并接上 discoverModels A
   assert.match(modelListSource, /aria-label="模型列表"/)
   assert.doesNotMatch(modelListSource, /<el-input[^>]*data-ai-config-field="model"[^>]*readonly/)
   assert.match(modelListSource, /aria-label="追加预设模型"/)
-  assert.match(vueSource, /<el-option label="Fal\.ai" value="fal" \/>/)
-  assert.match(vueSource, /<el-option label="Replicate" value="replicate" \/>/)
+  assert.match(overlaySource, /<el-option label="Fal\.ai" value="fal" \/>/)
+  assert.match(overlaySource, /<el-option label="Replicate" value="replicate" \/>/)
 })
 
 test('读取到的模型 id 去重追加，不覆盖用户已有项', () => {
@@ -132,8 +135,8 @@ test('连接测试成功后仅轻量提示读取模型目录，不自动覆盖�
     vueSource.indexOf('async function openTest'),
     vueSource.indexOf('async function onDelete'),
   )
-  assert.match(vueSource, /也可以读取模型目录，不会自动覆盖已填写的模型列表。/)
-  assert.match(vueSource, /v-if="testSuggestDiscoverModels"/)
+  assert.match(overlaySource, /也可以读取模型目录，不会自动覆盖已填写的模型列表。/)
+  assert.match(overlaySource, /v-if="testSuggestDiscoverModels"/)
   assert.match(connectionTest, /testSuggestDiscoverModels\.value = isOpenAiCompatibleConfig\(row\)/)
   assert.doesNotMatch(connectionTest, /aiAPI\.discoverModels/)
   assert.doesNotMatch(connectionTest, /form\.value\.modelText/)

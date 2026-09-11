@@ -1,0 +1,82 @@
+/* 分类素材库列表和编辑弹窗的共享样式 */
+.library-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-left: 3px solid #f87171;
+  background: rgba(239, 68, 68, 0.08);
+  color: #fca5a5;
+}
+.library-error p {
+  margin: 0;
+}
+.lib-img-editor { display: flex; align-items: center; gap: 14px; }
+.lib-img-thumb { width: 88px; height: 88px; padding: 0; border-radius: 8px; overflow: hidden; background: var(--bg-inner, #1c1c1e); border: 1px solid var(--border-color, #27272a); color: inherit; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+button.lib-img-thumb { cursor: zoom-in; }
+.lib-img-thumb--empty { cursor: default; }
+.lib-img-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.lib-img-empty { color: var(--text-faint, #52525b); font-size: 26px; }
+.lib-img-btns { display: flex; flex-direction: column; gap: 8px; }
+.library-toolbar { margin-bottom: 12px; }
+.library-list {
+  min-height: 200px;
+  max-height: 420px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.library-item {
+  display: flex;
+  gap: 12px;
+  padding: 10px;
+  background: #1c1c1e;
+  border: 1px solid #27272a;
+  border-radius: 8px;
+}
+.library-item-cover {
+  width: 72px;
+  height: 72px;
+  padding: 0;
+  flex-shrink: 0;
+  border-radius: 6px;
+  overflow: hidden;
+  background: #27272a;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: inherit;
+}
+button.library-item-cover { cursor: zoom-in; }
+.library-item-cover--empty { cursor: default; }
+.library-item-cover:focus-visible,
+.lib-img-thumb:focus-visible {
+  outline: 2px solid #a5b4fc;
+  outline-offset: 2px;
+}
+.library-item-cover img { width: 100%; height: 100%; object-fit: cover; }
+.library-item-placeholder { font-size: 0.8rem; color: #71717a; }
+.library-item-info { flex: 1; min-width: 0; }
+.library-item-name { font-weight: 500; margin-bottom: 4px; color: #fafafa; }
+.library-item-desc { font-size: 0.85rem; color: #a1a1aa; margin-bottom: 8px; }
+.library-item-actions { display: flex; gap: 8px; }
+.library-empty { text-align: center; color: #71717a; padding: 40px 20px; }
+.library-empty p { margin: 0; }
+.library-empty .el-button { margin-top: 12px; }
+.library-pagination { margin-top: 12px; display: flex; justify-content: center; }
+html.light .library-item {
+  background: #faf9ff;
+  border-color: #e5e7eb;
+}
+html.light .library-item-name { color: #1e1b4b; }
+html.light .library-item-desc { color: #4b5563; }
+html.light .library-empty { color: #6b7280; }
+html.light .library-error { color: #b91c1c; background: #fef2f2; }
+html.light .lib-img-thumb {
+  background: #f3f4f6;
+  border-color: #e5e7eb;
+}
+html.light .lib-img-empty { color: #9ca3af; }

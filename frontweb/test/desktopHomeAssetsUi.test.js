@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
+import { readFilmListSources } from './helpers/filmListSources.js'
 
 import {
   formatMediaSize,
@@ -9,9 +10,15 @@ import {
   normalizeMediaItem,
 } from '../src/utils/mediaLibrary.js'
 
-const filmListSource = readFileSync(new URL('../src/views/FilmList.vue', import.meta.url), 'utf8')
+const filmListSource = readFilmListSources().ui
 const sourceIntakeWorkflowSource = readFileSync(new URL('../src/components/SourceIntakeWorkflowPanel.vue', import.meta.url), 'utf8')
-const mediaLibrarySource = readFileSync(new URL('../src/views/MediaLibrary.vue', import.meta.url), 'utf8')
+const mediaLibrarySource = [
+  readFileSync(new URL('../src/views/MediaLibrary.vue', import.meta.url), 'utf8'),
+  readFileSync(new URL('../src/components/mediaLibrary/MediaLibraryHeader.vue', import.meta.url), 'utf8'),
+  readFileSync(new URL('../src/components/mediaLibrary/MediaLibraryFilterBar.vue', import.meta.url), 'utf8'),
+  readFileSync(new URL('../src/components/mediaLibrary/MediaLibraryLocalGrid.vue', import.meta.url), 'utf8'),
+  readFileSync(new URL('../src/components/mediaLibrary/MediaLibraryNetworkPanel.vue', import.meta.url), 'utf8'),
+].join('\n')
 const filmCreateHeaderSource = readFileSync(new URL('../src/components/filmCreate/FilmCreateHeader.vue', import.meta.url), 'utf8')
 const backupSource = readFileSync(new URL('../src/views/Backup.vue', import.meta.url), 'utf8')
 const appSource = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')

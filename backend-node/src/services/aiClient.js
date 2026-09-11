@@ -400,7 +400,7 @@ async function loadVisionImage(imageSource, config, options = {}) {
     const match = value.match(/^data:(image\/[a-z0-9.+-]+);base64,([a-z0-9+/=\s]+)$/i);
     const encodedLimit = Math.ceil(VISION_IMAGE_MAX_BYTES * 4 / 3) + 16;
     if (!match || match[2].length > encodedLimit) {
-      throw new uploadService.UnsafeMediaReferenceError('视觉参考图 data URL 无效或过大。');
+      throw new uploadService.UnsafeMediaReferenceError('视觉参考图内嵌地址无效或过大。');
     }
     const validated = await validateVisionImageBuffer(Buffer.from(match[2].replace(/\s/g, ''), 'base64'));
     return { ...validated, sourceType: 'data' };

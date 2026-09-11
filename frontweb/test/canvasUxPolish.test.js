@@ -10,6 +10,7 @@ import {
   canvasReferenceSourceLabel,
 } from '../src/composables/useCanvasReferenceDisplay.js'
 import { canvasUserError, isCanvasUserAbort } from '../src/composables/useCanvasUserError.js'
+import { readCanvasStoryboardPanelSource } from './helpers/canvasStoryboardPanelSource.js'
 
 function read(path) {
   return readFileSync(new URL(path, import.meta.url), 'utf8')
@@ -19,9 +20,10 @@ const canvasSource = read('../src/views/DramaCanvas.vue')
 const pageHeaderSource = read('../src/components/dramaCanvas/CanvasPageHeader.vue')
 const productionSidebarSource = read('../src/components/dramaCanvas/CanvasProductionSidebar.vue')
 const emptyStateSource = read('../src/components/dramaCanvas/CanvasEmptyState.vue')
+const freeCanvasEmptySource = read('../src/components/dramaCanvas/FreeCanvasEmptyStart.vue')
 const assetNodeSource = read('../src/components/dramaCanvas/CanvasAssetNode.vue')
 const assetPanelSource = read('../src/components/dramaCanvas/CanvasAssetPanel.vue')
-const storyboardPanelSource = read('../src/components/dramaCanvas/CanvasStoryboardPanel.vue')
+const storyboardPanelSource = readCanvasStoryboardPanelSource()
 const mediaNodeSource = read('../src/components/dramaCanvas/CanvasMediaNode.vue')
 const mediaPanelSource = read('../src/components/dramaCanvas/CanvasMediaPanel.vue')
 const scriptPanelSource = read('../src/components/dramaCanvas/CanvasScriptPanel.vue')
@@ -95,8 +97,9 @@ test('DramaCanvas 侧栏空态可键盘新建，自由画布空态有说明', ()
   assert.match(chromeSource, /aria-label="新建场景"/)
   assert.match(chromeSource, /aria-label="新建道具"/)
   assert.match(chromeSource, /:aria-label="`定位角色\$\{c\.name \|\| '未命名'\}`"/)
-  assert.match(canvasSource, /id="free-canvas-empty-desc"/)
-  assert.match(canvasSource, /还没有自由节点/)
+  assert.match(canvasSource, /<FreeCanvasEmptyStart/)
+  assert.match(freeCanvasEmptySource, /id="free-canvas-empty-desc"/)
+  assert.match(freeCanvasEmptySource, /还没有自由节点/)
   assert.match(canvasSource, /@go-production="setCanvasMode\('production'\)"/)
   assert.match(emptyStateSource, /aria-label="返回列表模式"/)
 })

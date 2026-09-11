@@ -31,7 +31,7 @@ test('小说导入改走按需反馈，导入中给出中文 title', () => {
 test('交付、全流程、分镜和资源禁用按钮带中文 title', () => {
   const delivery = read('FilmCreateDeliveryPanel.vue')
   const pipeline = read('FilmCreatePipelinePanel.vue')
-  const storyboard = read('FilmCreateStoryboardPanel.vue')
+  const storyboard = read('FilmCreateStoryboardPanel.vue') + read('FilmCreateStoryboardEmptyState.vue')
   const configBar = read('FilmCreateStoryboardConfigBar.vue')
   const resource = read('FilmCreateResourcePanel.vue')
   const videoColumn = read('FilmCreateStoryboardVideoColumn.vue')
@@ -40,8 +40,8 @@ test('交付、全流程、分镜和资源禁用按钮带中文 title', () => {
   assert.match(delivery, /:title="panelState\.composeButtonTitle"/)
   assert.match(delivery, /loadingLabel: '正在合成成片'/)
   assert.match(delivery, /请稍候/)
-  assert.match(pipeline, /:title="productionButtonTitle"/)
-  assert.match(pipeline, /:title="draftButtonTitle"/)
+  assert.match(pipeline, /:title="productionButtonTitle(?: \|\| undefined)?"/)
+  assert.match(pipeline, /:title="draftButtonTitle(?: \|\| undefined)?"/)
   assert.match(pipeline, /正在生成完整成片，请稍候/)
   assert.match(storyboard, /正在生成分镜，请稍候/)
   assert.match(configBar, /正在生成分镜，请稍候/)
@@ -59,6 +59,9 @@ test('制作页组件用户可见文案不再弹出 Network Error / Please', () 
     'FilmCreateDeliveryPanel.vue',
     'FilmCreatePipelinePanel.vue',
     'FilmCreateStoryboardPanel.vue',
+    'FilmCreateStoryboardEmptyState.vue',
+    'FilmCreateStoryboardToolbar.vue',
+    'FilmCreateStoryboardList.vue',
     'FilmCreateResourcePanel.vue',
     'FilmCreateScriptWorkbench.vue',
     'FilmCreateNovelImportDialog.vue',

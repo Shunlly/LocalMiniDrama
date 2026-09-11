@@ -19,6 +19,8 @@ function readSource(url) {
 }
 
 const vueSource = readSource(new URL('../src/components/AIConfigContent.vue', import.meta.url))
+const formDialogSource = readSource(new URL('../src/components/aiConfig/AiConfigFormDialog.vue', import.meta.url))
+const overlaySource = `${vueSource}\n${formDialogSource}`
 const connectionDialogSource = readSource(new URL('../src/components/aiConfig/AiConfigConnectionTestDialog.vue', import.meta.url))
 const labelsSource = readSource(new URL('../src/utils/aiConfigLabels.js', import.meta.url))
 const connectionTestSource = readSource(new URL('../src/utils/aiConfigConnectionTest.js', import.meta.url))
@@ -126,11 +128,11 @@ test('configured extraction services do not change core production readiness', (
 })
 
 test('AI config form exposes OCR and transcription in Chinese without raw service type tokens', () => {
-  assert.match(vueSource, /<el-option label="图片识别 OCR" value="ocr" \/>/)
-  assert.match(vueSource, /<el-option label="语音转写" value="transcription" \/>/)
-  assert.match(vueSource, /<b>图片识别 OCR<\/b>：用于 PDF、扫描件和图片抽文字。本机也可安装 Tesseract/)
-  assert.match(vueSource, /<b>语音转写<\/b>：用于音频、视频对白转成文字/)
-  assert.match(vueSource, /预设只用于填表，不代表已跑通该厂商/)
+  assert.match(overlaySource, /<el-option label="图片识别 OCR" value="ocr" \/>/)
+  assert.match(overlaySource, /<el-option label="语音转写" value="transcription" \/>/)
+  assert.match(overlaySource, /<b>图片识别 OCR<\/b>：用于 PDF、扫描件和图片抽文字。本机也可安装 Tesseract/)
+  assert.match(overlaySource, /<b>语音转写<\/b>：用于音频、视频对白转成文字/)
+  assert.match(overlaySource, /预设只用于填表，不代表已跑通该厂商/)
   assert.match(labelsSource, /ocr: '图片识别 OCR'/)
   assert.match(labelsSource, /transcription: '语音转写'/)
   assert.doesNotMatch(vueSource, /service_type=ocr/)
@@ -179,10 +181,10 @@ test('connection tests stay in the page and remain available for OCR and transcr
   assert.match(connectionDialogSource, /语音转写接口已正常响应/)
   assert.match(connectionTestSource, /图片识别用于 PDF\/图片抽文字/)
   assert.match(connectionTestSource, /语音转写用于音频\/视频/)
-  assert.match(vueSource, /hidesApiProtocolField\(form\.service_type\)/)
+  assert.match(overlaySource, /hidesApiProtocolField\(form\.service_type\)/)
   assert.match(pageSource, /'ocr', 'transcription'/)
   assert.match(
-    vueSource,
+    overlaySource,
     /\['text', 'image', 'storyboard_image', 'video', 'tts'\]\.includes\(form\.service_type\)/,
   )
   assert.doesNotMatch(

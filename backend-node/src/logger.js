@@ -1,5 +1,9 @@
+const { AsyncLocalStorage } = require('async_hooks');
 const fs = require('fs');
 const path = require('path');
+
+const requestIdStorage = new AsyncLocalStorage();
+const SAFE_REQUEST_ID_PATTERN = /^[A-Za-z0-9._:-]{1,128}$/;
 
 const MAX_LOG_STRING_LENGTH = 2048;
 const MAX_LOG_METADATA_LENGTH = 8192;
@@ -104,6 +108,42 @@ function sanitizeLogValue(value, key = '', depth = 0, seen = new WeakSet()) {
   return out;
 }
 
+function isSafeRequestId(value) {
+  return typeof value === 'string' && SAFE_REQUEST_ID_PATTERN.test(value);
+}
+
+function getRequestId() {
+  const requestId = requestIdStorage.getStore()?.requestId;
+  return isSafeRequestId(requestId) ? requestId : undefined;
+}
+
+function runWithRequestId(requestId, fn) {
+  if (typeof fn !== 'function') return undefined;
+  if (!isSafeRequestId(requestId)) return fn();
+  return requestIdStorage.run({ requestId }, fn);
+}
+
+function isPlainLogObject(value) {
+  if (value == null || typeof value !== 'object') return false;
+  if (Array.isArray(value) || Buffer.isBuffer(value) || value instanceof Error) return false;
+  const proto = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
+}
+
+function attachRequestIdToLogArgs(args) {
+  const requestId = getRequestId();
+  if (!requestId) return args;
+  const list = Array.isArray(args) ? [...args] : [];
+  const last = list.length ? list[list.length - 1] : undefined;
+  if (isPlainLogObject(last)) {
+    if (Object.prototype.hasOwnProperty.call(last, 'request_id')) return list;
+    list[list.length - 1] = { request_id: requestId, ...last };
+    return list;
+  }
+  list.push({ request_id: requestId });
+  return list;
+}
+
 function formatLogArgs(args) {
   if (!args.length) return '';
   const sanitized = args.map((value) => sanitizeLogValue(value));
@@ -119,7 +159,7 @@ function formatLogArgs(args) {
 // 简单 logger，和 Go 端行为接近；若设置 LOG_FILE 则同时追加到该文件（便于打包 exe 双击时查日志）
 function log(level, msg, ...args) {
   const time = new Date().toISOString();
-  const line = `${time} [${level}] ${sanitizeLogString(msg)}${formatLogArgs(args)}\n`;
+  const line = `${time} [${level}] ${sanitizeLogString(msg)}${formatLogArgs(attachRequestIdToLogArgs(args))}\n`;
   try {
     console.log(line.trimEnd());
   } catch (_) {}
@@ -135,7 +175,9 @@ function log(level, msg, ...args) {
 
 function operation(event = {}) {
   const phase = String(event.phase || 'info');
+  const requestId = event.request_id || getRequestId();
   const record = sanitizeLogValue({
+    ...(isSafeRequestId(requestId) ? { request_id: requestId } : {}),
     ...event,
     event: 'operation',
     operation: event.operation || 'unknown',
@@ -150,6 +192,9 @@ function operation(event = {}) {
 }
 
 module.exports = {
+  isSafeRequestId,
+  getRequestId,
+  runWithRequestId,
   sanitizeLogString,
   sanitizeLogValue,
   formatLogArgs,

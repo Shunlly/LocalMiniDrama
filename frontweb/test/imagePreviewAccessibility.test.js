@@ -4,21 +4,41 @@ import { readFileSync } from 'node:fs'
 
 import { useFilmCreateMediaPreview } from '../src/composables/filmCreate/useFilmCreateMediaPreview.js'
 import { remainingImportedFunctionSource } from './helpers/remainingSourceBetween.js'
+import { readFilmListLibrarySource } from './helpers/filmListLibrarySource.js'
+
+import { readDramaDetailResourceDialogSources } from './helpers/dramaDetailResourceDialogSources.js'
 
 const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8')
 
 const dialogSource = read('../src/components/ImagePreviewDialog.vue')
 const filmListSource = read('../src/views/FilmList.vue')
-const filmListLibrarySource = read('../src/components/filmList/FilmListLibraryDialogs.vue')
-const freeCreateSource = read('../src/views/FreeCreate.vue')
+const filmListLibrarySource = readFilmListLibrarySource()
+const freeCreateSource = read('../src/views/FreeCreate.vue') + '\n' + read('../src/components/freeCreate/FreeCreateHeader.vue') + '\n' + read('../src/components/freeCreate/FreeCreateInputPanel.vue') + '\n' + read('../src/components/freeCreate/FreeCreateResultPanel.vue')
 const filmCreateSource = read('../src/views/FilmCreate.vue') + '\n' + read('../src/components/filmCreate/FilmCreateHeader.vue') + '\n' + read('../src/components/filmCreate/FilmCreateWorkspaceDialogs.vue')
-const resourceDialogsSource = read('../src/components/filmCreate/FilmCreateResourceDialogs.vue')
+const resourceDialogsSource = [
+  read('../src/components/filmCreate/FilmCreateResourceDialogs.vue'),
+  read('../src/components/filmCreate/FilmCreateResourceRefImageField.vue'),
+  read('../src/components/filmCreate/FilmCreatePropEditDialog.vue'),
+  read('../src/components/filmCreate/FilmCreateSceneEditDialog.vue'),
+  read('../src/components/filmCreate/FilmCreateCharacterLibraryDialogs.vue'),
+  read('../src/components/filmCreate/FilmCreatePropLibraryDialogs.vue'),
+  read('../src/components/filmCreate/FilmCreateSceneLibraryDialogs.vue'),
+].join('\n')
 const characterEditDialogSource = read('../src/components/filmCreate/FilmCreateCharacterEditDialog.vue')
-const resourcePanelSource = read('../src/components/filmCreate/FilmCreateResourcePanel.vue')
+const resourcePanelSource = [
+  read('../src/components/filmCreate/FilmCreateResourcePanel.vue'),
+  read('../src/components/filmCreate/FilmCreateCharacterBlock.vue'),
+  read('../src/components/filmCreate/FilmCreatePropBlock.vue'),
+  read('../src/components/filmCreate/FilmCreateSceneBlock.vue'),
+].join('\n')
 const dramaDetailSource = read('../src/views/DramaDetail.vue')
-const dramaDetailDialogsSource = read('../src/components/dramaDetail/DramaDetailResourceDialogs.vue')
+const dramaDetailDialogsSource = readDramaDetailResourceDialogSources(read)
 const dramaDetailUiSource = dramaDetailSource + '\n' + dramaDetailDialogsSource
-const dramaCanvasSource = read('../src/views/DramaCanvas.vue')
+const dramaCanvasSource = [
+  read('../src/views/DramaCanvas.vue'),
+  read('../src/components/dramaCanvas/CanvasPageHeader.vue'),
+  read('../src/components/dramaCanvas/CanvasProductionSidebar.vue'),
+].join('\n')
 
 test('shared image preview uses an accessible Element Plus dialog', () => {
   assert.match(dialogSource, /<AccessibleDialog/)
@@ -77,13 +97,13 @@ test('FilmCreate and DramaDetail use the shared focus-managed preview for every 
   assert.equal((dramaDetailSource.match(/type="button"\s+class="drama-res-cover"/g) || []).length, 3)
   assert.equal((dramaDetailUiSource.match(/class="library-item-cover library-item-cover--empty"/g) || []).length, 4)
   assert.equal((dramaDetailSource.match(/class="drama-res-cover drama-res-cover--empty"/g) || []).length, 3)
-  assert.equal((dramaDetailUiSource.match(/type="button" class="lib-img-thumb"/g) || []).length, 6)
+  assert.equal((dramaDetailUiSource.match(/type="button" class="lib-img-thumb"/g) || []).length, 1)
+  assert.equal((dramaDetailUiSource.match(/<DramaDetailResourceImageEditor\b/g) || []).length, 6)
   assert.equal((resourceDialogsSource.match(/type="button" class="library-item-cover"/g) || []).length, 6)
-  assert.equal(
-    (resourceDialogsSource.match(/class="ref-image-box" aria-label=/g) || []).length
-      + (characterEditDialogSource.match(/class="ref-image-box" aria-label=/g) || []).length,
-    4,
-  )
+  assert.match(resourceDialogsSource, /class="ref-image-box"/)
+  assert.match(resourceDialogsSource, /:aria-label="selectAriaLabel"/)
+  assert.equal((resourceDialogsSource.match(/<FilmCreateResourceRefImageField/g) || []).length, 3)
+  assert.equal((characterEditDialogSource.match(/class="ref-image-box" aria-label=/g) || []).length, 1)
   assert.match(remainingImportedFunctionSource(useFilmCreateMediaPreview), /await probeImageSource\(source\)/)
   assert.match(filmCreateSource, /hasSbDraftImagePlaceholder/)
   assert.match(remainingImportedFunctionSource(useFilmCreateMediaPreview), /草稿占位/)

@@ -17,7 +17,13 @@ const disclosureStateUrl = new URL('../src/composables/useDisclosureState.js', i
 const filmPipelineActionUrl = new URL('../src/utils/filmPipelineAction.js', import.meta.url)
 const filmCreateSource = readFileSync(new URL('../src/views/FilmCreate.vue', import.meta.url), 'utf8')
 const workspaceBindingsSource = readFileSync(new URL('../src/components/filmCreate/filmCreateWorkspaceBindings.js', import.meta.url), 'utf8')
-const storyboardPanelSource = readFileSync(new URL('../src/components/filmCreate/FilmCreateStoryboardPanel.vue', import.meta.url), 'utf8') + '\n' + readFileSync(new URL('../src/components/filmCreate/FilmCreateStoryboardPanel.css', import.meta.url), 'utf8')
+const storyboardPanelSource = [
+  'FilmCreateStoryboardPanel.vue',
+  'FilmCreateStoryboardPanel.css',
+  'FilmCreateStoryboardEmptyState.vue',
+  'FilmCreateStoryboardToolbar.vue',
+  'FilmCreateStoryboardList.vue',
+].map((name) => readFileSync(new URL(`../src/components/filmCreate/${name}`, import.meta.url), 'utf8')).join('\n')
 
 test('FilmCreate script compiles without duplicate bindings', () => {
   const parsed = parse(filmCreateSource, { filename: 'FilmCreate.vue' })
@@ -846,6 +852,9 @@ test('FilmCreate 把资源管理交给独立面板并保留折叠与空状态', 
   assert.match(panel, /id="anchor-props"/)
   assert.match(panel, /id="anchor-scenes"/)
   assert.match(panel, /class="collapse-header(?: resource-block-header)?"/)
+  assert.match(panel, /<FilmCreateCharacterBlock/)
+  assert.match(panel, /<FilmCreatePropBlock/)
+  assert.match(panel, /<FilmCreateSceneBlock/)
   assert.match(panel, /暂无角色/)
   assert.match(panel, /emit\('generate-characters'\)/)
   assert.match(workspaceBindingsSource, /resourcePanel: \{[\s\S]*onAddEpisode, onSelectEpisode, onGenerateCharacters/)
@@ -855,7 +864,7 @@ test('FilmCreate 把资源管理交给独立面板并保留折叠与空状态', 
 })
 
 test('FilmCreate 把分镜生成交给独立面板并保留锚点', () => {
-  const panel = readFileSync(new URL('../src/components/filmCreate/FilmCreateStoryboardPanel.vue', import.meta.url), 'utf8') + '\n' + readFileSync(new URL('../src/components/filmCreate/FilmCreateStoryboardPanel.css', import.meta.url), 'utf8')
+  const panel = storyboardPanelSource
   const configBar = readFileSync(new URL('../src/components/filmCreate/FilmCreateStoryboardConfigBar.vue', import.meta.url), 'utf8')
   assert.match(filmCreateSource, /<FilmCreateStoryboardPanel/)
   assert.match(filmCreateSource, /v-bind="storyboardPanelBindings"/)

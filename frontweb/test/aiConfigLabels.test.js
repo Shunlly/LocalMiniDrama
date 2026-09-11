@@ -12,6 +12,8 @@ import {
 } from '../src/utils/aiConfigLabels.js'
 
 const vueSource = readFileSync(new URL('../src/components/AIConfigContent.vue', import.meta.url), 'utf8')
+const formDialogSource = readFileSync(new URL('../src/components/aiConfig/AiConfigFormDialog.vue', import.meta.url), 'utf8')
+const overlaySource = `${vueSource}\n${formDialogSource}`
 
 test('AI 配置把英文技术字段和资产状态收成中文', () => {
   assert.equal(serviceTypeLabel('ocr'), '图片识别 OCR')
@@ -33,7 +35,7 @@ test('AI 配置把英文技术字段和资产状态收成中文', () => {
 test('页面仍消费标签函数，不把 loadList/openTest 抽走', () => {
   assert.match(vueSource, /async function loadList\(\)/)
   assert.match(vueSource, /async function openTest\(row\)/)
-  assert.match(vueSource, /configFieldDisplayLabel\(item\.label\)/)
+  assert.match(overlaySource, /configFieldDisplayLabel\(item\.label\)/)
   assert.match(vueSource, /:aria-label="configActionLabel\('测试', row\)"/)
   assert.doesNotMatch(vueSource, /function serviceTypeLabel\(/)
   assert.doesNotMatch(vueSource, /function jimeng2AssetTypeLabel\(/)

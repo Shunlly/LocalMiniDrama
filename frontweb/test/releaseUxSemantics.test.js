@@ -2,12 +2,18 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
-const sourceWorkflow = readFileSync(
+const sourceWorkflow = [
   new URL('../src/components/SourceIntakeWorkflowPanel.vue', import.meta.url),
-  'utf8',
-)
+  new URL('../src/components/sourceIntake/SourceIntakeCompletionBanner.vue', import.meta.url),
+].map((file) => readFileSync(file, 'utf8')).join('\n')
 const dramaDetail = readFileSync(new URL('../src/views/DramaDetail.vue', import.meta.url), 'utf8')
-const mediaLibrary = readFileSync(new URL('../src/views/MediaLibrary.vue', import.meta.url), 'utf8')
+const mediaLibrary = [
+  readFileSync(new URL('../src/views/MediaLibrary.vue', import.meta.url), 'utf8'),
+  readFileSync(new URL('../src/components/mediaLibrary/MediaLibraryHeader.vue', import.meta.url), 'utf8'),
+  readFileSync(new URL('../src/components/mediaLibrary/MediaLibraryFilterBar.vue', import.meta.url), 'utf8'),
+  readFileSync(new URL('../src/components/mediaLibrary/MediaLibraryLocalGrid.vue', import.meta.url), 'utf8'),
+  readFileSync(new URL('../src/components/mediaLibrary/MediaLibraryNetworkPanel.vue', import.meta.url), 'utf8'),
+].join('\n')
 
 test('workflow completion distinguishes structure, media delivery, and summary loading', () => {
   assert.match(sourceWorkflow, /const completionSummaryReady = computed/)

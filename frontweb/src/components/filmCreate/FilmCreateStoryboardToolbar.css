@@ -1,0 +1,277 @@
+.sb-ctrl-bar {
+
+  display: flex;
+
+  align-items: center;
+
+  gap: 6px;
+
+  margin-left: 32px;
+
+  margin-bottom: 4px;
+
+  height: 26px;
+
+}
+
+.sb-ctrl-reorder-wrap {
+
+  display: inline-flex;
+
+  align-items: center;
+
+}
+
+.sb-ctrl-btn.sb-ctrl-reorder-btn {
+
+  display: inline-flex;
+
+  align-items: center;
+
+  justify-content: center;
+
+  height: 22px;
+
+  padding: 0 6px;
+
+  border: 1px solid rgba(255, 255, 255, 0.12);
+
+  border-radius: 5px;
+
+  background: transparent;
+
+  color: inherit;
+
+  cursor: pointer;
+
+}
+
+.sb-ctrl-btn.sb-ctrl-reorder-btn:disabled {
+
+  pointer-events: none;
+
+  opacity: 0.45;
+
+  cursor: not-allowed;
+
+}
+
+.sb-ctrl-btn.sb-ctrl-reorder-btn:focus-visible {
+
+  outline: 2px solid var(--el-color-primary);
+
+  outline-offset: 1px;
+
+}
+
+html.light .sb-ctrl-btn.sb-ctrl-reorder-btn {
+
+  border-color: rgba(139, 92, 246, 0.22);
+
+}
+
+.sb-ctrl-num {
+
+  background: var(--el-color-primary);
+
+  color: #fff;
+
+  border-radius: 5px;
+
+  width: 22px;
+
+  height: 22px;
+
+  display: flex;
+
+  align-items: center;
+
+  justify-content: center;
+
+  font-size: 11px;
+
+  font-weight: 700;
+
+  flex-shrink: 0;
+
+}
+
+.sb-ctrl-title {
+
+  font-size: 0.9rem;
+
+  font-weight: 600;
+
+  color: #e4e4e7;
+
+  max-width: 12em;
+
+  overflow: hidden;
+
+  text-overflow: ellipsis;
+
+  white-space: nowrap;
+
+}
+
+html.light .sb-ctrl-title {
+
+  color: #000;
+
+}
+
+.sb-movement-tag.el-tag {
+
+  height: 18px;
+
+  line-height: 18px;
+
+  padding: 0 6px;
+
+  font-size: 11px;
+
+  margin-left: 6px;
+
+  flex-shrink: 0;
+
+}
+
+.sb-ctrl-btn.el-button {
+
+  height: 22px;
+
+  padding: 0 8px;
+
+  font-size: 11px;
+
+}
+
+.sb-ctrl-config-btn.el-button {
+
+  border-color: rgba(139,92,246,0.45);
+
+  color: #a78bfa;
+
+  background: rgba(139,92,246,0.08);
+
+}
+
+.sb-ctrl-config-btn.el-button:hover {
+
+  border-color: #8b5cf6;
+
+  color: #fff;
+
+  background: rgba(139,92,246,0.6);
+
+}
+
+html.light .sb-ctrl-config-btn.el-button {
+
+  border-color: rgba(124,58,237,0.35);
+
+  color: #7c3aed;
+
+  background: rgba(124,58,237,0.06);
+
+}
+
+html.light .sb-ctrl-config-btn.el-button:hover {
+
+  border-color: #7c3aed;
+
+  color: #fff;
+
+  background: #7c3aed;
+
+}
+
+.sb-ctrl-delete {
+
+  margin-left: auto;
+
+  opacity: 0.4;
+
+  transition: opacity 0.2s;
+
+  height: 22px;
+
+  padding: 0 4px;
+
+}
+
+.sb-ctrl-bar:hover .sb-ctrl-delete {
+
+  opacity: 1;
+
+}
+
+.sb-ctrl-mode-btn.el-button {
+
+  border-color: rgba(34, 197, 94, 0.35);
+
+  color: #86efac;
+
+  background: rgba(34, 197, 94, 0.08);
+
+}
+
+.sb-ctrl-mode-btn.el-button:hover {
+
+  border-color: #22c55e;
+
+  color: #fff;
+
+  background: rgba(34, 197, 94, 0.45);
+
+}
+
+html.light .sb-ctrl-mode-btn.el-button {
+
+  border-color: rgba(22, 163, 74, 0.35);
+
+  color: #15803d;
+
+  background: rgba(22, 163, 74, 0.06);
+
+}
+
+html.light .sb-ctrl-mode-btn.el-button:hover {
+
+  border-color: #16a34a;
+
+  color: #fff;
+
+  background: #16a34a;
+
+}
+
+.sb-ctrl-bar--drop-target {
+  outline: 1px dashed rgba(139, 92, 246, 0.7);
+  border-radius: 6px;
+}
+.sb-reorder-handle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: #a1a1aa;
+  cursor: grab;
+  flex-shrink: 0;
+}
+.sb-reorder-handle:active:not(:disabled) {
+  cursor: grabbing;
+}
+.sb-reorder-handle:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+.sb-reorder-handle:focus-visible {
+  outline: 2px solid var(--el-color-primary);
+  outline-offset: 1px;
+}

@@ -10,6 +10,7 @@
       <p class="description">
         <template v-if="fromPath">无法打开地址 {{ fromPath }}。地址可能已失效，或项目编号不正确。</template>
         <template v-else>地址可能已失效，或项目编号不正确。</template>
+        {{ canGoBack ? '可以返回上一页，或回到项目列表继续制作。' : '可以回到项目列表继续制作。' }}
       </p>
       <div class="actions">
         <el-button v-if="canGoBack" :icon="ArrowLeft" aria-label="返回上一页" @click="goBack">返回上一页</el-button>

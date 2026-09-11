@@ -59,27 +59,15 @@
       </template>
     </CanvasPageHeader>
 
-    <main
+    <CanvasLoadFailureCard
       v-if="canvasLoadState === 'error'"
       ref="canvasLoadFailureRef"
-      class="canvas-load-failure"
-      tabindex="-1"
-      role="alert"
-      aria-live="assertive"
-    >
-      <div class="canvas-load-failure-card">
-        <p class="canvas-load-eyebrow">项目加载失败</p>
-        <h1 class="canvas-load-title">当前画布暂时无法打开</h1>
-        <p class="canvas-load-message">{{ canvasLoadError }}</p>
-        <p class="canvas-load-detail">
-          {{ canvasLoadNotFound ? '项目可能已移入回收站或已删除。' : '请确认本地服务可用后，在当前页面直接重试。' }}
-        </p>
-        <div class="canvas-load-actions">
-          <el-button type="primary" :loading="loading" @click="retryCanvasProjectLoad">重试加载</el-button>
-          <el-button @click="goProjectList">返回项目列表</el-button>
-        </div>
-      </div>
-    </main>
+      :loading="loading"
+      :error="canvasLoadError"
+      :not-found="canvasLoadNotFound"
+      :retry-canvas-project-load="retryCanvasProjectLoad"
+      :go-project-list="goProjectList"
+    />
 
     <div v-else v-loading="loading" class="canvas-shell">
       <FreeCanvasAssetSidebar
@@ -213,29 +201,11 @@
           @confirm-episode="confirmEpisodeSelection"
           @go-list="goListMode"
         />
-        <section
+        <FreeCanvasEmptyStart
           v-if="canvasMode === 'free' && !loading && !freeCanvas.nodes.length"
-          class="free-canvas-empty-state"
-          aria-labelledby="free-canvas-empty-title"
-          aria-describedby="free-canvas-empty-desc"
-        >
-          <h2 id="free-canvas-empty-title">开始自由创作</h2>
-          <p id="free-canvas-empty-desc">还没有自由节点。可以新建文本、配置，或导入媒体开始编排。</p>
-          <div class="free-canvas-empty-actions">
-            <el-button type="primary" @click="createFreeCanvasNode('text')">
-              <el-icon><Document /></el-icon>
-              新建文本
-            </el-button>
-            <el-button @click="createFreeCanvasNode('config')">
-              <el-icon><Setting /></el-icon>
-              新建配置
-            </el-button>
-            <el-button @click="openFreeCanvasMediaPicker">
-              <el-icon><FolderOpened /></el-icon>
-              导入媒体
-            </el-button>
-          </div>
-        </section>
+          :create-free-canvas-node="createFreeCanvasNode"
+          :open-free-canvas-media-picker="openFreeCanvasMediaPicker"
+        />
         <FreeCanvasToolbar
           v-if="canvasMode === 'free'"
           class="free-canvas-bottom-toolbar"
@@ -325,7 +295,7 @@ import { Background } from '@vue-flow/background'
 import { Controls } from '@vue-flow/controls'
 import { MiniMap } from '@vue-flow/minimap'
 import { ElMessage, ElMessageBox } from '@/utils/elementPlusFeedback.js'
-import { Document, FolderOpened, FullScreen, Lock, Setting, Unlock, ZoomIn, ZoomOut } from '@element-plus/icons-vue'
+import { FullScreen, Lock, Unlock, ZoomIn, ZoomOut } from '@element-plus/icons-vue'
 
 import '@vue-flow/core/dist/style.css'
 import '@vue-flow/core/dist/theme-default.css'
@@ -399,6 +369,7 @@ import CanvasAddButtonNode from '@/components/dramaCanvas/CanvasAddButtonNode.vu
 import CanvasFlowAligner from '@/components/dramaCanvas/CanvasFlowAligner.vue'
 import CanvasDesktopToolbar from '@/components/dramaCanvas/CanvasDesktopToolbar.vue'
 import CanvasEmptyState from '@/components/dramaCanvas/CanvasEmptyState.vue'
+import CanvasLoadFailureCard from '@/components/dramaCanvas/CanvasLoadFailureCard.vue'
 import CanvasPageHeader from '@/components/dramaCanvas/CanvasPageHeader.vue'
 import CanvasProductionSidebar from '@/components/dramaCanvas/CanvasProductionSidebar.vue'
 import CanvasInspectorDock from '@/components/dramaCanvas/CanvasInspectorDock.vue'
@@ -406,6 +377,7 @@ import FreeCanvasInspector from '@/components/dramaCanvas/FreeCanvasInspector.vu
 import FreeCanvasAssetSidebar from '@/components/dramaCanvas/FreeCanvasAssetSidebar.vue'
 import FreeCanvasNode from '@/components/dramaCanvas/FreeCanvasNode.vue'
 import FreeCanvasToolbar from '@/components/dramaCanvas/FreeCanvasToolbar.vue'
+import FreeCanvasEmptyStart from '@/components/dramaCanvas/FreeCanvasEmptyStart.vue'
 import GlobalMediaPickerDialog from '@/components/GlobalMediaPickerDialog.vue'
 
 const route = useRoute()

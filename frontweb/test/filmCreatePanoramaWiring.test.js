@@ -9,7 +9,9 @@ import { createResourcePanelBindings } from '../src/components/filmCreate/filmCr
 
 const read = (rel) => readFileSync(new URL(rel, import.meta.url), 'utf8')
 const filmCreateSource = read('../src/views/FilmCreate.vue')
-const resourcePanelSource = read('../src/components/filmCreate/FilmCreateResourcePanel.vue')
+const resourcePanelFile = read('../src/components/filmCreate/FilmCreateResourcePanel.vue')
+const sceneBlockSource = read('../src/components/filmCreate/FilmCreateSceneBlock.vue')
+const resourcePanelSource = [resourcePanelFile, sceneBlockSource].join('\n')
 const productionBindingsSource = read('../src/components/filmCreate/filmCreateProductionBindings.js')
 const workspaceBindingsSource = read('../src/components/filmCreate/filmCreateWorkspaceBindings.js')
 const bootstrapSource = read('../src/composables/filmCreate/useFilmCreateWorkspaceBootstrap.js')
@@ -72,7 +74,10 @@ test('制作页资源袋把全景图生成函数透成 Vue 事件监听', () => 
 })
 
 test('资源面板全景图入口改动后仍可编译', () => {
-  const parsed = parse(resourcePanelSource, { filename: 'FilmCreateResourcePanel.vue' })
+  const parsed = parse(resourcePanelFile, { filename: 'FilmCreateResourcePanel.vue' })
   assert.deepEqual(parsed.errors, [])
   assert.doesNotThrow(() => compileScript(parsed.descriptor, { id: 'resource-panorama-panel' }))
+  const sceneParsed = parse(sceneBlockSource, { filename: 'FilmCreateSceneBlock.vue' })
+  assert.deepEqual(sceneParsed.errors, [])
+  assert.doesNotThrow(() => compileScript(sceneParsed.descriptor, { id: 'resource-panorama-scene-block' }))
 })

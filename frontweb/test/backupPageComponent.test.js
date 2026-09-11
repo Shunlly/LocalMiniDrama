@@ -262,3 +262,44 @@ test('列表就绪且维护正常时，恢复入口可点', async () => {
     delete globalThis.__backupPageSettings
   }
 })
+
+
+test('维护状态首次加载时展示确认中文案，而不是失败或正常空态', async () => {
+  const harness = mountBackup({
+    readinessLoading: true,
+    hasSuccessfulReadinessLoad: false,
+    readiness: null,
+  })
+  try {
+    await nextTick()
+    assert.match(textContent(harness.root), /正在确认维护租约/)
+    assert.doesNotMatch(textContent(harness.root), /维护状态加载失败/)
+    assert.doesNotMatch(textContent(harness.root), /维护租约正常/)
+    assert.doesNotMatch(textContent(harness.root), /维护租约不可用/)
+  } finally {
+    harness.app.unmount()
+    resetVueRouterHarness()
+    delete globalThis.__backupPageSettings
+  }
+})
+
+test('恢复确认取消按钮有中文读屏名称', async () => {
+  const harness = mountBackup({
+    backups: [{ id: 'keep.zip', name: 'keep.zip', createdAt: '2026-08-29T00:00:00Z', bytes: 2048 }],
+    hasSuccessfulListLoad: true,
+    hasSuccessfulReadinessLoad: true,
+    readiness: { ready: true, maintenanceError: '' },
+  })
+  try {
+    await nextTick()
+    harness.settings.restoreDialogVisible.value = true
+    await nextTick()
+    const cancel = buttonByAriaLabel(harness.root, '取消恢复备份')
+    assert.ok(cancel)
+    assert.equal(buttonByAriaLabel(harness.root, '确认恢复备份')?.props['aria-label'], '确认恢复备份')
+  } finally {
+    harness.app.unmount()
+    resetVueRouterHarness()
+    delete globalThis.__backupPageSettings
+  }
+})

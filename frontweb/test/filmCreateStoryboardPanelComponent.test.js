@@ -11,6 +11,7 @@ import {
   compileSfc,
   createHostRenderer,
   dataModule,
+  findByTestId,
   findByType,
   loadCompiledSfc,
   mountHarness,
@@ -20,6 +21,9 @@ import {
 
 const actionGateUrl = new URL('../src/components/filmCreate/ActionGate.vue', import.meta.url)
 const configBarUrl = new URL('../src/components/filmCreate/FilmCreateStoryboardConfigBar.vue', import.meta.url)
+const emptyStateUrl = new URL('../src/components/filmCreate/FilmCreateStoryboardEmptyState.vue', import.meta.url)
+const toolbarUrl = new URL('../src/components/filmCreate/FilmCreateStoryboardToolbar.vue', import.meta.url)
+const listUrl = new URL('../src/components/filmCreate/FilmCreateStoryboardList.vue', import.meta.url)
 const panelUrl = new URL('../src/components/filmCreate/FilmCreateStoryboardPanel.vue', import.meta.url)
 
 const EMPTY_SCRIPT_REASON = '当前集还没有剧本，请先编写或导入剧本'
@@ -123,25 +127,56 @@ const compiledConfigBarUrl = compileSfc(
     ['@/components/filmCreate/ActionGate.vue', compiledActionGateUrl],
   ]),
 )
-const childStubUrl = dataModule(`
+const statusStubUrl = dataModule(`
   import { defineComponent } from ${JSON.stringify(vueUrl)}
   export default defineComponent({
-    name: 'FilmCreateStoryboardChildStub',
+    name: 'FilmCreateStoryboardStatusStripStub',
     setup() { return () => null },
   })
 `)
+const columnStubUrl = dataModule(`
+  import { defineComponent, h } from ${JSON.stringify(vueUrl)}
+  export default defineComponent({
+    name: 'FilmCreateStoryboardColumnStub',
+    setup() { return () => h('div', { 'data-testid': 'storyboard-column-stub' }) },
+  })
+`)
+const compiledEmptyStateUrl = compileSfc(
+  emptyStateUrl,
+  'storyboard-panel-empty-state',
+  new Map([
+    ['vue', vueUrl],
+    ['@/components/filmCreate/ActionGate.vue', compiledActionGateUrl],
+  ]),
+)
+const compiledToolbarUrl = compileSfc(
+  toolbarUrl,
+  'storyboard-panel-toolbar',
+  new Map([
+    ['vue', vueUrl],
+    ['@element-plus/icons-vue', iconStubUrl],
+  ]),
+)
+const compiledListUrl = compileSfc(
+  listUrl,
+  'storyboard-panel-list',
+  new Map([
+    ['vue', vueUrl],
+    ['@/components/filmCreate/FilmCreateStoryboardToolbar.vue', compiledToolbarUrl],
+    ['@/components/filmCreate/FilmCreateStoryboardImageColumn.vue', columnStubUrl],
+    ['@/components/filmCreate/FilmCreateStoryboardScriptColumn.vue', columnStubUrl],
+    ['@/components/filmCreate/FilmCreateStoryboardVideoColumn.vue', columnStubUrl],
+  ]),
+)
 const FilmCreateStoryboardPanel = await loadCompiledSfc(
   panelUrl,
   'film-create-storyboard-panel-component',
   new Map([
     ['vue', vueUrl],
-    ['@element-plus/icons-vue', iconStubUrl],
-    ['@/components/filmCreate/ActionGate.vue', compiledActionGateUrl],
     ['@/components/filmCreate/FilmCreateStoryboardConfigBar.vue', compiledConfigBarUrl],
-    ['@/components/filmCreate/FilmCreateStoryboardImageColumn.vue', childStubUrl],
-    ['@/components/filmCreate/FilmCreateStoryboardScriptColumn.vue', childStubUrl],
-    ['@/components/filmCreate/FilmCreateStoryboardStatusStrip.vue', childStubUrl],
-    ['@/components/filmCreate/FilmCreateStoryboardVideoColumn.vue', childStubUrl],
+    ['@/components/filmCreate/FilmCreateStoryboardEmptyState.vue', compiledEmptyStateUrl],
+    ['@/components/filmCreate/FilmCreateStoryboardList.vue', compiledListUrl],
+    ['@/components/filmCreate/FilmCreateStoryboardStatusStrip.vue', statusStubUrl],
   ]),
 )
 
@@ -249,6 +284,22 @@ test('没有剧集时，空态指向创建剧集，而不是生成分镜', async
     const toolbar = requireButton(harness.root, 'AI 生成分镜')
     assert.equal(toolbar.props.disabled, true)
     assert.equal(toolbar.props.title, EMPTY_SCRIPT_REASON)
+  } finally {
+    harness.app.unmount()
+  }
+})
+
+test('有分镜时列表壳渲染工具条并接到三列，不显示空态', async () => {
+  const harness = mountPanel({
+    storyboards: [{ id: 101, title: '开场', storyboard_number: 1 }],
+  })
+  try {
+    await nextTick()
+    assert.equal(buttonsByText(harness.root, '生成分镜').length, 0)
+    assert.doesNotMatch(textContent(harness.root), /还没有分镜/)
+    requireButton(harness.root, '插入分镜')
+    requireButton(harness.root, '全能模式')
+    assert.equal(findByTestId(harness.root, 'storyboard-column-stub').length, 3)
   } finally {
     harness.app.unmount()
   }

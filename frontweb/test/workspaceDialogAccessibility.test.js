@@ -1,6 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
+import { readFilmListSources } from './helpers/filmListSources.js'
+import { readDramaDetailResourceDialogSources } from './helpers/dramaDetailResourceDialogSources.js'
 
 function read(path) {
   return readFileSync(new URL(path, import.meta.url), 'utf8')
@@ -69,11 +71,25 @@ function visibleButtonText(inner) {
     .trim()
 }
 
-const filmListSource = read('../src/views/FilmList.vue')
+
+const filmListFiles = readFilmListSources()
+const filmListSource = filmListFiles.view
+const filmListHeaderSource = filmListFiles.header
+const filmListBannersSource = filmListFiles.banners
+const filmListToolbarSource = filmListFiles.toolbar
 const filmListLibrarySource = read('../src/components/filmList/FilmListLibraryDialogs.vue')
+const filmListCharLibrarySource = read('../src/components/filmList/FilmListCharLibraryDialogs.vue')
+const filmListSceneLibrarySource = read('../src/components/filmList/FilmListSceneLibraryDialogs.vue')
+const filmListPropLibrarySource = read('../src/components/filmList/FilmListPropLibraryDialogs.vue')
+const filmListLibraryUiSource = [filmListLibrarySource, filmListCharLibrarySource, filmListSceneLibrarySource, filmListPropLibrarySource].join('\n')
 const dramaDetailSource = read('../src/views/DramaDetail.vue')
-const dramaDetailDialogsSource = read('../src/components/dramaDetail/DramaDetailResourceDialogs.vue')
-const mediaLibrarySource = read('../src/views/MediaLibrary.vue')
+const dramaDetailDialogsSource = readDramaDetailResourceDialogSources(read)
+const mediaLibraryPageSource = read('../src/views/MediaLibrary.vue')
+const mediaLibraryHeaderSource = read('../src/components/mediaLibrary/MediaLibraryHeader.vue')
+const mediaLibraryFilterSource = read('../src/components/mediaLibrary/MediaLibraryFilterBar.vue')
+const mediaLibraryLocalGridSource = read('../src/components/mediaLibrary/MediaLibraryLocalGrid.vue')
+const mediaLibraryNetworkSource = read('../src/components/mediaLibrary/MediaLibraryNetworkPanel.vue')
+const mediaLibrarySource = [mediaLibraryPageSource, mediaLibraryHeaderSource, mediaLibraryFilterSource, mediaLibraryLocalGridSource, mediaLibraryNetworkSource].join('\n')
 const dramaCanvasSource = read('../src/views/DramaCanvas.vue')
 const aiConfigSource = read('../src/views/AiConfig.vue')
 const aiConfigOneKeyDialogsSource = read('../src/components/aiConfig/AiConfigOneKeyDialogs.vue')
@@ -86,10 +102,27 @@ const readinessSource = read('../src/components/ProjectReadinessPanel.vue')
 
 const targetSources = [
   { name: '../src/views/FilmList.vue', source: filmListSource },
+  { name: '../src/components/filmList/FilmListHeader.vue', source: filmListHeaderSource },
+  { name: '../src/components/filmList/FilmListFailureBanners.vue', source: filmListBannersSource },
+  { name: '../src/components/filmList/FilmListWorkspaceToolbar.vue', source: filmListToolbarSource },
   { name: '../src/components/filmList/FilmListLibraryDialogs.vue', source: filmListLibrarySource },
+  { name: '../src/components/filmList/FilmListCharLibraryDialogs.vue', source: filmListCharLibrarySource },
+  { name: '../src/components/filmList/FilmListSceneLibraryDialogs.vue', source: filmListSceneLibrarySource },
+  { name: '../src/components/filmList/FilmListPropLibraryDialogs.vue', source: filmListPropLibrarySource },
   { name: '../src/views/DramaDetail.vue', source: dramaDetailSource },
-  { name: '../src/components/dramaDetail/DramaDetailResourceDialogs.vue', source: dramaDetailDialogsSource },
-  { name: '../src/views/MediaLibrary.vue', source: mediaLibrarySource },
+  { name: '../src/components/dramaDetail/DramaDetailHeader.vue', source: read('../src/components/dramaDetail/DramaDetailHeader.vue') },
+  { name: '../src/components/dramaDetail/DramaDetailLoadState.vue', source: read('../src/components/dramaDetail/DramaDetailLoadState.vue') },
+  { name: '../src/components/dramaDetail/DramaDetailInfoCard.vue', source: read('../src/components/dramaDetail/DramaDetailInfoCard.vue') },
+  { name: '../src/components/dramaDetail/DramaDetailResourceDialogs.vue', source: read('../src/components/dramaDetail/DramaDetailResourceDialogs.vue') },
+  { name: '../src/components/dramaDetail/DramaDetailResourceImageEditor.vue', source: read('../src/components/dramaDetail/DramaDetailResourceImageEditor.vue') },
+  { name: '../src/components/dramaDetail/DramaDetailCharacterEditDialogs.vue', source: read('../src/components/dramaDetail/DramaDetailCharacterEditDialogs.vue') },
+  { name: '../src/components/dramaDetail/DramaDetailSceneEditDialogs.vue', source: read('../src/components/dramaDetail/DramaDetailSceneEditDialogs.vue') },
+  { name: '../src/components/dramaDetail/DramaDetailPropEditDialogs.vue', source: read('../src/components/dramaDetail/DramaDetailPropEditDialogs.vue') },
+  { name: '../src/views/MediaLibrary.vue', source: mediaLibraryPageSource },
+  { name: '../src/components/mediaLibrary/MediaLibraryHeader.vue', source: mediaLibraryHeaderSource },
+  { name: '../src/components/mediaLibrary/MediaLibraryFilterBar.vue', source: mediaLibraryFilterSource },
+  { name: '../src/components/mediaLibrary/MediaLibraryLocalGrid.vue', source: mediaLibraryLocalGridSource },
+  { name: '../src/components/mediaLibrary/MediaLibraryNetworkPanel.vue', source: mediaLibraryNetworkSource },
   { name: '../src/views/DramaCanvas.vue', source: dramaCanvasSource },
   { name: '../src/views/AiConfig.vue', source: aiConfigSource },
   { name: '../src/components/aiConfig/AiConfigOneKeyDialogs.vue', source: aiConfigOneKeyDialogsSource },
@@ -173,9 +206,9 @@ test('成片就绪度未就绪服务会说出原因，芯片可键盘看见焦�
 
 test('对话框搜索框和新建项目比例选择器有可访问名称', () => {
   assert.match(filmListSource, /aria-label="画面比例"/)
-  assert.match(filmListLibrarySource, /aria-label="搜索角色素材"/)
-  assert.match(filmListLibrarySource, /aria-label="搜索场景素材"/)
-  assert.match(filmListLibrarySource, /aria-label="搜索道具素材"/)
+  assert.match(filmListLibraryUiSource, /aria-label="搜索角色素材"/)
+  assert.match(filmListLibraryUiSource, /aria-label="搜索场景素材"/)
+  assert.match(filmListLibraryUiSource, /aria-label="搜索道具素材"/)
   assert.match(dramaDetailDialogsSource, /aria-label="角色类型"/)
   assert.match(dramaDetailDialogsSource, /aria-label="搜索待导入素材"/)
   assert.match(mediaLibrarySource, /aria-label="搜索素材"/)

@@ -28,7 +28,7 @@ function createProp(db, log) {
 function updateProp(db, log) {
   return (req, res) => {
     const id = parseInt(req.params.id, 10);
-    if (isNaN(id)) return response.badRequest(res, '无效的ID');
+    if (isNaN(id)) return response.badRequest(res, '无效的 ID');
     const prop = propService.update(db, log, id, req.body || {});
     if (!prop) return response.notFound(res, '道具不存在');
     response.success(res, prop);
@@ -38,7 +38,7 @@ function updateProp(db, log) {
 function deleteProp(db, log) {
   return (req, res) => {
     const id = parseInt(req.params.id, 10);
-    if (isNaN(id)) return response.badRequest(res, '无效的ID');
+    if (isNaN(id)) return response.badRequest(res, '无效的 ID');
     const ok = propService.deleteById(db, log, id);
     if (!ok) return response.notFound(res, '道具不存在');
     response.success(res, { message: '删除成功' });
@@ -49,7 +49,7 @@ function generateImage(db, log) {
   const propImageGenerationService = require('../services/propImageGenerationService');
   return (req, res) => {
     const id = parseInt(req.params.id, 10);
-    if (isNaN(id)) return response.badRequest(res, '无效的ID');
+    if (isNaN(id)) return response.badRequest(res, '无效的 ID');
     const model = req.body?.model != null ? String(req.body.model).trim() || null : null;
     const style = req.body?.style != null ? String(req.body.style).trim() || null : null;
     try {
@@ -91,7 +91,7 @@ function associateProps(db, log) {
 function addToLibrary(db, log) {
   return (req, res) => {
     const id = parseInt(req.params.id, 10);
-    if (isNaN(id)) return response.badRequest(res, '无效的ID');
+    if (isNaN(id)) return response.badRequest(res, '无效的 ID');
     const out = propLibraryService.addPropToLibrary(db, log, id);
     if (!out.ok) {
       return sendMappedServiceFailure(res, out, { unauthorizedAsForbidden: true });
@@ -103,7 +103,7 @@ function addToLibrary(db, log) {
 function addToMaterialLibrary(db, log) {
   return (req, res) => {
     const id = parseInt(req.params.id, 10);
-    if (isNaN(id)) return response.badRequest(res, '无效的ID');
+    if (isNaN(id)) return response.badRequest(res, '无效的 ID');
     const out = propLibraryService.addPropToMaterialLibrary(db, log, id);
     if (!out.ok) {
       return sendMappedServiceFailure(res, out, { unauthorizedAsForbidden: true });
@@ -115,7 +115,7 @@ function addToMaterialLibrary(db, log) {
 function getPropById(db, log) {
   return (req, res) => {
     const id = parseInt(req.params.id, 10);
-    if (isNaN(id)) return response.badRequest(res, '无效的ID');
+    if (isNaN(id)) return response.badRequest(res, '无效的 ID');
     const prop = propService.getById(db, id);
     if (!prop) return response.notFound(res, '道具不存在');
     response.success(res, { prop });
@@ -125,7 +125,7 @@ function getPropById(db, log) {
 function generatePropPrompt(db, log, cfg) {
   return async (req, res) => {
     const id = parseInt(req.params.id, 10);
-    if (isNaN(id)) return response.badRequest(res, '无效的ID');
+    if (isNaN(id)) return response.badRequest(res, '无效的 ID');
     try {
       const body = req.body || {};
       const out = await propService.generatePropPromptOnly(db, log, cfg, id, body.model || undefined, body.style || undefined);
@@ -143,7 +143,7 @@ function generatePropPrompt(db, log, cfg) {
 function extractPropFromImage(db, log, cfg) {
   return async (req, res) => {
     const id = parseInt(req.params.id, 10);
-    if (isNaN(id)) return response.badRequest(res, '无效的ID');
+    if (isNaN(id)) return response.badRequest(res, '无效的 ID');
     try {
       const out = await propService.extractPropFromImage(db, log, cfg, id);
       if (!out.ok) {

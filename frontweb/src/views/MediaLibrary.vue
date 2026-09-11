@@ -1,35 +1,6 @@
 <template>
   <main class="media-library-page">
-    <div class="page-header">
-      <div class="header-left">
-        <el-button text class="back-link" :aria-label="returnTo ? '返回制作台' : '返回项目首页'" @click="goBack">
-          <el-icon><ArrowLeft /></el-icon>
-          {{ returnTo ? '返回制作台' : '项目首页' }}
-        </el-button>
-        <div class="title-wrap">
-          <h1 class="page-title">素材中心</h1>
-          <p class="page-subtitle">上传后的图片和视频会在所有项目里复用；单文件最大 100MB。</p>
-        </div>
-      </div>
-      <div class="header-actions">
-        <el-button :disabled="mediaAccessState.navigationLocked" aria-label="新建项目" :title="mediaAccessState.navigationLocked ? mediaNavigationLockReason : undefined" @click="goNewProject">
-          <el-icon><Plus /></el-icon>
-          新建项目
-        </el-button>
-        <el-button
-          :type="mediaItems.length === 0 && !loading ? 'default' : 'primary'"
-          :loading="uploading"
-          :disabled="mediaWriteLocked || uploading"
-          :title="mediaUploadDisableReason || undefined"
-          aria-label="上传图片或视频到素材中心"
-          @click="triggerUpload"
-        >
-          <el-icon><Upload /></el-icon>
-          上传素材
-        </el-button>
-        <input ref="uploadInput" type="file" accept="image/*,video/*" multiple style="display:none" @change="onUpload" />
-      </div>
-    </div>
+    <MediaLibraryHeader ref="mediaLibraryHeaderRef" v-bind="headerBindings" />
 
     <el-tabs v-model="libraryMode" class="library-tabs" aria-label="素材来源">
       <el-tab-pane label="本地素材" name="local" />
@@ -62,382 +33,27 @@
       </el-button>
     </section>
 
-    <template v-if="libraryMode === 'local'">
-    <section
-      v-if="loadError"
-      class="data-load-state"
-      role="alert"
-      aria-live="assertive"
-      aria-atomic="true"
+    <MediaLibraryLocalGrid
+      v-if="libraryMode === 'local'"
+      v-model:page="page"
+      v-bind="localGridBindings"
     >
-      <div class="data-load-state__content">
-        <h2>{{ mediaIsStale ? '素材列表刷新失败' : '素材数据加载失败' }}</h2>
-        <p>暂时无法确认服务器中的最新素材。您的素材数据没有被删除。</p>
-        <p v-if="mediaIsStale" class="data-load-state__stale">下方显示上次成功加载的数据，当前内容已过期；成功重试前不能上传、选择或删除素材。</p>
-        <p v-else>素材空态不会在连接恢复前显示，也不会执行任何素材写操作。</p>
-        <p class="data-load-state__detail">错误详情：{{ loadError }}</p>
-      </div>
-      <el-button type="primary" plain :loading="loading" :disabled="loading" :title="mediaRetryLoadDisableReason || undefined" @click="loadMedia">
-        <el-icon><Refresh /></el-icon>重试加载
-      </el-button>
-    </section>
-
-    <section v-if="mediaAccessState.showEntryStrip" class="entry-strip" aria-label="素材入口说明">
-      <div class="entry-item">
-        <span class="entry-label">上传到素材中心</span>
-        <p class="entry-description">把不超过 100MB 的图片和视频放进全局素材，后续项目可以直接复用。</p>
-        <el-button text class="entry-action" :disabled="mediaWriteLocked || uploading" :title="mediaUploadDisableReason || undefined" @click="triggerUpload">立即上传</el-button>
-      </div>
-      <div class="entry-item">
-        <span class="entry-label">网页 URL 导入</span>
-        <p class="entry-description">网页 URL 导入会在选择项目后完成，本页不直接粘贴 URL。</p>
-        <el-button
-          type="primary"
-          plain
-          class="entry-action"
-          :disabled="mediaAccessState.navigationLocked"
-          :title="mediaAccessState.navigationLocked ? mediaNavigationLockReason : undefined"
-          aria-label="选择项目后导入网页 URL"
-          @click="goSourceImport"
-        >进入项目选择后导入网页 URL</el-button>
-      </div>
-      <div class="entry-item">
-        <span class="entry-label">角色 / 场景 / 道具入库</span>
-        <p class="entry-description">在项目里点“加入素材库”后，会同步到首页里的分类素材入口。</p>
-        <el-button text class="entry-action" @click="goHome">返回项目首页</el-button>
-      </div>
-    </section>
-
-    <!-- 筛选栏 -->
-    <div class="filter-bar">
-      <el-radio-group v-model="mediaType" class="type-filter" aria-label="素材类型筛选" @change="applyFilters">
-        <el-radio-button value="all">全部</el-radio-button>
-        <el-radio-button value="image">图片</el-radio-button>
-        <el-radio-button value="video">视频</el-radio-button>
-      </el-radio-group>
-      <el-input
-        v-model="keyword"
-        placeholder="搜索素材..."
-        aria-label="搜索素材"
-        class="search-input"
-        clearable
-        @input="debouncedLoad"
-      >
-        <template #prefix><el-icon><Search /></el-icon></template>
-      </el-input>
-    </div>
-
-    <!-- 上传进度 -->
-    <div v-if="uploading" class="upload-progress">
-      <el-icon class="is-loading"><Loading /></el-icon>
-      <span>正在上传 {{ uploadProgress.current }}/{{ uploadProgress.total }}...</span>
-    </div>
-
-    <section
-      v-if="uploadFeedback"
-      class="upload-feedback"
-      :class="`upload-feedback--${uploadFeedback.tone}`"
-      :role="uploadFeedback.tone === 'error' ? 'alert' : 'status'"
-      aria-live="assertive"
-      aria-atomic="true"
-    >
-      <div>
-        <h2>{{ uploadFeedback.title }}</h2>
-        <p>{{ uploadFeedback.detail }}</p>
-      </div>
-    </section>
-
-    <!-- 媒体网格 -->
-    <div v-loading="loading" class="media-grid" :aria-busy="loading">
-      <article
-        v-for="item in mediaItems"
-        :key="item.id"
-        class="media-card"
-        :class="{
-          selected: selectedIds.has(item.id),
-          'actions-visible': isActionLayerVisible(item.id),
-        }"
-        :aria-labelledby="`media-name-${item.id}`"
-        @mouseenter="showPointerActions(item.id)"
-        @mouseleave="hidePointerActions(item.id)"
-        @focusin="showKeyboardActions(item.id)"
-        @focusout="hideKeyboardActions(item.id, $event)"
-      >
-        <div class="media-thumb">
-          <video
-            v-if="item.type === 'video'"
-            :src="itemUrl(item)"
-            :aria-label="thumbnailAlt(item)"
-            class="thumb-video"
-            muted
-          />
-          <img v-else :src="itemUrl(item)" :alt="thumbnailAlt(item)" class="thumb-img" />
-          <label class="selection-control" :title="mediaWriteLocked ? mediaWriteLockReason : selectionLabel(item)">
-            <input
-              type="checkbox"
-              class="selection-input"
-              :checked="selectedIds.has(item.id)"
-              :disabled="mediaWriteLocked"
-              :title="mediaWriteLocked ? mediaWriteLockReason : selectionLabel(item)"
-              :aria-label="selectionLabel(item)"
-              @change="setItemSelected(item, $event.target.checked)"
-            />
-            <span class="selection-indicator" aria-hidden="true">
-              <el-icon class="selection-check"><CircleCheck /></el-icon>
-            </span>
-          </label>
-          <div class="media-overlay" :aria-hidden="!isActionLayerVisible(item.id)">
-            <div class="overlay-actions">
-              <el-button
-                size="small"
-                plain
-                class="preview-btn"
-                :title="actionLabel('预览', item)"
-                :aria-label="actionLabel('预览', item)"
-                :tabindex="isActionLayerVisible(item.id) ? 0 : -1"
-                @click="openPreview(item)"
-              >
-                <el-icon><ZoomIn /></el-icon>
-              </el-button>
-              <el-button
-                size="small"
-                type="danger"
-                plain
-                :title="mediaWriteLocked ? mediaWriteLockReason : actionLabel('删除', item)"
-                :aria-label="actionLabel('删除', item)"
-                :disabled="mediaWriteLocked"
-                :tabindex="isActionLayerVisible(item.id) ? 0 : -1"
-                @click="deleteItem(item)"
-              >
-                <el-icon><Delete /></el-icon>
-              </el-button>
-            </div>
-          </div>
-        </div>
-        <div class="media-info">
-          <span :id="`media-name-${item.id}`" class="media-name" :title="item.name">{{ item.name || '未命名' }}</span>
-          <span class="media-meta">{{ formatSize(mediaItemFileSize(item)) }}</span>
-          <span class="media-origin">{{ mediaOriginLabel(item) }}</span>
-        </div>
-      </article>
-
-      <div v-if="!loading && hasSuccessfulMediaLoad && !loadError && mediaItems.length === 0" class="empty-media">
-        <el-icon class="empty-icon"><Files /></el-icon>
-        <h2 class="empty-title">{{ hasActiveFilters ? '没有匹配的素材' : '素材中心还是空的' }}</h2>
-        <p class="empty-description">{{ hasActiveFilters ? '调整关键词或素材类型后再试。' : '上传图片或视频，后续项目可以直接复用。' }}</p>
-        <div class="empty-actions">
-          <template v-if="hasActiveFilters">
-            <el-button @click="clearFilters">清除筛选</el-button>
-            <el-button type="primary" :disabled="mediaWriteLocked || uploading" :title="mediaUploadDisableReason || undefined" aria-label="上传图片或视频到素材中心" @click="triggerUpload">
-              <el-icon><Upload /></el-icon>上传素材
-            </el-button>
-          </template>
-          <template v-else>
-            <el-button
-              type="primary"
-              :disabled="mediaWriteLocked || uploading"
-              :title="mediaUploadDisableReason || undefined"
-              aria-label="上传图片或视频到素材中心"
-              @click="triggerUpload"
-            >
-              <el-icon><Upload /></el-icon>上传素材
-            </el-button>
-          </template>
-        </div>
-        <template v-if="!hasActiveFilters">
-          <p class="empty-note">需要把角色、场景或道具沉淀到分类素材时，请先在项目内点“加入素材库”。</p>
-          <el-button
-            type="primary"
-            plain
-            class="empty-secondary-action"
-            :disabled="mediaWriteLocked || mediaAccessState.navigationLocked"
-            :title="mediaSourceImportDisableReason || undefined"
-            aria-label="选择项目后导入网页 URL"
-            @click="goSourceImport"
-          >进入项目选择后导入网页 URL</el-button>
-        </template>
-      </div>
-    </div>
-
-    <!-- 分页 -->
-    <div v-if="total > pageSize" class="pagination">
-      <el-pagination
-        v-model:current-page="page"
-        :page-size="pageSize"
-        :total="total"
-        layout="prev, pager, next"
-        aria-label="素材列表分页"
-        @current-change="loadMedia"
+      <!-- 筛选栏 -->
+      <MediaLibraryFilterBar
+        v-model:media-type="mediaType"
+        v-model:keyword="keyword"
+        :apply-filters="applyFilters"
+        :debounced-load="debouncedLoad"
       />
-    </div>
+    </MediaLibraryLocalGrid>
+    <MediaLibraryNetworkPanel
+      v-else
+      v-model:network-source="networkSource"
+      v-model:network-media-type="networkMediaType"
+      v-model:network-keyword="networkKeyword"
+      v-bind="networkPanelBindings"
+    />
 
-    <!-- 批量操作 -->
-    <div v-if="selectedIds.size > 0" class="batch-bar">
-      <span>已选 {{ selectedIds.size }} 项</span>
-      <el-button size="small" @click="selectedIds.clear()">取消选择</el-button>
-      <el-button size="small" type="danger" plain :disabled="mediaWriteLocked || visibleSelectedMediaCount <= 0" :title="mediaBatchDeleteDisableReason || undefined" @click="batchDelete">批量删除</el-button>
-    </div>
-    </template>
-
-    <template v-else>
-      <section class="network-search-panel" aria-labelledby="network-search-title">
-        <div>
-          <h2 id="network-search-title" class="section-title">搜索网络素材</h2>
-          <p class="section-description">
-            导入目标：<strong>{{ networkImportTargetLabel }}</strong>。这些是公开许可素材，具体用途是否兼容仍需用户自行核对。只有来源和许可证据完整的素材才能导入。
-          </p>
-        </div>
-        <div class="network-search-controls">
-          <el-radio-group
-            v-model="networkSource"
-            aria-label="网络素材来源"
-            @change="handleNetworkSourceChange"
-          >
-            <el-radio-button value="all">全部</el-radio-button>
-            <el-radio-button value="commons">Wikimedia Commons</el-radio-button>
-            <el-radio-button value="openverse">Openverse</el-radio-button>
-          </el-radio-group>
-          <el-radio-group
-            v-model="networkMediaType"
-            aria-label="网络素材类型"
-            @change="handleNetworkTypeChange"
-          >
-            <el-radio-button value="all">全部</el-radio-button>
-            <el-radio-button value="image">图片</el-radio-button>
-            <el-radio-button value="video">视频</el-radio-button>
-          </el-radio-group>
-          <el-input
-            v-model="networkKeyword"
-            class="network-search-input"
-            clearable
-            placeholder="输入关键词搜索网络素材"
-            aria-label="网络素材关键词"
-            @keyup.enter="searchNetworkMedia"
-          >
-            <template #prefix><el-icon><Search /></el-icon></template>
-          </el-input>
-          <el-button
-            type="primary"
-            :loading="networkLoading"
-            :disabled="!networkKeyword.trim() || networkLoading"
-            :title="networkSearchDisableReason || undefined"
-            @click="searchNetworkMedia"
-          >
-            <el-icon><Search /></el-icon>搜索
-          </el-button>
-        </div>
-      </section>
-      <p class="visually-hidden" role="status" aria-live="polite" aria-atomic="true">
-        {{ networkSearchAnnouncement }}
-      </p>
-
-      <section v-if="networkError" class="network-state network-state--error" role="alert" aria-live="assertive">
-        <div>
-          <h2>网络素材搜索失败</h2>
-          <p>{{ networkError }}</p>
-        </div>
-        <el-button
-          type="primary"
-          plain
-          :loading="networkLoading"
-          :disabled="!networkKeyword.trim() || networkLoading"
-          :title="networkSearchDisableReason || undefined"
-          aria-label="重试搜索网络素材"
-          @click="searchNetworkMedia"
-        >
-          <el-icon><Refresh /></el-icon>重试
-        </el-button>
-      </section>
-
-      <section v-if="networkNotice && !networkError" class="network-state" role="status">
-        <p>{{ networkNotice }}</p>
-      </section>
-
-      <div v-loading="networkLoading" class="network-grid" :aria-busy="networkLoading">
-        <article
-          v-for="(item, index) in networkItems"
-          :key="networkItemKey(item, index)"
-          class="network-card"
-          :aria-labelledby="`network-name-${index}`"
-        >
-          <button
-            type="button"
-            class="network-thumb"
-            :aria-label="`预览网络素材：${networkItemTitle(item)}`"
-            @click="openNetworkPreview(item)"
-          >
-            <img
-              v-if="networkCardImageUrl(item)"
-              :src="networkCardImageUrl(item)"
-              :alt="`网络素材缩略图：${networkItemTitle(item)}`"
-            />
-            <span v-else class="network-thumb-placeholder" aria-hidden="true">
-              <el-icon><Files /></el-icon>
-              <span>暂无缩略图</span>
-            </span>
-            <span class="network-preview-label"><el-icon><ZoomIn /></el-icon>预览</span>
-          </button>
-          <div class="network-info">
-            <h3 :id="`network-name-${index}`" :title="networkItemTitle(item)">{{ networkItemTitle(item) }}</h3>
-            <p class="network-detail">
-              <span>{{ item.author || '作者未知' }}</span>
-              <span>{{ networkDimensions(item) }}</span>
-            </p>
-            <p class="network-source" :title="networkItemSourceLabel(item)">来源：{{ networkItemSourceLabel(item) }}</p>
-            <p class="network-license" :title="item.license || '未注明许可'">许可：{{ item.license || '未注明许可' }}</p>
-            <p
-              v-if="!networkItemImportability(item).allowed"
-              class="network-license-warning"
-              role="status"
-            >{{ networkItemImportability(item).reason }}</p>
-            <div class="network-actions">
-              <a
-                v-if="safeExternalUrl(item.source_url)"
-                :href="safeExternalUrl(item.source_url)"
-                :aria-label="`查看来源：${networkItemTitle(item)}`"
-                target="_blank"
-                rel="noopener noreferrer"
-              >查看来源</a>
-              <span v-else class="source-unavailable">来源链接不可用</span>
-              <a
-                v-if="safeExternalUrl(item.license_url, true)"
-                :href="safeExternalUrl(item.license_url, true)"
-                :aria-label="`查看许可：${networkItemTitle(item)}`"
-                target="_blank"
-                rel="noopener noreferrer"
-              >查看许可</a>
-              <el-button
-                size="small"
-                type="primary"
-                :loading="isNetworkImporting(item)"
-                :disabled="isNetworkImporting(item) || !networkItemImportability(item).allowed"
-                :title="isNetworkImporting(item) ? MEDIA_LIBRARY_DISABLE_REASON.importing : (networkItemImportability(item).reason || networkImportButtonText)"
-                :aria-label="`${networkImportButtonText}：${networkItemTitle(item)}`"
-                @click="importNetworkItem(item)"
-              >{{ networkImportButtonText }}</el-button>
-            </div>
-          </div>
-        </article>
-
-        <div
-          v-if="!networkLoading && !networkError && networkSearched && networkItems.length === 0"
-          class="network-empty"
-          role="status"
-        >
-          <el-icon><Files /></el-icon>
-          <h2>没有找到匹配的网络素材</h2>
-          <p>请更换关键词或素材类型后重试。</p>
-          <el-button aria-label="清除网络素材搜索" @click="clearNetworkSearch">清除搜索</el-button>
-        </div>
-        <div v-else-if="!networkLoading && !networkError && !networkSearched" class="network-empty" role="status">
-          <el-icon><Search /></el-icon>
-          <h2>搜索可导入的网络素材</h2>
-          <p>结果会在这里显示，并附带来源和许可信息。</p>
-        </div>
-      </div>
-    </template>
-
-    <!-- 预览弹窗 -->
     <AccessibleDialog v-model="showPreview" title="素材预览" width="800px" destroy-on-close :close-on-click-modal="true" :close-on-press-escape="true">
       <div class="preview-content">
         <video
@@ -575,10 +191,11 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from '@/utils/elementPlusFeedback.js'
-import {
-  ArrowLeft, Upload, Search, Loading, CircleCheck,
-  ZoomIn, Delete, Files, Plus, Refresh, CopyDocument
-} from '@element-plus/icons-vue'
+import { Refresh, CopyDocument } from '@element-plus/icons-vue'
+import MediaLibraryHeader from '@/components/mediaLibrary/MediaLibraryHeader.vue'
+import MediaLibraryFilterBar from '@/components/mediaLibrary/MediaLibraryFilterBar.vue'
+import MediaLibraryLocalGrid from '@/components/mediaLibrary/MediaLibraryLocalGrid.vue'
+import MediaLibraryNetworkPanel from '@/components/mediaLibrary/MediaLibraryNetworkPanel.vue'
 import { mediaLibraryAPI, importNetworkAssetAndConfirm } from '@/api/mediaLibrary.js'
 import { uploadAPI } from '@/api/upload'
 import request from '@/utils/request'
@@ -644,7 +261,7 @@ const hasSuccessfulMediaLoad = ref(false)
 const selectedIds = reactive(new Set())
 const showPreview = ref(false)
 const previewItem = ref(null)
-const uploadInput = ref(null)
+const mediaLibraryHeaderRef = ref(null)
 const hoveredCardId = ref(null)
 const focusedCardId = ref(null)
 const networkKeyword = ref(initialNetworkRoute.keyword)
@@ -717,6 +334,92 @@ const mediaSourceImportDisableReason = computed(() => describeMediaLibrarySource
   navigationLocked: mediaAccessState.value.navigationLocked,
   navigationLockReason: mediaNavigationLockReason.value,
 }))
+
+const headerBindings = computed(() => ({
+  returnTo: returnTo.value,
+  mediaAccessState: mediaAccessState.value,
+  mediaNavigationLockReason: mediaNavigationLockReason.value,
+  mediaItems: mediaItems.value,
+  loading: loading.value,
+  uploading: uploading.value,
+  mediaWriteLocked: mediaWriteLocked.value,
+  mediaUploadDisableReason: mediaUploadDisableReason.value,
+  goBack,
+  goNewProject,
+  triggerUpload,
+  onUpload,
+}))
+
+const localGridBindings = computed(() => ({
+  loadError: loadError.value,
+  mediaIsStale: mediaIsStale.value,
+  loading: loading.value,
+  mediaRetryLoadDisableReason: mediaRetryLoadDisableReason.value,
+  mediaAccessState: mediaAccessState.value,
+  mediaWriteLocked: mediaWriteLocked.value,
+  uploading: uploading.value,
+  mediaUploadDisableReason: mediaUploadDisableReason.value,
+  mediaNavigationLockReason: mediaNavigationLockReason.value,
+  mediaSourceImportDisableReason: mediaSourceImportDisableReason.value,
+  mediaWriteLockReason: mediaWriteLockReason.value,
+  uploadProgress: uploadProgress.value,
+  uploadFeedback: uploadFeedback.value,
+  mediaItems: mediaItems.value,
+  selectedIds,
+  hasSuccessfulMediaLoad: hasSuccessfulMediaLoad.value,
+  hasActiveFilters: hasActiveFilters.value,
+  total: total.value,
+  pageSize: pageSize.value,
+  visibleSelectedMediaCount: visibleSelectedMediaCount.value,
+  mediaBatchDeleteDisableReason: mediaBatchDeleteDisableReason.value,
+  loadMedia,
+  triggerUpload,
+  goSourceImport,
+  goHome,
+  itemUrl,
+  thumbnailAlt,
+  formatSize,
+  mediaItemFileSize,
+  mediaOriginLabel,
+  isActionLayerVisible,
+  showPointerActions,
+  hidePointerActions,
+  showKeyboardActions,
+  hideKeyboardActions,
+  selectionLabel,
+  setItemSelected,
+  actionLabel,
+  openPreview,
+  deleteItem,
+  clearFilters,
+  batchDelete,
+}))
+
+const networkPanelBindings = computed(() => ({
+  networkImportTargetLabel: networkImportTargetLabel.value,
+  networkSearchAnnouncement: networkSearchAnnouncement.value,
+  networkLoading: networkLoading.value,
+  networkSearchDisableReason: networkSearchDisableReason.value,
+  networkError: networkError.value,
+  networkNotice: networkNotice.value,
+  networkItems: networkItems.value,
+  networkSearched: networkSearched.value,
+  networkImportButtonText: networkImportButtonText.value,
+  handleNetworkSourceChange,
+  handleNetworkTypeChange,
+  searchNetworkMedia,
+  networkItemKey,
+  networkItemTitle,
+  networkCardImageUrl,
+  openNetworkPreview,
+  networkDimensions,
+  networkItemSourceLabel,
+  networkItemImportability,
+  safeExternalUrl,
+  isNetworkImporting,
+  importNetworkItem,
+  clearNetworkSearch,
+}))
 const mediaRequestGuard = createLatestMediaRequestGuard()
 const networkRequestGuard = createLatestMediaRequestGuard()
 let keywordTimer = null
@@ -788,7 +491,7 @@ function goSourceImport() {
 
 function triggerUpload() {
   if (mediaWriteLocked.value || uploading.value) return
-  uploadInput.value?.click()
+  mediaLibraryHeaderRef.value?.uploadInput?.click()
 }
 
 async function onUpload(e) {
@@ -1276,397 +979,8 @@ onBeforeUnmount(() => {
   padding: 24px;
 }
 
-.page-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  margin-bottom: 24px;
-  padding-bottom: 18px;
-  border-bottom: 1px solid var(--border-color);
-  gap: 20px;
-}
-
-.header-left {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 10px;
-}
-
-.back-link {
-  padding-left: 0;
-}
-
-.title-wrap {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.page-title {
-  font-size: 24px;
-  font-weight: 700;
-  color: var(--text-bright);
-  margin: 0;
-}
-
-.page-subtitle {
-  margin: 0;
-  font-size: 14px;
-  color: var(--text-muted);
-  line-height: 1.6;
-}
-
-.header-actions {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
 .library-tabs {
   margin-bottom: 18px;
-}
-
-.network-search-panel {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 24px;
-  margin-bottom: 18px;
-  padding-bottom: 18px;
-  border-bottom: 1px solid var(--border-color);
-}
-
-.section-title {
-  margin: 0;
-  color: var(--text-bright);
-  font-size: 18px;
-  line-height: 1.4;
-}
-
-.section-description {
-  margin: 5px 0 0;
-  color: var(--text-muted);
-  font-size: 13px;
-  line-height: 1.55;
-}
-
-.network-search-controls {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 10px;
-  min-width: 0;
-}
-
-.network-search-input {
-  width: min(320px, 32vw);
-}
-
-.network-state {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 20px;
-  margin-bottom: 16px;
-  padding: 14px 16px;
-  border: 1px solid var(--border-color);
-  border-left: 4px solid var(--el-color-danger);
-  border-radius: 8px;
-  background: var(--bg-card);
-}
-
-.network-state h2,
-.network-state p {
-  margin: 0;
-}
-
-.network-state h2 {
-  color: var(--text-bright);
-  font-size: 15px;
-}
-
-.network-state p {
-  margin-top: 4px;
-  color: var(--text-muted);
-  overflow-wrap: anywhere;
-}
-
-.network-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 14px;
-  min-height: 260px;
-}
-
-.network-card {
-  min-width: 0;
-  overflow: hidden;
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  background: var(--bg-card);
-  box-shadow: var(--shadow);
-}
-
-.network-thumb {
-  position: relative;
-  display: block;
-  width: 100%;
-  aspect-ratio: 16 / 10;
-  padding: 0;
-  overflow: hidden;
-  border: 0;
-  background: var(--bg-inner);
-  color: #fff;
-  cursor: pointer;
-}
-
-.network-thumb img,
-.network-thumb video {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.network-thumb-placeholder {
-  display: flex;
-  width: 100%;
-  height: 100%;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  color: var(--text-muted);
-  font-size: 12px;
-}
-
-.network-thumb-placeholder .el-icon {
-  font-size: 28px;
-}
-
-.network-thumb:focus-visible {
-  outline: 3px solid var(--el-color-primary);
-  outline-offset: -3px;
-}
-
-.network-preview-label {
-  position: absolute;
-  right: 8px;
-  bottom: 8px;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 5px 8px;
-  border-radius: 6px;
-  background: rgba(17, 24, 39, .78);
-  font-size: 12px;
-}
-
-.network-info {
-  min-width: 0;
-  padding: 12px;
-}
-
-.network-info h3 {
-  margin: 0;
-  overflow: hidden;
-  color: var(--text-bright);
-  font-size: 14px;
-  line-height: 1.45;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.network-detail {
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
-  margin: 7px 0 0;
-  color: var(--text-muted);
-  font-size: 12px;
-}
-
-.network-detail span {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.network-source,
-.network-license {
-  margin: 5px 0 0;
-  overflow: hidden;
-  color: var(--text-subtle);
-  font-size: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.network-license-warning {
-  margin: 6px 0 0;
-  color: var(--el-color-danger);
-  font-size: 12px;
-  line-height: 1.45;
-}
-
-.network-actions {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  margin-top: 12px;
-}
-
-.network-actions a,
-.source-unavailable {
-  min-width: 0;
-  overflow: hidden;
-  font-size: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.visually-hidden {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
-  border: 0;
-}
-
-.network-actions a {
-  color: var(--el-color-primary);
-}
-
-.source-unavailable {
-  color: var(--text-subtle);
-}
-
-.network-empty {
-  grid-column: 1 / -1;
-  display: flex;
-  min-height: 260px;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  color: var(--text-subtle);
-  text-align: center;
-}
-
-.network-empty .el-icon {
-  font-size: 42px;
-}
-
-.network-empty h2,
-.network-empty p {
-  margin: 0;
-}
-
-.network-empty .el-button {
-  margin-top: 12px;
-}
-.network-empty h2 {
-  color: var(--text-bright);
-  font-size: 17px;
-}
-
-.data-load-state {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 24px;
-  margin-bottom: 20px;
-  padding: 16px 18px;
-  border: 1px solid var(--el-color-danger-light-5);
-  border-left: 4px solid var(--el-color-danger);
-  border-radius: 8px;
-  background: var(--bg-card);
-  color: var(--text-primary);
-  box-shadow: var(--shadow);
-}
-
-.data-load-state__content {
-  min-width: 0;
-}
-
-.data-load-state h2 {
-  margin: 0 0 5px;
-  color: var(--text-bright);
-  font-size: 16px;
-  line-height: 1.4;
-}
-
-.data-load-state p {
-  margin: 3px 0 0;
-  color: var(--text-muted);
-  font-size: 13px;
-  line-height: 1.55;
-}
-
-.data-load-state .data-load-state__stale {
-  color: #d97706;
-}
-
-.data-load-state .data-load-state__detail {
-  color: var(--el-color-danger);
-  overflow-wrap: anywhere;
-}
-
-.entry-strip {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 1px;
-  margin-bottom: 20px;
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  overflow: hidden;
-  background: var(--border-color);
-  box-shadow: var(--shadow);
-}
-
-.entry-item {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 10px;
-  min-width: 0;
-  padding: 18px;
-  background: var(--bg-card);
-}
-
-.entry-label {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text-bright);
-}
-
-.entry-description {
-  margin: 0;
-  font-size: 13px;
-  line-height: 1.6;
-  color: var(--text-muted);
-}
-
-.entry-action {
-  padding-left: 0;
-}
-
-.filter-bar {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  margin-bottom: 16px;
-  flex-wrap: wrap;
-}
-
-.search-input {
-  width: 240px;
 }
 
 .upload-feedback {
@@ -1686,7 +1000,6 @@ onBeforeUnmount(() => {
   border-left-color: var(--el-color-danger);
 }
 
-.network-state > .el-button,
 .upload-feedback > .el-button {
   flex-shrink: 0;
 }
@@ -1705,227 +1018,6 @@ onBeforeUnmount(() => {
   margin-top: 4px;
   color: var(--text-muted);
   overflow-wrap: anywhere;
-}
-
-.upload-progress {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 12px;
-  color: var(--el-color-primary);
-  font-size: 14px;
-}
-
-.media-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-  gap: 12px;
-  min-height: 200px;
-}
-
-.media-card {
-  background: var(--bg-card);
-  border-radius: 8px;
-  overflow: hidden;
-  border: 1px solid var(--border-color);
-  cursor: default;
-  transition: all .2s;
-  box-shadow: var(--shadow);
-}
-
-.media-card:hover {
-  box-shadow: 0 4px 12px rgba(0,0,0,.1);
-}
-
-.media-card.selected {
-  border-color: var(--el-color-primary);
-  box-shadow: 0 0 0 1px var(--el-color-primary), var(--shadow);
-}
-
-.media-thumb {
-  aspect-ratio: 1;
-  background: var(--bg-inner);
-  overflow: hidden;
-  position: relative;
-}
-
-.thumb-img,
-.thumb-video {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.media-overlay {
-  position: absolute;
-  inset: 0;
-  background: rgba(0,0,0,.35);
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity .2s;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.media-card.actions-visible .media-overlay {
-  opacity: 1;
-  pointer-events: auto;
-}
-
-.selection-control {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  z-index: 2;
-  display: grid;
-  width: 28px;
-  height: 28px;
-  place-items: center;
-  cursor: pointer;
-}
-
-.selection-input {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  opacity: 0;
-}
-
-.selection-indicator {
-  display: grid;
-  width: 22px;
-  height: 22px;
-  place-items: center;
-  color: transparent;
-  background: rgba(255, 255, 255, .92);
-  border: 2px solid rgba(31, 41, 55, .55);
-  border-radius: 50%;
-  transition: border-color .2s, box-shadow .2s, color .2s;
-}
-
-.selection-check {
-  font-size: 20px;
-}
-
-.selection-input:checked + .selection-indicator {
-  color: var(--el-color-primary);
-  border-color: #fff;
-}
-
-.selection-input:focus-visible + .selection-indicator {
-  outline: 3px solid var(--el-color-primary);
-  outline-offset: 2px;
-}
-
-.selection-input:disabled + .selection-indicator {
-  cursor: not-allowed;
-  opacity: 0.5;
-}
-
-.overlay-actions {
-  display: flex;
-  gap: 6px;
-}
-
-.media-info {
-  padding: 8px;
-}
-
-.media-name {
-  display: block;
-  font-size: 12px;
-  color: var(--text-primary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.media-meta {
-  font-size: 11px;
-  color: var(--text-subtle);
-}
-
-.media-origin {
-  display: block;
-  margin-top: 2px;
-  font-size: 11px;
-  color: var(--text-muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.empty-media {
-  grid-column: 1 / -1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  min-height: 340px;
-  color: var(--text-subtle);
-  gap: 10px;
-}
-
-.empty-icon {
-  font-size: 48px;
-}
-
-.empty-title {
-  margin: 4px 0 0;
-  color: var(--text-bright);
-  font-size: 18px;
-}
-
-.empty-description {
-  margin: 0 0 8px;
-  color: var(--text-subtle);
-  font-size: 14px;
-}
-
-.empty-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-}
-
-.empty-note {
-  max-width: 560px;
-  margin: 0;
-  font-size: 13px;
-  line-height: 1.6;
-  color: var(--text-subtle);
-  text-align: center;
-}
-
-.empty-secondary-action {
-  min-height: 28px;
-  margin-top: -2px;
-  padding: 0 4px;
-}
-
-.pagination {
-  margin-top: 20px;
-  display: flex;
-  justify-content: center;
-}
-
-.batch-bar {
-  position: fixed;
-  bottom: 20px;
-  left: 50%;
-  transform: translateX(-50%);
-  background: #1a1a2e;
-  color: #fff;
-  padding: 10px 20px;
-  border-radius: 24px;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  font-size: 14px;
-  box-shadow: 0 4px 16px rgba(0,0,0,.2);
 }
 
 .preview-content {
@@ -2001,45 +1093,9 @@ onBeforeUnmount(() => {
   .media-library-page {
     padding: 16px;
   }
-
-  .page-header,
-  .network-search-panel {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .header-actions,
-  .network-search-controls {
-    justify-content: flex-start;
-    flex-wrap: wrap;
-  }
-
-  .network-search-input {
-    width: 100%;
-    flex: 1 1 240px;
-  }
 }
 
 @media (max-width: 520px) {
-  .header-actions > .el-button,
-  .network-search-controls > .el-button {
-    margin-left: 0;
-  }
-
-  .network-search-controls > .el-radio-group,
-  .network-search-input {
-    flex-basis: 100%;
-  }
-
-  .network-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .network-state {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
   .meta-row--hash {
     flex-wrap: wrap;
   }

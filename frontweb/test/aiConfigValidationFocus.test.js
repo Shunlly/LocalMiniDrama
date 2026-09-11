@@ -6,41 +6,45 @@ const componentSource = readFileSync(
   new URL('../src/components/AIConfigContent.vue', import.meta.url),
   'utf8',
 )
+const formDialogSource = readFileSync(
+  new URL('../src/components/aiConfig/AiConfigFormDialog.vue', import.meta.url),
+  'utf8',
+)
 const modelListSource = readFileSync(
   new URL('../src/components/aiConfig/AiConfigModelListSection.vue', import.meta.url),
   'utf8',
 )
-const formSource = `${componentSource}\n${modelListSource}`
+const formSource = `${componentSource}\n${formDialogSource}\n${modelListSource}`
 const validationUtilityUrl = new URL('../src/utils/aiConfigValidationFocus.js', import.meta.url)
 
 test('AI config dialog exposes a sticky live validation summary and an owned scroll container', () => {
-  assert.match(componentSource, /ref="configDialogScrollRef"\s+class="ai-config-dialog-scroll"/)
+  assert.match(formSource, /:ref="bindConfigDialogScrollRef"\s+class="ai-config-dialog-scroll"/)
   assert.match(
-    componentSource,
+    formSource,
     /class="ai-config-validation-summary"[\s\S]*?role="alert"[\s\S]*?aria-live="assertive"[\s\S]*?aria-atomic="true"/,
   )
-  assert.match(componentSource, /v-for="item in configValidationSummary"/)
+  assert.match(formSource, /v-for="item in configValidationSummary"/)
   assert.match(
-    componentSource,
+    formSource,
     /\.ai-config-validation-summary\s*\{[\s\S]*?position:\s*sticky;[\s\S]*?top:\s*0;/,
   )
   assert.match(
-    componentSource,
+    formSource,
     /\.ai-config-dialog-scroll\s*\{[\s\S]*?overflow-y:\s*auto;/,
   )
 })
 
 test('AI config form dialog stays within the viewport while only its body content scrolls', () => {
   assert.match(
-    componentSource,
+    formSource,
     /<AccessibleDialog[\s\S]*?class="ai-config-dialog ai-config-form-dialog ai-config-overlay"[\s\S]*?append-to-body/,
   )
   assert.match(
-    componentSource,
+    formSource,
     /\.ai-config-form-dialog\s*\{[\s\S]*?max-height:\s*92vh;[\s\S]*?display:\s*flex;[\s\S]*?overflow:\s*hidden;/,
   )
   assert.match(
-    componentSource,
+    formSource,
     /\.ai-config-form-dialog\s*>\s*\.el-dialog__body\s*\{[\s\S]*?flex:\s*1;[\s\S]*?min-height:\s*0;[\s\S]*?overflow:\s*hidden;/,
   )
 })
@@ -67,8 +71,8 @@ test('critical AI config fields expose explicit invalid state and descriptions',
   }
 
   assert.match(modelListSource, /<el-form-item[^>]*prop="modelText"/)
-  assert.match(componentSource, /<el-form-item[^>]*prop="api_protocol"/)
-  assert.match(componentSource, /<el-form-item[^>]*prop="endpoint"/)
+  assert.match(formSource, /<el-form-item[^>]*prop="api_protocol"/)
+  assert.match(formSource, /<el-form-item[^>]*prop="endpoint"/)
 })
 
 test('AI config submit preserves Element Plus invalid fields for focus and clears recovered errors', () => {
@@ -76,7 +80,7 @@ test('AI config submit preserves Element Plus invalid fields for focus and clear
     componentSource,
     /async function submit\(\)[\s\S]*?catch \(invalidFields\)[\s\S]*?handleConfigValidationFailure\(invalidFields\)[\s\S]*?return/,
   )
-  assert.match(componentSource, /@validate="handleConfigFieldValidated"/)
+  assert.match(formSource, /@validate="handleConfigFieldValidated"/)
   assert.match(componentSource, /handleConfigFieldValidated,/)
   assert.match(componentSource, /handleConfigValidationFailure,/)
   assert.match(componentSource, /useAiConfigUnsaved\(\{/)
