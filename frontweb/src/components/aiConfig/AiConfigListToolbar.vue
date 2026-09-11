@@ -3,28 +3,28 @@
     <!-- 普通模式操作栏 -->
     <div v-if="!vendorLock.enabled" class="content-actions">
       <div class="actions-left">
-        <el-button type="primary" :disabled="configWriteLocked" :title="configWriteLocked ? configWriteLockReason : undefined" @click="openAdd">
+        <el-button type="primary" :disabled="configWriteLocked" :title="configWriteLocked ? configWriteLockReason : undefined" :aria-label="configWriteLocked ? configWriteLockReason : '添加配置'" @click="openAdd">
           <el-icon><Plus /></el-icon>
           添加配置
         </el-button>
-        <el-button plain @click="exportConfigs">
+        <el-button plain aria-label="导出配置" @click="exportConfigs">
           <el-icon><Download /></el-icon>
           导出配置
         </el-button>
-        <el-button plain :disabled="configWriteLocked" :title="configWriteLocked ? configWriteLockReason : undefined" @click="triggerImport">
+        <el-button plain :disabled="configWriteLocked" :title="configWriteLocked ? configWriteLockReason : undefined" :aria-label="configWriteLocked ? configWriteLockReason : '导入配置'" @click="triggerImport">
           <el-icon><Upload /></el-icon>
           导入配置
         </el-button>
         <input :ref="bindImportFileRef" type="file" accept=".json" style="display:none" aria-hidden="true" tabindex="-1" :disabled="configWriteLocked" @change="importConfigs" />
-        <el-button type="success" plain :disabled="configWriteLocked" :title="configWriteLocked ? configWriteLockReason : undefined" @click="openOneKeyVolc">
+        <el-button type="success" plain :disabled="configWriteLocked" :title="configWriteLocked ? configWriteLockReason : undefined" :aria-label="configWriteLocked ? configWriteLockReason : '一键配置火山'" @click="openOneKeyVolc">
           <el-icon><MagicStick /></el-icon>
           一键配置火山
         </el-button>
-        <el-button type="success" plain :disabled="configWriteLocked" :title="configWriteLocked ? configWriteLockReason : undefined" @click="openOneKeyAgnes">
+        <el-button type="success" plain :disabled="configWriteLocked" :title="configWriteLocked ? configWriteLockReason : undefined" :aria-label="configWriteLocked ? configWriteLockReason : '一键配置 Agnes'" @click="openOneKeyAgnes">
           <el-icon><MagicStick /></el-icon>
           一键配置 Agnes
         </el-button>
-        <el-button type="info" plain :disabled="configWriteLocked" :title="configWriteLocked ? configWriteLockReason : undefined" @click="openOneKeyTongyi">
+        <el-button type="info" plain :disabled="configWriteLocked" :title="configWriteLocked ? configWriteLockReason : undefined" :aria-label="configWriteLocked ? configWriteLockReason : '一键配置通义（不推荐）'" @click="openOneKeyTongyi">
           <el-icon><MagicStick /></el-icon>
           一键配置通义
           <span class="one-key-not-recommended">不推荐</span>
@@ -38,7 +38,7 @@
             :loading="batchDeleting"
             :disabled="configWriteLocked"
             :title="configWriteLocked ? configWriteLockReason : undefined"
-            @click="onBatchDelete"
+            :aria-label="batchDeleting ? '正在删除选中配置，请稍候' : (configWriteLocked ? configWriteLockReason : `删除选中 ${selectedRows.length} 项配置`)" @click="onBatchDelete"
           >
             <el-icon><Delete /></el-icon>
             删除选中 ({{ selectedRows.length }})
@@ -57,11 +57,11 @@
           <span>🔒 当前为厂商锁定模式，AI 服务由管理员统一配置。你只能修改 <b>API 密钥</b> 和 <b>默认模型</b>。</span>
         </template>
       </el-alert>
-      <el-button plain size="small" @click="exportConfigs">
+      <el-button plain size="small" aria-label="导出配置" @click="exportConfigs">
         <el-icon><Download /></el-icon>
         导出配置
       </el-button>
-      <el-button type="primary" size="small" class="vendor-bulk-key-btn" :disabled="configWriteLocked" :title="configWriteLocked ? configWriteLockReason : undefined" @click="openBulkKey">
+      <el-button type="primary" size="small" class="vendor-bulk-key-btn" :disabled="configWriteLocked" :title="configWriteLocked ? configWriteLockReason : undefined" :aria-label="configWriteLocked ? configWriteLockReason : '一键换密钥'" @click="openBulkKey">
         <el-icon><Key /></el-icon>
         一键换密钥
       </el-button>

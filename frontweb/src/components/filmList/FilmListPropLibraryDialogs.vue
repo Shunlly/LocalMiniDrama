@@ -23,14 +23,14 @@
             <div class="library-item-name">{{ item.name || '未命名' }}</div>
             <div class="library-item-desc">{{ (item.description || item.prompt || '').slice(0, 60) }}{{ (item.description || item.prompt || '').length > 60 ? '…' : '' }}</div>
             <div class="library-item-actions">
-              <el-button size="small" :disabled="listWriteLocked" :title="listWriteLocked ? listWriteLockReason : undefined" @click="openEditPropLibrary(item)">编辑</el-button>
-              <el-button size="small" type="danger" plain :disabled="listWriteLocked" :title="listWriteLocked ? listWriteLockReason : undefined" @click="onDeletePropLibrary(item)">删除</el-button>
+              <el-button size="small" :disabled="listWriteLocked" :title="listWriteLocked ? listWriteLockReason : undefined" :aria-label="listWriteLocked ? listWriteLockReason : `编辑公共道具${item.name || '未命名道具'}`" @click="openEditPropLibrary(item)">编辑</el-button>
+              <el-button size="small" type="danger" plain :disabled="listWriteLocked" :title="listWriteLocked ? listWriteLockReason : undefined" :aria-label="listWriteLocked ? listWriteLockReason : `删除公共道具${item.name || '未命名道具'}`" @click="onDeletePropLibrary(item)">删除</el-button>
             </div>
           </div>
         </div>
         <div v-if="propLibraryError" class="library-error" role="alert">
           <p>{{ propLibraryError }}</p>
-          <el-button size="small" type="primary" plain :loading="propLibraryLoading" @click="loadPropLibraryList">重试</el-button>
+          <el-button size="small" type="primary" plain :loading="propLibraryLoading" :aria-label="propLibraryLoading ? '正在加载道具库，请稍候' : '重试加载道具库'" @click="loadPropLibraryList">重试</el-button>
         </div>
         <div v-if="!propLibraryLoading && !propLibraryError && propLibraryList.length === 0" class="library-empty" role="status">
           <p>{{ propLibraryKeyword.trim() ? '没有匹配的道具，试试其他关键词。' : '素材库暂无道具，可在项目中将道具「加入素材库」后在此查看' }}</p>
@@ -40,7 +40,7 @@
       <div class="library-pagination">
         <el-pagination v-model:current-page="propLibraryPage" v-model:page-size="propLibraryPageSize" :total="propLibraryTotal" :page-sizes="[10, 20, 50]" layout="total, sizes, prev, pager, next" aria-label="道具素材分页" @current-change="loadPropLibraryList" @size-change="loadPropLibraryList" />
       </div>
-      <template #footer><el-button @click="showPropLibrary = false">关闭</el-button></template>
+      <template #footer><el-button aria-label="关闭道具库" @click="showPropLibrary = false">关闭</el-button></template>
     </AccessibleDialog>
     <!-- 编辑公共道具 -->
     <AccessibleDialog v-model="showEditPropLibrary" title="编辑素材道具" width="480px" @close="editPropLibraryForm = null">
@@ -60,8 +60,8 @@
               <div class="lib-img-empty"><el-icon aria-hidden="true"><PictureFilled /></el-icon></div>
             </div>
             <div class="lib-img-btns">
-              <el-button size="small" :loading="editPropLibraryForm.imgUploading" :disabled="Boolean(libraryUploadDisabledReason(editPropLibraryForm))" :title="libraryUploadDisabledReason(editPropLibraryForm) || undefined" @click="propLibFileRef.click()">上传图片</el-button>
-              <el-button size="small" type="primary" :loading="editPropLibraryForm.imgGenerating" :disabled="Boolean(libraryGenerateDisabledReason(editPropLibraryForm))" :title="libraryGenerateDisabledReason(editPropLibraryForm) || undefined" @click="doGenerateLibImg(editPropLibraryForm, (editPropLibraryForm.name + (editPropLibraryForm.description ? ', ' + editPropLibraryForm.description : '')), propLibraryAPI, loadPropLibraryList)">AI 生成</el-button>
+              <el-button size="small" :loading="editPropLibraryForm.imgUploading" :disabled="Boolean(libraryUploadDisabledReason(editPropLibraryForm))" :title="libraryUploadDisabledReason(editPropLibraryForm) || undefined" :aria-label="editPropLibraryForm.imgUploading ? '正在上传图片，请稍候' : (libraryUploadDisabledReason(editPropLibraryForm) || '上传道具图片')" @click="propLibFileRef.click()">上传图片</el-button>
+              <el-button size="small" type="primary" :loading="editPropLibraryForm.imgGenerating" :disabled="Boolean(libraryGenerateDisabledReason(editPropLibraryForm))" :title="libraryGenerateDisabledReason(editPropLibraryForm) || undefined" :aria-label="editPropLibraryForm.imgGenerating ? '正在生成道具图，请稍候' : (libraryGenerateDisabledReason(editPropLibraryForm) || 'AI 生成道具图')" @click="doGenerateLibImg(editPropLibraryForm, (editPropLibraryForm.name + (editPropLibraryForm.description ? ', ' + editPropLibraryForm.description : '')), propLibraryAPI, loadPropLibraryList)">AI 生成</el-button>
             </div>
           </div>
           <input ref="propLibFileRef" type="file" accept="image/*" style="display:none" @change="e => doUploadLibImg(e, editPropLibraryForm, propLibraryAPI, loadPropLibraryList)" />
@@ -72,8 +72,8 @@
         <el-form-item label="标签"><el-input v-model="editPropLibraryForm.tags" aria-label="道具标签" placeholder="可选，逗号分隔" /></el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="showEditPropLibrary = false">取消</el-button>
-        <el-button type="primary" :loading="editPropLibrarySaving" :disabled="listWriteLocked" :title="listWriteLocked ? listWriteLockReason : undefined" @click="submitEditPropLibrary">保存</el-button>
+        <el-button aria-label="取消编辑公共道具" @click="showEditPropLibrary = false">取消</el-button>
+        <el-button type="primary" :loading="editPropLibrarySaving" :disabled="listWriteLocked" :title="listWriteLocked ? listWriteLockReason : undefined" :aria-label="editPropLibrarySaving ? '正在保存公共道具，请稍候' : (listWriteLocked ? listWriteLockReason : '保存公共道具')" @click="submitEditPropLibrary">保存</el-button>
       </template>
     </AccessibleDialog>
   </div>

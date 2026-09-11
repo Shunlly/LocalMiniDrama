@@ -23,14 +23,14 @@
             <div class="library-item-name">{{ item.name || '未命名' }}</div>
             <div class="library-item-desc">{{ (item.description || '').slice(0, 60) }}{{ (item.description || '').length > 60 ? '…' : '' }}</div>
             <div class="library-item-actions">
-              <el-button size="small" :disabled="listWriteLocked" :title="listWriteLocked ? listWriteLockReason : undefined" @click="openEditCharLibrary(item)">编辑</el-button>
-              <el-button size="small" type="danger" plain :disabled="listWriteLocked" :title="listWriteLocked ? listWriteLockReason : undefined" @click="onDeleteCharLibrary(item)">删除</el-button>
+              <el-button size="small" :disabled="listWriteLocked" :title="listWriteLocked ? listWriteLockReason : undefined" :aria-label="listWriteLocked ? listWriteLockReason : `编辑公共角色${item.name || '未命名角色'}`" @click="openEditCharLibrary(item)">编辑</el-button>
+              <el-button size="small" type="danger" plain :disabled="listWriteLocked" :title="listWriteLocked ? listWriteLockReason : undefined" :aria-label="listWriteLocked ? listWriteLockReason : `删除公共角色${item.name || '未命名角色'}`" @click="onDeleteCharLibrary(item)">删除</el-button>
             </div>
           </div>
         </div>
         <div v-if="charLibraryError" class="library-error" role="alert">
           <p>{{ charLibraryError }}</p>
-          <el-button size="small" type="primary" plain :loading="charLibraryLoading" @click="loadCharLibraryList">重试</el-button>
+          <el-button size="small" type="primary" plain :loading="charLibraryLoading" :aria-label="charLibraryLoading ? '正在加载角色库，请稍候' : '重试加载角色库'" @click="loadCharLibraryList">重试</el-button>
         </div>
         <div v-if="!charLibraryLoading && !charLibraryError && charLibraryList.length === 0" class="library-empty" role="status">
           <p>{{ charLibraryKeyword.trim() ? '没有匹配的角色，试试其他关键词。' : '素材库暂无角色，可在项目中将角色「加入素材库」后在此查看' }}</p>
@@ -40,7 +40,7 @@
       <div class="library-pagination">
         <el-pagination v-model:current-page="charLibraryPage" v-model:page-size="charLibraryPageSize" :total="charLibraryTotal" :page-sizes="[10, 20, 50]" layout="total, sizes, prev, pager, next" aria-label="角色素材分页" @current-change="loadCharLibraryList" @size-change="loadCharLibraryList" />
       </div>
-      <template #footer><el-button @click="showCharLibrary = false">关闭</el-button></template>
+      <template #footer><el-button aria-label="关闭角色库" @click="showCharLibrary = false">关闭</el-button></template>
     </AccessibleDialog>
     <!-- 编辑公共角色 -->
     <AccessibleDialog v-model="showEditCharLibrary" title="编辑素材角色" width="480px" @close="editCharLibraryForm = null">
@@ -60,8 +60,8 @@
               <div class="lib-img-empty"><el-icon aria-hidden="true"><PictureFilled /></el-icon></div>
             </div>
             <div class="lib-img-btns">
-              <el-button size="small" :loading="editCharLibraryForm.imgUploading" :disabled="Boolean(libraryUploadDisabledReason(editCharLibraryForm))" :title="libraryUploadDisabledReason(editCharLibraryForm) || undefined" @click="charLibFileRef.click()">上传图片</el-button>
-              <el-button size="small" type="primary" :loading="editCharLibraryForm.imgGenerating" :disabled="Boolean(libraryGenerateDisabledReason(editCharLibraryForm))" :title="libraryGenerateDisabledReason(editCharLibraryForm) || undefined" @click="doGenerateLibImg(editCharLibraryForm, (editCharLibraryForm.name + (editCharLibraryForm.description ? ', ' + editCharLibraryForm.description : '')), characterLibraryAPI, loadCharLibraryList)">AI 生成</el-button>
+              <el-button size="small" :loading="editCharLibraryForm.imgUploading" :disabled="Boolean(libraryUploadDisabledReason(editCharLibraryForm))" :title="libraryUploadDisabledReason(editCharLibraryForm) || undefined" :aria-label="editCharLibraryForm.imgUploading ? '正在上传图片，请稍候' : (libraryUploadDisabledReason(editCharLibraryForm) || '上传角色图片')" @click="charLibFileRef.click()">上传图片</el-button>
+              <el-button size="small" type="primary" :loading="editCharLibraryForm.imgGenerating" :disabled="Boolean(libraryGenerateDisabledReason(editCharLibraryForm))" :title="libraryGenerateDisabledReason(editCharLibraryForm) || undefined" :aria-label="editCharLibraryForm.imgGenerating ? '正在生成角色图，请稍候' : (libraryGenerateDisabledReason(editCharLibraryForm) || 'AI 生成角色图')" @click="doGenerateLibImg(editCharLibraryForm, (editCharLibraryForm.name + (editCharLibraryForm.description ? ', ' + editCharLibraryForm.description : '')), characterLibraryAPI, loadCharLibraryList)">AI 生成</el-button>
             </div>
           </div>
           <input ref="charLibFileRef" type="file" accept="image/*" style="display:none" @change="e => doUploadLibImg(e, editCharLibraryForm, characterLibraryAPI, loadCharLibraryList)" />
@@ -72,8 +72,8 @@
         <el-form-item label="标签"><el-input v-model="editCharLibraryForm.tags" aria-label="角色标签" placeholder="可选，逗号分隔" /></el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="showEditCharLibrary = false">取消</el-button>
-        <el-button type="primary" :loading="editCharLibrarySaving" :disabled="listWriteLocked" :title="listWriteLocked ? listWriteLockReason : undefined" @click="submitEditCharLibrary">保存</el-button>
+        <el-button aria-label="取消编辑公共角色" @click="showEditCharLibrary = false">取消</el-button>
+        <el-button type="primary" :loading="editCharLibrarySaving" :disabled="listWriteLocked" :title="listWriteLocked ? listWriteLockReason : undefined" :aria-label="editCharLibrarySaving ? '正在保存公共角色，请稍候' : (listWriteLocked ? listWriteLockReason : '保存公共角色')" @click="submitEditCharLibrary">保存</el-button>
       </template>
     </AccessibleDialog>
   </div>

@@ -7,7 +7,7 @@
       </div>
       <div class="head-actions">
         <ActionGate label="刷新" :reason="refreshBusyReason">
-          <el-button size="small" :loading="loading" :disabled="Boolean(refreshBusyReason)" @click="loadData">
+          <el-button size="small" :loading="loading" :disabled="Boolean(refreshBusyReason)" :aria-label="loading ? '正在刷新素材处理' : (refreshBusyReason || '刷新素材处理')" @click="loadData">
             {{ loading ? '正在刷新' : '刷新' }}
           </el-button>
         </ActionGate>
@@ -38,7 +38,7 @@
       aria-live="assertive"
     >
       <span>{{ workflowDataError }}</span>
-      <el-button size="small" type="primary" plain :loading="loading" @click="loadData">
+      <el-button size="small" type="primary" plain :loading="loading" :aria-label="loading ? '正在加载素材处理' : '重试加载素材处理'" @click="loadData">
         重试
       </el-button>
     </div>
@@ -81,7 +81,7 @@
               <div v-else class="mini-list">
                 <div v-for="source in sources" :key="source.id" class="mini-item">
                   <span class="source-record-identity">
-                    <button class="link-button" @click="openSourceDetail(source)">
+                    <button class="link-button" :aria-label="`查看素材详情`" @click="openSourceDetail(source)">
                       {{ source.title || sourceTypeLabel(source.source_type) }}
                     </button>
                     <small v-if="sourceProvenanceLabel(source)">{{ sourceProvenanceLabel(source) }}</small>
@@ -95,7 +95,7 @@
                         type="primary"
                         :loading="startingSourceId === source.id"
                         :disabled="Boolean(existingSourceLaunchReason)"
-                        @click="startExistingSource(source)"
+                        :aria-label="startingSourceId === source.id ? '正在启动' : (existingSourceLaunchReason || '以当前模式启动')" @click="startExistingSource(source)"
                       >
                         以 {{ workflowModeShortLabel }} 启动
                       </el-button>
@@ -133,7 +133,7 @@
                   type="primary"
                   link
                   :loading="pollState === 'recovering'"
-                  @click="resumePolling"
+                  :aria-label="pollState === 'recovering' ? '正在恢复轮询' : '恢复轮询'" @click="resumePolling"
                 >
                   恢复轮询
                 </el-button>

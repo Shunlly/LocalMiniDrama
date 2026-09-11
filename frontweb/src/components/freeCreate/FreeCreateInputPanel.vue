@@ -29,7 +29,7 @@
             v-if="generationCapability.status === 'error'"
             link
             type="primary"
-            @click="loadServiceConfigs"
+            aria-label="重新检查生成能力" @click="loadServiceConfigs"
           >
             重新检查
           </el-button>
@@ -37,7 +37,7 @@
             v-if="generationCapability.status !== 'loading' && !generationCapability.ready"
             link
             type="primary"
-            @click="openAiConfig"
+            aria-label="前往 AI 配置" @click="openAiConfig"
           >
             配置{{ activeServiceLabel }}服务
           </el-button>
@@ -114,7 +114,7 @@
               size="small"
               type="primary"
               plain
-              @click="retryRefImageUpload"
+              aria-label="重试上传参考图" @click="retryRefImageUpload"
             >
               重试上传
             </el-button>
@@ -123,11 +123,12 @@
               size="small"
               type="danger"
               plain
+              aria-label="移除参考图"
               @click="clearRefImage"
             >
               移除
             </el-button>
-            <el-button v-else size="small" plain @click="clearRefImage">取消上传</el-button>
+            <el-button v-else size="small" plain aria-label="取消上传参考图" @click="clearRefImage">取消上传</el-button>
           </div>
         </div>
         <input
@@ -193,6 +194,7 @@
             :disabled="generateDisabled"
             :title="(generating ? resultBusyDisabledReason : generateDisabledReason) || undefined"
             :aria-describedby="generateDisabledReason ? 'free-create-generate-reason' : undefined"
+            :aria-label="generating ? (resultBusyDisabledReason || '正在生成') : (generateDisabledReason || '开始生成')"
             class="generate-btn"
             @click="generate"
           >

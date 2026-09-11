@@ -23,14 +23,14 @@
             <div class="library-item-name">{{ item.location || item.time || '未命名' }}</div>
             <div class="library-item-desc">{{ (item.description || item.prompt || '').slice(0, 60) }}{{ (item.description || item.prompt || '').length > 60 ? '…' : '' }}</div>
             <div class="library-item-actions">
-              <el-button size="small" :disabled="listWriteLocked" :title="listWriteLocked ? listWriteLockReason : undefined" @click="openEditSceneLibrary(item)">编辑</el-button>
-              <el-button size="small" type="danger" plain :disabled="listWriteLocked" :title="listWriteLocked ? listWriteLockReason : undefined" @click="onDeleteSceneLibrary(item)">删除</el-button>
+              <el-button size="small" :disabled="listWriteLocked" :title="listWriteLocked ? listWriteLockReason : undefined" :aria-label="listWriteLocked ? listWriteLockReason : `编辑公共场景${item.location || '未命名场景'}`" @click="openEditSceneLibrary(item)">编辑</el-button>
+              <el-button size="small" type="danger" plain :disabled="listWriteLocked" :title="listWriteLocked ? listWriteLockReason : undefined" :aria-label="listWriteLocked ? listWriteLockReason : `删除公共场景${item.location || '未命名场景'}`" @click="onDeleteSceneLibrary(item)">删除</el-button>
             </div>
           </div>
         </div>
         <div v-if="sceneLibraryError" class="library-error" role="alert">
           <p>{{ sceneLibraryError }}</p>
-          <el-button size="small" type="primary" plain :loading="sceneLibraryLoading" @click="loadSceneLibraryList">重试</el-button>
+          <el-button size="small" type="primary" plain :loading="sceneLibraryLoading" :aria-label="sceneLibraryLoading ? '正在加载场景库，请稍候' : '重试加载场景库'" @click="loadSceneLibraryList">重试</el-button>
         </div>
         <div v-if="!sceneLibraryLoading && !sceneLibraryError && sceneLibraryList.length === 0" class="library-empty" role="status">
           <p>{{ sceneLibraryKeyword.trim() ? '没有匹配的场景，试试其他关键词。' : '素材库暂无场景，可在项目中将场景「加入素材库」后在此查看' }}</p>
@@ -40,7 +40,7 @@
       <div class="library-pagination">
         <el-pagination v-model:current-page="sceneLibraryPage" v-model:page-size="sceneLibraryPageSize" :total="sceneLibraryTotal" :page-sizes="[10, 20, 50]" layout="total, sizes, prev, pager, next" aria-label="场景素材分页" @current-change="loadSceneLibraryList" @size-change="loadSceneLibraryList" />
       </div>
-      <template #footer><el-button @click="showSceneLibrary = false">关闭</el-button></template>
+      <template #footer><el-button aria-label="关闭场景库" @click="showSceneLibrary = false">关闭</el-button></template>
     </AccessibleDialog>
     <!-- 编辑公共场景 -->
     <AccessibleDialog v-model="showEditSceneLibrary" title="编辑素材场景" width="480px" @close="editSceneLibraryForm = null">
@@ -60,8 +60,8 @@
               <div class="lib-img-empty"><el-icon aria-hidden="true"><PictureFilled /></el-icon></div>
             </div>
             <div class="lib-img-btns">
-              <el-button size="small" :loading="editSceneLibraryForm.imgUploading" :disabled="Boolean(libraryUploadDisabledReason(editSceneLibraryForm))" :title="libraryUploadDisabledReason(editSceneLibraryForm) || undefined" @click="sceneLibFileRef.click()">上传图片</el-button>
-              <el-button size="small" type="primary" :loading="editSceneLibraryForm.imgGenerating" :disabled="Boolean(libraryGenerateDisabledReason(editSceneLibraryForm))" :title="libraryGenerateDisabledReason(editSceneLibraryForm) || undefined" @click="doGenerateLibImg(editSceneLibraryForm, ([editSceneLibraryForm.location, editSceneLibraryForm.time, editSceneLibraryForm.description].filter(Boolean).join(', ')), sceneLibraryAPI, loadSceneLibraryList)">AI 生成</el-button>
+              <el-button size="small" :loading="editSceneLibraryForm.imgUploading" :disabled="Boolean(libraryUploadDisabledReason(editSceneLibraryForm))" :title="libraryUploadDisabledReason(editSceneLibraryForm) || undefined" :aria-label="editSceneLibraryForm.imgUploading ? '正在上传图片，请稍候' : (libraryUploadDisabledReason(editSceneLibraryForm) || '上传场景图片')" @click="sceneLibFileRef.click()">上传图片</el-button>
+              <el-button size="small" type="primary" :loading="editSceneLibraryForm.imgGenerating" :disabled="Boolean(libraryGenerateDisabledReason(editSceneLibraryForm))" :title="libraryGenerateDisabledReason(editSceneLibraryForm) || undefined" :aria-label="editSceneLibraryForm.imgGenerating ? '正在生成场景图，请稍候' : (libraryGenerateDisabledReason(editSceneLibraryForm) || 'AI 生成场景图')" @click="doGenerateLibImg(editSceneLibraryForm, ([editSceneLibraryForm.location, editSceneLibraryForm.time, editSceneLibraryForm.description].filter(Boolean).join(', ')), sceneLibraryAPI, loadSceneLibraryList)">AI 生成</el-button>
             </div>
           </div>
           <input ref="sceneLibFileRef" type="file" accept="image/*" style="display:none" @change="e => doUploadLibImg(e, editSceneLibraryForm, sceneLibraryAPI, loadSceneLibraryList)" />
@@ -73,8 +73,8 @@
         <el-form-item label="标签"><el-input v-model="editSceneLibraryForm.tags" aria-label="场景标签" placeholder="可选，逗号分隔" /></el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="showEditSceneLibrary = false">取消</el-button>
-        <el-button type="primary" :loading="editSceneLibrarySaving" :disabled="listWriteLocked" :title="listWriteLocked ? listWriteLockReason : undefined" @click="submitEditSceneLibrary">保存</el-button>
+        <el-button aria-label="取消编辑公共场景" @click="showEditSceneLibrary = false">取消</el-button>
+        <el-button type="primary" :loading="editSceneLibrarySaving" :disabled="listWriteLocked" :title="listWriteLocked ? listWriteLockReason : undefined" :aria-label="editSceneLibrarySaving ? '正在保存公共场景，请稍候' : (listWriteLocked ? listWriteLockReason : '保存公共场景')" @click="submitEditSceneLibrary">保存</el-button>
       </template>
     </AccessibleDialog>
   </div>

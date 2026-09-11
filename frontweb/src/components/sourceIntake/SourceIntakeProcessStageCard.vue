@@ -22,22 +22,22 @@
         <template #actions>
           <div class="action-row compact">
             <ActionGate label="重试失败步骤" :reason="controlActionReasons.retry">
-              <el-button size="small" :disabled="Boolean(controlActionReasons.retry)" :loading="retrying" @click="$emit('retry')">
+              <el-button size="small" :disabled="Boolean(controlActionReasons.retry)" :loading="retrying" :aria-label="retrying ? '正在提交重试' : (controlActionReasons.retry || '重试失败步骤')" @click="$emit('retry')">
                 {{ retrying ? '正在提交重试' : '重试失败步骤' }}
               </el-button>
             </ActionGate>
             <ActionGate label="暂停处理" :reason="controlActionReasons.pause">
-              <el-button size="small" :disabled="Boolean(controlActionReasons.pause)" :loading="pausing" @click="$emit('pause')">
+              <el-button size="small" :disabled="Boolean(controlActionReasons.pause)" :loading="pausing" :aria-label="pausing ? '正在暂停' : (controlActionReasons.pause || '暂停处理')" @click="$emit('pause')">
                 {{ pausing ? '正在暂停' : '暂停' }}
               </el-button>
             </ActionGate>
             <ActionGate label="恢复处理" :reason="controlActionReasons.resume">
-              <el-button size="small" type="primary" plain :disabled="Boolean(controlActionReasons.resume)" :loading="resuming" @click="$emit('resume')">
+              <el-button size="small" type="primary" plain :disabled="Boolean(controlActionReasons.resume)" :loading="resuming" :aria-label="resuming ? '正在恢复' : (controlActionReasons.resume || '恢复处理')" @click="$emit('resume')">
                 {{ resuming ? '正在恢复' : '恢复' }}
               </el-button>
             </ActionGate>
             <ActionGate label="取消处理" :reason="controlActionReasons.cancel">
-              <el-button size="small" type="danger" plain :disabled="Boolean(controlActionReasons.cancel)" :loading="cancelling" @click="$emit('cancel')">
+              <el-button size="small" type="danger" plain :disabled="Boolean(controlActionReasons.cancel)" :loading="cancelling" :aria-label="cancelling ? '正在取消' : (controlActionReasons.cancel || '取消处理')" @click="$emit('cancel')">
                 {{ cancelling ? '正在取消' : '取消' }}
               </el-button>
             </ActionGate>
@@ -48,7 +48,7 @@
                 type="primary"
                 :loading="startingSourceId === sources[0].id"
                 :disabled="Boolean(existingSourceLaunchReason)"
-                @click="$emit('restart-latest', sources[0])"
+                :aria-label="startingSourceId === sources[0].id ? '正在重新启动' : (existingSourceLaunchReason || `重新启动${workflowModeShortLabel}`)" @click="$emit('restart-latest', sources[0])"
               >
                 {{ startingSourceId === sources[0].id ? '正在重新启动' : `重新启动${workflowModeShortLabel}` }}
               </el-button>
@@ -61,14 +61,14 @@
     <div v-else-if="sources.length > 0" class="stage-empty stage-empty--actionable">
       <span>已有 {{ sources.length }} 份素材，选择最近导入的素材开始处理。</span>
       <ActionGate :label="`以 ${workflowModeShortLabel} 启动`" :reason="existingSourceLaunchReason">
-        <el-button type="primary" :loading="startingSourceId === sources[0].id" :disabled="Boolean(existingSourceLaunchReason)" @click="$emit('start-existing', sources[0])">
+        <el-button type="primary" :loading="startingSourceId === sources[0].id" :disabled="Boolean(existingSourceLaunchReason)" :aria-label="startingSourceId === sources[0].id ? '正在启动' : (existingSourceLaunchReason || `以${workflowModeShortLabel}启动`)" @click="$emit('start-existing', sources[0])">
           以 {{ workflowModeShortLabel }} 启动
         </el-button>
       </ActionGate>
     </div>
     <div v-else class="stage-empty stage-empty--actionable">
       <span>还没有可处理的故事素材。请先在「导入素材」步骤添加网页、文件或文本。</span>
-      <el-button type="primary" plain @click="$emit('select-step', 'intake')">去导入素材</el-button>
+      <el-button type="primary" plain aria-label="去导入素材" @click="$emit('select-step', 'intake')">去导入素材</el-button>
     </div>
   </div>
 </template>

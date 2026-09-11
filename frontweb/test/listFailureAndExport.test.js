@@ -240,7 +240,7 @@ test('分类素材加载失败不会被伪装成空库，且 AI 配置在列表�
     const escaped = click.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
     assert.match(
       filmListLibrarySource,
-      new RegExp(`:disabled="listWriteLocked" :title="listWriteLocked \\? listWriteLockReason : undefined" @click="${escaped}"`),
+      new RegExp(`:disabled="listWriteLocked" :title="listWriteLocked \\? listWriteLockReason : undefined"[\\s\\S]{0,360}?@click="${escaped}"`),
     )
   }
   for (const form of ['editCharLibraryForm', 'editSceneLibraryForm', 'editPropLibraryForm']) {

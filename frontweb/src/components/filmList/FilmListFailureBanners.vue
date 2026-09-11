@@ -16,7 +16,7 @@
       <p v-else class="data-load-state__detail">项目空态不会在连接恢复前显示，也不会执行任何项目写操作。</p>
       <p class="data-load-state__detail">错误详情：{{ listError }}</p>
     </div>
-    <el-button type="primary" plain :loading="loading" @click="loadList">
+    <el-button type="primary" plain :loading="loading" :aria-label="loading ? '正在加载项目列表' : '重试加载'" @click="loadList">
       <el-icon><RefreshLeft /></el-icon>重试加载
     </el-button>
   </section>
@@ -39,7 +39,7 @@
       :loading="exportingId === exportFailure.drama.id"
       :disabled="exportingId !== null && exportingId !== exportFailure.drama.id"
       :title="exportingId !== null && exportingId !== exportFailure.drama.id ? '正在导出其他项目，请稍候' : undefined"
-      @click="onExport(exportFailure.drama)"
+      :aria-label="exportingId === exportFailure.drama.id ? '正在导出项目包' : (exportingId !== null && exportingId !== exportFailure.drama.id ? '正在导出其他项目，请稍候' : '重试导出项目包')" @click="onExport(exportFailure.drama)"
     >
       <el-icon><RefreshLeft /></el-icon>重试导出
     </el-button>
@@ -67,11 +67,11 @@
         :disabled="listWriteLocked"
         :title="listWriteLocked ? listWriteLockReason : undefined"
         :aria-describedby="listError ? 'project-list-load-error' : undefined"
-        @click="triggerImport"
+        :aria-label="importing ? '正在导入项目包' : (listWriteLocked ? listWriteLockReason : '重新选择项目包')" @click="triggerImport"
       >
         <el-icon><RefreshLeft /></el-icon>重新选择项目包
       </el-button>
-      <el-button plain :disabled="importing" :title="importing ? '正在导入项目包，请稍候' : undefined" @click="dismissImportFailure">
+      <el-button plain :disabled="importing" :title="importing ? '正在导入项目包，请稍候' : undefined" :aria-label="importing ? '正在导入项目包，请稍候' : '关闭导入失败提示'" @click="dismissImportFailure">
         关闭
       </el-button>
     </div>
