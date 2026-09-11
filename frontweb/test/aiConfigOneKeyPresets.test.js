@@ -29,12 +29,9 @@ function createHarness({ loadConfirmed = false, confirm = true } = {}) {
       error(message) { messages.push(['error', message]) },
     },
     ElMessageBox: {
-      async confirm() {
-        confirms.push(true)
-        if (!confirm) {
-          throw 'cancel'
-        }
-        return true
+      async confirm(message, title) {
+        confirms.push([message, title])
+        if (!confirm) throw 'cancel'
       },
     },
     aiAPI: {
@@ -122,6 +119,8 @@ test('列表确认后才关闭弹窗并通知变更，未确认则提示重试',
   assert.equal(confirmed.notifications.length, 1)
   assert.equal(confirmed.invalidations.length, 1)
   assert.equal(confirmed.messages[0][0], 'success')
+  assert.equal(confirmed.confirms[0][1], '一键创建确认')
+  assert.match(confirmed.confirms[0][0], /预设只用于填表，不代表本应用已真实跑通对应厂商/)
 })
 
 test('取消一键创建确认后不会提交预设', async () => {
