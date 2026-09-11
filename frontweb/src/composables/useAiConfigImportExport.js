@@ -1,7 +1,7 @@
 /**
  * AI 配置导入导出。页面仍负责文件选择器接线和 loadList。
  */
-import { ElMessage as defaultElMessage } from '@/utils/elementPlusFeedback.js'
+import { ElMessage as defaultElMessage, ElMessageBox as defaultElMessageBox } from '@/utils/elementPlusFeedback.js'
 import { aiAPI as defaultAiAPI } from '@/api/ai.js'
 import { sanitizeConfigForExport, stripMaskedSecretsFromSettings } from '@/utils/aiConfigExport.js'
 import { runAiConfigCreateBatch as defaultRunAiConfigCreateBatch } from '@/utils/aiConfigMutations.js'
@@ -11,6 +11,7 @@ import { describeServiceLoadError } from '@/utils/requestError.js'
 
 export function useAiConfigImportExport(deps = {}) {
   const ElMessage = deps.ElMessage || defaultElMessage
+  const ElMessageBox = deps.ElMessageBox || defaultElMessageBox
   const aiAPI = deps.aiAPI || defaultAiAPI
   const runAiConfigCreateBatch = deps.runAiConfigCreateBatch || defaultRunAiConfigCreateBatch
   const configWriteLocked = deps.configWriteLocked
@@ -55,6 +56,18 @@ export function useAiConfigImportExport(deps = {}) {
       const configs = JSON.parse(text)
       if (!Array.isArray(configs)) {
         ElMessage.error('文件格式不正确，需要 JSON 数组')
+        return
+      }
+      try {
+        await ElMessageBox.confirm(
+          `将导入 ${configs.length} 条配置。导入会新增条目，其中的默认项可能替换当前默认配置。是否继续？`,
+          '导入确认',
+          { type: 'warning', confirmButtonText: '确认导入', cancelButtonText: '取消' },
+        )
+      } catch (error) {
+        if (!isUserFacingAbort(error)) {
+          ElMessage.error(toUserFacingError(error, '无法确认导入'))
+        }
         return
       }
       const result = await runAiConfigCreateBatch(configs, (cfg) => {

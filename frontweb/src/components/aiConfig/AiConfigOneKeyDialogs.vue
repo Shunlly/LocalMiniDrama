@@ -39,7 +39,7 @@
             type="password"
             aria-label="通义密钥"
             placeholder="请输入通义（DashScope）API Key，格式：sk-xxxxxxxx"
-            show-password-on="click"
+            show-password
             clearable
           />
         </el-form-item>
@@ -91,7 +91,7 @@
             type="password"
             aria-label="火山引擎密钥"
             placeholder="请输入火山引擎（方舟）API Key"
-            show-password-on="click"
+            show-password
             clearable
           />
         </el-form-item>
@@ -142,7 +142,7 @@
             type="password"
             aria-label="Agnes 密钥"
             placeholder="请输入 Agnes API Key"
-            show-password-on="click"
+            show-password
             clearable
           />
         </el-form-item>

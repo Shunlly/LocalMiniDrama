@@ -34,6 +34,19 @@ export function useAiConfigRowMutations(deps = {}) {
     if (configWriteLocked.value) return
     const key = bulkKeyInput.value.trim()
     if (!key) return
+    try {
+      await ElMessageBox.confirm(
+        '确定用新密钥替换所有配置的 API 密钥？此操作不可恢复。',
+        '批量换密钥确认',
+        { type: 'warning', confirmButtonText: '确定替换', cancelButtonText: '取消', confirmButtonClass: 'el-button--danger' },
+      )
+    } catch (error) {
+      if (!isUserFacingAbort(error)) {
+        ElMessage.error(toUserFacingError(error, '无法确认替换密钥'))
+      }
+      return
+    }
+    if (configWriteLocked.value) return
     bulkKeySaving.value = true
     try {
       const res = await aiAPI.bulkUpdateKey(key)
@@ -51,7 +64,9 @@ export function useAiConfigRowMutations(deps = {}) {
       bulkKeyVisible.value = false
       if (listMatches) ElMessage.success(res?.message || '所有配置的 API 密钥已更新')
       else ElMessage.warning('服务端已确认批量换密钥，但配置列表刷新或并发校验未完全一致，请刷新后复核。')
-    } catch (_) {
+    } catch (error) {
+      if (isUserFacingAbort(error)) return
+      ElMessage.error(toUserFacingError(error, '批量换密钥失败'))
     } finally {
       bulkKeySaving.value = false
     }

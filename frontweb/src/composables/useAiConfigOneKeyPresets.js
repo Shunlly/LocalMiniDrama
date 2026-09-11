@@ -1,9 +1,10 @@
 /**
  * AI 配置页一键厂商预设。页面仍负责弹窗接线和 loadList。
  */
-import { ElMessage as defaultElMessage } from '@/utils/elementPlusFeedback.js'
+import { ElMessage as defaultElMessage, ElMessageBox as defaultElMessageBox } from '@/utils/elementPlusFeedback.js'
 import { aiAPI as defaultAiAPI } from '@/api/ai.js'
 import { runAiConfigCreateBatch as defaultRunAiConfigCreateBatch } from '@/utils/aiConfigMutations.js'
+import { toUserFacingError, isUserFacingAbort } from '@/utils/userFacingError.js'
 
 /** 通义一键配置用 */
 export const TONGYI_CONFIGS = [
@@ -32,6 +33,7 @@ export const AGNES_CONFIGS = [
 
 export function useAiConfigOneKeyPresets(deps = {}) {
   const ElMessage = deps.ElMessage || defaultElMessage
+  const ElMessageBox = deps.ElMessageBox || defaultElMessageBox
   const aiAPI = deps.aiAPI || defaultAiAPI
   const runAiConfigCreateBatch = deps.runAiConfigCreateBatch || defaultRunAiConfigCreateBatch
   const configWriteLocked = deps.configWriteLocked
@@ -54,6 +56,23 @@ export function useAiConfigOneKeyPresets(deps = {}) {
     if (configWriteLocked.value) return
     oneKeyTongyiKey.value = ''
     oneKeyTongyiVisible.value = true
+  }
+
+  async function confirmCreatePreset(configs) {
+    const count = Array.isArray(configs) ? configs.length : 0
+    try {
+      await ElMessageBox.confirm(
+        `将创建 ${count} 条预设配置，并把它们设为对应服务的默认项。现有同类默认配置会被替换。预设只用于填表，不代表本应用已真实跑通对应厂商。是否继续？`,
+        '一键创建确认',
+        { type: 'warning', confirmButtonText: '确认创建', cancelButtonText: '取消' },
+      )
+      return true
+    } catch (error) {
+      if (!isUserFacingAbort(error)) {
+        ElMessage.error(toUserFacingError(error, '无法确认创建'))
+      }
+      return false
+    }
   }
 
   async function submitPresetConfigs(configs, apiKey, closeDialog) {
@@ -103,6 +122,8 @@ export function useAiConfigOneKeyPresets(deps = {}) {
     if (configWriteLocked.value) return
     const apiKey = oneKeyTongyiKey.value.trim()
     if (!apiKey) return
+    if (!await confirmCreatePreset(TONGYI_CONFIGS)) return
+    if (configWriteLocked.value) return
     oneKeyTongyiSaving.value = true
     try {
       await submitPresetConfigs(TONGYI_CONFIGS, apiKey, () => {
@@ -123,6 +144,8 @@ export function useAiConfigOneKeyPresets(deps = {}) {
     if (configWriteLocked.value) return
     const apiKey = oneKeyVolcKey.value.trim()
     if (!apiKey) return
+    if (!await confirmCreatePreset(VOLCENGINE_CONFIGS)) return
+    if (configWriteLocked.value) return
     oneKeyVolcSaving.value = true
     try {
       await submitPresetConfigs(VOLCENGINE_CONFIGS, apiKey, () => {
@@ -143,6 +166,8 @@ export function useAiConfigOneKeyPresets(deps = {}) {
     if (configWriteLocked.value) return
     const apiKey = oneKeyAgnesKey.value.trim()
     if (!apiKey) return
+    if (!await confirmCreatePreset(AGNES_CONFIGS)) return
+    if (configWriteLocked.value) return
     oneKeyAgnesSaving.value = true
     try {
       await submitPresetConfigs(AGNES_CONFIGS, apiKey, () => {

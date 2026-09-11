@@ -299,7 +299,7 @@ test('AI config mutations emit one reliable change notification only after real 
   assert.match(vueSource, /const emit = defineEmits\(\['configuration-changed'\]\)/)
   assert.equal((vueSource.match(/emit\('configuration-changed'\)/g) || []).length, 0)
   assert.equal((formActionsSource.match(/emit\('configuration-changed'\)/g) || []).length, 1)
-  assert.match(formActionsSource, /function notifyConfigurationChanged\(\) \{\s*emit\('configuration-changed'\)\s*\}/)
+  assert.match(formActionsSource, /function notifyConfigurationChanged\(\) \{\s*emit\('configuration-changed'\)\s*revealSavedConfigs\?\.\(\)\s*\}/)
   assert.equal((vueSource.match(/^[ \t]*notifyConfigurationChanged\(\)$/gm) || []).length, 1)
   assert.equal((formActionsSource.match(/^[ \t]*notifyConfigurationChanged\(\)$/gm) || []).length, 1)
   assert.equal((oneKeySource.match(/^[ \t]*notifyConfigurationChanged\(\)$/gm) || []).length, 1)

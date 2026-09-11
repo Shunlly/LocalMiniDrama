@@ -4,8 +4,9 @@ import { ref } from 'vue'
 
 import { useAiConfigOneKeyPresets, TONGYI_CONFIGS } from '../src/composables/useAiConfigOneKeyPresets.js'
 
-function createHarness({ loadConfirmed = false } = {}) {
+function createHarness({ loadConfirmed = false, confirm = true } = {}) {
   const messages = []
+  const confirms = []
   const created = []
   const loadCalls = []
   const notifications = []
@@ -26,6 +27,15 @@ function createHarness({ loadConfirmed = false } = {}) {
     ElMessage: {
       success(message) { messages.push(['success', message]) },
       error(message) { messages.push(['error', message]) },
+    },
+    ElMessageBox: {
+      async confirm() {
+        confirms.push(true)
+        if (!confirm) {
+          throw 'cancel'
+        }
+        return true
+      },
     },
     aiAPI: {
       async create(payload) {
@@ -63,6 +73,7 @@ function createHarness({ loadConfirmed = false } = {}) {
   return {
     ...harness,
     messages,
+    confirms,
     created,
     loadCalls,
     notifications,
@@ -111,4 +122,15 @@ test('列表确认后才关闭弹窗并通知变更，未确认则提示重试',
   assert.equal(confirmed.notifications.length, 1)
   assert.equal(confirmed.invalidations.length, 1)
   assert.equal(confirmed.messages[0][0], 'success')
+})
+
+test('取消一键创建确认后不会提交预设', async () => {
+  const h = createHarness({ loadConfirmed: true, confirm: false })
+  h.oneKeyTongyiVisible.value = true
+  h.oneKeyTongyiKey.value = 'sk-test'
+  await h.submitOneKeyTongyi()
+  assert.equal(h.confirms.length, 1)
+  assert.equal(h.created.length, 0)
+  assert.equal(h.notifications.length, 0)
+  assert.equal(h.oneKeyTongyiVisible.value, true)
 })

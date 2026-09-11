@@ -670,6 +670,7 @@ const {
   isComfyUiForm,
   isDeepSeekOfficialForm,
   invalidateConnectionTestResults,
+  revealSavedConfigs,
 })
 
 const {
@@ -809,6 +810,11 @@ function onRowEdit(row) {
   openEdit(row)
 }
 
+function revealSavedConfigs() {
+  selectConfigWorkspaceView('configs')
+  activeServiceFilter.value = ''
+}
+
 async function handleSd2AssetSaved() {
   invalidateConnectionTestResults()
   notifyConfigurationChanged()
@@ -913,7 +919,7 @@ async function openTest(row) {
     })
   } catch (e) {
     if (isUserFacingAbort(e, controller.signal) || controller.signal.aborted) {
-      if (testVisible.value && testingConfigId.value === row.id) {
+      if (testVisible.value && String(testingConfigId.value) === String(row.id)) {
         testResultAnnouncement.value = ''
       }
       return
@@ -940,7 +946,7 @@ async function openTest(row) {
     })
   } finally {
     if (connectionTestAbortController === controller) connectionTestAbortController = null
-    if (testingConfigId.value === row.id) testingConfigId.value = null
+    if (String(testingConfigId.value) === String(row.id)) testingConfigId.value = null
   }
 }
 

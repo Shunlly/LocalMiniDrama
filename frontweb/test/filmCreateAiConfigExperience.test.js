@@ -4,6 +4,10 @@ import { readFileSync } from 'node:fs'
 import { effectScope, nextTick, ref } from 'vue'
 
 import { useAiConfigCoverage } from '../src/composables/useAiConfigCoverage.js'
+import { useAiConfigFormActions } from '../src/composables/useAiConfigFormActions.js'
+import { useAiConfigImportExport } from '../src/composables/useAiConfigImportExport.js'
+import { useAiConfigOneKeyPresets, TONGYI_CONFIGS } from '../src/composables/useAiConfigOneKeyPresets.js'
+import { useAiConfigRowMutations } from '../src/composables/useAiConfigRowMutations.js'
 import { useFilmCreateAiConfigWorkspace } from '../src/composables/filmCreate/useFilmCreateAiConfigWorkspace.js'
 import { useFilmCreateProductionReadiness } from '../src/composables/filmCreate/useFilmCreateProductionReadiness.js'
 import { useFilmCreateProjectLoad } from '../src/composables/filmCreate/useFilmCreateProjectLoad.js'
@@ -31,6 +35,9 @@ const presetHelpSource = readAiConfigPresetHelpTreeSource()
 const generationSettingsSource = readSource(new URL('../src/composables/useAiConfigGenerationSettings.js', import.meta.url))
 const importExportSource = readSource(new URL('../src/composables/useAiConfigImportExport.js', import.meta.url))
 const rowMutationsSource = readSource(new URL('../src/composables/useAiConfigRowMutations.js', import.meta.url))
+const formActionsSource = readSource(new URL('../src/composables/useAiConfigFormActions.js', import.meta.url))
+const oneKeyPresetsSource = readSource(new URL('../src/composables/useAiConfigOneKeyPresets.js', import.meta.url))
+const oneKeyDialogSource = readSource(new URL('../src/components/aiConfig/AiConfigOneKeyDialogs.vue', import.meta.url))
 const pipelinePanelSource = readSource(new URL('../src/components/filmCreate/FilmCreatePipelinePanel.vue', import.meta.url))
 const videoSettingsSource = readSource(new URL('../src/components/filmCreate/FilmCreateVideoSettingsPanel.vue', import.meta.url))
 const aiConfigDialogSource = readSource(new URL('../src/components/filmCreate/FilmCreateAiConfigDialog.vue', import.meta.url))
@@ -541,7 +548,8 @@ test('FilmCreate generic AI config entry resets a prior service-specific filter'
   assert.doesNotMatch(filmCreateSource, /@click="showAiConfigDialog = true"/)
   assert.match(filmCreateSource, /v-bind="headerBindings"/)
   assert.match(surfaceBindingsSource, /onOpenAiConfig: openAiConfig/)
-  assert.match(videoSettingsSource, /<button type="button" class="ai-config-text-button" @click="emit\('open-ai-config'\)">AI 配置<\/button>/)
+  assert.match(videoSettingsSource, /<button type="button" class="ai-config-text-button"[^>]*@click="emit\('open-ai-config'\)">AI 配置<\/button>/)
+  assert.match(videoSettingsSource, /aria-label="前往 AI 配置"/)
 
   const scope = effectScope()
   try {
@@ -676,7 +684,7 @@ test('AI coverage test actions are accessible secondary buttons with pending sta
   assert.match(coverageComposableSource, /isCoverageActionTesting\(item, action\) \|\| testingConfigId\.value !== null/)
   assert.match(aiConfigSource, /if \(testingConfigId\.value !== null && lastTestedConfig/)
   assert.match(aiConfigSource, /testingConfigId\.value = row\.id/)
-  assert.match(aiConfigSource, /if \(testingConfigId\.value === row\.id\) testingConfigId\.value = null/)
+  assert.match(aiConfigSource, /if \(String\(testingConfigId\.value\) === String\(row\.id\)\) testingConfigId\.value = null/)
 
   const { api, testingConfigId, configWriteLocked } = createCoverage()
   const textItem = { targetConfig: { id: TEXT_CONFIG_ID } }
@@ -720,4 +728,237 @@ test('AI 配置帮助区覆盖新增厂商预设，并保留自定义入口', ()
   assert.match(presetHelpSource, /name: "siliconflow-tts"/)
   assert.match(readFileSync(new URL('../src/utils/aiConfigProviderOptions.js', import.meta.url), 'utf8'), /id: CUSTOM_PROVIDER_SENTINEL, name: '✏️ 自定义（直接输入厂商名）'/)
   assert.match(aiConfigUiSource, /预设只用于填表，不代表对应厂商已在本应用中真实跑通生成/)
+})
+
+test('一键配置密钥可显隐，且不把无效 show-password-on 写到原生输入', () => {
+  assert.match(oneKeyDialogSource, /aria-label="通义密钥"[\s\S]{0,180}show-password/)
+  assert.match(oneKeyDialogSource, /aria-label="火山引擎密钥"[\s\S]{0,180}show-password/)
+  assert.match(oneKeyDialogSource, /aria-label="Agnes 密钥"[\s\S]{0,180}show-password/)
+  assert.doesNotMatch(oneKeyDialogSource, /show-password-on/)
+  assert.match(oneKeyDialogSource, /type="password"/)
+})
+
+test('保存后切到配置列表并清筛选，loadList 仍留在页面', () => {
+  assert.match(aiConfigSource, /function revealSavedConfigs\(\)/)
+  assert.match(aiConfigSource, /selectConfigWorkspaceView\('configs'\)/)
+  assert.match(aiConfigSource, /activeServiceFilter\.value = ''/)
+  assert.match(aiConfigSource, /revealSavedConfigs,/)
+  assert.match(formActionsSource, /revealSavedConfigs\?\.\(\)/)
+  assert.match(aiConfigSource, /async function loadList\(\)/)
+  assert.match(aiConfigSource, /async function openTest\(row\)/)
+  assert.doesNotMatch(formActionsSource, /async function loadList\(/)
+  assert.doesNotMatch(formActionsSource, /async function openTest\(/)
+  assert.doesNotMatch(importExportSource, /async function loadList\(/)
+  assert.doesNotMatch(rowMutationsSource, /async function loadList\(/)
+  assert.doesNotMatch(oneKeyPresetsSource, /async function loadList\(/)
+})
+
+test('导入、一键预设和批量换密钥都要中文确认，取消不写数据', async () => {
+  assert.match(importExportSource, /ElMessageBox\.confirm\(/)
+  assert.match(importExportSource, /导入确认/)
+  assert.match(oneKeyPresetsSource, /一键创建确认/)
+  assert.match(oneKeyPresetsSource, /预设只用于填表，不代表本应用已真实跑通对应厂商/)
+  assert.match(rowMutationsSource, /批量换密钥确认/)
+  assert.match(rowMutationsSource, /toUserFacingError\(error, '批量换密钥失败'\)/)
+
+  const confirms = []
+  const created = []
+  const revealed = []
+  const messages = []
+  const list = ref([{ id: TEXT_CONFIG_ID, service_type: 'text', is_default: true }])
+  const configWriteLocked = ref(false)
+  const importFileRef = ref(null)
+  const configLoadError = ref('')
+  const oneKeyTongyiVisible = ref(true)
+  const oneKeyTongyiKey = ref('sk-test')
+  const oneKeyTongyiSaving = ref(false)
+  const oneKeyVolcVisible = ref(false)
+  const oneKeyVolcKey = ref('')
+  const oneKeyVolcSaving = ref(false)
+  const oneKeyAgnesVisible = ref(false)
+  const oneKeyAgnesKey = ref('')
+  const oneKeyAgnesSaving = ref(false)
+  const bulkKeyInput = ref('sk-new')
+  const bulkKeyVisible = ref(true)
+  const bulkKeySaving = ref(false)
+  const selectedRows = ref([])
+  const batchDeleting = ref(false)
+
+  const ElMessage = {
+    success(message) { messages.push(['success', message]) },
+    error(message) { messages.push(['error', message]) },
+    warning(message) { messages.push(['warning', message]) },
+  }
+  const cancelledBox = {
+    async confirm(message, title) {
+      confirms.push([message, title])
+      return Promise.reject('cancel')
+    },
+  }
+
+  const importer = useAiConfigImportExport({
+    ElMessage,
+    ElMessageBox: cancelledBox,
+    aiAPI: { async create(payload) { created.push(payload); return payload } },
+    configWriteLocked,
+    importFileRef,
+    async loadList() { return true },
+    list,
+    configLoadError,
+    invalidateConnectionTestResults() {},
+    notifyConfigurationChanged() { revealed.push('import') },
+  })
+  await importer.importConfigs({
+    target: {
+      files: [new File([JSON.stringify([{ name: '导入配置', service_type: 'text' }])], 'configs.json', { type: 'application/json' })],
+      value: 'configs.json',
+    },
+  })
+  assert.equal(created.length, 0)
+  assert.equal(confirms[0][1], '导入确认')
+
+  const presets = useAiConfigOneKeyPresets({
+    ElMessage,
+    ElMessageBox: cancelledBox,
+    configWriteLocked,
+    oneKeyTongyiVisible,
+    oneKeyTongyiKey,
+    oneKeyTongyiSaving,
+    oneKeyVolcVisible,
+    oneKeyVolcKey,
+    oneKeyVolcSaving,
+    oneKeyAgnesVisible,
+    oneKeyAgnesKey,
+    oneKeyAgnesSaving,
+    async loadList() { return true },
+    list,
+    configLoadError,
+    invalidateConnectionTestResults() {},
+    notifyConfigurationChanged() { revealed.push('preset') },
+  })
+  await presets.submitOneKeyTongyi()
+  assert.equal(created.length, 0)
+  assert.equal(oneKeyTongyiVisible.value, true)
+  assert.match(String(confirms[1][0]), /不代表本应用已真实跑通对应厂商/)
+  assert.equal(confirms[1][1], '一键创建确认')
+
+  const mutations = useAiConfigRowMutations({
+    ElMessage,
+    ElMessageBox: cancelledBox,
+    configWriteLocked,
+    bulkKeyInput,
+    bulkKeyVisible,
+    bulkKeySaving,
+    selectedRows,
+    batchDeleting,
+    async loadList() { return true },
+    list,
+    invalidateConnectionTestResults() {},
+    notifyConfigurationChanged() { revealed.push('bulk') },
+    aiAPI: {
+      async bulkUpdateKey() { created.push('bulk'); return { updated: 1, confirmations: [{ id: TEXT_CONFIG_ID, updated_at: 't', api_key_set: true }] } },
+    },
+  })
+  await mutations.submitBulkKey()
+  assert.equal(created.length, 0)
+  assert.equal(confirms[2][1], '批量换密钥确认')
+  assert.deepEqual(revealed, [])
+})
+
+test('保存成功会通知变更并露出配置列表，不抽走 loadList', async () => {
+  const revealed = []
+  const list = ref([])
+  const form = ref({
+    service_type: 'text',
+    name: '审计配置',
+    provider: 'ollama',
+    api_protocol: 'openai',
+    base_url: 'http://127.0.0.1:11434/v1',
+    api_key: 'sk-local',
+    modelText: 'qwen3:8b',
+    default_model: 'qwen3:8b',
+    endpoint: '',
+    query_endpoint: '',
+    is_default: false,
+    priority: 0,
+  })
+  const payload = {
+    service_type: 'text',
+    name: '审计配置',
+    provider: 'ollama',
+    api_protocol: 'openai',
+    base_url: 'http://127.0.0.1:11434/v1',
+    api_key: 'sk-local',
+    model: ['qwen3:8b'],
+    default_model: 'qwen3:8b',
+    endpoint: '',
+    query_endpoint: '',
+    is_default: false,
+    priority: 0,
+    settings: null,
+  }
+  const saved = {
+    id: TEXT_CONFIG_ID,
+    ...payload,
+    api_key: '********',
+    api_key_set: true,
+    updated_at: '2026-09-12T00:00:00.000Z',
+  }
+  const dialogVisible = ref(true)
+  const configDialogSaved = ref(false)
+  const configFormBaseline = ref('')
+  const saving = ref(false)
+  const editingId = ref(null)
+  const editingUpdatedAt = ref('')
+  const presetModelPick = ref('')
+  const advancedFormSections = ref([])
+  const activeServiceFilter = ref('video')
+  const configWriteLocked = ref(false)
+  const emits = []
+  const api = useAiConfigFormActions({
+    emit: (name) => emits.push(name),
+    ElMessage: { success() {}, error() {}, warning() {} },
+    ElMessageBox: { async confirm() {} },
+    configWriteLocked,
+    form,
+    formRef: ref({ async validate() { return true } }),
+    editingId,
+    editingUpdatedAt,
+    presetModelPick,
+    advancedFormSections,
+    dialogVisible,
+    configDialogSaved,
+    configFormBaseline,
+    configDialogScrollRef: ref(null),
+    saving,
+    list,
+    async loadList() {
+      list.value = [saved]
+      return true
+    },
+    resetDiscoverModelsState() {},
+    clearConfigValidationSummary() {},
+    async handleConfigValidationFailure() {},
+    onServiceTypeChange() {},
+    activeServiceFilter,
+    apiKeyInputRef: ref(null),
+    modelListInputRef: ref(null),
+    workflowInputRef: ref(null),
+    isComfyUiForm: ref(false),
+    isDeepSeekOfficialForm: ref(false),
+    invalidateConnectionTestResults() {},
+    revealSavedConfigs() { revealed.push(activeServiceFilter.value) },
+    aiAPI: {
+      async create() { return saved },
+      async update() { return saved },
+    },
+    async runWithOwnedRequestErrorToast(operation) { return operation() },
+  })
+  await api.submit()
+  assert.deepEqual(emits, ['configuration-changed'])
+  assert.deepEqual(revealed, ['video'])
+  assert.equal(dialogVisible.value, false)
+  assert.equal(list.value[0].id, TEXT_CONFIG_ID)
+  assert.match(formActionsSource, /revealSavedConfigs\?\.\(\)/)
+  assert.doesNotMatch(formActionsSource, /async function loadList\(/)
 })

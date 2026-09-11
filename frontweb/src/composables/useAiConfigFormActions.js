@@ -51,9 +51,11 @@ export function useAiConfigFormActions(deps = {}) {
   const isComfyUiForm = deps.isComfyUiForm
   const isDeepSeekOfficialForm = deps.isDeepSeekOfficialForm
   const invalidateConnectionTestResults = deps.invalidateConnectionTestResults
+  const revealSavedConfigs = deps.revealSavedConfigs
 
   function notifyConfigurationChanged() {
     emit('configuration-changed')
+    revealSavedConfigs?.()
   }
 
   function resetForm() {
