@@ -48,6 +48,15 @@
           :storyboard-control-label="storyboardControlLabel"
           :on-reference-files="onReferenceFiles"
           :remove-free-reference="removeFreeReference"
+          :open-reference-library="openReferenceLibrary"
+        />
+        <GlobalMediaPickerDialog
+          v-model="referencePickerVisible"
+          title="添加分镜自由参考图"
+          accept="image"
+          :context="referencePickerContext"
+          @select="onReferenceAssetSelected"
+          @open-library="openMediaLibraryFromPicker"
         />
       </template>
       <template #frames>
@@ -105,7 +114,8 @@ import {
 import { runImageStep, runFrameImageStep, runVideoStep, runAudioStep } from '@/composables/useCanvasWorkflowRunner'
 import { findStoryboardInDrama, getDramaGenerationOptions } from '@/utils/canvasWorkflow'
 import { runStoryboardReorder } from '@/composables/filmCreate/useFilmCreateStoryboardReorder.js'
-import { collectStoryboardReferenceSlots } from '@/utils/storyboardVideoRequest'
+import { collectStoryboardReferenceSlots, createStoryboardReferenceFromAsset, upsertStoryboardReferenceImage } from '@/utils/storyboardVideoRequest'
+import GlobalMediaPickerDialog from '@/components/GlobalMediaPickerDialog.vue'
 import { assetImageUrl } from '@/utils/mediaUrl'
 import { buildCanvasReferenceDisplaySlots } from '@/composables/useCanvasReferenceDisplay'
 import { canvasUserError, isCanvasUserAbort } from '@/composables/useCanvasUserError'
@@ -130,6 +140,7 @@ const panelRef = ref(null)
 const saving = ref(false)
 const busyStep = ref('')
 const uploadingReference = ref(false)
+const referencePickerVisible = ref(false)
 const audioOutcomeUnknown = ref(false)
 const reorderBusy = ref(false)
 const characterIds = ref([])
@@ -578,6 +589,57 @@ async function polishPrompt() {
   } finally {
     busyStep.value = ''
     ctx?.nodeStatus?.clear(sbNodeId.value)
+  }
+}
+
+const referencePickerContext = computed(() => {
+  const drama = ctx?.drama?.value
+  const id = String(props.storyboard?.id ?? '')
+  const episode = (drama?.episodes || []).find((item) => (
+    (item.storyboards || []).some((storyboard) => String(storyboard.id) === id)
+  ))
+  return {
+    projectTitle: drama?.title || '当前项目',
+    episodeLabel: episode?.title || '',
+    storyboardLabel: storyboardControlLabel(''),
+    usageLabel: '添加到当前分镜自由参考图',
+    dramaId: drama?.id,
+    reusePolicy: 'current-or-global',
+  }
+})
+
+function openReferenceLibrary() {
+  if (!props.storyboard?.id || referenceSlots.value.length >= 10 || uploadingReference.value) return
+  referencePickerVisible.value = true
+}
+
+function openMediaLibraryFromPicker() {
+  referencePickerVisible.value = false
+  ctx?.goMediaLibrary?.()
+}
+
+async function onReferenceAssetSelected(asset) {
+  const reference = createStoryboardReferenceFromAsset(asset)
+  if (!reference) {
+    ElMessage.warning('当前只能把图片添加到分镜参考图')
+    return
+  }
+  const result = upsertStoryboardReferenceImage({ reference_images: form.reference_images }, reference)
+  if (result.status === 'invalid') {
+    ElMessage.warning('该素材缺少可用图片地址，无法添加到分镜参考图')
+    return
+  }
+  if (result.status === 'duplicate') {
+    ElMessage.warning('该图片已经挂到当前分镜的自由参考图中')
+    return
+  }
+  form.reference_images = result.items
+  try {
+    await persistReferences()
+    referencePickerVisible.value = false
+    ElMessage.success('已添加到当前分镜自由参考图')
+  } catch (error) {
+    ElMessage.error(canvasUserError(error, '添加参考图失败'))
   }
 }
 

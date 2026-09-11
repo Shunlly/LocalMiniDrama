@@ -100,3 +100,14 @@ test('canvas storyboard panel reuses list-mode reorder helpers for up, down and 
   assert.match(actions, />下移</)
   assert.match(actions, />前插</)
 })
+
+test('canvas storyboard references can add library images through the shared media picker', () => {
+  const panel = read('../src/components/dramaCanvas/CanvasStoryboardPanel.vue')
+  const refs = read('../src/components/dramaCanvas/CanvasStoryboardPanelReferences.vue')
+  const context = read('../src/composables/useDramaCanvasPageBindings.js')
+  assert.match(panel, /GlobalMediaPickerDialog/)
+  assert.match(panel, /createStoryboardReferenceFromAsset/)
+  assert.match(panel, /upsertStoryboardReferenceImage/)
+  assert.match(refs, /storyboardControlLabel\('从素材中心添加自由参考图'\)/)
+  assert.match(context, /goMediaLibrary: ctx.goMediaLibrary/)
+})

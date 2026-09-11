@@ -112,6 +112,7 @@ export function provideDramaCanvasContext(ctx = {}) {
     setHighlightAsset: ctx.setHighlightAsset,
     refresh: ctx.refreshCanvas,
     refreshDrama: ctx.refreshDrama,
+    goMediaLibrary: ctx.goMediaLibrary,
     suppressPaneClick: ctx.suppressPaneClick,
     nodeStatus: ctx.nodeStatus,
     openCreateDialog: (...args) => ctx.openCreateDialog(...args),

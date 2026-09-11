@@ -3,7 +3,7 @@
     <span class="reference-label">参考图 {{ referenceSlots.length }}/10</span>
     <div class="reference-list">
       <p v-if="!referenceDisplaySlots.length" class="reference-empty" role="status">
-        尚未加入参考图。绑定带图的场景、角色或道具后会自动出现，也可上传自由参考图。
+        尚未加入参考图。绑定带图的场景、角色或道具后会自动出现，也可从素材中心添加或上传自由参考图。
       </p>
       <div
         v-for="slot in referenceDisplaySlots"
@@ -26,6 +26,17 @@
           @click.stop="removeFreeReference(slot.freeIndex)"
         />
       </div>
+      <el-tooltip content="从素材中心添加自由参考图" placement="top">
+        <el-button
+          class="reference-upload"
+          :icon="FolderOpened"
+          circle
+          :disabled="referenceSlots.length >= 10 || uploadingReference"
+          :title="referenceSlots.length >= 10 ? '每个分镜最多保存 10 张自由参考图' : undefined"
+          :aria-label="storyboardControlLabel('从素材中心添加自由参考图')"
+          @click.stop="openReferenceLibrary"
+        />
+      </el-tooltip>
       <el-tooltip content="上传自由参考图" placement="top">
         <el-button
           class="reference-upload"
@@ -54,7 +65,7 @@
 
 <script setup>
 import { ref } from 'vue'
-import { Close, Upload } from '@element-plus/icons-vue'
+import { Close, FolderOpened, Upload } from '@element-plus/icons-vue'
 import {
   canvasReferenceKindLabel,
   canvasReferenceSourceLabel,
@@ -67,9 +78,15 @@ const props = defineProps({
   storyboardControlLabel: { type: Function, required: true },
   onReferenceFiles: { type: Function, required: true },
   removeFreeReference: { type: Function, required: true },
+  openReferenceLibrary: { type: Function, default: () => {} },
 })
 
 const referenceFileInput = ref(null)
+
+function openReferenceLibrary() {
+  if (props.referenceSlots.length >= 10 || props.uploadingReference) return
+  props.openReferenceLibrary?.()
+}
 
 function openReferenceUpload() {
   if (props.referenceSlots.length >= 10 || props.uploadingReference) return

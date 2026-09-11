@@ -27,7 +27,7 @@ const parentSource = readFileSync(new URL('./CanvasStoryboardPanel.vue', panelDi
 const toolbarSource = readFileSync(new URL('./CanvasDesktopToolbar.vue', panelDir), 'utf8')
 const panelUiSource = readCanvasStoryboardPanelSource()
 
-const iconStubUrl = compileIconStub(['Close', 'Upload', 'MagicStick', 'Refresh'])
+const iconStubUrl = compileIconStub(['Close', 'Upload', 'FolderOpened', 'MagicStick', 'Refresh'])
 const compiledActionGateUrl = compileSfc(
   new URL('./CanvasActionGate.vue', panelDir),
   'storyboard-panel-action-gate',
@@ -189,7 +189,7 @@ test('参考图空态给出中文下一步，满 10 张时禁用上传并说明�
     assert.ok(emptyNode)
     assert.equal(emptyNode.props.role, 'status')
     assert.match(textContent(emptyNode), /尚未加入参考图/)
-    assert.match(textContent(emptyNode), /也可上传自由参考图/)
+    assert.match(textContent(emptyNode), /也可从素材中心添加或上传自由参考图/)
   } finally {
     empty.app.unmount()
   }
@@ -210,6 +210,7 @@ test('参考图空态给出中文下一步，满 10 张时禁用上传并说明�
     removeFreeReference: () => {},
   })
   try {
+    assert.ok(buttonByAriaLabel(full.root, '分镜1从素材中心添加自由参考图'))
     const upload = buttonByAriaLabel(full.root, '分镜1上传自由参考图')
     assert.ok(upload)
     assert.equal(upload.props.disabled, true)
