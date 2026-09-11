@@ -25,6 +25,13 @@ const {
 
 const createSafeVideoLogger = createSafeProviderLogger;
 const videoRequestContext = new AsyncLocalStorage();
+const DEFAULT_VIDEO_PROVIDER_LABEL = '视频服务';
+
+function videoProviderLabel(provider) {
+  const label = String(provider || '').trim();
+  if (!label || /^video provider$/i.test(label)) return DEFAULT_VIDEO_PROVIDER_LABEL;
+  return label;
+}
 
 function normalizeIdempotencyKey(value) {
   return String(value || '').trim().slice(0, 200);
@@ -268,6 +275,8 @@ function logVideoPostRequest(log, provider, url, body, video_gen_id, meta = {}) 
 }
 
 module.exports = {
+  DEFAULT_VIDEO_PROVIDER_LABEL,
+  videoProviderLabel,
   createSafeVideoLogger,
   videoRequestContext,
   normalizeIdempotencyKey,

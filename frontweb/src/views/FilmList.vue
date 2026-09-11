@@ -162,6 +162,7 @@
     </AccessibleDialog>
 
     <FilmListLibraryDialogs
+      ref="libraryDialogsRef"
       v-model:show-char-library="showCharLibrary"
       v-model:show-scene-library="showSceneLibrary"
       v-model:show-prop-library="showPropLibrary"
@@ -238,6 +239,7 @@ const { isDark, toggle: toggleTheme } = useTheme()
 const showCharLibrary = ref(false)
 const showSceneLibrary = ref(false)
 const showPropLibrary = ref(false)
+const libraryDialogsRef = ref(null)
 
 function openSemanticLibrary(type) {
   if (listWriteLocked.value) return
@@ -465,6 +467,7 @@ const {
   exportingId,
   showAiConfigDialog,
   aiConfigContentRef,
+  hasPendingLibraryImageWork: () => libraryDialogsRef.value?.hasPendingLibraryImageWork?.() === true,
 })
 
 onBeforeRouteLeave(requestFilmListNavigation)

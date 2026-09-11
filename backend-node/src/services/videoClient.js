@@ -7,6 +7,7 @@ const {
 } = require('./providerErrorSanitizer');
 const {
   createSafeVideoLogger,
+  videoProviderLabel,
   videoRequestContext,
   normalizeIdempotencyKey,
   fetchVideoWithTimeout,
@@ -49,7 +50,7 @@ async function callVideoApiInternal(db, log, opts) {
 async function callVideoApi(db, log, opts = {}) {
   const idempotencyKey = normalizeIdempotencyKey(opts.idempotency_key);
   return videoRequestContext.run({ idempotencyKey }, async () => {
-    const provider = opts.preferred_provider || opts.preferredProvider || opts.provider || 'Video provider';
+    const provider = opts.preferred_provider || opts.preferredProvider || opts.provider || videoProviderLabel(opts.preferred_provider || opts.preferredProvider || opts.provider);
     try {
       const result = await callVideoApiInternal(db, log, opts);
       return sanitizeProviderResult(result, { provider, operation: '视频生成' });

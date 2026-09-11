@@ -7,6 +7,7 @@ import {
   describeServiceLoadError,
   getRequestId,
   isRequestCanceled,
+  isSafeUserFacingMessage,
   REQUEST_ERROR_CATEGORY,
 } from './requestError.js'
 import { toUserFacingError } from './userFacingError.js'
@@ -176,7 +177,20 @@ request.interceptors.response.use(
     })
     if (!httpError) {
       applyRequestFailure(error)
-      logRequestFailure(error, error.message)
+      const signal = error.config?.signal
+      const described = describeServiceLoadError(error, {
+        serviceLabel: '服务',
+        signal,
+        fallback: userFacingFallback(error),
+      })
+      const userMsg = toUserFacingError(error, described, {
+        serviceLabel: '服务',
+        signal,
+      })
+      logRequestFailure(error, userMsg)
+      if (userMsg && !isSafeUserFacingMessage(error.message)) {
+        error.message = userMsg.replace(/（请求编号：[^）]+）$/, '')
+      }
       return Promise.reject(error)
     }
     return finalizeTransportError(error)

@@ -1,4 +1,22 @@
 /** 分类素材库图片地址，以及上传/生图动作。 */
+
+export const LIBRARY_IMAGE_LEAVE_MESSAGE = '素材图片正在上传或生成，请完成后再离开。'
+
+function isCancelledAsyncTaskStatus(status) {
+  return ['cancelled', 'canceled', 'cancelling', 'canceling'].includes(String(status || '').toLowerCase())
+}
+
+function createCanceledTaskError(message = '操作已取消') {
+  const error = new Error(message)
+  error.name = 'AbortError'
+  error.code = 'ERR_CANCELED'
+  return error
+}
+
+export function hasPendingLibraryImageWork({ form, saving = false } = {}) {
+  return Boolean(saving || form?.imgUploading || form?.imgGenerating)
+}
+
 export function assetImageUrl(item) {
   if (!item) return ''
   if (typeof item === 'string') return item.startsWith('http') ? item : item
@@ -59,10 +77,13 @@ export function createLibraryImageActions(options = {}) {
         await sleep(pollIntervalMs)
         const tr = await taskAPI.get(taskId)
         task = tr?.data ?? tr
-        if (task.status === 'completed') break
-        if (task.status === 'failed') throw new Error(task.error || '生成失败')
+        const status = String(task?.status || '').toLowerCase()
+        if (status === 'completed') break
+        if (status === 'failed') throw new Error(task.error || '生成失败')
+        if (isCancelledAsyncTaskStatus(status)) throw createCanceledTaskError()
       }
-      if (!task || task.status !== 'completed') throw new Error('生成超时')
+      if (isCancelledAsyncTaskStatus(task?.status)) throw createCanceledTaskError()
+      if (!task || String(task.status || '').toLowerCase() !== 'completed') throw new Error('生成超时')
       const result = task.result
       const imageUrl = result?.image_url
       const localPath = result?.local_path ?? null

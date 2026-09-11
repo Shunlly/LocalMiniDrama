@@ -1,6 +1,7 @@
 // 连接探测：失败时 fail-closed，不把供应商原文或密钥回传给用户。
 
 const { secureHttpFetch, validateHttpRequestTarget } = require('./secureHttpFetch');
+const { isTrustedChineseUserError } = require('./providerErrorSanitizer');
 
 function normalizedProviderId(value) {
   return String(value || '').trim().toLowerCase().replace(/-/g, '_');
@@ -10,6 +11,7 @@ const CONNECTION_TEST_TIMEOUT_MS = 15000;
 const SAFE_PROVIDER_ERROR = Symbol.for('localMiniDrama.safeProviderError');
 const CONNECTION_TEST_AUTH_MESSAGE = '认证失败，请检查密钥';
 const CONNECTION_TEST_FAILED_MESSAGE = '连接测试失败，请检查接口地址和密钥';
+const CONNECTION_TEST_NETWORK_MESSAGE = '无法连接该厂商，请检查接口地址和网络后重试';
 const UNSUPPORTED_OCR_TRANSCRIPTION_PROBE_MESSAGE = '当前厂商不支持自动连接测试，请保存后用一张样例图/一段样例音频验证';
 
 function connectionTestUserError(message, extra = {}) {
@@ -95,7 +97,14 @@ async function fetchConnectionProbe(url, options = {}, networkOptions = {}) {
       cancel.name = 'AbortError';
       throw cancel;
     }
-    throw error;
+    if (error?.[SAFE_PROVIDER_ERROR] && isTrustedChineseUserError(error.message)) throw error;
+    if (['INVALID_PROVIDER_URL', 'INVALID_AI_CONFIG', 'UNSAFE_MEDIA_REFERENCE'].includes(String(error?.code || ''))) {
+      throw error;
+    }
+    throw connectionTestUserError(CONNECTION_TEST_NETWORK_MESSAGE, {
+      code: error?.code || 'CONNECTION_TEST_NETWORK',
+      cause: error instanceof Error ? error : undefined,
+    });
   } finally {
     clearTimeout(timer);
     parentSignal?.removeEventListener('abort', onParentAbort);
@@ -231,6 +240,7 @@ module.exports = {
   CONNECTION_TEST_TIMEOUT_MS,
   CONNECTION_TEST_AUTH_MESSAGE,
   CONNECTION_TEST_FAILED_MESSAGE,
+  CONNECTION_TEST_NETWORK_MESSAGE,
   fetchConnectionProbe,
   probeOpenAICompatibleModels,
   probeOpenAICompatibleChat,

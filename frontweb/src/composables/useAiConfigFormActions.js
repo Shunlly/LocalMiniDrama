@@ -55,7 +55,6 @@ export function useAiConfigFormActions(deps = {}) {
 
   function notifyConfigurationChanged() {
     emit('configuration-changed')
-    revealSavedConfigs?.()
   }
 
   function resetForm() {
@@ -178,6 +177,7 @@ export function useAiConfigFormActions(deps = {}) {
       configDialogSaved.value = true
       configFormBaseline.value = configFormFingerprint()
       dialogVisible.value = false
+      revealSavedConfigs?.()
       if (listMatches) ElMessage.success(wasEditing ? '保存成功' : '添加成功')
       else ElMessage.warning('服务端已确认保存，但配置列表刷新或并发校验未完全一致，请刷新后复核。')
     } catch (e) {

@@ -266,7 +266,7 @@ function sanitizeProviderException(error, options = {}) {
 function isTimeoutLikeError(error, raw) {
   if (error?.isTimeout === true || error?.name === 'TimeoutError') return true;
   const code = String(error?.code || '');
-  if (/(?:^|_)TIME(?:D)?OUT$/i.test(code) || code === 'ETIMEDOUT') return true;
+  if (/(?:^|_)TIME(?:D)?OUT$/i.test(code) || code === 'ETIMEDOUT' || code === 'ECONNABORTED') return true;
   return /timeout after|silence timeout|timed?\s*out|请求超时/i.test(String(raw || error?.message || ''));
 }
 
@@ -320,7 +320,7 @@ function isTrustedChineseUserError(value) {
   if (/\bcode\s+[A-Za-z0-9_.:/-]+/i.test(text)) return false;
   if (/\bsk-[A-Za-z0-9._-]{6,}\b/i.test(text)) return false;
   if (/\b(Bearer|Basic)\s+/i.test(text)) return false;
-  if (/\b(unauthorized|forbidden|not found|bad request|internal server error|too many requests|service unavailable|gateway timeout|timed?\s*out|fetch failed)\b/i.test(text)) {
+  if (/\b(unauthorized|forbidden|not found|bad request|internal server error|too many requests|service unavailable|gateway timeout|timed?\s*out|fetch failed|aborted)\b/i.test(text)) {
     return false;
   }
   if (/\b(ECONNREFUSED|ENOTFOUND|ECONNRESET|ETIMEDOUT|EAI_AGAIN|EHOSTUNREACH|ENETUNREACH|EPROTO|ENOENT|EACCES|EPERM|EPIPE|ENOSPC|SQLITE_[A-Z0-9]+|getaddrinfo|socket hang up)\b/i.test(text)) {

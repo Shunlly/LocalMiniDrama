@@ -36,5 +36,7 @@ export function toUserFacingError(error, fallback = '操作失败，请稍后重
 }
 
 export function isUserFacingAbort(error, signal) {
+  // 超时 abort 仍是超时，不能当成用户取消后静默成功。
+  if (isRequestTimeout(error, signal)) return false
   return error === 'cancel' || error?.name === 'AbortError' || isRequestCanceled(error, signal)
 }

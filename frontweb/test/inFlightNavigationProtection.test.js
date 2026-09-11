@@ -75,3 +75,12 @@ test('existing-source workflow launch is checked before unsaved source input', (
   assert.ok(activeIndex < unsavedIndex, 'active workflow launch must be checked before the clean-input fast path')
 })
 
+
+test('项目列表素材库生图进行中会拦住离开', () => {
+  const filmListNav = read('../src/components/filmList/useFilmListNavigation.js')
+  const filmListPage = read('../src/views/FilmList.vue')
+  assert.match(filmListNav, /pendingLibraryImageWork\(\)/)
+  assert.match(filmListNav, /LIBRARY_IMAGE_LEAVE_MESSAGE/)
+  assert.match(filmListPage, /ref="libraryDialogsRef"/)
+  assert.match(filmListPage, /hasPendingLibraryImageWork: \(\) => libraryDialogsRef\.value\?\.hasPendingLibraryImageWork\?\.\(\) === true/)
+})

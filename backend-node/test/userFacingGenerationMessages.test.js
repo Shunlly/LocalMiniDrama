@@ -237,6 +237,13 @@ test('providerNetworkPolicy 与 serviceFailure 用户错误为简体中文', () 
   assert.match(aborted.body.error.message, /[\u4e00-\u9fff]/);
   assert.doesNotMatch(aborted.body.error.message, /aborted/i);
 
+  const timedOut = mockRes();
+  assert.equal(sendMappedServiceFailure(timedOut, { ok: false, error: 'timeout of 15000ms exceeded ECONNABORTED' }), true);
+  assert.equal(timedOut.statusCode, 400);
+  assert.match(timedOut.body.error.message, /超时/);
+  assert.doesNotMatch(timedOut.body.error.message, /取消|ECONNABORTED|timeout of/i);
+
+
   const english = mockRes();
   assert.equal(sendMappedServiceFailure(english, { ok: false, error: 'ENOENT: no such file or directory' }), true);
   assert.equal(english.statusCode, 400);

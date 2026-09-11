@@ -27,8 +27,8 @@ const NETWORK_ERROR_CODES = new Set([
   'ERR_FAILED',
 ])
 const SECRET_RE = /password\s*=|client_secret|cookie\s*:|authorization\s*:|api[_-]?key\s*[:=]/i
-const TECHNICAL_ENGLISH_RE = /network error|timeout of \d+ms|request failed with status code|err_network|econnaborted|etimedout|failed to fetch|fetch failed|load failed|internal server error|econnrefused|enotfound|\baborterror\b/i
-const NETWORK_ERROR_MESSAGE_RE = /network error|failed to fetch|fetch failed|load failed/i
+const TECHNICAL_ENGLISH_RE = /network error|timeout of \d+ms|request failed with status code|err_network|econnaborted|etimedout|failed to fetch|fetch failed|load failed|internal server error|econnrefused|enotfound|econnreset|eai_again|socket hang up|getaddrinfo|und_err_|\baborterror\b|\baborted\b|the operation was aborted|this operation was aborted/i
+const NETWORK_ERROR_MESSAGE_RE = /network error|failed to fetch|fetch failed|load failed|socket hang up|econnrefused|enotfound|econnreset|eai_again|getaddrinfo/i
 const INTERNAL_FIELD_RE = /\bdrama_id\b/i
 
 /** 仅放行不含密钥、链接、内部字段和英文技术异常的简体中文 */
@@ -55,8 +55,10 @@ function abortLikeError(error) {
 function timeoutLikeError(error) {
   if (!error || typeof error !== 'object') return false
   if (error.isTimeout === true) return true
-  if (error.code === 'ECONNABORTED' || error.code === 'ETIMEDOUT') return true
-  return /timeout/i.test(String(error.message || ''))
+  if (error.name === 'TimeoutError') return true
+  const code = String(error.code || '')
+  if (code === 'ECONNABORTED' || code === 'ETIMEDOUT' || code === 'TIMEOUT') return true
+  return /timeout|timed\s*out/i.test(String(error.message || ''))
 }
 
 function timeoutFromAbortSignal(signal) {
@@ -75,6 +77,7 @@ export function isRequestCanceled(error, signal) {
   return error?.code === 'ERR_CANCELED'
     || abortLikeError(error)
     || axios.isCancel?.(error) === true
+    || (signal?.aborted === true && !timeoutFromAbortSignal(signal))
 }
 
 export function isRequestNetworkError(error, signal) {

@@ -3,6 +3,8 @@
  * 只接收页面已有的 ref，不自己创建弹窗状态。
  */
 
+export const RESOURCE_EDITOR_BUSY_LEAVE_MESSAGE = '图片正在上传或生成，请完成后再离开。'
+
 export const DRAMA_DETAIL_RESOURCE_EDITOR_FIELDS = {
   dramaChar: ['name', 'role', 'description', 'personality', 'appearance'],
   dramaScene: ['location', 'time', 'description', 'prompt'],
@@ -27,6 +29,7 @@ export function isResourceEditDirty(visible, form, baseline, keys) {
 
 export function createDramaDetailResourceEditorLeave({
   editors = {},
+  ElMessage,
   ElMessageBox,
   messageBoxKeyboard = {},
 } = {}) {
@@ -56,6 +59,27 @@ export function createDramaDetailResourceEditorLeave({
       editor.baseline.value,
       editor.keys,
     )
+  }
+
+  function hasInProgressResourceEditor(kind) {
+    const editor = getResourceEditor(kind)
+    if (!editor || !editor.visible.value) return false
+    const form = editor.form.value
+    return Boolean(form?.imgUploading || form?.imgGenerating)
+  }
+
+  function hasInProgressResourceEdits() {
+    return hasInProgressResourceEditor('dramaChar')
+      || hasInProgressResourceEditor('dramaScene')
+      || hasInProgressResourceEditor('dramaProp')
+      || hasInProgressResourceEditor('char')
+      || hasInProgressResourceEditor('scene')
+      || hasInProgressResourceEditor('prop')
+  }
+
+  function warnBusyResourceEditor() {
+    ElMessage?.warning?.(RESOURCE_EDITOR_BUSY_LEAVE_MESSAGE)
+    return false
   }
 
   function hasUnsavedResourceEdits() {
@@ -97,10 +121,12 @@ export function createDramaDetailResourceEditorLeave({
   }
 
   async function confirmResourceEditLeave() {
+    if (hasInProgressResourceEdits()) return warnBusyResourceEditor()
     return confirmDiscardIfNeeded(() => hasUnsavedResourceEdits())
   }
 
   async function requestResourceEditorClose(kind, done) {
+    if (hasInProgressResourceEditor(kind)) return warnBusyResourceEditor()
     if (!await confirmDiscardIfNeeded(() => hasUnsavedResourceEditor(kind))) return false
     if (typeof done === 'function') {
       done()
@@ -116,6 +142,7 @@ export function createDramaDetailResourceEditorLeave({
     captureResourceEditorBaseline,
     hasUnsavedResourceEditor,
     hasUnsavedResourceEdits,
+    hasInProgressResourceEdits,
     confirmResourceEditDiscard,
     confirmDiscardIfNeeded,
     confirmResourceEditLeave,

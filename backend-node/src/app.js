@@ -15,6 +15,7 @@ const {
   createRuntimeInstanceId,
   findWorkspaceRoot,
 } = require('./utils/runtimeInstanceId.js');
+const { isTrustedChineseUserError } = require('./services/providerErrorSanitizer.js');
 
 const RUNTIME_INSTANCE_ID = createRuntimeInstanceId({
   rootDirectory: findWorkspaceRoot(__dirname),
@@ -540,13 +541,18 @@ function createProductionErrorResponseSanitizer(options = {}) {
   };
 }
 
+function publicExpectedMessage(error, fallback) {
+  const raw = stripUserFacingStack((error && error.message) || '');
+  return isTrustedChineseUserError(raw) ? raw : fallback;
+}
+
 function classifyExpectedError(error) {
   const code = String(error?.code || '');
   if (code === 'LEGACY_ASYNC_SCHEDULER_CLOSED') {
-    return { status: 503, code, message: error.message };
+    return { status: 503, code, message: publicExpectedMessage(error, '服务正在关闭，请稍后重试') };
   }
   if (code === 'CONFIG_FILE_NOT_FOUND') {
-    return { status: 503, code, message: error.message || '配置文件不存在，设置未保存' };
+    return { status: 503, code, message: publicExpectedMessage(error, '配置文件不存在，设置未保存') };
   }
   if (code === 'LIMIT_FILE_SIZE') {
     return { status: 413, code: 'FILE_TOO_LARGE', message: '上传文件超过允许大小' };
@@ -565,7 +571,7 @@ function classifyExpectedError(error) {
     'EXPORT_TOTAL_SIZE_LIMIT',
     'EXPORT_MEMORY_LIMIT',
   ].includes(code)) {
-    return { status: 413, code, message: error.message };
+    return { status: 413, code, message: publicExpectedMessage(error, '上传或导出内容超过限制') };
   }
   if (
     error?.name === 'DramaImportError' ||
@@ -575,7 +581,7 @@ function classifyExpectedError(error) {
     code.startsWith('INVALID_') ||
     code.startsWith('UNSAFE_')
   ) {
-    return { status: 400, code: code || 'BAD_REQUEST', message: error.message || '请求无效' };
+    return { status: 400, code: code || 'BAD_REQUEST', message: publicExpectedMessage(error, '请求无效') };
   }
   if (
     error?.type === 'entity.parse.failed'
@@ -585,7 +591,7 @@ function classifyExpectedError(error) {
   }
   const status = Number(error?.status || error?.statusCode);
   if (Number.isInteger(status) && status >= 400 && status < 500) {
-    return { status, code: code || 'REQUEST_REJECTED', message: error.message || '请求被拒绝' };
+    return { status, code: code || 'REQUEST_REJECTED', message: publicExpectedMessage(error, '请求被拒绝') };
   }
   return null;
 }

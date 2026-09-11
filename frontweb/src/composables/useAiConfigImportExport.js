@@ -21,6 +21,7 @@ export function useAiConfigImportExport(deps = {}) {
   const configLoadError = deps.configLoadError
   const invalidateConnectionTestResults = deps.invalidateConnectionTestResults
   const notifyConfigurationChanged = deps.notifyConfigurationChanged
+  const revealSavedConfigs = deps.revealSavedConfigs
 
   async function exportConfigs() {
     try {
@@ -97,6 +98,7 @@ export function useAiConfigImportExport(deps = {}) {
         if (result.success > 0) {
           invalidateConnectionTestResults()
           notifyConfigurationChanged()
+          revealSavedConfigs?.()
           ElMessage.success(message)
         }
         else ElMessage.error(message)

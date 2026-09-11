@@ -711,6 +711,7 @@ const {
   configLoadError,
   invalidateConnectionTestResults,
   notifyConfigurationChanged,
+  revealSavedConfigs,
 })
 
 const {
@@ -728,6 +729,7 @@ const {
   configLoadError,
   invalidateConnectionTestResults,
   notifyConfigurationChanged,
+  revealSavedConfigs,
 })
 
 const {

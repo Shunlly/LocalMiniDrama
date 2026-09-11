@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { defineComponent, h, nextTick, ref, watch } from 'vue'
 
-import { assetImageUrl, createLibraryImageActions } from '@/components/filmList/filmListLibraryImage.js'
+import { assetImageUrl, createLibraryImageActions, hasPendingLibraryImageWork, LIBRARY_IMAGE_LEAVE_MESSAGE } from '@/components/filmList/filmListLibraryImage.js'
 import { describeServiceLoadError } from '@/utils/requestError.js'
 import {
   buttonByText,
@@ -461,4 +461,53 @@ test('场景和道具库同样走全局素材接口，删除确认文案不串�
   } finally {
     harness.app.unmount()
   }
+})
+
+test('取消后即使带回结果也不能当成生成成功，且素材 ID 与任务 ID 不相等', async () => {
+  const formId = 41
+  const taskId = 'task-cancel-77'
+  assert.notEqual(String(formId), taskId)
+  const messages = []
+  const updates = []
+  const actions = createLibraryImageActions({
+    getListWriteLocked: () => false,
+    imagesAPI: {
+      async create(payload) {
+        assert.equal(payload.drama_id, null)
+        return { task_id: taskId }
+      },
+    },
+    taskAPI: {
+      async get(id) {
+        assert.equal(id, taskId)
+        return { status: 'cancelled', result: { image_url: 'https://img.example/should-not-apply.png' } }
+      },
+    },
+    ElMessage: {
+      success: (message) => messages.push(['success', message]),
+      error: (message) => messages.push(['error', message]),
+      warning: (message) => messages.push(['warning', message]),
+    },
+    isUserFacingAbort: (error) => error?.name === 'AbortError',
+    toUserFacingError: (error, fallback) => error?.message || fallback,
+    sleep: async () => {},
+    maxAttempts: 2,
+    pollIntervalMs: 0,
+  })
+  const form = { id: formId, imgUploading: false, imgGenerating: false, image_url: '', local_path: null }
+  await actions.doGenerateLibImg(form, '林夏', { update: async (id, data) => { updates.push({ id, data }) } }, () => {})
+  assert.equal(form.image_url, '')
+  assert.equal(updates.length, 0)
+  assert.equal(messages.some((item) => item[0] === 'success'), false)
+})
+
+test('素材库上传或生图进行中会参与离开保护，且与项目包导出 ID 不相等', () => {
+  const exportingId = 11
+  const formId = 41
+  assert.notEqual(exportingId, formId)
+  assert.equal(hasPendingLibraryImageWork({ form: { id: formId, imgGenerating: true } }), true)
+  assert.equal(hasPendingLibraryImageWork({ form: { id: formId, imgUploading: true } }), true)
+  assert.equal(hasPendingLibraryImageWork({ form: { id: formId }, saving: true }), true)
+  assert.equal(hasPendingLibraryImageWork({ form: { id: formId, imgGenerating: false, imgUploading: false }, saving: false }), false)
+  assert.match(LIBRARY_IMAGE_LEAVE_MESSAGE, /请完成后再离开/)
 })

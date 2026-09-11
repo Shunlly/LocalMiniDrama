@@ -51,6 +51,7 @@ export function useAiConfigOneKeyPresets(deps = {}) {
   const configLoadError = deps.configLoadError
   const invalidateConnectionTestResults = deps.invalidateConnectionTestResults
   const notifyConfigurationChanged = deps.notifyConfigurationChanged
+  const revealSavedConfigs = deps.revealSavedConfigs
 
   function openOneKeyTongyi() {
     if (configWriteLocked.value) return
@@ -110,6 +111,7 @@ export function useAiConfigOneKeyPresets(deps = {}) {
     if (result.success > 0) {
       invalidateConnectionTestResults()
       notifyConfigurationChanged()
+      revealSavedConfigs?.()
       closeDialog()
       ElMessage.success(message)
     } else {

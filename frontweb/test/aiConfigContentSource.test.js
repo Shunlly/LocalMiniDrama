@@ -299,7 +299,7 @@ test('AI config mutations emit one reliable change notification only after real 
   assert.match(vueSource, /const emit = defineEmits\(\['configuration-changed'\]\)/)
   assert.equal((vueSource.match(/emit\('configuration-changed'\)/g) || []).length, 0)
   assert.equal((formActionsSource.match(/emit\('configuration-changed'\)/g) || []).length, 1)
-  assert.match(formActionsSource, /function notifyConfigurationChanged\(\) \{\s*emit\('configuration-changed'\)\s*revealSavedConfigs\?\.\(\)\s*\}/)
+  assert.match(formActionsSource, /function notifyConfigurationChanged\(\) \{\s*emit\('configuration-changed'\)\s*\}/)
   assert.equal((vueSource.match(/^[ \t]*notifyConfigurationChanged\(\)$/gm) || []).length, 1)
   assert.equal((formActionsSource.match(/^[ \t]*notifyConfigurationChanged\(\)$/gm) || []).length, 1)
   assert.equal((oneKeySource.match(/^[ \t]*notifyConfigurationChanged\(\)$/gm) || []).length, 1)
@@ -342,7 +342,7 @@ test('AI config mutations emit one reliable change notification only after real 
   assert.match(oneKeySource, /预设配置已写入但列表尚未确认，请勿重复提交。请点击“重试”刷新列表。/)
   assert.match(
     oneKeySource,
-    /if \(result\.success > 0\) \{\s*invalidateConnectionTestResults\(\)\s*notifyConfigurationChanged\(\)\s*closeDialog\(\)/,
+    /if \(result\.success > 0\) \{\s*invalidateConnectionTestResults\(\)\s*notifyConfigurationChanged\(\)\s*revealSavedConfigs\?\.\(\)\s*closeDialog\(\)/,
   )
   assert.match(oneKeySource, /预设配置完成：\$\{result\.success\} 条成功，\$\{result\.failed\} 条失败/)
   assert.match(oneKeySource, /await submitPresetConfigs\(TONGYI_CONFIGS, apiKey/)
@@ -455,11 +455,11 @@ test('every successful configuration mutation invalidates persisted connection s
   )
   assert.match(
     oneKeySource,
-    /if \(result\.success > 0\) \{\s*invalidateConnectionTestResults\(\)\s*notifyConfigurationChanged\(\)\s*closeDialog\(\)/,
+    /if \(result\.success > 0\) \{\s*invalidateConnectionTestResults\(\)\s*notifyConfigurationChanged\(\)\s*revealSavedConfigs\?\.\(\)\s*closeDialog\(\)/,
   )
   assert.match(
     importExportSource,
-    /if \(result\.success > 0\) \{\s*invalidateConnectionTestResults\(\)\s*notifyConfigurationChanged\(\)\s*ElMessage\.success\(message\)/,
+    /if \(result\.success > 0\) \{\s*invalidateConnectionTestResults\(\)\s*notifyConfigurationChanged\(\)\s*revealSavedConfigs\?\.\(\)\s*ElMessage\.success\(message\)/,
   )
 
   const store = createAiConfigConnectionStatusStore({
@@ -657,7 +657,7 @@ test('AI config import keeps a successful server import unconfirmed until list r
   assert.match(vueSource, /async function openTest\(row\)/)
   assert.match(
     importExportSource,
-    /if \(result\.success > 0\) \{\s*invalidateConnectionTestResults\(\)\s*notifyConfigurationChanged\(\)\s*ElMessage\.success\(message\)/,
+    /if \(result\.success > 0\) \{\s*invalidateConnectionTestResults\(\)\s*notifyConfigurationChanged\(\)\s*revealSavedConfigs\?\.\(\)\s*ElMessage\.success\(message\)/,
   )
 
   const result = await runAiConfigCreateBatch(

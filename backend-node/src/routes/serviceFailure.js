@@ -1,6 +1,6 @@
 const response = require('../response');
 const logger = require('../logger');
-const { isTrustedChineseUserError } = require('../services/providerErrorSanitizer');
+const { isTimeoutLikeError, isTrustedChineseUserError } = require('../services/providerErrorSanitizer');
 
 const NOT_FOUND_MESSAGES = Object.freeze({
   'character not found': '角色不存在',
@@ -36,12 +36,16 @@ function sendMappedServiceFailure(res, out, options = {}) {
     else response.notFound(res, options.unauthorizedMessage || '剧集不存在或无权限');
     return true;
   }
+  if (isTimeoutLikeError({ message: error, code: error }, error) && !isTrustedChineseUserError(error)) {
+    response.badRequest(res, '请求超时，请稍后重试');
+    return true;
+  }
   const cancelMessage = CANCEL_MESSAGES[error];
   if (cancelMessage) {
     response.badRequest(res, cancelMessage);
     return true;
   }
-  if (/AbortError|operation was aborted|ECONNABORTED/i.test(error) && !isTrustedChineseUserError(error)) {
+  if (/AbortError|operation was aborted/i.test(error) && !isTrustedChineseUserError(error)) {
     response.badRequest(res, '操作已取消');
     return true;
   }

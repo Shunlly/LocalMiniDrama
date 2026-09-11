@@ -2,9 +2,9 @@
  * AI 配置连接测试失败文案。openTest 仍留在页面里。
  */
 import { toUserFacingError, isUserFacingAbort } from '@/utils/userFacingError.js'
-import { isRequestTimeout } from '@/utils/requestError.js'
+import { isRequestTimeout, isSafeUserFacingMessage } from '@/utils/requestError.js'
 
-export const CONNECTION_TEST_ENGLISH_RE = /network error|timeout of \d+ms|request failed with status code|failed to fetch|load failed|internal server error|err_network|econnaborted|etimedout|incorrect api key|invalid api key/i
+export const CONNECTION_TEST_ENGLISH_RE = /network error|timeout of \d+ms|request failed with status code|failed to fetch|fetch failed|load failed|internal server error|err_network|econnaborted|etimedout|econnrefused|enotfound|econnreset|eai_again|socket hang up|getaddrinfo|und_err_|incorrect api key|invalid api key|the operation was aborted|this operation was aborted/i
 
 export function stripConnectionTestDecorations(message) {
   return String(message || '')
@@ -22,7 +22,7 @@ export function pickConnectionTestTitle(message) {
   const parts = String(message || '').split(/[:：]/).map((item) => item.trim()).filter(Boolean)
   if (parts.length >= 2) {
     const last = parts[parts.length - 1]
-    if (/[\u4e00-\u9fff]/.test(last) && last.length <= 80 && !CONNECTION_TEST_ENGLISH_RE.test(last)) {
+    if (/[\u4e00-\u9fff]/.test(last) && last.length <= 80 && !CONNECTION_TEST_ENGLISH_RE.test(last) && isSafeUserFacingMessage(last)) {
       return last
     }
   }
@@ -55,7 +55,7 @@ export function describeConnectionTestError(error, signal, serviceType = '') {
     }
   }
   let title = pickConnectionTestTitle(cleaned)
-  if (!title || CONNECTION_TEST_ENGLISH_RE.test(title)) {
+  if (!title || CONNECTION_TEST_ENGLISH_RE.test(title) || !isSafeUserFacingMessage(title)) {
     title = '暂时无法完成连接测试，请稍后重试。'
   }
   const authLike = /认证失败|凭据|API Key|密钥/i.test(`${title}\n${cleaned}`)

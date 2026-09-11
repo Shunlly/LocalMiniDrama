@@ -1,18 +1,21 @@
 <template>
   <div class="film-list-library-dialogs">
     <FilmListCharLibraryDialogs
+      ref="charLibraryRef"
       v-model="showCharLibrary"
       :list-write-locked="listWriteLocked"
       :list-write-lock-reason="listWriteLockReason"
       @preview="openImagePreview"
     />
     <FilmListSceneLibraryDialogs
+      ref="sceneLibraryRef"
       v-model="showSceneLibrary"
       :list-write-locked="listWriteLocked"
       :list-write-lock-reason="listWriteLockReason"
       @preview="openImagePreview"
     />
     <FilmListPropLibraryDialogs
+      ref="propLibraryRef"
       v-model="showPropLibrary"
       :list-write-locked="listWriteLocked"
       :list-write-lock-reason="listWriteLockReason"
@@ -46,10 +49,19 @@ const showPropLibrary = defineModel('showPropLibrary', { type: Boolean, default:
 
 const showImagePreview = ref(false)
 const previewImage = ref({ src: '', alt: '图片预览' })
+const charLibraryRef = ref(null)
+const sceneLibraryRef = ref(null)
+const propLibraryRef = ref(null)
 function openImagePreview(url, alt = '图片预览') {
   const src = String(url || '').trim()
   if (!src) return
   previewImage.value = { src, alt }
   showImagePreview.value = true
 }
+function hasPendingLibraryImageWork() {
+  return charLibraryRef.value?.hasPendingImageWork?.() === true
+    || sceneLibraryRef.value?.hasPendingImageWork?.() === true
+    || propLibraryRef.value?.hasPendingImageWork?.() === true
+}
+defineExpose({ hasPendingLibraryImageWork })
 </script>

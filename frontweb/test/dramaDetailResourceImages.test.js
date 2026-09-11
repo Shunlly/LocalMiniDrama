@@ -48,6 +48,13 @@ test('图片任务轮询在完成、失败和超时时给出中文结果', async
     pollDramaDetailImageTask({ async get() { return {} } }, '', { attempts: 1, intervalMs: 1 }),
     { message: '未返回任务ID' },
   )
+
+  await assert.rejects(
+    pollDramaDetailImageTask({
+      async get() { return { status: 'cancelled' } },
+    }, 'task-cancel', { attempts: 3, intervalMs: 1 }),
+    (error) => error?.name === 'AbortError' && error?.code === 'ERR_CANCELED',
+  )
 })
 
 test('素材库上传成功会写回地址并刷新列表', async () => {
@@ -80,4 +87,55 @@ test('素材库上传成功会写回地址并刷新列表', async () => {
   assert.deepEqual(events.map((item) => item[0]), ['upload', 'update', 'reload', 'success'])
   assert.equal(events[0][2], 11)
   assert.notEqual(events[1][1], 11)
+})
+
+test('取消后即使带回结果也不能当成生成成功，且项目 ID 与任务 ID 不相等', async () => {
+  const dramaId = 11
+  const formId = 41
+  const taskId = 'task-cancel-77'
+  assert.notEqual(String(formId), String(dramaId))
+  assert.notEqual(taskId, String(formId))
+  await assert.rejects(
+    pollDramaDetailImageTask({
+      async get(id) {
+        assert.equal(id, taskId)
+        return {
+          status: 'cancelled',
+          result: { image_url: '/static/should-not-apply.png' },
+          error: 'canceled',
+        }
+      },
+    }, taskId, { attempts: 3, intervalMs: 1 }),
+    (error) => error?.name === 'AbortError' && error?.message === '操作已取消',
+  )
+
+  const events = []
+  const form = { id: formId, imgGenerating: false, image_url: '', local_path: null }
+  const { doGenerateLibImg } = createDramaDetailLibraryImages({
+    dramaId,
+    uploadAPI: {},
+    imagesAPI: {
+      async create(payload) {
+        assert.equal(payload.drama_id, dramaId)
+        assert.notEqual(payload.drama_id, formId)
+        return { task_id: taskId }
+      },
+    },
+    taskAPI: {
+      async get(id) {
+        assert.equal(id, taskId)
+        return { status: 'canceled', result: { image_url: '/static/should-not-apply.png' } }
+      },
+    },
+    ElMessage: {
+      success(message) { events.push(['success', message]) },
+      error(message) { events.push(['error', message]) },
+      warning(message) { events.push(['warning', message]) },
+    },
+    toUserError: (error, fallback) => error?.message || fallback,
+  })
+  await doGenerateLibImg(form, '林夏', { async update() { events.push(['update']) } }, () => events.push(['reload']))
+  assert.equal(form.image_url, '')
+  assert.equal(events.some((item) => item[0] === 'success'), false)
+  assert.equal(events.some((item) => item[0] === 'update'), false)
 })

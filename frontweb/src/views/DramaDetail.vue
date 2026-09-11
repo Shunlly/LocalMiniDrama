@@ -179,6 +179,7 @@ const {
   requestResourceEditorClose,
 } = createDramaDetailResourceEditorLeave({
   editors,
+  ElMessage,
   ElMessageBox,
   messageBoxKeyboard: DRAMA_DETAIL_RESOURCE_EDITOR_MESSAGE_BOX_KEYBOARD,
 })

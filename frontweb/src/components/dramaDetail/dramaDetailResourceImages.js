@@ -3,6 +3,19 @@
  * 不持有弹窗 ref，也不改保存字段。
  */
 
+import { isUserFacingAbort } from '@/utils/userFacingError'
+
+function isCancelledAsyncTaskStatus(status) {
+  return ['cancelled', 'canceled', 'cancelling', 'canceling'].includes(String(status || '').toLowerCase())
+}
+
+function createCanceledTaskError(message = '操作已取消') {
+  const error = new Error(message)
+  error.name = 'AbortError'
+  error.code = 'ERR_CANCELED'
+  return error
+}
+
 export function assetImageUrl(item) {
   if (!item) return ''
   const lp = item.local_path && String(item.local_path).trim()
@@ -17,8 +30,10 @@ export async function pollDramaDetailImageTask(taskAPI, taskId, { attempts = 300
     await new Promise((resolve) => setTimeout(resolve, intervalMs))
     const tr = await taskAPI.get(taskId)
     task = tr?.data ?? tr
-    if (task.status === 'completed') return task
-    if (task.status === 'failed') throw new Error(task.error || '生成失败')
+    const status = String(task?.status || '').toLowerCase()
+    if (status === 'completed') return task
+    if (status === 'failed') throw new Error(task.error || '生成失败')
+    if (isCancelledAsyncTaskStatus(status)) throw createCanceledTaskError()
   }
   throw new Error('生成超时')
 }
@@ -46,7 +61,7 @@ export function createDramaDetailLibraryImages({
       await api.update(form.id, { image_url: url, local_path: null })
       reloadFn()
       ElMessage.success('图片已更新')
-    } catch (e) { ElMessage.error(toUserError(e, '上传失败')) }
+    } catch (e) { if (isUserFacingAbort(e) || e === 'cancel') return; ElMessage.error(toUserError(e, '上传失败')) }
     finally { form.imgUploading = false }
   }
 
@@ -66,7 +81,7 @@ export function createDramaDetailLibraryImages({
       await api.update(form.id, { image_url: imageUrl || null, local_path: localPath })
       reloadFn()
       ElMessage.success('AI 图片已生成')
-    } catch (e) { ElMessage.error(toUserError(e, '生成失败')) }
+    } catch (e) { if (isUserFacingAbort(e) || e === 'cancel') return; ElMessage.error(toUserError(e, '生成失败')) }
     finally { form.imgGenerating = false }
   }
 
@@ -97,7 +112,7 @@ async function uploadDramaDetailEditorImage({
     await persistImage(form, url)
     reloadFn()
     ElMessage.success('图片已更新')
-  } catch (e) { ElMessage.error(toUserError(e, '上传失败')) }
+  } catch (e) { if (isUserFacingAbort(e) || e === 'cancel') return; ElMessage.error(toUserError(e, '上传失败')) }
   finally { form.imgUploading = false }
 }
 
@@ -119,7 +134,7 @@ async function generateDramaDetailEditorImage({
     form.local_path = task.result?.local_path ?? null
     reloadFn()
     ElMessage.success('AI 图片已生成')
-  } catch (e) { ElMessage.error(toUserError(e, '生成失败')) }
+  } catch (e) { if (isUserFacingAbort(e) || e === 'cancel') return; ElMessage.error(toUserError(e, '生成失败')) }
   finally { form.imgGenerating = false }
 }
 

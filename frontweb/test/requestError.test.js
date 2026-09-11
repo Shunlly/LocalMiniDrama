@@ -258,3 +258,15 @@ test('appendRequestIdHint 仅在安全 requestId 时追加请求编号', () => {
     '保存失败',
   )
 })
+
+test('ECONNABORTED 的 AbortError 仍是超时，不会被 signal.aborted 改判成取消', () => {
+  const reason = Object.assign(new Error('请求超时'), { code: 'ECONNABORTED', isTimeout: true })
+  const signal = { aborted: true, reason }
+  const abortError = Object.assign(new Error('The operation was aborted.'), { name: 'AbortError' })
+  assert.equal(isRequestTimeout(abortError, signal), true)
+  assert.equal(isRequestCanceled(abortError, signal), false)
+  assert.equal(shouldRetryRequest(abortError, 1, signal), true)
+  assert.equal(classifyRequestError(abortError, signal), REQUEST_ERROR_CATEGORY.TIMEOUT)
+  assert.match(describeServiceLoadError(abortError, { serviceLabel: '服务', signal }), /超时/)
+  assert.doesNotMatch(describeServiceLoadError(abortError, { serviceLabel: '服务', signal }), /已取消/)
+})

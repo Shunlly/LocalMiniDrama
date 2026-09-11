@@ -5,7 +5,12 @@ import { readFileSync } from 'node:fs'
 import { parse } from '@vue/compiler-sfc'
 
 import { DRAMA_DETAIL_RESOURCE_DIALOG_FILES, readDramaDetailResourceDialogSources } from './helpers/dramaDetailResourceDialogSources.js'
-import { isResourceEditDirty, snapshotResourceEdit } from '../src/components/dramaDetail/dramaDetailResourceEditorLeave.js'
+import {
+  createDramaDetailResourceEditorLeave,
+  isResourceEditDirty,
+  RESOURCE_EDITOR_BUSY_LEAVE_MESSAGE,
+  snapshotResourceEdit,
+} from '../src/components/dramaDetail/dramaDetailResourceEditorLeave.js'
 
 const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8')
 const dramaDetailPageSource = read('../src/views/DramaDetail.vue')
@@ -158,4 +163,35 @@ test('剧集详情资源弹窗互斥上传生成并给出中文禁用原因', ()
       new RegExp(`:loading="${saving}" :disabled="${saving}" :title="${saving} \\? '正在保存，请稍候' : undefined"`),
     )
   }
+})
+
+test('进行中的图片任务会拦住离开，不能当成放弃未保存后离开', async () => {
+  const dramaCharId = 41
+  const otherCharId = 88
+  assert.notEqual(dramaCharId, otherCharId)
+  const warnings = []
+  const confirms = []
+  const leave = createDramaDetailResourceEditorLeave({
+    editors: {
+      dramaChar: {
+        visible: { value: true },
+        form: { value: { id: dramaCharId, name: '林夏', imgGenerating: true, imgUploading: false } },
+        baseline: { value: JSON.stringify({ name: '林夏', role: '', description: '', personality: '', appearance: '' }) },
+      },
+      char: {
+        visible: { value: false },
+        form: { value: { id: otherCharId, name: '配角', imgGenerating: false } },
+        baseline: { value: '' },
+      },
+    },
+    ElMessage: { warning(message) { warnings.push(message) } },
+    ElMessageBox: {
+      async confirm(message, title) { confirms.push([message, title]); return true },
+    },
+  })
+  assert.equal(await leave.confirmResourceEditLeave(), false)
+  assert.deepEqual(warnings, [RESOURCE_EDITOR_BUSY_LEAVE_MESSAGE])
+  assert.equal(confirms.length, 0)
+  assert.equal(await leave.requestResourceEditorClose('dramaChar'), false)
+  assert.equal(warnings.length, 2)
 })

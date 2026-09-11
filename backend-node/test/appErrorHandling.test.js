@@ -95,16 +95,23 @@ test('production 500 response hides details and returns its request id', () => {
 
 test('expected client errors retain actionable messages', () => {
   const handler = createErrorHandler({ errorw() {} }, { production: true });
-  const res = responseRecorder();
+  const english = responseRecorder();
   const error = new Error('reference image URL must be public');
   error.code = 'BAD_REQUEST';
-  handler(error, { requestId: 'req-400', method: 'POST', path: '/api/v1/videos' }, res, () => {});
+  handler(error, { requestId: 'req-400', method: 'POST', path: '/api/v1/videos' }, english, () => {});
 
-  assert.equal(res.statusCode, 400);
-  assert.equal(res.body.error.code, 'BAD_REQUEST');
-  assert.equal(res.body.error.message, 'reference image URL must be public');
-  assert.equal(res.body.error.request_id, 'req-400');
-  assert.equal(res.body.request_id, 'req-400');
+  assert.equal(english.statusCode, 400);
+  assert.equal(english.body.error.code, 'BAD_REQUEST');
+  assert.equal(english.body.error.message, '请求无效');
+  assert.doesNotMatch(english.body.error.message, /reference image URL/i);
+  assert.equal(english.body.error.request_id, 'req-400');
+  assert.equal(english.body.request_id, 'req-400');
+
+  const chinese = responseRecorder();
+  const trusted = new Error('参考图必须是公网地址');
+  trusted.code = 'BAD_REQUEST';
+  handler(trusted, { requestId: 'req-400-zh', method: 'POST', path: '/api/v1/videos' }, chinese, () => {});
+  assert.equal(chinese.body.error.message, '参考图必须是公网地址');
 });
 
 test('response internalError sanitizes production messages and preserves development details', (t) => {
@@ -315,6 +322,16 @@ test('development timeout and cancel copy stays Chinese and hides internals', ()
   assert.equal(cancelRes.body.error.stack, undefined);
   assert.equal(cancelRes.body.request_id, 'req-dev-cancel');
   assert.doesNotMatch(JSON.stringify(cancelRes.body), /internal\.js|aborted|private/);
+
+  const timeoutAbortRes = responseRecorder();
+  const timeoutAbortError = new Error('The operation was aborted.');
+  timeoutAbortError.name = 'AbortError';
+  timeoutAbortError.code = 'ECONNABORTED';
+  timeoutAbortError.isTimeout = true;
+  timeoutHandler(timeoutAbortError, { requestId: 'req-dev-timeout-abort', method: 'GET', path: '/api/v1/ai' }, timeoutAbortRes, () => {});
+  assert.equal(timeoutAbortRes.body.error.message, '请求超时，请稍后重试');
+  assert.doesNotMatch(JSON.stringify(timeoutAbortRes.body), /aborted|AbortError|ECONNABORTED/);
+
 });
 
 test('request context binds logger metadata to the same request id', () => {

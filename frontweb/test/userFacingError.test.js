@@ -204,3 +204,22 @@ test('不安全 requestId 会被安全值替换，不会出现在用户文案里
   assert.doesNotMatch(unsafeOnly, /secret/)
   assert.doesNotMatch(unsafeOnly, /请求编号/)
 })
+
+test('超时 AbortError 不能当成用户取消，必须给出中文超时原因', () => {
+  const timeoutRequestId = 'req-timeout-11'
+  const configRequestId = 'req-config-99'
+  assert.notEqual(timeoutRequestId, configRequestId)
+  const timeoutAbort = Object.assign(new Error('The operation was aborted.'), {
+    name: 'AbortError',
+    isTimeout: true,
+    code: 'ECONNABORTED',
+    requestId: timeoutRequestId,
+    config: { requestId: configRequestId },
+  })
+  assert.equal(isUserFacingAbort(timeoutAbort), false)
+  const message = toUserFacingError(timeoutAbort)
+  assert.match(message, /超时/)
+  assert.doesNotMatch(message, /操作已取消|The operation was aborted|AbortError/i)
+  assert.match(message, /请求编号：req-timeout-11/)
+  assert.doesNotMatch(message, /req-config-99/)
+})

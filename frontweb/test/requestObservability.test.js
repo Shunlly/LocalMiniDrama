@@ -589,6 +589,24 @@ test('successful requests do not toast request ids', async () => {
   assert.equal(httpLogs().length, 0)
 })
 
+test('HTTP 200 且 success=false 的英文错误不会直出', async () => {
+  await assert.rejects(
+    request.post('/items', { name: '' }, {
+      adapter: jsonAdapter(200, {
+        success: false,
+        error: { code: 'BAD_REQUEST', message: 'Select a valid model' },
+      }),
+    }),
+    (error) => {
+      assert.equal(error.category, REQUEST_ERROR_CATEGORY.HTTP_4XX)
+      assert.match(String(error.message || ''), /[\u4e00-\u9fff]/)
+      assert.doesNotMatch(String(error.message || ''), /Select a valid model/i)
+      assert.equal(toasts.length, 0)
+      return true
+    },
+  )
+})
+
 test('empty requestId does not add request-id parentheses to failure toast', async () => {
   await assert.rejects(
     request.get('/offline', {

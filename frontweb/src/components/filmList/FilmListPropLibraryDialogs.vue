@@ -89,7 +89,7 @@ import { imagesAPI } from '@/api/images'
 import { taskAPI } from '@/api/task'
 import { describeServiceLoadError } from '@/utils/requestError'
 import { toUserFacingError, isUserFacingAbort } from '@/utils/userFacingError'
-import { assetImageUrl, createLibraryImageActions } from './filmListLibraryImage.js'
+import { assetImageUrl, createLibraryImageActions, hasPendingLibraryImageWork } from './filmListLibraryImage.js'
 
 defineOptions({ inheritAttrs: false })
 
@@ -207,6 +207,14 @@ async function onDeletePropLibrary(item) {
     ElMessage.error(toUserFacingError(e, '删除失败'))
   }
 }
+
+function hasPendingImageWork() {
+  return hasPendingLibraryImageWork({
+    form: editPropLibraryForm.value,
+    saving: editPropLibrarySaving.value,
+  })
+}
+defineExpose({ hasPendingImageWork })
 
 onBeforeUnmount(() => {
   if (propLibraryKeywordTimer) clearTimeout(propLibraryKeywordTimer)
