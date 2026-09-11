@@ -46,7 +46,7 @@
           <el-button size="small" :loading="sourceFileReading" :disabled="Boolean(sourceUploadBusyReason)" aria-label="选择故事素材文件" @click="sourceFileInput?.click()">选择文件</el-button>
         </ActionGate>
         <ActionGate v-if="sourceFile" label="移除已选文件" :reason="sourceUploadBusyReason">
-          <el-button size="small" link type="danger" :disabled="Boolean(sourceUploadBusyReason)" @click="$emit('clear-selected-file')">移除</el-button>
+          <el-button size="small" link type="danger" :disabled="Boolean(sourceUploadBusyReason)" :aria-label="sourceUploadBusyReason || '移除已选文件'" @click="$emit('clear-selected-file')">移除</el-button>
         </ActionGate>
         <span class="file-name">{{ selectedFilename || '支持文本、PDF、图片、音频和视频，单文件最大 20MB' }}</span>
       </div>
@@ -73,7 +73,7 @@
             plain
             :loading="sourceListRefreshing"
             :disabled="Boolean(sourceListRetryReason)"
-            @click="$emit('refresh-imported-sources')"
+            :aria-label="sourceListRefreshing ? '正在刷新导入列表' : (sourceListRetryReason || '刷新导入列表')" @click="$emit('refresh-imported-sources')"
           >
             刷新列表
           </el-button>
@@ -85,12 +85,12 @@
 
     <div class="action-row">
       <ActionGate label="导入故事素材" :reason="actionReasons.import">
-          <el-button :loading="sourceSaving" :disabled="Boolean(actionReasons.import)" @click="$emit('import-source')">
+          <el-button :loading="sourceSaving" :disabled="Boolean(actionReasons.import)" :aria-label="sourceSaving ? '正在导入故事素材' : (actionReasons.import || '导入故事素材')" @click="$emit('import-source')">
             导入故事素材
           </el-button>
       </ActionGate>
       <ActionGate :label="`导入并启动 ${workflowModeShortLabel}`" :reason="actionReasons.start">
-          <el-button type="primary" :loading="workflowStarting && !startingSourceId" :disabled="Boolean(actionReasons.start)" @click="$emit('start-workflow')">
+          <el-button type="primary" :loading="workflowStarting && !startingSourceId" :disabled="Boolean(actionReasons.start)" :aria-label="workflowStarting && !startingSourceId ? '正在启动流程' : (actionReasons.start || '启动素材流程')" @click="$emit('start-workflow')">
             {{ workflowStartButtonLabel }}
           </el-button>
       </ActionGate>

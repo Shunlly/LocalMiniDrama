@@ -85,7 +85,7 @@
               :loading="importingExample === ex.filename"
               :disabled="listWriteLocked"
               :title="listWriteLocked ? listWriteLockReason : undefined"
-              @click="onImportExample(ex)"
+              :aria-label="importingExample === ex.filename ? `正在导入${ex.name}` : (listWriteLocked ? listWriteLockReason : `导入示例项目${ex.name}`)" @click="onImportExample(ex)"
             >
               <el-icon><FolderOpened /></el-icon>{{ ex.name }}
             </el-button>

@@ -12,6 +12,7 @@
           class="readiness-toggle"
           data-testid="project-readiness-toggle"
           :aria-expanded="expanded"
+          :aria-label="expanded ? '收起详情' : '查看详情'"
           aria-controls="project-readiness-details"
           @click="toggle"
         >
@@ -27,7 +28,7 @@
         <strong>{{ readiness.nextAction.title }}</strong>
         <span id="project-readiness-next-description">{{ readiness.nextAction.description }}</span>
       </div>
-      <el-button type="primary" aria-describedby="project-readiness-next-description" @click="emit('action', readiness.nextAction)">
+      <el-button type="primary" aria-describedby="project-readiness-next-description" :aria-label="readiness.nextAction.label" @click="emit('action', readiness.nextAction)">
         {{ readiness.nextAction.label }}
         <el-icon><ArrowRight /></el-icon>
       </el-button>

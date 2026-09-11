@@ -103,7 +103,7 @@
       </el-form>
       </div>
       <template #footer>
-        <el-button @click="requestConfigDialogClose">取消</el-button>
+        <el-button aria-label="取消编辑配置" @click="requestConfigDialogClose">取消</el-button>
         <el-button type="primary" aria-label="保存配置" :loading="saving" :disabled="configWriteLocked" :title="configWriteLocked ? configWriteLockReason : undefined" @click="submit">保存</el-button>
       </template>
     </AccessibleDialog>

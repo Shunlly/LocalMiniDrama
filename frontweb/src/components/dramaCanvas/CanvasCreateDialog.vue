@@ -66,8 +66,8 @@
     </el-form>
 
     <template #footer>
-      <el-button @click="visible = false">取消</el-button>
-      <el-button type="primary" :loading="submitting" @click="onSubmit">创建</el-button>
+      <el-button aria-label="取消创建" @click="visible = false">取消</el-button>
+      <el-button type="primary" :loading="submitting" :aria-label="submitting ? '正在创建' : '创建节点'" @click="onSubmit">创建</el-button>
     </template>
   </AccessibleDialog>
 </template>

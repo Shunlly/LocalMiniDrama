@@ -18,7 +18,7 @@
           plain
           :disabled="Boolean(qaReason)"
           :loading="qaRunning"
-          @click="$emit('run-qa')"
+          :aria-label="qaRunning ? '正在执行 QA' : (qaReason || '执行 QA')" @click="$emit('run-qa')"
         >
           执行 QA 审计
         </el-button>

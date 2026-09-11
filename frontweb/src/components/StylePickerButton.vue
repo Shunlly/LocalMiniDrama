@@ -63,7 +63,7 @@
               type="button"
               class="spd-item"
               :class="{ 'is-active': modelValue === opt.value }"
-              :aria-pressed="modelValue === opt.value"
+              :aria-pressed="modelValue === opt.value" :aria-label="opt.label || opt.value"
               @click="select(opt)"
             >
               <span class="spd-thumb" :style="thumbStyle(opt)">
@@ -88,8 +88,8 @@
       </div>
 
       <template #footer>
-        <el-button @click="clearAndClose">清除选择</el-button>
-        <el-button type="primary" @click="visible = false">完成</el-button>
+        <el-button aria-label="清除风格选择" @click="clearAndClose">清除选择</el-button>
+        <el-button type="primary" aria-label="完成风格选择" @click="visible = false">完成</el-button>
       </template>
     </AccessibleDialog>
   </div>

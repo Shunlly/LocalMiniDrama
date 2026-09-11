@@ -33,7 +33,7 @@
       />
     </div>
     <template #footer>
-      <el-button type="primary" @click="close">关闭预览</el-button>
+      <el-button type="primary" aria-label="关闭预览" @click="close">关闭预览</el-button>
     </template>
   </AccessibleDialog>
 </template>

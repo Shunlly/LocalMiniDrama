@@ -81,7 +81,7 @@
           :loading="workflowRunning"
           :disabled="Boolean(actionReasons.runWorkflow)"
           :title="actionReasons.runWorkflow || '执行工作流分组'"
-          @click="emit('run-workflow')"
+          :aria-label="workflowRunning ? '正在执行分组' : (actionReasons.runWorkflow || '执行工作流分组')" @click="emit('run-workflow')"
         >
           <el-icon><Refresh /></el-icon>
           执行分组
@@ -107,7 +107,7 @@
           plain
           :disabled="Boolean(actionReasons.deleteWorkflow)"
           :title="actionReasons.deleteWorkflow || '删除工作流分组'"
-          @click="emit('delete-workflow')"
+          :aria-label="actionReasons.deleteWorkflow || '删除工作流分组'" @click="emit('delete-workflow')"
         >
           <el-icon><Delete /></el-icon>
           删除

@@ -65,8 +65,8 @@
       />
 
       <template #footer>
-        <el-button :disabled="saving" :title="saving ? '正在保存场景模型映射，请稍候' : undefined" @click="requestDialogClose">取消</el-button>
-        <el-button type="primary" :loading="saving" :disabled="saving" :title="saving ? '正在保存场景模型映射，请稍候' : undefined" @click="save">保存</el-button>
+        <el-button :disabled="saving" :title="saving ? '正在保存场景模型映射，请稍候' : undefined" :aria-label="saving ? '正在保存场景模型映射，请稍候' : '取消场景模型映射'" @click="requestDialogClose">取消</el-button>
+        <el-button type="primary" :loading="saving" :disabled="saving" :title="saving ? '正在保存场景模型映射，请稍候' : undefined" :aria-label="saving ? '正在保存场景模型映射，请稍候' : '保存场景模型映射'" @click="save">保存</el-button>
       </template>
     </AccessibleDialog>
   </div>

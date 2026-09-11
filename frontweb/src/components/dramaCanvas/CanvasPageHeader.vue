@@ -81,7 +81,7 @@
           link
           size="small"
           :loading="mediaLoading"
-          @click="retryUnknownStoryboardMedia"
+          :aria-label="mediaLoading ? '正在重试媒体查询' : '重试媒体查询'" @click="retryUnknownStoryboardMedia"
         >
           重试媒体查询
         </el-button>

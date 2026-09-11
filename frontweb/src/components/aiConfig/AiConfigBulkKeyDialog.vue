@@ -20,8 +20,8 @@
       </el-form-item>
     </el-form>
     <template #footer>
-      <el-button @click="requestBulkKeyClose">取消</el-button>
-      <el-button type="primary" :loading="bulkKeySaving" :disabled="configWriteLocked || !bulkKeyInput.trim()" :title="configWriteLocked ? configWriteLockReason : (!bulkKeyInput.trim() ? '请先填写密钥' : undefined)" @click="submitBulkKey">确认替换</el-button>
+      <el-button aria-label="取消一键换密钥" @click="requestBulkKeyClose">取消</el-button>
+      <el-button type="primary" :loading="bulkKeySaving" :disabled="configWriteLocked || !bulkKeyInput.trim()" :title="configWriteLocked ? configWriteLockReason : (!bulkKeyInput.trim() ? '请先填写密钥' : undefined)" :aria-label="bulkKeySaving ? '正在替换密钥' : (configWriteLocked ? configWriteLockReason : (!bulkKeyInput.trim() ? '请先填写密钥' : '确认替换密钥'))" @click="submitBulkKey">确认替换</el-button>
     </template>
   </AccessibleDialog>
 </template>

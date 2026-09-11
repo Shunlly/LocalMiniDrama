@@ -22,7 +22,7 @@
     </div>
     <div v-else class="stage-empty">完成素材处理后，这里会显示剧集与时间线摘要。</div>
     <div class="stage-action-row delivery-actions">
-      <el-button type="primary" plain @click="$emit('select-step', 'intake')">继续导入故事素材</el-button>
+      <el-button type="primary" plain aria-label="去导入素材" @click="$emit('select-step', 'intake')">继续导入故事素材</el-button>
     </div>
   </div>
 </template>

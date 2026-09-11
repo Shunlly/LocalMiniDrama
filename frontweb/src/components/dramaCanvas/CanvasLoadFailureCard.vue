@@ -14,8 +14,8 @@
         {{ notFound ? '项目可能已移入回收站或已删除。' : '请确认本地服务可用后，在当前页面直接重试。' }}
       </p>
       <div class="canvas-load-actions">
-        <el-button type="primary" :loading="loading" @click="retryCanvasProjectLoad">重试加载</el-button>
-        <el-button @click="goProjectList">返回项目列表</el-button>
+        <el-button type="primary" :loading="loading" :aria-label="loading ? '正在重试加载' : '重试加载'" @click="retryCanvasProjectLoad">重试加载</el-button>
+        <el-button aria-label="返回项目列表" @click="goProjectList">返回项目列表</el-button>
       </div>
     </div>
   </main>

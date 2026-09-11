@@ -45,6 +45,7 @@
           :disabled="effectiveEpisodeId === null"
           :title="effectiveEpisodeId === null ? '请先选择要进入的剧集' : undefined"
           native-type="submit"
+          :aria-label="effectiveEpisodeId === null ? '请先选择要进入的剧集' : '进入这一集'"
         >
           <el-icon><Right /></el-icon>
           进入这一集

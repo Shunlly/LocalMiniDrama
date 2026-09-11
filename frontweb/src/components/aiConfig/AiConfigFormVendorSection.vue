@@ -87,7 +87,7 @@
     <el-form-item v-if="form.service_type === 'jimeng2_character_auth'">
       <template #label><span class="form-label-tip">素材列表</span></template>
       <div class="jimeng2-assets-actions">
-        <el-button type="primary" plain :loading="jimeng2AssetsLoading" @click="openJimeng2MaterialAssetsDialog">
+        <el-button type="primary" plain :loading="jimeng2AssetsLoading" :aria-label="jimeng2AssetsLoading ? '正在加载素材' : '列出素材'" @click="openJimeng2MaterialAssetsDialog">
           列出素材
         </el-button>
         <span class="field-tip jimeng2-assets-tip">

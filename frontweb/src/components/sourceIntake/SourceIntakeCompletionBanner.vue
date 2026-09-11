@@ -14,14 +14,14 @@
     交付摘要整理中，轨道、时长和占位统计将在时间线加载后显示。
   </p>
   <div class="workflow-complete-actions">
-    <el-button type="primary" @click="$emit('enter-production')">进入制作</el-button>
-    <el-button plain @click="$emit('focus-episode-list')">查看分集</el-button>
+    <el-button type="primary" aria-label="进入制作" @click="$emit('enter-production')">进入制作</el-button>
+    <el-button plain aria-label="查看分集" @click="$emit('focus-episode-list')">查看分集</el-button>
     <el-button
       class="workflow-history-toggle"
       text
       :aria-controls="'source-workflow-history'"
       :aria-expanded="workflowHistoryExpanded"
-      @click="workflowHistoryExpanded = !workflowHistoryExpanded"
+      :aria-label="workflowHistoryExpanded ? '收起流程记录' : '展开流程记录'" @click="workflowHistoryExpanded = !workflowHistoryExpanded"
     >
       <el-icon><ArrowUp v-if="workflowHistoryExpanded" /><ArrowDown v-else /></el-icon>
       流程记录

@@ -1,6 +1,6 @@
 <template>
   <div class="episode-batch-import-trigger">
-    <el-button size="small" @click="openDialog">
+    <el-button size="small" aria-label="批量导入剧集" @click="openDialog">
       <el-icon><Upload /></el-icon>批量导入剧集
     </el-button>
 

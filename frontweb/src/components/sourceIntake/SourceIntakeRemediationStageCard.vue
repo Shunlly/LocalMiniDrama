@@ -14,7 +14,7 @@
           plain
           :disabled="Boolean(remediateReason)"
           :loading="remediating"
-          @click="$emit('remediate')"
+          :aria-label="remediating ? '正在一键修复' : (remediateReason || '一键修复')" @click="$emit('remediate')"
         >
           一键修复
         </el-button>
@@ -30,7 +30,7 @@
     <div v-else-if="latestQa.passed" class="stage-success">QA 已通过，不需要修复。</div>
     <div v-else class="stage-empty stage-empty--actionable">
       <span>还没有可自动修复的建议。请先执行 QA 审计。</span>
-      <el-button type="primary" plain @click="$emit('select-step', 'qa')">去执行 QA</el-button>
+      <el-button type="primary" plain aria-label="去执行 QA" @click="$emit('select-step', 'qa')">去执行 QA</el-button>
     </div>
   </div>
 </template>

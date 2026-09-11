@@ -15,7 +15,7 @@
       :class="{ 'omni-at-menu-item--active': menuActiveIndex === i }"
       role="option"
       :aria-selected="menuActiveIndex === i"
-      @click="$emit('pick', s.index)"
+      :aria-label="s.name || ('提及项 ' + s.index)" @click="$emit('pick', s.index)"
       @mouseenter="$emit('hover', i)"
     >
       <span class="omni-at-menu-thumb-wrap">

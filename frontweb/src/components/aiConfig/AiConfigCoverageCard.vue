@@ -18,6 +18,7 @@
       type="button"
       class="coverage-select"
       :aria-pressed="selected"
+      :aria-label="`${item.label}，${coverageStateLabel(item)}`"
       @click="$emit('select', item)"
     >
       <span :class="['coverage-icon', `coverage-icon-${item.type}`]">

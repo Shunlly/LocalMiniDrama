@@ -187,7 +187,7 @@
     <AccessibleDialog v-model="showProtocolHelp" title="接口规范说明" width="700px" top="5vh" class="ai-config-overlay">
       <AiConfigPresetHelpCollapse />
       <template #footer>
-        <el-button @click="showProtocolHelp = false">关闭</el-button>
+        <el-button aria-label="关闭协议说明" @click="showProtocolHelp = false">关闭</el-button>
       </template>
     </AccessibleDialog>
   </div>

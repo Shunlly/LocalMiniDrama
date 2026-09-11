@@ -224,7 +224,7 @@ test('分类素材加载失败不会被伪装成空库，且 AI 配置在列表�
   )
   assert.match(
     filmListSource,
-    /class="example-btn"[\s\S]*:disabled="listWriteLocked"\s*:title="listWriteLocked \? listWriteLockReason : undefined"\s*@click="onImportExample\(ex\)"/,
+    /class="example-btn"[\s\S]*:disabled="listWriteLocked"\s*:title="listWriteLocked \? listWriteLockReason : undefined"[\s\S]*@click="onImportExample\(ex\)"/,
   )
   for (const click of [
     'openEditCharLibrary(item)',

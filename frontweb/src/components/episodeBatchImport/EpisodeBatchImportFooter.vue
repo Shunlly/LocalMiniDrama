@@ -10,7 +10,7 @@
       v-if="activeTab === 'preview'"
       :disabled="importing"
       :title="importing ? '正在导入剧集，请完成后再返回。' : ''"
-      @click="emit('back')"
+      :aria-label="importing ? '正在导入剧集，请完成后再返回。' : '上一步'" @click="emit('back')"
     >上一步</el-button>
     <el-button
       v-if="activeTab === 'config'"

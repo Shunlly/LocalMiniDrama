@@ -3,12 +3,12 @@
     <div v-if="canvasMode === 'production'" class="sidebar-section sidebar-script">
       <div class="sec-label sec-label-row">
         <span>📜 剧本</span>
-        <el-button link size="small" type="warning" @click="focusScriptNode">编辑</el-button>
+        <el-button link size="small" type="warning" aria-label="编辑剧本" @click="focusScriptNode">编辑</el-button>
       </div>
     </div>
     <div class="sidebar-title">
       素材库
-      <el-button v-if="highlightAssetId" link size="small" @click="clearAssetHighlight">清除</el-button>
+      <el-button v-if="highlightAssetId" link size="small" aria-label="清除资产高亮" @click="clearAssetHighlight">清除</el-button>
     </div>
     <div class="sidebar-section">
       <div class="sec-label sec-label-row">

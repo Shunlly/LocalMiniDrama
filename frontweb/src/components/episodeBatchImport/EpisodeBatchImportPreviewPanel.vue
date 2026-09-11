@@ -24,7 +24,7 @@
     <div v-else class="batch-import-empty" role="status">
       <strong>还没有可导入的集数预览</strong>
       <p>请先在「导入设置」中选择 TXT 文件，再点击「确认导入配置」。</p>
-      <el-button type="primary" plain @click="emit('back')">返回导入设置</el-button>
+      <el-button type="primary" plain aria-label="返回导入设置" @click="emit('back')">返回导入设置</el-button>
     </div>
   </div>
 </template>

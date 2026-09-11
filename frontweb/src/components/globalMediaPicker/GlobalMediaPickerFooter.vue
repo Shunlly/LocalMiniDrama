@@ -2,7 +2,7 @@
   <div class="picker-footer">
     <span class="picker-footer__status">{{ status }}</span>
     <div class="picker-footer__actions">
-      <el-button @click="emit('cancel')">取消</el-button>
+      <el-button aria-label="取消选择素材" @click="emit('cancel')">取消</el-button>
       <el-button
         type="primary"
         :disabled="confirmDisabled"

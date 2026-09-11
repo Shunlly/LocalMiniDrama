@@ -67,7 +67,7 @@
             class="media-query-retry"
             :disabled="retryingMedia"
             :title="retryingMedia ? '正在重试媒体查询，请稍候' : undefined"
-            @click.stop="retryMedia"
+            :aria-label="retryingMedia ? '正在重试媒体查询，请稍候' : '重试媒体查询'" @click.stop="retryMedia"
           >
             {{ retryingMedia ? '重试中…' : '重试媒体查询' }}
           </button>

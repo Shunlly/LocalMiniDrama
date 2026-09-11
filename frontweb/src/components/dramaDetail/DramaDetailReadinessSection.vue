@@ -17,7 +17,7 @@
       {{ readinessDependencyError }}
       <template v-if="hasReadinessSnapshot">当前显示的是上次成功加载的就绪状态。</template>
     </span>
-    <el-button size="small" type="primary" plain @click="emit('retry')">
+    <el-button size="small" type="primary" plain aria-label="重试加载就绪度" @click="emit('retry')">
       重试
     </el-button>
   </div>

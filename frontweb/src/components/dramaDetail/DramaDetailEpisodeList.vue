@@ -30,16 +30,16 @@
                   :disabled="Boolean(episodeEmptyState.primaryDisabledReason)"
                   :title="episodeEmptyState.primaryDisabledReason || undefined"
                   :aria-describedby="episodeEmptyState.primaryDisabledReason || episodeEmptyState.note ? 'episode-empty-reason' : undefined"
-                  @click="handleReadinessAction(episodeEmptyState.primaryAction)"
+                  :aria-label="episodeEmptyState.primaryDisabledReason ? `${episodeEmptyState.primaryAction.label}不可用：${episodeEmptyState.primaryDisabledReason}` : episodeEmptyState.primaryAction.label" @click="handleReadinessAction(episodeEmptyState.primaryAction)"
                 >
                   {{ episodeEmptyState.primaryAction.label }}
                 </el-button>
               </span>
             </el-tooltip>
-            <el-button v-if="episodeEmptyState.unblockAction" @click="handleReadinessAction(episodeEmptyState.unblockAction)">
+            <el-button v-if="episodeEmptyState.unblockAction" :aria-label="episodeEmptyState.unblockAction.label" @click="handleReadinessAction(episodeEmptyState.unblockAction)">
               {{ episodeEmptyState.unblockAction.label }}
             </el-button>
-            <el-button @click="openEpisodeBatchImport">批量导入剧本</el-button>
+            <el-button aria-label="批量导入剧本" @click="openEpisodeBatchImport">批量导入剧本</el-button>
             <el-button :loading="addingEpisode" aria-label="新增空白集" @click="onAddEpisode">
               <el-icon><Plus /></el-icon>新增空白集
             </el-button>

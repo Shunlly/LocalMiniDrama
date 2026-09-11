@@ -11,7 +11,7 @@
           :loading="Boolean(form?.imgUploading)"
           :disabled="Boolean(uploadDisabledReason)"
           :title="uploadDisabledReason || undefined"
-          @click="pickFile"
+          :aria-label="form?.imgUploading ? '正在上传图片' : (uploadDisabledReason || '上传图片')" @click="pickFile"
         >上传图片</el-button>
         <el-button
           size="small"
@@ -19,7 +19,7 @@
           :loading="Boolean(form?.imgGenerating)"
           :disabled="Boolean(generateDisabledReason)"
           :title="generateDisabledReason || undefined"
-          @click="emit('generate')"
+          :aria-label="form?.imgGenerating ? '正在生成图片' : (generateDisabledReason || 'AI 生成图片')" @click="emit('generate')"
         >AI 生成</el-button>
       </div>
     </div>

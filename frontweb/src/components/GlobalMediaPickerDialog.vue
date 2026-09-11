@@ -40,7 +40,7 @@
 
       <div v-if="loadError" class="picker-error" role="alert">
         <span>{{ loadError }}</span>
-        <el-button size="small" @click="loadAssets">重试</el-button>
+        <el-button size="small" aria-label="重试加载素材" @click="loadAssets">重试</el-button>
       </div>
 
       <div v-loading="loading" class="picker-grid" :aria-busy="loading">

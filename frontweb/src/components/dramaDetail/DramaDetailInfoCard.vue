@@ -12,7 +12,7 @@
             <el-icon v-if="infoSaveState === 'saving' || infoSaveScheduled" class="is-loading"><Loading /></el-icon>
             <el-icon v-else-if="infoSaveState === 'error'"><WarningFilled /></el-icon>
             <span>{{ infoSaveStatusLabel }}</span>
-            <el-button v-if="infoSaveState === 'error'" link type="primary" @click="emit('retry-save')">
+            <el-button v-if="infoSaveState === 'error'" link type="primary" aria-label="重试保存项目信息" @click="emit('retry-save')">
               重试
             </el-button>
           </div>

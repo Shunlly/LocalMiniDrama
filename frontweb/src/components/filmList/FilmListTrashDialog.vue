@@ -17,7 +17,7 @@
     <div v-loading="trashLoading" class="trash-dialog-content">
       <div v-if="trashError" class="trash-error" role="alert">
         <p>{{ trashError }}</p>
-        <el-button type="primary" plain size="small" :loading="trashLoading" @click="loadTrash">
+        <el-button type="primary" plain size="small" :loading="trashLoading" :aria-label="trashLoading ? '正在加载回收站' : '重试加载回收站'" @click="loadTrash">
           <el-icon><RefreshLeft /></el-icon>重试
         </el-button>
       </div>
@@ -67,7 +67,7 @@
       @current-change="loadTrash"
     />
     <template #footer>
-      <el-button @click="showTrashDialog = false">关闭</el-button>
+      <el-button aria-label="关闭回收站" @click="showTrashDialog = false">关闭</el-button>
     </template>
   </AccessibleDialog>
 </template>

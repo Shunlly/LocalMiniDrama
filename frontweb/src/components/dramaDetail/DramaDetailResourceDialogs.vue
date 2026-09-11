@@ -79,7 +79,7 @@
             {{ importError }}
             <template v-if="importList.length">当前仍显示上次成功加载的素材。</template>
           </span>
-          <el-button size="small" type="primary" plain :loading="importLoading" @click="loadImportList">重试</el-button>
+          <el-button size="small" type="primary" plain :loading="importLoading" :aria-label="importLoading ? '正在加载可导入列表' : '重试加载可导入列表'" @click="loadImportList">重试</el-button>
         </div>
         <div v-for="item in importList" :key="item.id" class="library-item">
           <button
@@ -105,14 +105,14 @@
             </div>
             <div class="library-item-desc">{{ (item.description || item.prompt || '').slice(0, 80) }}</div>
             <div class="library-item-actions">
-              <el-button size="small" type="primary" :loading="importingId === item.id" @click="doImport(item)">导入</el-button>
+              <el-button size="small" type="primary" :loading="importingId === item.id" :aria-label="importingId === item.id ? '正在导入' : `导入${item.name || item.location || '该资源'}`" @click="doImport(item)">导入</el-button>
             </div>
           </div>
         </div>
         <div v-if="!importLoading && !importError && importList.length === 0" class="library-empty resource-empty-state" role="status">
           <div class="empty-state-title">{{ importKw.trim() ? '没有匹配的素材' : '素材库暂无内容' }}</div>
           <div class="empty-state-copy">{{ importKw.trim() ? '试试其他关键词，或清除搜索后重新查看。' : (currentEpisodeId ? '可前往制作页新增素材并加入素材库。' : '请先新增一集，再去制作页提取素材。') }}</div>
-          <el-button v-if="importKw.trim()" size="small" @click="importKw = ''; loadImportList()">清除搜索</el-button>
+          <el-button v-if="importKw.trim()" size="small" aria-label="清除导入搜索" @click="importKw = ''; loadImportList()">清除搜索</el-button>
           <el-button v-else size="small" type="primary" :loading="!currentEpisodeId && addingEpisode" :aria-label="currentEpisodeId ? '前往制作页新增并入库' : '新增一集后再去制作页提取素材'" @click="goCreateOrAddEpisode">
             {{ currentEpisodeId ? '前往制作页新增并入库' : '先去新增一集' }}
           </el-button>
@@ -131,7 +131,7 @@
         />
       </div>
       <template #footer>
-        <el-button @click="importVisible = false">关闭</el-button>
+        <el-button aria-label="关闭导入弹窗" @click="importVisible = false">关闭</el-button>
       </template>
     </AccessibleDialog>
 

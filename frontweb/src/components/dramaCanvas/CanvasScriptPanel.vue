@@ -43,7 +43,7 @@
     </div>
 
     <div class="panel-actions">
-      <el-button size="small" type="primary" :loading="saving" @click.stop="onSave">保存剧本</el-button>
+      <el-button size="small" type="primary" :loading="saving" :aria-label="saving ? '正在保存剧本' : '保存剧本'" @click.stop="onSave">保存剧本</el-button>
       <el-button
         size="small"
         :loading="extracting"

@@ -9,7 +9,7 @@
   </div>
   <div v-if="audioOutcomeUnknown" class="media-query-blocker" role="alert">
     <span>上一次配音结果待确认，服务端可能仍在合成并产生费用。</span>
-    <el-button size="small" type="warning" plain @click.stop="refreshAfterUnknownAudio">刷新分镜状态</el-button>
+    <el-button size="small" type="warning" plain aria-label="刷新分镜状态" @click.stop="refreshAfterUnknownAudio">刷新分镜状态</el-button>
   </div>
 </template>
 

@@ -2,8 +2,8 @@
   <div class="picker-empty" role="status">
     <p>{{ hasActiveFilters ? '当前筛选下没有素材。' : '素材中心还是空的。' }}</p>
     <div class="picker-empty__actions">
-      <el-button v-if="hasActiveFilters" size="small" @click="emit('clear-filters')">清除筛选</el-button>
-      <el-button size="small" type="primary" @click="emit('open-library')">前往素材中心上传</el-button>
+      <el-button v-if="hasActiveFilters" size="small" aria-label="清除筛选" @click="emit('clear-filters')">清除筛选</el-button>
+      <el-button size="small" type="primary" aria-label="前往素材中心上传" @click="emit('open-library')">前往素材中心上传</el-button>
     </div>
   </div>
 </template>

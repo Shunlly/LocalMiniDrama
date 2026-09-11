@@ -85,7 +85,7 @@
     </el-form-item>
     <el-form-item label=" ">
       <div class="sd2-save-row">
-        <el-button type="primary" :loading="savingConfig" :disabled="Boolean(saveLockReason)" :title="saveLockReason" @click="saveToAiConfig">
+        <el-button type="primary" :loading="savingConfig" :disabled="Boolean(saveLockReason)" :title="saveLockReason" :aria-label="savingConfig ? '正在保存到 AI 配置' : (saveLockReason || '保存到 AI 配置')" @click="saveToAiConfig">
           保存到 AI 配置
         </el-button>
         <span v-if="savedConfigId" class="sd2-saved-hint">

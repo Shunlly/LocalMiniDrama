@@ -2,7 +2,7 @@
   <div class="canvas-warning-bar" role="alert">
     <span>上一次配音请求结果待确认，后台合成和供应商计费可能仍在继续。刷新项目状态后才能再次执行整组工作流。</span>
     <div class="canvas-warning-actions">
-      <el-button link size="small" :loading="loading" @click="refreshUnknownWorkflowOutcome">刷新项目状态</el-button>
+      <el-button link size="small" :loading="loading" :aria-label="loading ? '正在刷新项目状态' : '刷新项目状态'" @click="refreshUnknownWorkflowOutcome">刷新项目状态</el-button>
     </div>
   </div>
 </template>

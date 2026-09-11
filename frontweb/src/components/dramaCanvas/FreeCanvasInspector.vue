@@ -87,7 +87,7 @@
           v-if="configRuntime.canConfigure"
           :disabled="readonly || busy"
           :title="(readonly || busy) ? configActionDisabledReason : undefined"
-          @click="emit('configure', node.id)"
+          :aria-label="(readonly || busy) ? configActionDisabledReason : 'AI 配置'" @click="emit('configure', node.id)"
         >
           <el-icon><Setting /></el-icon>
           AI 配置
@@ -109,7 +109,7 @@
           type="primary"
           :disabled="readonly || busy"
           :title="(readonly || busy) ? configActionDisabledReason : undefined"
-          @click="emit('retry-config', node.id)"
+          :aria-label="(readonly || busy) ? configActionDisabledReason : '重试检查'" @click="emit('retry-config', node.id)"
         >
           <el-icon><RefreshRight /></el-icon>
           重试检查
@@ -133,7 +133,7 @@
           :loading="converting"
           :disabled="editorDisabled || !conversionTarget"
           :title="(editorDisabled || !conversionTarget) ? convertDisabledReason : undefined"
-          @click="emitConvertReference"
+          :aria-label="(editorDisabled || !conversionTarget) ? convertDisabledReason : '转换引用'" @click="emitConvertReference"
         >
           转换引用
         </el-button>

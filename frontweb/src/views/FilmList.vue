@@ -144,8 +144,8 @@
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="showNewDialog = false">取消</el-button>
-        <el-button type="primary" :loading="newSaving" :disabled="Boolean(newSubmitDisabledReason)" :title="newSubmitDisabledReason || undefined" @click="submitNew">确定</el-button>
+        <el-button aria-label="取消新建项目" @click="showNewDialog = false">取消</el-button>
+        <el-button type="primary" :loading="newSaving" :disabled="Boolean(newSubmitDisabledReason)" :title="newSubmitDisabledReason || undefined" :aria-label="newSaving ? '正在创建项目' : (newSubmitDisabledReason || '确定新建项目')" @click="submitNew">确定</el-button>
       </template>
     </AccessibleDialog>
 
@@ -186,8 +186,8 @@
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="showEditDialog = false">取消</el-button>
-        <el-button type="primary" :loading="editSaving" :disabled="Boolean(editSubmitDisabledReason)" :title="editSubmitDisabledReason || undefined" @click="submitEdit">保存</el-button>
+        <el-button aria-label="取消编辑项目" @click="showEditDialog = false">取消</el-button>
+        <el-button type="primary" :loading="editSaving" :disabled="Boolean(editSubmitDisabledReason)" :title="editSubmitDisabledReason || undefined" :aria-label="editSaving ? '正在保存项目' : (editSubmitDisabledReason || '保存项目')" @click="submitEdit">保存</el-button>
       </template>
     </AccessibleDialog>
   </div>

@@ -37,7 +37,7 @@
       <template v-else>
         <div class="readiness-gap-head">
           <strong>正式制作暂不能启动</strong>
-          <el-button size="small" type="primary" plain @click="$emit('open-ai-config')">
+          <el-button size="small" type="primary" plain aria-label="前往 AI 配置" @click="$emit('open-ai-config')">
             <el-icon><Setting /></el-icon>
             前往 AI 配置
           </el-button>

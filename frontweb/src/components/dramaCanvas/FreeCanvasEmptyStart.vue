@@ -7,15 +7,15 @@
     <h2 id="free-canvas-empty-title">开始自由创作</h2>
     <p id="free-canvas-empty-desc">还没有自由节点。可以新建文本、配置，或导入媒体开始编排。</p>
     <div class="free-canvas-empty-actions">
-      <el-button type="primary" @click="createFreeCanvasNode('text')">
+      <el-button type="primary" aria-label="新建文本节点" @click="createFreeCanvasNode('text')">
         <el-icon><Document /></el-icon>
         新建文本
       </el-button>
-      <el-button @click="createFreeCanvasNode('config')">
+      <el-button aria-label="新建配置节点" @click="createFreeCanvasNode('config')">
         <el-icon><Setting /></el-icon>
         新建配置
       </el-button>
-      <el-button @click="openFreeCanvasMediaPicker">
+      <el-button aria-label="导入媒体" @click="openFreeCanvasMediaPicker">
         <el-icon><FolderOpened /></el-icon>
         导入媒体
       </el-button>

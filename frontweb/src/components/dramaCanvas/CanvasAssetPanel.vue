@@ -47,7 +47,7 @@
     </div>
 
     <div class="panel-actions">
-      <el-button size="small" :loading="saving" @click.stop="saveAsset">保存</el-button>
+      <el-button size="small" :loading="saving" :aria-label="saving ? '正在保存' : '保存资产'" @click.stop="saveAsset">保存</el-button>
       <el-button
         v-if="canGenerate || generating || entityStatus === 'failed'"
         size="small"
@@ -66,8 +66,8 @@
         aria-label="取消生成参考图"
         @click.stop="abortGenerate"
       >取消</el-button>
-      <el-button size="small" plain @click.stop="highlightRelated">关联分镜</el-button>
-      <el-button size="small" type="danger" plain @click.stop="deleteAsset">删除</el-button>
+      <el-button size="small" plain aria-label="关联分镜" @click.stop="highlightRelated">关联分镜</el-button>
+      <el-button size="small" type="danger" plain aria-label="删除资产" @click.stop="deleteAsset">删除</el-button>
     </div>
   </div>
 </template>

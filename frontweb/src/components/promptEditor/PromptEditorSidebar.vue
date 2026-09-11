@@ -8,7 +8,7 @@
         tabindex="0"
         :class="['menu-item', { active: currentKey === p.key }]"
         :aria-current="currentKey === p.key ? 'true' : undefined"
-        @click="selectPrompt(p.key)"
+        :aria-label="p.label" @click="selectPrompt(p.key)"
         @keydown.enter.prevent="selectPrompt(p.key)"
         @keydown.space.prevent="selectPrompt(p.key)"
       >

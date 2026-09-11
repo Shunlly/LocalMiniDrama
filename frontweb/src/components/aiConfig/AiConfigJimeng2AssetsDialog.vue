@@ -32,10 +32,10 @@
       </el-table-column>
     </el-table>
     <div v-if="jimeng2AssetsHasMore" style="margin-top: 12px; text-align: center">
-      <el-button :loading="jimeng2AssetsLoading" @click="loadMoreJimeng2MaterialAssets">加载更多</el-button>
+      <el-button :loading="jimeng2AssetsLoading" :aria-label="jimeng2AssetsLoading ? '正在加载更多' : '加载更多素材'" @click="loadMoreJimeng2MaterialAssets">加载更多</el-button>
     </div>
     <template #footer>
-      <el-button @click="jimeng2AssetsDialogVisible = false">关闭</el-button>
+      <el-button aria-label="关闭素材列表" @click="jimeng2AssetsDialogVisible = false">关闭</el-button>
     </template>
   </AccessibleDialog>
 </template>

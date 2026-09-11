@@ -11,6 +11,7 @@
         type="button"
         class="workflow-group-select"
         :aria-pressed="activeGroupId === group.id"
+        :aria-label="group.title || '工作流分组'"
         @click="emit('select-group', group.id)"
       >
         <span class="wf-item-title">{{ group.title }}</span>

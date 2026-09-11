@@ -10,7 +10,7 @@
       :class="{ active: configWorkspaceView === 'coverage' }"
       :aria-selected="configWorkspaceView === 'coverage'"
       :tabindex="configWorkspaceView === 'coverage' ? 0 : -1"
-      aria-controls="ai-config-coverage-panel"
+      aria-label="服务状态" aria-controls="ai-config-coverage-panel"
       @click="selectConfigWorkspaceView('coverage')"
       @keydown="onConfigWorkspaceKeydown('coverage', $event)"
     >
@@ -26,7 +26,7 @@
       :class="{ active: configWorkspaceView === 'configs' }"
       :aria-selected="configWorkspaceView === 'configs'"
       :tabindex="configWorkspaceView === 'configs' ? 0 : -1"
-      aria-controls="ai-config-configs-panel"
+      aria-label="配置管理" aria-controls="ai-config-configs-panel"
       @click="selectConfigWorkspaceView('configs')"
       @keydown="onConfigWorkspaceKeydown('configs', $event)"
     >
