@@ -84,6 +84,17 @@
       <p class="config-message" :class="`state-${configRuntime.status}`" role="status">{{ configRuntime.reason }}</p>
       <div class="inspector-actions">
         <el-button
+          v-if="configRuntime.status !== 'running' && !configRuntime.canRetry"
+          type="primary"
+          :disabled="generateDisabled"
+          :title="generateDisabled ? generateButtonAriaLabel : undefined"
+          :aria-label="generateButtonAriaLabel"
+          @click="emitGenerate"
+        >
+          <el-icon><MagicStick /></el-icon>
+          生成
+        </el-button>
+        <el-button
           v-if="configRuntime.canConfigure"
           :disabled="readonly || busy"
           :title="(readonly || busy) ? configActionDisabledReason : undefined"
@@ -157,7 +168,7 @@
 
 <script setup>
 import { computed, ref, watch } from 'vue'
-import { CircleClose, Close, RefreshRight, Setting } from '@element-plus/icons-vue'
+import { CircleClose, Close, MagicStick, RefreshRight, Setting } from '@element-plus/icons-vue'
 
 const props = defineProps({
   node: { type: Object, default: null },
@@ -178,6 +189,10 @@ const props = defineProps({
       reason: '视频生成未就绪，请前往 AI 配置完成配置。',
       providerLabel: '',
       modelLabel: '',
+      serviceType: 'image',
+      canGenerate: false,
+      generateDisabledReason: '视频生成未就绪，请前往 AI 配置完成配置。',
+      generateAriaLabel: '视频生成未就绪，请前往 AI 配置完成配置。',
       canConfigure: true,
       canCancel: false,
       canRetry: false,
@@ -202,6 +217,7 @@ const emit = defineEmits([
   'configure',
   'cancel-config',
   'retry-config',
+  'generate-config',
 ])
 
 function describeFreeCanvasInspectorDisabledReason({
@@ -232,6 +248,22 @@ const configActionDisabledReason = computed(() => describeFreeCanvasInspectorDis
   readonly: props.readonly,
   busy: props.busy,
 }))
+const generateDisabled = computed(() => (
+  props.readonly || props.busy || !props.configRuntime?.canGenerate
+))
+const generateButtonAriaLabel = computed(() => {
+  if (props.readonly || props.busy) return configActionDisabledReason.value
+  if (!props.configRuntime?.canGenerate) {
+    return props.configRuntime?.generateDisabledReason
+      || props.configRuntime?.reason
+      || '当前不能生成，请先完成 AI 配置'
+  }
+  return '生成'
+})
+function emitGenerate() {
+  if (!props.node || generateDisabled.value) return
+  emit('generate-config', props.node.id)
+}
 const convertDisabledReason = computed(() => describeFreeCanvasInspectorDisabledReason({
   readonly: props.readonly,
   busy: props.busy,
@@ -382,6 +414,7 @@ function emitSaveAsset() {
 }
 
 .inspector-actions {
+  flex-wrap: wrap;
   justify-content: flex-end;
 }
 

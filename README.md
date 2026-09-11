@@ -49,7 +49,7 @@
 - 语言：纯 JavaScript，无 TypeScript
 - 根目录、后端、前端、Docker 与通用 PR/分支门禁用 Node.js 20.x（`.nvmrc` 为 `20`）；桌面依赖安装、原生重建、打包和 Windows 制品安全扫描用 Node.js 22.12.0（`desktop/.npmrc` 启用 `engine-strict`）
 - 日常 Docker：`docker compose up -d --build --wait`。Compose **不 bind-mount 应用源码**，改完代码必须重建镜像；容器级校验：根目录 `npm run verify:docker`
-- 官方 `docker compose up -d --build --wait` 默认映射 `127.0.0.1:3013` 和 `127.0.0.1:5679`，会和源码 `npm run dev` 抢端口，也会撞同一 `backend-node/data`。这两个端口已被占用时不要再起官方 Compose。并存请改 `LOCALMINIDRAMA_FRONTEND_HOST_PORT` / `LOCALMINIDRAMA_BACKEND_HOST_PORT`，并给 Docker 单独的 `LOCALMINIDRAMA_DATA_DIR`；Compose 会按前端宿主机端口写入 `LOCALMINIDRAMA_CORS_ORIGINS`。若覆盖 CORS 或对改端口的实例跑 E2E，还须同步 `LOCALMINIDRAMA_CORS_ORIGINS` 与 `FRONTEND_URL` / `BACKEND_URL`。`npm run docker:e2e:up` 只隔离仓库外 `LOCALMINIDRAMA_DATA_DIR`，不换 `3013`/`5679`，另外占用 `127.0.0.1:5688`
+- 官方 `docker compose up -d --build --wait` 默认映射 `127.0.0.1:3013` 和 `127.0.0.1:5679`，会和源码 `npm run dev` 抢端口，也会撞同一 `backend-node/data`。这两个端口已被占用时不要再起官方 Compose。并存请改 `LOCALMINIDRAMA_FRONTEND_HOST_PORT` / `LOCALMINIDRAMA_BACKEND_HOST_PORT`，并给 Docker 单独的 `LOCALMINIDRAMA_DATA_DIR`；Compose 会按前端宿主机端口写入 `LOCALMINIDRAMA_CORS_ORIGINS`。对改端口的实例跑 E2E 时，还须设置 `FRONTEND_URL` / `BACKEND_URL`；自定义 CORS 时该变量必须与前端宿主机端口一致。`npm run docker:e2e:up` 只隔离仓库外 `LOCALMINIDRAMA_DATA_DIR`，不换 `3013`/`5679`，另外占用 `127.0.0.1:5688`
 - 开发模式下回环 Origin 可通过；生产 Docker CORS 跟随前端宿主机端口
 - 生产 Nginx（`frontweb/nginx.conf`）必须有 `location = /ready`，精确代理到后端 `/ready`，并写在 SPA `location /` 之前。只代理 `/healthz` 不够：备份页会请求 `/ready`，吃到 HTML 会被当成未就绪
 - 生产 E2E 必须在干净工作树执行（证据要求 `working_tree_dirty=false`），不要凭历史 SHA 宣称当前工作树已通过
@@ -243,7 +243,7 @@ docker compose up -d --build --wait
 docker compose ps
 ```
 
-官方命令默认映射宿主机 `127.0.0.1:3013` 和 `127.0.0.1:5679`，会和源码 `npm run dev` 抢端口，也会写入同一 `backend-node/data/`。这两个端口已被占用时不要再起官方 Compose。并存请改 `LOCALMINIDRAMA_FRONTEND_HOST_PORT` / `LOCALMINIDRAMA_BACKEND_HOST_PORT`，并设置独立的 `LOCALMINIDRAMA_DATA_DIR`；Compose 会按前端宿主机端口写入 `LOCALMINIDRAMA_CORS_ORIGINS`。若覆盖 CORS，或对改端口的实例跑 E2E，还须同步 `LOCALMINIDRAMA_CORS_ORIGINS` 以及 `FRONTEND_URL` / `BACKEND_URL`。命令示例见 [开发指南](docs/quickstart.md#运行方式二docker)。
+官方命令默认映射宿主机 `127.0.0.1:3013` 和 `127.0.0.1:5679`，会和源码 `npm run dev` 抢端口，也会写入同一 `backend-node/data/`。这两个端口已被占用时不要再起官方 Compose。并存请改 `LOCALMINIDRAMA_FRONTEND_HOST_PORT` / `LOCALMINIDRAMA_BACKEND_HOST_PORT`，并设置独立的 `LOCALMINIDRAMA_DATA_DIR`；Compose 会按前端宿主机端口写入 `LOCALMINIDRAMA_CORS_ORIGINS`。对改端口的实例跑 E2E 时，还须设置 `FRONTEND_URL` / `BACKEND_URL`；自定义 CORS 时该变量必须与前端宿主机端口一致。命令示例见 [开发指南](docs/quickstart.md#运行方式二docker)。
 
 浏览器打开 `http://127.0.0.1:3013`（改端口后改用对应地址）。默认只绑定宿主机 `127.0.0.1`，数据默认写在 `backend-node/data/`。生产 Nginx 必须保留 `location = /ready` 精确代理，写在 SPA 回退之前；自定义反代也一样，否则备份恢复会被前端 HTML 误锁。
 

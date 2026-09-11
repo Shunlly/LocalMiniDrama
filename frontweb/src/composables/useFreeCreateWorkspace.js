@@ -1,11 +1,23 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import { ElMessage } from '@/utils/elementPlusFeedback.js'
 import { aiAPI } from '@/api/ai'
+import { assetsAPI } from '@/api/assets'
 import { imagesAPI } from '@/api/images'
 import { taskAPI } from '@/api/task'
 import { videosAPI } from '@/api/videos'
 import { uploadAPI } from '@/api/upload'
 import { generationSettingsAPI } from '@/api/prompts'
+import {
+  applyGeneratedMediaToItem,
+  getFreeCreateSaveAriaLabel,
+  getFreeCreateSaveDisabledReason,
+  positiveFreeCreateId,
+  resolveFreeCreateAssetDramaId,
+  restoreFreeCreateResults,
+  resultFromAsset,
+  saveFreeCreateResultToAssets,
+  writeFreeCreateHistory,
+} from '@/components/freeCreate/freeCreateAssetSave.js'
 import { getServiceConfigReadiness } from '@/utils/aiServiceReadiness'
 import {
   buildFreeCreateGenerationPayload,
@@ -26,12 +38,36 @@ import {
   toFreeCreateUserError,
 } from '@/utils/freeCreate'
 
+function defaultFreeCreateStorage() {
+  try {
+    return globalThis.localStorage || null
+  } catch (_) {
+    return null
+  }
+}
+
 export function useFreeCreateWorkspace({
   router,
   route,
   getRefImageInput,
   getRefImageUploadStatusEl,
+  assetsApi,
+  imagesApi,
+  videosApi,
+  taskApi,
+  uploadApi,
+  aiApi,
+  generationSettingsApi,
+  storage,
 } = {}) {
+  const assetsClient = assetsApi || assetsAPI
+  const imagesClient = imagesApi || imagesAPI
+  const videosClient = videosApi || videosAPI
+  const taskClient = taskApi || taskAPI
+  const uploadClient = uploadApi || uploadAPI
+  const aiClient = aiApi || aiAPI
+  const generationSettingsClient = generationSettingsApi || generationSettingsAPI
+  const resultStorage = storage === undefined ? defaultFreeCreateStorage() : storage
   const mode = ref('image')
   const prompt = ref('')
   const style = ref('')
@@ -65,9 +101,19 @@ export function useFreeCreateWorkspace({
   const aiConfigs = ref([])
   const configLoadState = ref('loading')
   const freeCreateTaskOwner = createFreeCreateTaskOwner((taskId, body) => (
-    taskAPI.cancel(taskId, body, { suppressErrorToast: true })
+    taskClient.cancel(taskId, body, { suppressErrorToast: true })
   ))
   let unregisterLeaveProtection = null
+  let restoringResults = false
+  const assetSaveTargetDramaId = computed(() => resolveFreeCreateAssetDramaId(route))
+  const assetSaveTargetLabel = computed(() => (
+    assetSaveTargetDramaId.value ? '当前项目素材中心' : '全局素材中心'
+  ))
+
+  function persistResults() {
+    if (restoringResults) return
+    writeFreeCreateHistory(resultStorage, results.value)
+  }
 
   const activeServiceType = computed(() => mode.value === 'video' ? 'video' : 'image')
   const activeServiceLabel = computed(() => mode.value === 'video' ? '视频' : '图片')
@@ -191,13 +237,15 @@ export function useFreeCreateWorkspace({
     aspectRatio.value = normalizeFreeCreateAspectRatio(nextMode, aspectRatio.value)
   }, { immediate: true })
 
+  watch(results, persistResults, { deep: true })
+
   function goBack() {
     router.push({ name: 'list' })
   }
 
   async function loadGenerationSettings() {
     try {
-      const res = await generationSettingsAPI.get()
+      const res = await generationSettingsClient.get()
       const m = Math.max(1, Number(res?.video_generation_timeout_minutes) || 30)
       videoPollMaxMs.value = m * 60 * 1000
     } catch (_) {}
@@ -206,7 +254,7 @@ export function useFreeCreateWorkspace({
   async function loadServiceConfigs() {
     configLoadState.value = 'loading'
     try {
-      aiConfigs.value = await aiAPI.list()
+      aiConfigs.value = await aiClient.list()
       configLoadState.value = 'loaded'
     } catch (_) {
       aiConfigs.value = []
@@ -257,7 +305,26 @@ export function useFreeCreateWorkspace({
     }) || null
     const requestedMode = Array.isArray(route.query.mode) ? route.query.mode[0] : route.query.mode
     if (requestedMode === 'image' || requestedMode === 'video') mode.value = requestedMode
-    return Promise.all([loadGenerationSettings(), loadServiceConfigs()])
+    return Promise.all([loadGenerationSettings(), loadServiceConfigs(), restorePersistedResults()])
+  }
+
+  async function restorePersistedResults() {
+    restoringResults = true
+    try {
+      results.value = await restoreFreeCreateResults({
+        storage: resultStorage,
+        assetsApi: assetsClient,
+        imagesApi: imagesClient,
+        videosApi: videosClient,
+        taskApi: taskClient,
+        dramaId: assetSaveTargetDramaId.value,
+      })
+    } catch (error) {
+      ElMessage.error(toFreeCreateUserError(error, '无法从素材中心恢复生成结果'))
+    } finally {
+      restoringResults = false
+      persistResults()
+    }
   }
 
   function unmount() {
@@ -343,7 +410,7 @@ export function useFreeCreateWorkspace({
     try {
       const dataUrl = await readFileAsDataUrl(file)
       if (attemptId !== refImageUploadAttempt) return false
-      const res = await uploadAPI.uploadImage(file)
+      const res = await uploadClient.uploadImage(file)
       if (attemptId !== refImageUploadAttempt) return false
       const localPath = String(res?.local_path || '').trim()
       if (!localPath) throw new Error('服务器未返回可用的参考图地址')
@@ -368,6 +435,7 @@ export function useFreeCreateWorkspace({
       if (!cancelled) return false
     }
     results.value = []
+    persistResults()
     return true
   }
 
@@ -434,7 +502,17 @@ export function useFreeCreateWorkspace({
       referenceImageLocalPath: mode.value === 'video' ? (refImageLocalPath.value || null) : null,
       status: 'processing',
       url: null,
+      localPath: null,
       error: null,
+      taskId: null,
+      imageGenId: null,
+      videoGenId: null,
+      assetId: null,
+      assetDramaId: null,
+      savingAsset: false,
+      assetSaveError: '',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
     }
   }
 
@@ -486,7 +564,11 @@ export function useFreeCreateWorkspace({
     generating.value = true
     item.status = 'processing'
     item.url = null
+    item.localPath = null
     item.error = null
+    item.assetSaveError = ''
+    item.savingAsset = false
+    item.updatedAt = new Date().toISOString()
     try {
       const body = buildFreeCreateGenerationPayload({
         mode: item.type,
@@ -499,27 +581,46 @@ export function useFreeCreateWorkspace({
         referenceImageLocalPath: item.referenceImageLocalPath,
       })
       if (item.type === 'image') {
-        const res = await freeCreateTaskOwner.trackSubmission(run, imagesAPI.create(body))
-        if (freeCreateTaskOwner.isActive(run)) activeTaskId.value = run.taskId
+        const res = await freeCreateTaskOwner.trackSubmission(run, imagesClient.create(body))
+        if (freeCreateTaskOwner.isActive(run)) {
+          activeTaskId.value = run.taskId
+          item.taskId = run.taskId || res?.task_id || item.taskId
+        }
+        if (res?.id) item.imageGenId = res.id
         if (await waitForPendingCancellation(run)) return
         if (res?.task_id) {
           await pollImageTask(res.task_id, item, run)
         } else if (res?.image_url || res?.local_path) {
-          const localPath = String(res.local_path || '').replace(/^\/+/, '')
-          item.url = res.image_url || (localPath ? `/static/${localPath}` : null)
+          applyGeneratedMediaToItem(item, {
+            url: res.image_url,
+            localPath: res.local_path,
+            imageGenId: res.id,
+            taskId: res.task_id || run.taskId,
+          })
           item.status = 'completed'
+          item.updatedAt = new Date().toISOString()
         } else {
           failResultItem(item, '提交成功但未返回图片任务或结果')
         }
       } else {
-        const res = await freeCreateTaskOwner.trackSubmission(run, videosAPI.create(body))
-        if (freeCreateTaskOwner.isActive(run)) activeTaskId.value = run.taskId
+        const res = await freeCreateTaskOwner.trackSubmission(run, videosClient.create(body))
+        if (freeCreateTaskOwner.isActive(run)) {
+          activeTaskId.value = run.taskId
+          item.taskId = run.taskId || res?.task_id || item.taskId
+        }
+        if (res?.id) item.videoGenId = res.id
         if (await waitForPendingCancellation(run)) return
         if (res?.task_id) {
           await pollVideoTask(res.task_id, item, run)
         } else if (res?.video_url || res?.local_path) {
-          item.url = res.local_path ? `/static/${String(res.local_path).replace(/^\/+/, '')}` : res.video_url
+          applyGeneratedMediaToItem(item, {
+            url: res.video_url,
+            localPath: res.local_path,
+            videoGenId: res.id,
+            taskId: res.task_id || run.taskId,
+          })
           item.status = 'completed'
+          item.updatedAt = new Date().toISOString()
         } else {
           failResultItem(item, '提交成功但未返回视频任务或结果')
         }
@@ -537,6 +638,7 @@ export function useFreeCreateWorkspace({
         activeTaskId.value = ''
         generating.value = false
       }
+      persistResults()
     }
   }
 
@@ -553,12 +655,17 @@ export function useFreeCreateWorkspace({
       maxMs,
       intervalMs: 3000,
       waitForPendingCancellation,
-      fetchTask: (id) => taskAPI.get(id, { suppressErrorToast: true }),
+      fetchTask: (id) => taskClient.get(id, { suppressErrorToast: true }),
       failResultItem,
       async resolveCompletedItem(res, current) {
         const r = parseFreeCreateTaskResult(res.result)
-        const localPath = String(r.local_path || '').replace(/^\/+/, '')
-        current.url = r.image_url || (localPath ? `/static/${localPath}` : null)
+        applyGeneratedMediaToItem(current, {
+          url: r.image_url,
+          localPath: r.local_path,
+          imageGenId: r.image_generation_id,
+          taskId,
+        })
+        current.updatedAt = new Date().toISOString()
       },
     })
   }
@@ -571,25 +678,89 @@ export function useFreeCreateWorkspace({
       maxMs: videoPollMaxMs.value,
       intervalMs: 4000,
       waitForPendingCancellation,
-      fetchTask: (id) => taskAPI.get(id, { suppressErrorToast: true }),
+      fetchTask: (id) => taskClient.get(id, { suppressErrorToast: true }),
       failResultItem,
       async resolveCompletedItem(res, current) {
         const r = parseFreeCreateTaskResult(res.result)
-        const directLocalPath = String(r.local_path || '').replace(/^\/+/, '')
-        current.url = directLocalPath ? `/static/${directLocalPath}` : (r.video_url || null)
+        applyGeneratedMediaToItem(current, {
+          url: r.video_url,
+          localPath: r.local_path,
+          videoGenId: r.video_generation_id,
+          taskId,
+        })
         const vgId = r.video_generation_id
         if (vgId) {
           try {
-            const vRes = await videosAPI.get(vgId)
-            const localPath = String(vRes?.local_path || '').replace(/^\/+/, '')
-            current.url = localPath ? `/static/${localPath}` : (vRes?.video_url || current.url)
+            const vRes = await videosClient.get(vgId)
+            applyGeneratedMediaToItem(current, {
+              url: vRes?.video_url || current.url,
+              localPath: vRes?.local_path,
+              videoGenId: vgId,
+              taskId,
+            })
           } catch (error) {
             return { retry: true, error: toFreeCreateUserError(error, '视频结果读取失败') }
           }
         }
+        current.updatedAt = new Date().toISOString()
       },
     })
   }
+
+  function saveItemDisabledReason(item) {
+    return getFreeCreateSaveDisabledReason(item, {
+      generating: generating.value,
+      cancelling: cancelling.value,
+      busyReason: resultBusyDisabledReason.value,
+    })
+  }
+
+  function saveItemAriaLabel(item) {
+    return getFreeCreateSaveAriaLabel(item, {
+      generating: generating.value,
+      cancelling: cancelling.value,
+      busyReason: resultBusyDisabledReason.value,
+      targetLabel: assetSaveTargetLabel.value,
+    })
+  }
+
+  async function saveItemToAssets(item) {
+    if (!item || item.savingAsset) return false
+    const disabledReason = saveItemDisabledReason(item)
+    if (disabledReason) {
+      if (positiveFreeCreateId(item.assetId)) {
+        ElMessage.info('该结果已保存到素材中心')
+        return true
+      }
+      ElMessage.warning(disabledReason)
+      return false
+    }
+    item.savingAsset = true
+    item.assetSaveError = ''
+    try {
+      const asset = await saveFreeCreateResultToAssets(item, {
+        assetsApi: assetsClient,
+        dramaId: assetSaveTargetDramaId.value,
+      })
+      const mapped = resultFromAsset(asset)
+      if (!mapped?.assetId) throw new Error('素材保存失败：未返回有效素材编号')
+      item.assetId = mapped.assetId
+      item.assetDramaId = mapped.assetDramaId
+      item.localPath = mapped.localPath || item.localPath
+      item.url = mapped.url || item.url
+      item.updatedAt = new Date().toISOString()
+      persistResults()
+      ElMessage.success(assetSaveTargetDramaId.value ? '已保存到当前项目素材中心' : '已保存到全局素材中心')
+      return true
+    } catch (error) {
+      item.assetSaveError = toFreeCreateUserError(error, '保存到素材中心失败，请稍后重试')
+      ElMessage.error(item.assetSaveError)
+      return false
+    } finally {
+      item.savingAsset = false
+    }
+  }
+
 
   return {
     mode,
@@ -631,6 +802,11 @@ export function useFreeCreateWorkspace({
     resultImageAlt,
     canRetryItem,
     openImagePreview,
+    assetSaveTargetDramaId,
+    assetSaveTargetLabel,
+    saveItemDisabledReason,
+    saveItemAriaLabel,
+    saveItemToAssets,
     confirmFreeCreateLeave,
     handleBeforeUnload,
     mount,

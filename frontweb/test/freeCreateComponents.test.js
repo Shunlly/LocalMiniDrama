@@ -167,6 +167,7 @@ function mountResult(initial = {}) {
     onRetryGeneration: (item) => events.push(['retry-generation', item]),
     onDownloadItem: (item) => events.push(['download-item', item]),
     onPreviewImage: (item, idx) => events.push(['preview-image', item, idx]),
+    onSaveItem: (item) => events.push(['save-item', item]),
   }))
   return { ...mounted, events, props }
 }
@@ -331,6 +332,57 @@ test('取消后的结果展示中文说明并可以重试', async () => {
     assert.ok(retry)
     click(retry)
     assert.equal(harness.events[0][0], 'retry-generation')
+  } finally {
+    harness.app.unmount()
+  }
+})
+
+
+test('生成成功后可以保存到素材中心，并给出中文无障碍名称', async () => {
+  const item = {
+    type: 'image',
+    prompt: '一座灯塔',
+    status: 'completed',
+    url: '/static/library/images/a.png',
+    localPath: 'library/images/a.png',
+  }
+  const harness = mountResult({
+    results: [item],
+    saveItemDisabledReason: () => '',
+    saveItemAriaLabel: () => '保存到全局素材中心',
+  })
+  try {
+    await nextTick()
+    const save = buttonByText(harness.root, '保存到素材中心')
+    assert.ok(save)
+    assert.equal(save.props['aria-label'], '保存到全局素材中心')
+    click(save)
+    assert.equal(harness.events[0][0], 'save-item')
+  } finally {
+    harness.app.unmount()
+  }
+})
+
+test('已保存结果展示已保存，失败时给出中文原因', async () => {
+  const item = {
+    type: 'image',
+    prompt: '港口',
+    status: 'completed',
+    url: '/static/library/images/port.png',
+    assetId: 77,
+    assetSaveError: '素材保存失败：返回结果不属于当前项目',
+  }
+  const harness = mountResult({
+    results: [item],
+    saveItemDisabledReason: () => '已保存到素材中心',
+    saveItemAriaLabel: () => '已保存到全局素材中心',
+  })
+  try {
+    await nextTick()
+    const saved = buttonByText(harness.root, '已保存')
+    assert.ok(saved)
+    assert.equal(saved.props.disabled, true)
+    assert.match(textContent(harness.root), /素材保存失败：返回结果不属于当前项目/)
   } finally {
     harness.app.unmount()
   }

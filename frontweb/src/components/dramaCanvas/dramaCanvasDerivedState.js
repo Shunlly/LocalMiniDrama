@@ -160,6 +160,14 @@ export function createDramaCanvasDerivedState(ctx = {}) {
     ctx.freeCanvas.value.nodes
       .filter((node) => node.type === 'config')
       .map((node) => [String(node.id), buildFreeCanvasConfigRuntime(node.id, ctx.freeCanvas.value, {
+        gates: {
+          image: productionActions.value.image,
+          video: productionActions.value.video,
+        },
+        capabilities: {
+          image: productionActions.value.image,
+          video: ctx.freeCanvasVideoCapability.value,
+        },
         gate: productionActions.value.video,
         capability: ctx.freeCanvasVideoCapability.value,
       })]),

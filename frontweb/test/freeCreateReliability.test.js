@@ -200,7 +200,7 @@ test('task owner cancels a rejected pre-id submission without a remote request',
 test('FreeCreate polls image and video jobs through the shared task API', () => {
   assert.match(freeCreateSource, /import \{ taskAPI \} from '@\/api\/task'/)
   assert.equal(
-    (freeCreateSource.match(/taskAPI\.get\([^,]+, \{ suppressErrorToast: true \}\)/g) || []).length,
+    (freeCreateSource.match(/taskClient\.get\([^,]+, \{ suppressErrorToast: true \}\)/g) || []).length,
     2,
   )
   assert.doesNotMatch(freeCreateSource, /imagesAPI\.getTask/)
@@ -221,7 +221,7 @@ test('task API forwards request options so owned polling can aggregate errors', 
 test('FreeCreate owns, cancels, and releases exactly one remote generation task', () => {
   assert.match(
     freeCreateSource,
-    /createFreeCreateTaskOwner\(\(taskId, body\) =>[\s\S]*taskAPI\.cancel\(taskId, body, \{ suppressErrorToast: true \}\)/,
+    /createFreeCreateTaskOwner\(\(taskId, body\) =>[\s\S]*taskClient\.cancel\(taskId, body, \{ suppressErrorToast: true \}\)/,
   )
   assert.equal(
     (freeCreateSource.match(/freeCreateTaskOwner\.trackSubmission\(run,/g) || []).length,
@@ -404,6 +404,13 @@ test('参考图上传禁用时给出中文原因', () => {
     (freeCreateSource.match(/:disabled="refImageUploadStatus === 'uploading'"\s*:title="refImageUploadStatus === 'uploading' \? '正在上传参考图，请稍候' : undefined"/g) || []).length,
     2,
   )
+})
+
+test('生成成功后提供保存到素材中心', () => {
+  assert.match(freeCreateSource, /保存到素材中心/)
+  assert.match(freeCreateSource, /saveItemToAssets/)
+  assert.match(freeCreateSource, /assetsAPI/)
+  assert.match(freeCreateSource, /restoreFreeCreateResults/)
 })
 
 test('结果区禁用按钮给出中文原因', () => {

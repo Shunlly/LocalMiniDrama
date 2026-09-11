@@ -3,12 +3,34 @@ import { ElMessage, ElMessageBox } from '@/utils/elementPlusFeedback.js'
 
 import { setFreeCanvasUxState } from '@/components/dramaCanvas/freeCanvasUx'
 
+import { aiAPI } from '@/api/ai'
 import { assetsAPI } from '@/api/assets'
+import { imagesAPI } from '@/api/images'
+import { taskAPI } from '@/api/task'
+import { videosAPI } from '@/api/videos'
 import { canvasUserError, isCanvasUserAbort } from '@/composables/useCanvasUserError'
+import {
+  applyFreeCanvasConfigGenerationResult,
+  buildFreeCanvasConfigResultDraft,
+  collectFreeCanvasConfigGenerationInput,
+  isFreeCanvasMockCapability,
+  resolveFreeCanvasConfigGenerationOutcome,
+  restoreFreeCanvasConfigOperationAfterReload,
+} from '@/utils/freeCanvasConfigState'
+import { getGenerationServiceCapability } from '@/utils/filmCreateActionState'
+import {
+  buildFreeCreateGenerationPayload,
+  createFreeCreateTaskOwner,
+  parseFreeCreateTaskResult,
+  pollFreeCreateTask,
+  toFreeCreateUserError,
+} from '@/utils/freeCreate'
 import {
   buildFreeCanvasAssetReferencePatch,
   buildFreeCanvasStoryboardMediaItems,
   getFreeCanvasAssetSaveEligibility,
+  normalizeFreeCanvasMediaPath,
+  resolveFreeCanvasMediaPath,
 } from '@/utils/freeCanvasMedia'
 import {
   createFreeEdge,
@@ -148,38 +170,362 @@ export function useDramaCanvasFreeCanvas(deps) {
     openAiConfig(freeCanvasConfigRuntimeById.value.get(String(nodeId))?.serviceType || 'video', nodeId)
   }
 
+  // 配置节点按节点跟踪生成任务，取消走真实 task cancel，刷新后不得把未完成任务标成成功。
+  const configTaskOwners = new Map()
+  const configGenerationEpochByNode = new Map()
+
+  function getConfigTaskOwner(nodeId) {
+    const key = String(nodeId)
+    if (!configTaskOwners.has(key)) {
+      configTaskOwners.set(key, createFreeCreateTaskOwner((taskId, body) => (
+        taskAPI.cancel(taskId, body, { suppressErrorToast: true })
+      )))
+    }
+    return configTaskOwners.get(key)
+  }
+
+  function findFreeCanvasConfigNode(nodeId) {
+    return freeCanvas.value.nodes.find((item) => String(item.id) === String(nodeId)) || null
+  }
+
+  function mergeConfigMetadata(node, metadata = {}) {
+    const next = {
+      ...(node?.metadata && typeof node.metadata === 'object' ? node.metadata : {}),
+      ...metadata,
+    }
+    if (!next.operationId) delete next.operationId
+    if (!next.lastError) delete next.lastError
+    return next
+  }
+
   function setFreeCanvasConfigOperationState(nodeId, status, metadata = {}) {
     if (!['idle', 'running', 'failed', 'cancelled'].includes(status)) return false
-    const node = freeCanvas.value.nodes.find((item) => String(item.id) === String(nodeId))
+    const node = findFreeCanvasConfigNode(nodeId)
     if (node?.type !== 'config') return false
+    const nextMetadata = mergeConfigMetadata(node, metadata)
     const nextNodes = freeCanvas.value.nodes.map((item) => (
       String(item.id) === String(nodeId)
-        ? { ...item, status, metadata }
+        ? { ...item, status, metadata: nextMetadata }
         : item
     ))
     commitFreeCanvasState({ ...freeCanvas.value, nodes: nextNodes }, `config:${status}:${nodeId}`)
     return true
   }
 
-  function cancelFreeCanvasConfig(nodeId) {
+  function collectConfigGenerationInput(nodeId) {
+    return collectFreeCanvasConfigGenerationInput(nodeId, freeCanvas.value, {
+      resolveMediaPath: (node) => resolveFreeCanvasMediaPath(node, projectAssetsById.value),
+    })
+  }
+
+  async function confirmFreeCanvasConfigCapability(serviceType) {
+    const label = serviceType === 'video' ? '视频' : '图片'
+    try {
+      const raw = await aiAPI.list(serviceType, { suppressErrorToast: true })
+      const configs = Array.isArray(raw) ? raw : (Array.isArray(raw?.items) ? raw.items : [])
+      const capability = getGenerationServiceCapability(configs, serviceType)
+      if (isFreeCanvasMockCapability(capability)) {
+        return `${capability.config?.name || '当前预演配置'}仅用于流程预演，不会产生正式${label}。`
+      }
+      if (!capability.ready) {
+        const reason = capability.reason || `${label}生成未就绪`
+        return /AI 配置/.test(reason) ? reason : `${reason}请前往 AI 配置完成配置。`
+      }
+      return ''
+    } catch (error) {
+      return safeFreeCanvasError(error, `无法确认${label}模型配置，请刷新后重试或前往 AI 配置检查。`)
+    }
+  }
+
+  async function waitForConfigCancellation(owner, run) {
+    if (run?.cancelPromise) {
+      try { await run.cancelPromise } catch (_) {}
+    }
+    return !owner.isActive(run)
+  }
+
+  function failConfigGenerationItem(item, message) {
+    item.status = 'failed'
+    item.error = toFreeCreateUserError(message, '生成失败，请稍后重试')
+  }
+
+  async function pollConfigGenerationTask(owner, run, item, taskId) {
+    const isVideo = item.type === 'video'
+    return pollFreeCreateTask({
+      taskId,
+      item,
+      run,
+      maxMs: isVideo ? 30 * 60 * 1000 : 180000,
+      intervalMs: isVideo ? 4000 : 3000,
+      waitForPendingCancellation: () => waitForConfigCancellation(owner, run),
+      fetchTask: (id) => taskAPI.get(id, { suppressErrorToast: true }),
+      failResultItem: failConfigGenerationItem,
+      async resolveCompletedItem(res, current) {
+        const parsed = parseFreeCreateTaskResult(res.result)
+        let localPath = normalizeFreeCanvasMediaPath(parsed.local_path || '')
+        current.localPath = localPath
+        current.url = parsed.image_url || parsed.video_url || (localPath ? `/static/${localPath}` : null)
+        const vgId = parsed.video_generation_id
+        if (current.type === 'video' && vgId) {
+          try {
+            const video = await videosAPI.get(vgId)
+            localPath = normalizeFreeCanvasMediaPath(video?.local_path || localPath)
+            current.localPath = localPath
+            current.url = localPath ? `/static/${localPath}` : (video?.video_url || current.url)
+          } catch (error) {
+            return { retry: true, error: toFreeCreateUserError(error, '视频结果读取失败') }
+          }
+        }
+      },
+    })
+  }
+
+  function attachConfigGenerationResult(nodeId, outcome, serviceType) {
+    const configNode = findFreeCanvasConfigNode(nodeId)
+    if (!configNode) return false
+    if (!outcome.createResult) {
+      const nextState = applyFreeCanvasConfigGenerationResult(freeCanvas.value, { nodeId, outcome })
+      commitFreeCanvasState(nextState, `config:${outcome.status}:${nodeId}`)
+      void persistCanvasState({ freeOnly: true, reportError: false })
+      return false
+    }
+    if (freeCanvas.value.nodes.length >= 500) {
+      const blocked = {
+        status: 'failed',
+        createResult: false,
+        lastError: '自由画布已达到 500 个节点上限，生成结果未能加入画布',
+        localPath: '',
+      }
+      commitFreeCanvasState(
+        applyFreeCanvasConfigGenerationResult(freeCanvas.value, { nodeId, outcome: blocked }),
+        `config:failed:${nodeId}`,
+      )
+      void persistCanvasState({ freeOnly: true, reportError: false })
+      ElMessage.error(blocked.lastError)
+      return false
+    }
+    const draft = buildFreeCanvasConfigResultDraft({
+      configNode,
+      serviceType,
+      localPath: outcome.localPath,
+    })
+    const spawn = findFreeNodeSpawnPosition(draft.position, freeCanvas.value.nodes) || draft.position
+    const resultNode = createFreeNode(draft.type, {
+      title: draft.title,
+      storageKey: draft.storageKey,
+      content: draft.content,
+      position: spawn,
+    })
+    const resultEdge = createFreeEdge(String(nodeId), resultNode.id, { type: 'default' })
+    commitFreeCanvasState(
+      applyFreeCanvasConfigGenerationResult(freeCanvas.value, {
+        nodeId,
+        outcome,
+        resultNode,
+        resultEdge,
+      }),
+      `config:result:${nodeId}`,
+    )
+    void persistCanvasState({ freeOnly: true, reportError: false })
+    return true
+  }
+
+  /** 调用现有图片/视频 API 生成，并在成功后把结果节点接到画布上。 */
+  async function generateFreeCanvasConfig(nodeId, options = {}) {
+    const runtime = freeCanvasConfigRuntimeById.value.get(String(nodeId))
+    const resumeTaskId = String(options.resumeTaskId || '').trim()
+    if (!resumeTaskId) {
+      if (!runtime) return
+      if (!(runtime.canGenerate || runtime.status === 'failed' || runtime.status === 'cancelled')) return
+      if (['blocked', 'checking', 'error', 'mock'].includes(runtime.status)) {
+        ElMessage.warning(runtime.reason || '当前不能生成，请先完成 AI 配置')
+        return
+      }
+    }
+    const input = collectConfigGenerationInput(nodeId)
+    if (!resumeTaskId && input.blockedReason) {
+      ElMessage.warning(input.blockedReason)
+      return
+    }
+    if (!resumeTaskId) {
+      const capabilityReason = await confirmFreeCanvasConfigCapability(input.serviceType)
+      if (capabilityReason) {
+        ElMessage.warning(capabilityReason)
+        return
+      }
+    }
+    const owner = getConfigTaskOwner(nodeId)
+    if (owner.hasActive() && !resumeTaskId) {
+      ElMessage.warning('该配置节点已有生成任务正在运行')
+      return
+    }
+    const requestedProjectId = Number(dramaId.value)
+    const serviceType = input.serviceType
+    let run
+    try {
+      run = owner.begin({ nodeId, serviceType })
+    } catch (error) {
+      ElMessage.warning(safeFreeCanvasError(error, '已有生成任务正在运行'))
+      return
+    }
+    configGenerationEpochByNode.set(String(nodeId), run.ownerId)
+    const startedAt = new Date().toISOString()
+    setFreeCanvasConfigOperationState(nodeId, 'running', {
+      startedAt,
+      updatedAt: startedAt,
+      lastError: '',
+    })
+    void persistCanvasState({ freeOnly: true, reportError: false })
+    const item = {
+      type: serviceType === 'video' ? 'video' : 'image',
+      url: null,
+      localPath: '',
+      status: 'processing',
+      error: null,
+    }
+    try {
+      if (resumeTaskId) {
+        run.taskId = resumeTaskId
+        setFreeCanvasConfigOperationState(nodeId, 'running', {
+          operationId: resumeTaskId,
+          updatedAt: new Date().toISOString(),
+        })
+        await pollConfigGenerationTask(owner, run, item, resumeTaskId)
+      } else {
+        const body = buildFreeCreateGenerationPayload({
+          mode: item.type,
+          prompt: input.prompt,
+          aspectRatio: '16:9',
+          duration: 5,
+          referenceUploadStatus: input.referenceImagePath ? 'success' : 'idle',
+          referenceUploadError: '',
+          referenceImageLocalPath: input.referenceImagePath,
+        })
+        const dramaIdValue = Number(dramaId.value)
+        if (Number.isFinite(dramaIdValue) && dramaIdValue > 0) body.drama_id = dramaIdValue
+        const submit = item.type === 'video' ? videosAPI.create(body) : imagesAPI.create(body)
+        const res = await owner.trackSubmission(run, submit)
+        if (await waitForConfigCancellation(owner, run)) {
+          item.status = 'cancelled'
+        } else if (res?.task_id) {
+          setFreeCanvasConfigOperationState(nodeId, 'running', {
+            operationId: String(res.task_id),
+            updatedAt: new Date().toISOString(),
+          })
+          void persistCanvasState({ freeOnly: true, reportError: false })
+          await pollConfigGenerationTask(owner, run, item, res.task_id)
+        } else {
+          const localPath = normalizeFreeCanvasMediaPath(res?.local_path || '')
+          const url = res?.image_url || res?.video_url || (localPath ? `/static/${localPath}` : '')
+          if (localPath) {
+            item.localPath = localPath
+            item.url = url
+            item.status = 'completed'
+          } else {
+            failConfigGenerationItem(item, item.type === 'video' ? '提交成功但未返回视频任务或结果' : '提交成功但未返回图片任务或结果')
+          }
+        }
+      }
+    } catch (error) {
+      if (run.cancelRequested || run.cancelConfirmed) {
+        item.status = 'cancelled'
+      } else {
+        failConfigGenerationItem(item, error)
+      }
+    } finally {
+      owner.complete(run)
+    }
+
+    if (!canvasInstanceActive.value || requestedProjectId !== Number(dramaId.value)) return
+    if (configGenerationEpochByNode.get(String(nodeId)) !== run.ownerId) return
+    const current = findFreeCanvasConfigNode(nodeId)
+    const outcome = resolveFreeCanvasConfigGenerationOutcome({
+      cancelRequested: run.cancelRequested,
+      cancelConfirmed: run.cancelConfirmed,
+      nodeStatus: current?.status,
+      itemStatus: item.status,
+      resultPath: item.localPath,
+      resultUrl: item.url,
+      error: item.error,
+    })
+    const attached = attachConfigGenerationResult(nodeId, outcome, serviceType)
+    if (configGenerationEpochByNode.get(String(nodeId)) === run.ownerId) {
+      configGenerationEpochByNode.delete(String(nodeId))
+    }
+    if (outcome.status === 'cancelled') {
+      if (!run.cancelRequested && !run.cancelConfirmed) ElMessage.warning('生成已取消')
+      return
+    }
+    if (outcome.status === 'failed') {
+      ElMessage.error(outcome.lastError || '生成失败，请稍后重试')
+      return
+    }
+    if (attached) {
+      ElMessage.success(serviceType === 'video' ? '已生成视频并添加到画布' : '已生成图片并添加到画布')
+    }
+  }
+
+  async function cancelFreeCanvasConfig(nodeId) {
     const runtime = freeCanvasConfigRuntimeById.value.get(String(nodeId))
     if (!runtime?.canCancel) return
-    const node = freeCanvas.value.nodes.find((item) => String(item.id) === String(nodeId))
-    setFreeCanvasConfigOperationState(nodeId, 'cancelled', {
-      ...(node?.metadata?.operationId ? { operationId: node.metadata.operationId } : {}),
-      updatedAt: new Date().toISOString(),
-    })
-    ElMessage.warning('已停止等待；已提交任务可能继续执行并产生供应商计费')
+    const node = findFreeCanvasConfigNode(nodeId)
+    const owner = configTaskOwners.get(String(nodeId))
+    const activeRun = owner?.getActive?.()
+    try {
+      if (activeRun) {
+        await owner.cancel('用户停止等待')
+        setFreeCanvasConfigOperationState(nodeId, 'cancelled', {
+          ...(activeRun.taskId ? { operationId: String(activeRun.taskId) } : {}),
+          updatedAt: new Date().toISOString(),
+        })
+        ElMessage.warning('已停止等待；已提交任务可能继续执行并产生供应商计费')
+      } else if (node?.metadata?.operationId) {
+        await taskAPI.cancel(node.metadata.operationId, { reason: '用户停止等待' }, { suppressErrorToast: true })
+        setFreeCanvasConfigOperationState(nodeId, 'cancelled', {
+          operationId: node.metadata.operationId,
+          updatedAt: new Date().toISOString(),
+        })
+        ElMessage.warning('已停止等待；已提交任务可能继续执行并产生供应商计费')
+      } else {
+        setFreeCanvasConfigOperationState(nodeId, 'cancelled', {
+          updatedAt: new Date().toISOString(),
+        })
+        ElMessage.warning('已停止等待；已提交任务可能继续执行并产生供应商计费')
+      }
+    } catch (error) {
+      ElMessage.error(safeFreeCanvasError(error, '取消生成失败，请稍后重试'))
+    }
   }
 
   async function retryFreeCanvasConfig(nodeId) {
     const runtime = freeCanvasConfigRuntimeById.value.get(String(nodeId))
-    if (!runtime?.canRetry) return
-    if (['failed', 'cancelled'].includes(runtime.status)) {
-      setFreeCanvasConfigOperationState(nodeId, 'idle', { updatedAt: new Date().toISOString() })
+    if (!runtime) return
+    if (runtime.canGenerate || runtime.status === 'failed' || runtime.status === 'cancelled') {
+      await generateFreeCanvasConfig(nodeId)
+      return
     }
+    if (!runtime.canRetry) return
     await Promise.all([refreshProductionReadiness(), refreshFreeCanvasVideoCapability()])
   }
+
+  async function resumeRunningFreeCanvasConfigTasks() {
+    for (const node of freeCanvas.value.nodes) {
+      if (node?.type !== 'config') continue
+      const owner = getConfigTaskOwner(node.id)
+      if (owner.hasActive()) continue
+      const restored = restoreFreeCanvasConfigOperationAfterReload(node)
+      if (restored.status === 'failed' && node.status === 'running' && !restored.resume) {
+        setFreeCanvasConfigOperationState(node.id, 'failed', {
+          lastError: restored.lastError,
+          updatedAt: new Date().toISOString(),
+        })
+        continue
+      }
+      if (!restored.resume) continue
+      void generateFreeCanvasConfig(node.id, { resumeTaskId: restored.operationId })
+    }
+  }
+
 
   async function createFreeCanvasNode(type, position = null, overrides = {}) {
     if (!['text', 'image', 'video', 'config', 'reference'].includes(type)) return null
@@ -490,6 +836,15 @@ export function useDramaCanvasFreeCanvas(deps) {
   })
 
   watch(
+    () => freeCanvas.value.nodes
+      .filter((node) => node?.type === 'config' && node.status === 'running')
+      .map((node) => `${node.id}:${node.metadata?.operationId || ''}`)
+      .join('|'),
+    () => { void resumeRunningFreeCanvasConfigTasks() },
+    { immediate: true },
+  )
+
+  watch(
     () => [
       freeCanvas.value.nodes.length,
       selectedFreeNodeIds.value.length,
@@ -593,6 +948,7 @@ export function useDramaCanvasFreeCanvas(deps) {
     setFreeCanvasConfigOperationState,
     cancelFreeCanvasConfig,
     retryFreeCanvasConfig,
+    generateFreeCanvasConfig,
     createFreeCanvasNode,
     updateFreeCanvasNode,
     updateFreeNodeContent,

@@ -42,12 +42,15 @@
         :result-busy-disabled-reason="resultBusyDisabledReason"
         :result-image-alt="resultImageAlt"
         :can-retry-item="canRetryItem"
+        :save-item-disabled-reason="saveItemDisabledReason"
+        :save-item-aria-label="saveItemAriaLabel"
         @clear-results="clearResults"
         @load-service-configs="loadServiceConfigs"
         @cancel-generation="cancelGeneration"
         @retry-generation="retryGeneration"
         @download-item="downloadItem"
         @preview-image="openImagePreview"
+        @save-item="saveItemToAssets"
       />
     </div>
 
@@ -112,6 +115,9 @@ const {
   resultImageAlt,
   canRetryItem,
   openImagePreview,
+  saveItemDisabledReason,
+  saveItemAriaLabel,
+  saveItemToAssets,
   confirmFreeCreateLeave,
   handleBeforeUnload,
   mount,

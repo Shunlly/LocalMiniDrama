@@ -243,6 +243,7 @@ export function createDramaCanvasPageBindings(ctx = {}) {
     configureFreeCanvasNode: ctx.configureFreeCanvasNode,
     cancelFreeCanvasConfig: ctx.cancelFreeCanvasConfig,
     retryFreeCanvasConfig: ctx.retryFreeCanvasConfig,
+    generateFreeCanvasConfig: ctx.generateFreeCanvasConfig,
     closeFreeCanvasInspector: ctx.closeFreeCanvasInspector,
   })
 

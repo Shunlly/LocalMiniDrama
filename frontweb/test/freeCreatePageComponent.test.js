@@ -139,6 +139,9 @@ function createWorkspace(overrides = {}) {
     resultImageAlt: (item, index) => `第 ${index + 1} 张生成图片`,
     canRetryItem: (item) => item?.status === 'failed' || item?.status === 'cancelled',
     openImagePreview: noop,
+    saveItemDisabledReason: (item) => item?.assetId ? '已保存到素材中心' : '',
+    saveItemAriaLabel: (item) => item?.assetId ? '已保存到全局素材中心' : '保存到全局素材中心',
+    saveItemToAssets: (item) => events.push(['save-item', item]),
     confirmFreeCreateLeave: async () => {
       leaveCalls.push('confirm')
       return overrides.leaveAllowed !== false
@@ -247,6 +250,28 @@ test('离开守卫在参考图上传中会先走离开确认', async () => {
     const allowed = await harness.router.leaveGuards[0]()
     assert.equal(allowed, false)
     assert.deepEqual(harness.workspace.leaveCalls, ['confirm'])
+  } finally {
+    harness.app.unmount()
+    resetVueRouterHarness()
+    delete globalThis.__freeCreateWorkspace
+  }
+})
+
+test('生成成功后可以把结果保存到素材中心', async () => {
+  const item = {
+    type: 'image',
+    prompt: '灯塔',
+    status: 'completed',
+    url: '/static/library/images/a.png',
+    localPath: 'library/images/a.png',
+  }
+  const harness = mountPage({ results: [item] })
+  try {
+    await nextTick()
+    const save = buttonByText(harness.root, '保存到素材中心')
+    assert.ok(save)
+    click(save)
+    assert.equal(harness.workspace.events[0][0], 'save-item')
   } finally {
     harness.app.unmount()
     resetVueRouterHarness()

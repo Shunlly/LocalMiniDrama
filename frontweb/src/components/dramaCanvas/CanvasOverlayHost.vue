@@ -47,6 +47,7 @@
     @configure="configureFreeCanvasNode"
     @cancel-config="cancelFreeCanvasConfig"
     @retry-config="retryFreeCanvasConfig"
+    @generate-config="generateFreeCanvasConfig"
     @close="closeFreeCanvasInspector"
   />
 </template>
@@ -92,6 +93,7 @@ defineProps({
   configureFreeCanvasNode: { type: Function, required: true },
   cancelFreeCanvasConfig: { type: Function, required: true },
   retryFreeCanvasConfig: { type: Function, required: true },
+  generateFreeCanvasConfig: { type: Function, required: true },
   closeFreeCanvasInspector: { type: Function, required: true },
 })
 </script>

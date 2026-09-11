@@ -188,6 +188,8 @@ Open `http://127.0.0.1:3013` (or the remapped frontend host port). Host ports bi
 | Backend `/ready` | `http://127.0.0.1:5679/ready` | Healthcheck; HTTP 200 only when business-ready; error payloads are Simplified Chinese; `docker compose --wait` waits on this |
 | Backend `/health` | `http://127.0.0.1:5679/health` | Not a healthcheck; process liveness only |
 
+The table is the official default mapping. After changing `LOCALMINIDRAMA_FRONTEND_HOST_PORT` / `LOCALMINIDRAMA_BACKEND_HOST_PORT`, replace `3013` / `5679` in those URLs.
+
 Stop with `docker compose down`. Full backup/restore requires Docker to be stopped first. `backup:data` / `restore:data` / `maintenance:recover` help and failure output are Simplified Chinese. For commands and custom `LOCALMINIDRAMA_DATA_DIR` `--data-root`, see the [backup FAQ](quickstart.md#q-如何备份迁移项目数据).
 
 `npm run docker:up` requires a clean worktree and writes the current Git SHA into image revisions. Dirty local source should use `docker compose up -d --build --wait`; those images cannot create official rollback checkpoints. `npm run verify:docker` checks image boundaries and runs in-container tests; it does not replace a running Compose acceptance. Production Docker CORS follows the frontend host port via `LOCALMINIDRAMA_CORS_ORIGINS`; development mode is the only case where arbitrary loopback Origins pass.

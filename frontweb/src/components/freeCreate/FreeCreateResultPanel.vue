@@ -130,7 +130,23 @@
                   :title="resultBusyDisabledReason || undefined"
                   :aria-label="(generating || cancelling) ? (resultBusyDisabledReason || '正在处理') : '下载结果'" @click="downloadItem(item)"
                 >下载</el-button>
+                <el-button
+                  v-if="item.url"
+                  size="small"
+                  type="primary"
+                  plain
+                  :loading="item.savingAsset"
+                  :disabled="Boolean(saveItemDisabledReason(item))"
+                  :title="saveItemDisabledReason(item) || undefined"
+                  :aria-label="saveItemAriaLabel(item)"
+                  @click="saveItemToAssets(item)"
+                >{{ item.assetId ? '已保存' : '保存到素材中心' }}</el-button>
               </div>
+              <p
+                v-if="item.assetSaveError"
+                class="result-save-error"
+                role="alert"
+              >{{ item.assetSaveError }}</p>
             </div>
           </div>
         </div>
@@ -153,6 +169,8 @@ defineProps({
   resultBusyDisabledReason: { type: String, default: '' },
   resultImageAlt: { type: Function, required: true },
   canRetryItem: { type: Function, required: true },
+  saveItemDisabledReason: { type: Function, default: () => '' },
+  saveItemAriaLabel: { type: Function, default: () => '保存到素材中心' },
 })
 
 const emit = defineEmits([
@@ -162,6 +180,7 @@ const emit = defineEmits([
   'retry-generation',
   'download-item',
   'preview-image',
+  'save-item',
 ])
 
 function clearResults() {
@@ -181,6 +200,9 @@ function downloadItem(item) {
 }
 function openImagePreview(item, idx) {
   emit('preview-image', item, idx)
+}
+function saveItemToAssets(item) {
+  emit('save-item', item)
 }
 </script>
 
@@ -331,5 +353,13 @@ function openImagePreview(item, idx) {
   margin-top: 6px;
   display: flex;
   gap: 6px;
+  flex-wrap: wrap;
+}
+
+.result-save-error {
+  margin: 6px 0 0;
+  color: #ef4444;
+  font-size: 12px;
+  overflow-wrap: anywhere;
 }
 </style>

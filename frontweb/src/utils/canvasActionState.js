@@ -8,6 +8,17 @@ const PRODUCTION_CAPABILITIES = Object.freeze({
   ffmpeg: Object.freeze({ key: 'ffmpeg', label: '本地成片合成', serviceType: '' }),
 })
 
+const OPTIONAL_IMAGE_CAPABILITY = Object.freeze({
+  key: 'image',
+  label: '图片生成',
+  serviceType: 'image',
+})
+
+const OPTIONAL_IMAGE_MATCHERS = Object.freeze([
+  Object.freeze({ key: 'asset_image', serviceType: 'image' }),
+  Object.freeze({ key: 'image', serviceType: 'storyboard_image' }),
+])
+
 function cleanDetail(value) {
   return String(value || '').trim().replace(/[。；;]+$/, '')
 }
@@ -44,6 +55,8 @@ function capabilityState(readiness, definition) {
       status: 'ready',
       reason: '',
       serviceType: definition.serviceType,
+      config: capability.config || null,
+      model: capability.config?.model || capability.model || '',
     }
   }
 
@@ -87,6 +100,24 @@ export function normalizeCanvasProductionReadiness(value) {
   }
 }
 
+function optionalImageCapabilityState(readiness, status) {
+  if (!readiness) return unresolvedCapability(OPTIONAL_IMAGE_CAPABILITY, status)
+  for (const matcher of OPTIONAL_IMAGE_MATCHERS) {
+    const capability = readiness.capabilities.find((item) => (
+      item?.key === matcher.key
+      || (matcher.serviceType && item?.service_type === matcher.serviceType)
+    ))
+    if (capability && typeof capability.ready === 'boolean') {
+      return capabilityState(readiness, {
+        key: capability.key || matcher.key,
+        label: OPTIONAL_IMAGE_CAPABILITY.label,
+        serviceType: capability.service_type || matcher.serviceType,
+      })
+    }
+  }
+  return unresolvedCapability(OPTIONAL_IMAGE_CAPABILITY, 'error')
+}
+
 export function getCanvasProductionActionState(readinessState = {}) {
   const status = readinessState.status || 'loading'
   let readiness = null
@@ -107,6 +138,7 @@ export function getCanvasProductionActionState(readinessState = {}) {
   const ffmpeg = readiness
     ? capabilityState(readiness, PRODUCTION_CAPABILITIES.ffmpeg)
     : unresolvedCapability(PRODUCTION_CAPABILITIES.ffmpeg, status)
+  const image = optionalImageCapabilityState(readiness, status)
   const compositeGap = [video, tts, ffmpeg].find((capability) => !capability.ready)
   const composite = compositeGap
     ? {
@@ -118,7 +150,7 @@ export function getCanvasProductionActionState(readinessState = {}) {
       }
     : { key: 'composite', ready: true, status: 'ready', reason: '', serviceType: '' }
 
-  return { video, tts, ffmpeg, composite }
+  return { video, tts, ffmpeg, composite, image }
 }
 
 export function getCanvasProductionStepGate(step, productionActions) {

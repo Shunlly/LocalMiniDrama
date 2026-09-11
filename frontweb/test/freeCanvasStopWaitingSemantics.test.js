@@ -2,6 +2,8 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
+import { remainingExtractNamedFunction } from './helpers/remainingSourceBetween.js'
+
 const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8')
 
 const nodeSource = read('../src/components/dramaCanvas/FreeCanvasNode.vue')
@@ -25,9 +27,7 @@ test('config node controls describe stopping local waiting instead of cancelling
 })
 
 test('stopping a config node preserves the cancelled status and warns that submitted work can continue', () => {
-  const stopHandler = dramaCanvasSource.match(
-    /function cancelFreeCanvasConfig\(nodeId\) \{[\s\S]*?\n\}/,
-  )?.[0] || ''
+  const stopHandler = remainingExtractNamedFunction(dramaCanvasSource, 'cancelFreeCanvasConfig')
 
   assert.match(stopHandler, /setFreeCanvasConfigOperationState\(nodeId, 'cancelled'/)
   assert.match(stopHandler, /已停止等待/)
@@ -35,4 +35,5 @@ test('stopping a config node preserves the cancelled status and warns that submi
   assert.match(stopHandler, /可能继续执行/)
   assert.match(stopHandler, /计费/)
   assert.doesNotMatch(stopHandler, /已取消该配置节点的生成状态/)
+  assert.match(stopHandler, /taskAPI\.cancel/)
 })

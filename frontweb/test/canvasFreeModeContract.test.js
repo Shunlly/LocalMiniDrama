@@ -130,6 +130,7 @@ test('free canvas inspector exposes an explicit production conversion target', (
     'configure',
     'cancel-config',
     'retry-config',
+    'generate-config',
   ]) {
     assert.match(inspectorSource, new RegExp(`'${event}'`))
   }
