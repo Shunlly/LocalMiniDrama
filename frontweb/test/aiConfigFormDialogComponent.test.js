@@ -94,6 +94,7 @@ test('未保存关闭确认仍由页面处理，保存按钮写锁优先', () =>
   assert.match(vueSource, /当前 AI 配置尚未保存/)
   assert.match(formDialogSource, /:before-close="confirmConfigDialogClose"/)
   assert.match(formDialogSource, /@click="requestConfigDialogClose"/)
+  assert.match(formDialogSource, /:aria-label="editingId \? '取消编辑配置' : '取消添加配置'"/)
   assert.match(formDialogSource, /aria-label="保存配置"/)
   const saveButton = formDialogSource.match(/<el-button type="primary" aria-label="保存配置"[^>]*>/)?.[0]
   assert.ok(saveButton, '缺少保存按钮')

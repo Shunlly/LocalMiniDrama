@@ -1218,7 +1218,7 @@ async function assertReloadedBrowserState({ page, apiRequest, dramaId, expected 
   const persisted = await readFreeCanvas(apiRequest, dramaId)
   assertPersistedCanvasState(persisted, expected)
   const modeSwitch = page.getByRole('group', { name: '画布模式' })
-  await expectPressed(modeSwitch.getByRole('button', { name: '自由', exact: true }), 'true')
+  await expectPressed(modeSwitch.getByRole('button', { name: '自由画布', exact: true }), 'true')
   assert.equal(await page.locator('.free-canvas-node[data-free-node-id]').count(), expected.nodeIds.length, 'reloaded browser node count is incorrect')
   for (const nodeId of expected.nodeIds) await exactFreeNode(page, nodeId)
   for (const edgeId of expected.edgeIds) {
@@ -1272,11 +1272,11 @@ async function exerciseFreeCanvas({
     await verifyFixture(primaryFixture)
     await verifyFixture(isolationFixture)
     const opened = await openFixtureCanvas({ page, fixture: primaryFixture, verifyFixture, services })
-    await expectPressed(opened.modeSwitch.getByRole('button', { name: '制作', exact: true }), 'true')
+    await expectPressed(opened.modeSwitch.getByRole('button', { name: '剧集画布', exact: true }), 'true')
     recordStep('opened_existing_project_canvas')
 
-    await opened.modeSwitch.getByRole('button', { name: '自由', exact: true }).click()
-    await expectPressed(opened.modeSwitch.getByRole('button', { name: '自由', exact: true }), 'true')
+    await opened.modeSwitch.getByRole('button', { name: '自由画布', exact: true }).click()
+    await expectPressed(opened.modeSwitch.getByRole('button', { name: '自由画布', exact: true }), 'true')
     await assertUniqueLocator(page.locator('.vue-flow'), 'free canvas surface')
     await waitForPersistedFreeCanvas(apiRequest, primaryId, (state) => state.mode === 'free', 'free canvas mode switch')
     recordStep('switched_to_free_mode')
@@ -1736,9 +1736,9 @@ async function exerciseFreeCanvas({
 
     await verifyFixture(isolationFixture)
     const isolated = await openFixtureCanvas({ page, fixture: isolationFixture, verifyFixture, services })
-    await expectPressed(isolated.modeSwitch.getByRole('button', { name: '制作', exact: true }), 'true')
-    await isolated.modeSwitch.getByRole('button', { name: '自由', exact: true }).click()
-    await expectPressed(isolated.modeSwitch.getByRole('button', { name: '自由', exact: true }), 'true')
+    await expectPressed(isolated.modeSwitch.getByRole('button', { name: '剧集画布', exact: true }), 'true')
+    await isolated.modeSwitch.getByRole('button', { name: '自由画布', exact: true }).click()
+    await expectPressed(isolated.modeSwitch.getByRole('button', { name: '自由画布', exact: true }), 'true')
     const isolationState = await waitForPersistedFreeCanvas(
       apiRequest,
       isolationId,

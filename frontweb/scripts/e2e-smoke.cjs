@@ -231,7 +231,7 @@ async function main({
       await stepper.getByText(label, { exact: true }).waitFor({ timeout: 15000 })
     }
     await stepper.getByText('1 份素材已导入', { exact: true }).waitFor({ timeout: 15000 })
-    await page.getByRole('button', { name: '以 草稿预演 启动', exact: true }).waitFor({ timeout: 15000 })
+    await page.getByRole('button', { name: '以草稿预演启动', exact: true }).waitFor({ timeout: 15000 })
     logger.log(`E2E smoke passed for drama ${drama.id}`)
   } catch (error) {
     primaryError = error

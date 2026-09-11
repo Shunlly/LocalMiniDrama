@@ -215,7 +215,7 @@ test('cleanup failure fails an otherwise successful smoke run while preserving U
     '修复',
     '剧集 / 时间线',
     '1 份素材已导入',
-    '以 草稿预演 启动',
+    '以草稿预演启动',
   ]) {
     assert.ok(seenLabels.includes(label), `missing successful-path assertion for ${label}`)
   }
@@ -224,7 +224,7 @@ test('cleanup failure fails an otherwise successful smoke run while preserving U
 test('quick smoke targets the default draft-preview source launch command', () => {
   assert.match(
     scriptSource,
-    /getByRole\('button', \{ name: '以 草稿预演 启动', exact: true \}\)/,
+    /getByRole\('button', \{ name: '以草稿预演启动', exact: true \}\)/,
   )
   assert.doesNotMatch(
     scriptSource,
@@ -378,7 +378,7 @@ test('production E2E 必须接上 smoke 的剧集页文案，避免烟测脚本�
   assert.match(scriptSource, /getByText\('项目就绪度'\)/)
   assert.match(scriptSource, /getByText\('故事素材流程'\)/)
   assert.match(scriptSource, /getByRole\('navigation', \{ name: '素材处理步骤' \}\)/)
-  assert.match(scriptSource, /getByRole\('button', \{ name: '以 草稿预演 启动', exact: true \}\)/)
+  assert.match(scriptSource, /getByRole\('button', \{ name: '以草稿预演启动', exact: true \}\)/)
 })
 
 test('关键中文失败页、素材库空态和分镜空状态由共享 E2E 合同覆盖，烟测脚本不接真实生成供应商', () => {

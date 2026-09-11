@@ -828,7 +828,7 @@ test('production E2E verifies service-specific AI config return routes in config
     "await page.locator('.config-list-section').waitFor({ state: 'visible', timeout: 30000 })",
     "page.getByRole('dialog', { name: '\\u6dfb\\u52a0\\u914d\\u7f6e', exact: true })",
     "if (error?.name !== 'TimeoutError') throw error",
-    "getByRole('button', { name: '\\u53d6\\u6d88', exact: true }).click()",
+    "getByRole('button', { name: UI.cancelAddConfig }).click()",
     "await addDialog.waitFor({ state: 'hidden', timeout: 10000 })",
     "page.getByRole('button', { name: '\\u8fd4\\u56de\\u539f\\u9879\\u76ee', exact: true })",
     "await backButton.waitFor({ state: 'visible', timeout: 10000 })",
@@ -920,10 +920,10 @@ test('production upgrade waits briefly for and reopens compact workflow history 
   ])
 })
 
-test('生产 E2E 草稿启动必须点得了「以 草稿预演 启动」，空 run 不能当成 running', () => {
+test('生产 E2E 草稿启动必须点得了「启动素材流程」，空 run 不能当成 running', () => {
   const startDraftMatch = productionSource.match(/startDraft:\s*'((?:\\u[0-9a-fA-F]{4}| )+)'/)
   assert.ok(startDraftMatch, 'UI.startDraft 文案缺失')
-  assert.equal(JSON.parse(`"${startDraftMatch[1]}"`), '以 草稿预演 启动')
+  assert.equal(JSON.parse(`"${startDraftMatch[1]}"`), '启动素材流程')
 
   const startDraftStart = productionSource.indexOf('async function startDraftFromUi')
   const startDraftEnd = productionSource.indexOf('\nasync function startProductionFromUi', startDraftStart)

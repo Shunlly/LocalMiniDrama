@@ -58,13 +58,13 @@ const UI = Object.freeze({
   workflowTitle: '\u6545\u4e8b\u7d20\u6750\u6d41\u7a0b',
   intakeStep: '\u5bfc\u5165\u7d20\u6750',
   draftMode: '\u8349\u7a3f\u9884\u6f14',
-  startDraft: '\u4ee5 \u8349\u7a3f\u9884\u6f14 \u542f\u52a8',
+  startDraft: '\u542f\u52a8\u7d20\u6750\u6d41\u7a0b',
   productionMode: '\u6b63\u5f0f\u5236\u4f5c',
-  startProduction: '\u4ee5 \u6b63\u5f0f\u5236\u4f5c \u542f\u52a8',
-  refresh: '\u5237\u65b0',
+  startProduction: '\u542f\u52a8\u7d20\u6750\u6d41\u7a0b',
+  refresh: '\u5237\u65b0\u7d20\u6750\u5904\u7406',
   timelineStep: '\u5267\u96c6 / \u65f6\u95f4\u7ebf',
-  continueImport: '\u7ee7\u7eed\u5bfc\u5165\u6545\u4e8b\u7d20\u6750',
-  workflowHistory: '\u6d41\u7a0b\u8bb0\u5f55',
+  continueImport: '\u53bb\u5bfc\u5165\u7d20\u6750',
+  workflowHistory: /^(?:\u5c55\u5f00|\u6536\u8d77)\u6d41\u7a0b\u8bb0\u5f55$/,
   enterProduction: '\u8fdb\u5165\u5236\u4f5c',
   returnToDrama: '\u8fd4\u56de\u5267\u96c6',
   deliveryExport: '\u4ea4\u4ed8\u4e0e\u5bfc\u51fa',
@@ -78,6 +78,9 @@ const UI = Object.freeze({
   importWebUrl: '\u5bfc\u5165\u7f51\u9875 URL',
   newProject: '\u65b0\u5efa\u9879\u76ee',
   confirm: '\u786e\u5b9a',
+  confirmNewProject: '\u786e\u5b9a\u65b0\u5efa\u9879\u76ee',
+  closeConnectionTest: '\u5173\u95ed\u8fde\u63a5\u6d4b\u8bd5',
+  cancelAddConfig: /^(?:\u53d6\u6d88\u6dfb\u52a0\u914d\u7f6e|\u53d6\u6d88\u7f16\u8f91\u914d\u7f6e)$/,
   saveConfig: '\u4fdd\u5b58\u914d\u7f6e',
   importOnly: '\u5bfc\u5165\u6545\u4e8b\u7d20\u6750',
   retryLoad: '\u91cd\u8bd5\u52a0\u8f7d',
@@ -1454,7 +1457,7 @@ async function verifyAiConfigurationUi(page) {
   await textConfigRow.getByRole('button', { name: /^\u6d4b\u8bd5\u300c/ }).click()
   const dialog = page.getByRole('dialog', { name: '\u6d4b\u8bd5\u8fde\u63a5', exact: true })
   await dialog.getByText('\u8fde\u63a5\u6210\u529f', { exact: true }).waitFor({ timeout: 30000 })
-  await dialog.getByRole('button', { name: '\u5173\u95ed', exact: true }).click()
+  await dialog.getByRole('button', { name: UI.closeConnectionTest, exact: true }).click()
   return {
     fixtureServices: ['text', 'image', 'storyboard_image', 'video', 'tts'],
     connectionTest: 'passed',
@@ -1494,7 +1497,7 @@ async function createDramaFromUi(page, { title, description }) {
   let response
   let payload
   try {
-    await dialog.getByRole('button', { name: UI.confirm, exact: true }).click()
+    await dialog.getByRole('button', { name: UI.confirmNewProject, exact: true }).click()
     response = await responsePromise
     payload = await response.json().catch(() => ({}))
   } finally {
@@ -1537,7 +1540,7 @@ async function verifyAiConfigReturnUi(page, dramaId) {
     if (error?.name !== 'TimeoutError') throw error
   }
   if (autoAddDialogVisible) {
-    await addDialog.getByRole('button', { name: '\u53d6\u6d88', exact: true }).click()
+    await addDialog.getByRole('button', { name: UI.cancelAddConfig }).click()
     await addDialog.waitFor({ state: 'hidden', timeout: 10000 })
   }
   const backButton = page.getByRole('button', { name: '\u8fd4\u56de\u539f\u9879\u76ee', exact: true })
