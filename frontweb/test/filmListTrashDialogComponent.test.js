@@ -100,7 +100,9 @@ test('回收站空态、失败重试和恢复入口都是中文', async () => {
     assert.equal(empty.events[0]?.[0], 'load')
     assert.match(textContent(empty.root), /移除后仍可恢复/)
     assert.match(textContent(empty.root), /回收站中没有项目/)
+    assert.match(textContent(empty.root), /关闭后可回到项目列表新建或导入项目/)
     assert.match(textContent(empty.root), /回收站中共有 0 个项目/)
+    assert.ok(buttonByAriaLabel(empty.root, '关闭回收站') || buttonByText(empty.root, '关闭回收站'))
     click(buttonByText(empty.root, '关闭'))
     assert.equal(empty.showTrashDialog.value, false)
   } finally {

@@ -11,7 +11,7 @@ export function projectCardContinueLabel(project, sourceImportIntent) {
 
 export function projectCardOpenLabel(project, sourceImportIntent) {
   const title = project?.title || '未命名项目'
-  return `打开项目「${title}」`
+  return `打开项目「${title}」，${projectCardContinueLabel(project, sourceImportIntent)}`
 }
 
 export function projectCardDestination(project, sourceImportIntent, returnTo) {

@@ -100,7 +100,7 @@ test('切换服务类型后厂商和模型下拉仍有可选项', () => {
   assert.equal(created.api.availableProviderOptions.value.at(-1).id, '__custom__')
   created.form.value.provider = 'minimax'
   assert.ok(created.api.availableModels.value.length > 0)
-  assert.match(created.api.providerModelEmptyHint.value || 'ok', /ok|可直接输入/)
+  assert.match(created.api.providerModelEmptyHint.value, /下一步：从上方追加预设模型，或直接输入模型名/)
 })
 
 test('新增时手填默认模型会进列表，编辑时保留已失效默认模型', () => {

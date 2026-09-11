@@ -236,3 +236,27 @@ test('有分集时展示卡片和进入制作，删除走页面方法', async ()
     harness.app.unmount()
   }
 })
+
+test('主按钮已是新增空白集时不再重复渲染第二个新增空白集', async () => {
+  const harness = mountList({
+    episodeEmptyState: emptyState({
+      primaryAction: { id: 'create_blank_episode', label: '新增空白集', target: 'add-episode' },
+      unblockAction: { id: 'import_source', label: '去导入素材' },
+    }),
+  })
+  try {
+    await nextTick()
+    const addButtons = findAll(harness.root, (node) => node.type === 'button' && textContent(node).replace(/\s+/g, ' ').trim() === '新增空白集')
+    assert.equal(addButtons.length, 1)
+    click(addButtons[0])
+    click(buttonByText(harness.root, '去导入素材'))
+    click(buttonByText(harness.root, '批量导入剧本'))
+    assert.deepEqual(harness.events, [
+      ['readiness', 'create_blank_episode', '新增空白集'],
+      ['readiness', 'import_source', '去导入素材'],
+      ['open-batch-import'],
+    ])
+  } finally {
+    harness.app.unmount()
+  }
+})

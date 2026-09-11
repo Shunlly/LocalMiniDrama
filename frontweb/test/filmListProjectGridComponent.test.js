@@ -130,8 +130,8 @@ test('空列表不渲染卡片；无封面时展示中文空态', async () => {
     assert.match(textContent(harness.root), /待生成画面/)
     assert.match(textContent(harness.root), /继续制作/)
     assert.match(textContent(harness.root), /去创建剧集/)
-    const unnamed = linkByAriaLabel(harness.root, '打开项目「未命名项目」')
-    const named = linkByAriaLabel(harness.root, '打开项目「雨巷」')
+    const unnamed = linkByAriaLabel(harness.root, '打开项目「未命名项目」，去创建剧集')
+    const named = linkByAriaLabel(harness.root, '打开项目「雨巷」，继续制作')
     assert.ok(unnamed, '缺少未命名项目卡片')
     assert.ok(named)
     assert.ok(linkByAriaLabel(harness.root, '打开项目「未命名项目」的故事素材流程'))
@@ -191,7 +191,7 @@ test('导入意图下卡片改成导入网页 URL，菜单命令交给页面', a
     assert.doesNotMatch(textContent(harness.root), /继续制作/)
     assert.equal(linkByAriaLabel(harness.root, '打开项目「雨巷」的故事素材流程'), undefined)
     assert.doesNotMatch(textContent(harness.root), /故事素材/)
-    const card = linkByAriaLabel(harness.root, '打开项目「雨巷」')
+    const card = linkByAriaLabel(harness.root, '打开项目「雨巷」，导入网页 URL')
     assert.ok(card)
     assert.equal(findAll(harness.root, (node) => node.type === 'a').length, 1)
     const items = findAll(harness.root, (node) => node.type === 'dropdown-items')[0]
@@ -200,6 +200,23 @@ test('导入意图下卡片改成导入网页 URL，菜单命令交给页面', a
     items.props.onCommand('edit')
     assert.deepEqual(harness.events, [['export', OTHER_DRAMA_ID], ['edit', OTHER_DRAMA_ID]])
     assert.doesNotMatch(JSON.stringify(harness.events), new RegExp(String(DRAMA_ID)))
+  } finally {
+    harness.app.unmount()
+  }
+})
+
+test('无效剧集编号的卡片仍显示去创建剧集，不误写成继续制作', async () => {
+  const harness = mountGrid({
+    filteredDramas: [
+      { id: DRAMA_ID, title: '残本', status: 'draft', episodes: [{ id: 'bad' }], storyboardCount: 0 },
+    ],
+  })
+  try {
+    await nextTick()
+    assert.match(textContent(harness.root), /去创建剧集/)
+    assert.doesNotMatch(textContent(harness.root), /继续制作/)
+    const card = linkByAriaLabel(harness.root, '打开项目「残本」，去创建剧集')
+    assert.ok(card, '缺少去创建剧集读屏名称')
   } finally {
     harness.app.unmount()
   }
