@@ -92,6 +92,7 @@ const UI = Object.freeze({
   aiConfiguration: '\u0041\u0049\u914d\u7f6e',
   addConfiguration: '\u6dfb\u52a0\u914d\u7f6e',
   configureMissingService: '\u914d\u7f6e\u7f3a\u5931\u670d\u52a1',
+  draftPreview: '\u5148\u8dd1\u8349\u7a3f\u9884\u6f14',
   returnToProduction: '\u8fd4\u56de\u5236\u4f5c',
   configurationRechecking: '\u914d\u7f6e\u5df2\u66f4\u65b0\uff0c\u6b63\u5728\u91cd\u65b0\u68c0\u67e5',
   retryCapability: '\u91cd\u8bd5\u80fd\u529b\u68c0\u67e5',
@@ -2956,7 +2957,9 @@ async function verifyFocusedDesktopAcceptance(browser, {
     const blockedSummary = page.locator('[data-testid="film-pipeline-summary"][data-state="blocked"]')
     await blockedSummary.waitFor({ state: 'visible', timeout: 30000 })
     let pipelineAction = page.getByTestId('film-pipeline-action')
-    await pipelineAction.filter({ hasText: UI.configureMissingService }).waitFor({ state: 'visible', timeout: 30000 })
+    await pipelineAction.filter({ hasText: UI.draftPreview }).waitFor({ state: 'visible', timeout: 30000 })
+    let pipelineSecondary = page.getByTestId('film-pipeline-secondary-action')
+    await pipelineSecondary.filter({ hasText: UI.configureMissingService }).waitFor({ state: 'visible', timeout: 30000 })
 
     const genericOpener = page.locator('.btn-ai-config')
     await genericOpener.focus()
@@ -3001,10 +3004,12 @@ async function verifyFocusedDesktopAcceptance(browser, {
     })
     assert.equal(await page.getByText(UI.configurationRechecking, { exact: true }).count(), 0)
     pipelineAction = page.getByTestId('film-pipeline-action')
-    await pipelineAction.filter({ hasText: UI.configureMissingService }).waitFor({ state: 'visible', timeout: 30000 })
+    await pipelineAction.filter({ hasText: UI.draftPreview }).waitFor({ state: 'visible', timeout: 30000 })
+    pipelineSecondary = page.getByTestId('film-pipeline-secondary-action')
+    await pipelineSecondary.filter({ hasText: UI.configureMissingService }).waitFor({ state: 'visible', timeout: 30000 })
 
-    await pipelineAction.focus()
-    await pipelineAction.click()
+    await pipelineSecondary.focus()
+    await pipelineSecondary.click()
     await workspaceDialog.waitFor({ state: 'visible', timeout: 30000 })
     await page.getByTestId('ai-config-mode-configs').waitFor({ state: 'visible', timeout: 30000 })
     const mutation = await createMissingServiceFromUi(page, {
