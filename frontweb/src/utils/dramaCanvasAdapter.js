@@ -307,21 +307,27 @@ function buildEpisodePipeline(episode, savedLayout, startY, options = {}) {
       mediaX += MEDIA_GAP_X
     }
 
-    const dialogueAudioUrl = audioUrl(sb.audio_local_path)
-    if (dialogueAudioUrl) {
-      const audId = `sbaud:${sb.id}:dialogue`
+    const audioTracks = [
+      { kind: 'dialogue', path: sb.audio_local_path, edgeId: `e-sb-aud-${sb.id}` },
+      { kind: 'narration', path: sb.narration_audio_local_path, edgeId: `e-sb-aud-${sb.id}-narration` },
+    ]
+    for (const track of audioTracks) {
+      const trackUrl = audioUrl(track.path)
+      if (!trackUrl) continue
+      const audId = `sbaud:${sb.id}:${track.kind}`
       nodes.push(makeNode({
         id: audId,
         type: 'canvasMedia',
         position: resolveNodePosition(savedLayout, audId, { x: mediaX, y: mediaY }),
-        data: { kind: 'audio', storyboard: sb, url: dialogueAudioUrl, audioType: 'dialogue' },
+        data: { kind: 'audio', storyboard: sb, url: trackUrl, audioType: track.kind },
       }))
       edges.push(makeEdge({
-        id: `e-sb-aud-${sb.id}`,
+        id: track.edgeId,
         source: sbId,
         target: audId,
         style: { stroke: '#fbbf24', strokeWidth: 1.5 },
       }))
+      mediaX += MEDIA_GAP_X
     }
 
     const charIds = Array.isArray(sb.characters) ? sb.characters : []
@@ -482,6 +488,7 @@ export function getAssetRelationHighlight(drama, assetNodeId) {
       nodeIds.add(`sbimg-last:${sb.id}`)
       if (storyboardVideoUrl(sb)) nodeIds.add(`sbvid:${sb.id}`)
       if (sb.audio_local_path) nodeIds.add(`sbaud:${sb.id}:dialogue`)
+      if (sb.narration_audio_local_path) nodeIds.add(`sbaud:${sb.id}:narration`)
 
       if (prefix === 'char') edgeIds.add(`e-char-${entityId}-sb-${sb.id}`)
       if (prefix === 'scene') edgeIds.add(`e-scene-${entityId}-sb-${sb.id}`)

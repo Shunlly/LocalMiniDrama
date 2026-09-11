@@ -270,7 +270,7 @@ async function runStep(step) {
     else if (step === 'image') await runImageStep(drama, sb, genOpts, { signal: generationRun.signal })
     else if (step === 'video') await runVideoStep(drama, sb, genOpts, { signal: generationRun.signal })
     else if (step === 'audio') {
-      const res = await runAudioStep(sb, { signal: generationRun.signal })
+      const res = await runAudioStep(sb, { signal: generationRun.signal, kind: props.audioType === 'narration' ? 'narration' : 'dialogue' })
       if (res?.skipped) {
         ElMessage.info(canvasUserError(res.reason, '已跳过'))
         return

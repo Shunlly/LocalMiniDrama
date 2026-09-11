@@ -361,35 +361,51 @@ export async function runVideoStep(drama, sb, genOpts, options = {}) {
   }
 }
 
+export function resolveCanvasAudioJobs(storyboard, kind = 'all') {
+  const normalized = kind === 'narration' ? 'narration' : (kind === 'dialogue' ? 'dialogue' : 'all')
+  const jobs = []
+  if (normalized !== 'narration') {
+    const text = String(storyboard?.dialogue || '').trim()
+    jobs.push({ ttsKind: 'dialogue', text, skipReason: '无对白' })
+  }
+  if (normalized !== 'dialogue') {
+    const text = String(storyboard?.narration || '').trim()
+    jobs.push({ ttsKind: 'narration', text, skipReason: '无解说旁白' })
+  }
+  return jobs
+}
+
 export async function runAudioStep(sb, options = {}) {
   const signal = options.signal
   throwIfAborted(signal)
-  const text = (sb.dialogue || '').trim()
-  if (!text) return { skipped: true, reason: '无对白' }
+  const jobs = resolveCanvasAudioJobs(sb, options.kind)
+  const runnable = jobs.filter((job) => job.text)
+  if (!runnable.length) {
+    return { skipped: true, reason: jobs[0]?.skipReason || '没有可配音的对白或旁白' }
+  }
   try {
     const postRequest = options.postRequest || ((url, body, reqOpts) => request.post(url, body, reqOpts))
-    await postRequest('/audio/extract', {
-      storyboard_id: sb.id,
-      text,
-      tts_kind: 'dialogue',
-    }, audioSubmissionRequestOptions(signal))
+    for (const job of runnable) {
+      throwIfAborted(signal)
+      await postRequest('/audio/extract', {
+        storyboard_id: sb.id,
+        text: job.text,
+        tts_kind: job.ttsKind,
+      }, audioSubmissionRequestOptions(signal))
+    }
   } catch (error) {
     if (signal?.aborted || isAbortError(error, signal)) throwAborted(signal, error)
     if (isRequestTimeout(error)) {
-      const uncertain = new Error('语音请求等待超时，服务端可能仍在合成并产生费用。请先刷新分镜状态，确认结果后再决定是否重试。')
+      const uncertain = new Error('配音提交等待超时，后端可能仍在合成并产生费用。请先刷新分镜状态确认结果，再决定是否重试。')
       uncertain.code = 'SUBMISSION_OUTCOME_UNKNOWN'
       throw uncertain
     }
     rethrowUnlessAbort(error, '配音生成失败', signal)
   }
   throwIfAborted(signal)
-  return { skipped: false }
+  return { skipped: false, kinds: runnable.map((job) => job.ttsKind) }
 }
 
-/**
- * 对单个分镜按 pipeline 顺序执行生成
- * @param {'image'|'video'|'audio'}[] pipeline
- */
 export async function runStoryboardPipeline(drama, storyboardId, pipeline, hooks = {}) {
   const signal = hooks.signal
   throwIfAborted(signal)
