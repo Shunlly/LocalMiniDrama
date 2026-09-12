@@ -33,7 +33,6 @@
           </el-button>
           <el-button
             v-else-if="isDramaReady"
-            type="primary"
             :loading="addingEpisode"
             aria-label="新增空白集"
             @click="emit('add-episode')"

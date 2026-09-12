@@ -26,7 +26,7 @@
                 :aria-label="episodeEmptyState.primaryDisabledReason ? `${episodeEmptyState.primaryAction.label}不可用：${episodeEmptyState.primaryDisabledReason}` : undefined"
               >
                 <el-button
-                  :type="isAddEpisodeEmptyAction ? undefined : 'primary'"
+                  type="primary"
                   :disabled="Boolean(episodeEmptyState.primaryDisabledReason)"
                   :title="episodeEmptyState.primaryDisabledReason || undefined"
                   :aria-describedby="episodeEmptyState.primaryDisabledReason || episodeEmptyState.note ? 'episode-empty-reason' : undefined"
@@ -94,7 +94,7 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue'
+import { ref } from 'vue'
 import { Delete, Plus, VideoPlay } from '@element-plus/icons-vue'
 import EpisodeBatchImportDialog from '@/components/EpisodeBatchImportDialog.vue'
 
@@ -117,10 +117,6 @@ const props = defineProps({
 })
 
 const episodeBatchImportDialogRef = ref(null)
-const isAddEpisodeEmptyAction = computed(() => {
-  const action = props.episodeEmptyState?.primaryAction
-  return action?.id === 'create_blank_episode' || action?.target === 'add-episode'
-})
 
 defineExpose({
   openDialog: (...args) => episodeBatchImportDialogRef.value?.openDialog?.(...args),

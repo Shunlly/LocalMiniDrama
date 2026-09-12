@@ -68,7 +68,7 @@ test('DramaDetail 把页头交给独立组件，Logo 读屏名称带产品前缀
   assert.doesNotMatch(pageSource, /<header class="header">/)
 })
 
-test('无分集时页头主按钮是新增空白集，画布模式保留中文禁用原因', async () => {
+test('无分集时页头新增空白集降为次按钮，画布模式保留中文禁用原因', async () => {
   const harness = mountHeader({ isDramaReady: true, currentEpisodeId: null })
   try {
     await nextTick()
@@ -92,7 +92,7 @@ test('无分集时页头主按钮是新增空白集，画布模式保留中文�
     assert.ok(canvas, '缺少画布模式')
     assert.notEqual(addEpisode.props.disabled, true)
     assert.equal(addEpisode.props['aria-label'], '新增空白集')
-    assert.equal(addEpisode.props['data-variant'], 'primary')
+    assert.notEqual(addEpisode.props['data-variant'], 'primary')
     assert.equal(canvas.props.disabled, true)
     assert.equal(canvas.props['aria-label'], '画布模式不可用：请先新增一集')
     assert.equal(canvas.props['aria-describedby'], 'drama-header-episode-reason')
