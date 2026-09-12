@@ -33,6 +33,7 @@ const router = useRouter()
 const route = useRoute()
 const aiConfigContentRef = ref(null)
 let skipNextRouteGuard = false
+let leaveConfirmed = false
 const filterableServiceTypes = new Set(['text', 'image', 'storyboard_image', 'video', 'tts', 'ocr', 'transcription'])
 const initialServiceType = computed(() => {
   const raw = Array.isArray(route.query.service_type)
@@ -54,7 +55,10 @@ const backButtonText = backButtonLabel
 const logoBackLabel = computed(() => '本地短剧助手，' + backButtonLabel.value)
 
 async function requestAiConfigPageClose() {
-  return (await aiConfigContentRef.value?.requestClose?.()) !== false
+  if (leaveConfirmed) return true
+  const allowed = (await aiConfigContentRef.value?.requestClose?.()) !== false
+  if (allowed) leaveConfirmed = true
+  return allowed
 }
 
 async function goBack() {

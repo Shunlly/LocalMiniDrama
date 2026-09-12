@@ -40,6 +40,8 @@ test('standalone AI config page protects route and browser exits', () => {
   assert.match(pageSource, /onBeforeRouteLeave/)
   assert.match(pageSource, /window\.addEventListener\('beforeunload', handleBeforeUnload\)/)
   assert.match(pageSource, /event\.preventDefault\(\)[\s\S]*event\.returnValue = ''/)
+  assert.match(pageSource, /if \(leaveConfirmed\) return true/)
+  assert.match(pageSource, /if \(allowed\) leaveConfirmed = true/)
 })
 
 test('project list AI config dialog delegates every close request to the content guard', () => {
