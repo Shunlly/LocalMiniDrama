@@ -1,5 +1,5 @@
 <template>
-  <FilmCreateResourceDialogs ref="resourceDialogsRef" v-bind="resourceDialogs" />
+  <FilmCreateResourceDialogs v-bind="resourceDialogs" ref="resourceDialogsRef" />
   <FilmCreateStoryboardDialogs v-bind="storyboardDialogs" />
   <FilmCreateNovelImportDialog
     v-model:visible="visible"
