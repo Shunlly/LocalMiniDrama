@@ -88,7 +88,7 @@ test('默认帮助区渲染全部厂商条目、中文标签和免责声明', as
   try {
     await nextTick()
     const text = textContent(harness.root)
-    assert.match(text, /选择预设只会自动填入公开 Base URL 和常见模型名/)
+    assert.match(text, /选择预设只会自动填入公开接口地址（Base URL）和常见模型名/)
     assert.match(text, /不代表本应用已真实接入或跑通对应厂商/)
     assert.match(text, /文本 \/ OpenAI 兼容/)
     assert.match(text, /图片 \/ 分镜图 协议/)
@@ -108,7 +108,7 @@ test('默认帮助区渲染全部厂商条目、中文标签和免责声明', as
     assert.ok(text.includes('http://127.0.0.1:8188'))
     assert.match(text, /不代表语音合成已真实接入/)
     assert.ok(text.includes('enhance_prompt: true'))
-    assert.equal(PRESET_HELP_DISCLAIMER.includes('选择预设只会自动填入公开 Base URL'), true)
+    assert.equal(PRESET_HELP_DISCLAIMER.includes('选择预设只会自动填入公开接口地址（Base URL）'), true)
   } finally {
     harness.app.unmount()
   }
@@ -117,12 +117,12 @@ test('默认帮助区渲染全部厂商条目、中文标签和免责声明', as
 test('空分区只保留免责声明，不会残留折叠项', async () => {
   const harness = mountHelp({
     sections: [],
-    disclaimer: '选择预设只会自动填入公开 Base URL 和常见模型名。',
+    disclaimer: '选择预设只会自动填入公开接口地址（Base URL）和常见模型名。',
   })
   try {
     await nextTick()
     const text = textContent(harness.root)
-    assert.match(text, /选择预设只会自动填入公开 Base URL 和常见模型名/)
+    assert.match(text, /选择预设只会自动填入公开接口地址（Base URL）和常见模型名/)
     assert.equal(collapseItems(harness.root).length, 0)
     assert.doesNotMatch(text, /OpenAI 兼容网关/)
   } finally {

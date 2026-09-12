@@ -1,18 +1,13 @@
 <template>
   <el-form-item label="图片">
     <div class="lib-img-editor">
-      <button v-if="imageUrl" type="button" class="lib-img-thumb" :aria-label="previewLabel" @click="emit('preview', imageUrl)">
+      <button v-if="imageUrl" type="button" class="lib-img-thumb" v-bind="previewThumbBindings" :aria-label="previewLabel" @click="emit('preview', imageUrl)">
         <img v-if="hasStoredImage" :src="imageUrl" :alt="imageAlt" />
         <span v-else class="lib-img-empty"><el-icon aria-hidden="true"><PictureFilled /></el-icon></span>
       </button>
-      <div
-        v-else
-        class="lib-img-thumb lib-img-thumb--empty"
-        role="img"
-        :aria-label="previewTitle || '暂无图片'"
-      >
+      <button v-else type="button" v-bind="previewThumbBindings" class="lib-img-thumb lib-img-thumb--empty" :aria-label="previewLabel" @click="emit('preview', imageUrl)">
         <span class="lib-img-empty"><el-icon aria-hidden="true"><PictureFilled /></el-icon></span>
-      </div>
+      </button>
       <div class="lib-img-btns">
         <el-tooltip :content="uploadDisabledReason" :disabled="!uploadDisabledReason" placement="top">
           <span
@@ -86,6 +81,12 @@ const imageUrl = computed(() => props.assetImageUrl(props.form) || '')
 const hasStoredImage = computed(() => Boolean(props.form?.image_url || props.form?.local_path))
 const imageAlt = computed(() => props.form?.[props.altKey] || props.fallbackAlt)
 const previewTitle = computed(() => (imageUrl.value ? undefined : '暂无图片'))
+// disabled 必须是布尔值：裸 disabled 会编成空字符串，有图时也不能缺省成 undefined。
+const previewThumbBindings = computed(() => (
+  imageUrl.value
+    ? { disabled: false }
+    : { disabled: true, title: previewTitle.value || '暂无图片' }
+))
 const uploadDisabledReason = computed(() => (props.form?.imgGenerating ? '正在生成图片，请稍候' : ''))
 const generateDisabledReason = computed(() => (props.form?.imgUploading ? '正在上传图片，请稍候' : ''))
 const uploadReasonId = computed(() => `resource-image-upload-reason-${props.form?.id || 'new'}`)
@@ -103,6 +104,7 @@ function pickFile() {
 .lib-img-empty { color: var(--text-faint, #52525b); font-size: 26px; }
 .lib-img-btns { display: flex; flex-direction: column; gap: 8px; }
 .lib-img-thumb:focus-visible { outline: 2px solid #818cf8; outline-offset: 2px; }
+.lib-img-thumb:disabled { cursor: default; }
 .lib-img-thumb--empty { cursor: default; }
 .tooltip-trigger { display: inline-flex; }
 .tooltip-trigger:focus-visible { outline: 2px solid #818cf8; outline-offset: 2px; }

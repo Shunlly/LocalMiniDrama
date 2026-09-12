@@ -198,6 +198,8 @@ test('project readiness does not treat a remote model without credentials as pro
   assert.equal(text.ready, false)
   assert.equal(text.issue, 'missing_credentials')
   assert.match(text.detail, /生产凭据/)
+  assert.match(text.detail, /API 密钥/)
+  assert.doesNotMatch(text.detail, /API Key/)
 })
 
 test('project readiness distinguishes configured, verified, and failed connections', () => {

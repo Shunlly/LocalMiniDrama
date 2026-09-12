@@ -6,7 +6,7 @@
           <div class="advanced-config-title">
             <span>
               <strong>高级接口设置</strong>
-              <small>Base URL、接口规范及自定义端点</small>
+              <small>{{ baseUrlLabel }}、接口规范及自定义端点</small>
             </span>
             <el-tag size="small" type="info" effect="plain">一般无需修改</el-tag>
           </div>
@@ -56,7 +56,7 @@
           </el-form-item>
           <el-form-item prop="base_url">
             <template #label>
-              <span class="form-label-tip">{{ form.service_type === 'jimeng2_character_auth' ? '网关 URL' : '接口地址（Base URL）' }}
+              <span class="form-label-tip">{{ form.service_type === 'jimeng2_character_auth' ? '网关 URL' : baseUrlLabel }}
                 <el-tooltip placement="top" popper-class="cfg-tip-popper">
                   <template #content>
                     <div class="cfg-tip-content">
@@ -117,7 +117,7 @@
                   <el-tooltip placement="top" popper-class="cfg-tip-popper">
                     <template #content>
                       <div class="cfg-tip-content">
-                        接口路径，追加在 Base URL 之后。<br>
+                        接口路径，追加在 {{ baseUrlLabel }}之后。<br>
                         <b>预设厂商</b>（火山 / 通义 / NanoBanana）留空，系统自动推断。<br>
                         <b>视频自定义厂商</b>必须填写，如 /v1/videos/generations<br>
                         <b>NanoBanana 代理</b>填写代理路径，如 /fal-ai/nano-banana
@@ -196,7 +196,9 @@
 <script setup>
 import { QuestionFilled } from '@element-plus/icons-vue'
 import AiConfigPresetHelpCollapse from '@/components/aiConfig/AiConfigPresetHelpCollapse.vue'
-import { hidesApiProtocolField } from '@/utils/aiConfigLabels.js'
+import { configFieldDisplayLabel, hidesApiProtocolField } from '@/utils/aiConfigLabels.js'
+
+const baseUrlLabel = configFieldDisplayLabel('Base URL')
 
 defineProps({
   form: { type: Object, required: true },

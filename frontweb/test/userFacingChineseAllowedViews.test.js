@@ -111,6 +111,19 @@ const aiConfigOverlaySource = [
 const aiConfigRowMutationsSource = read('../src/composables/useAiConfigRowMutations.js')
 const aiConfigFormSettingsSource = read('../src/utils/aiConfigFormSettings.js')
 const notFoundSource = read('../src/views/NotFound.vue')
+const backupPageSource = read('../src/views/Backup.vue')
+const backupHeaderSource = read('../src/components/backup/BackupHeader.vue')
+const backupListSource = read('../src/components/backup/BackupList.vue')
+const backupFailureSource = read('../src/components/backup/BackupFailureBanners.vue')
+const backupReadinessSource = read('../src/components/backup/BackupReadiness.vue')
+const backupRestoreSource = read('../src/components/backup/BackupRestoreDialog.vue')
+const backupSelectedSource = read('../src/components/backup/BackupSelectedFile.vue')
+const backupCopySource = read('../src/components/backup/backupPageCopy.js')
+const projectReadinessSource = read('../src/utils/projectReadiness.js')
+const projectReadinessPanelSource = read('../src/components/ProjectReadinessPanel.vue')
+const freeCanvasNodeSource = read('../src/components/dramaCanvas/FreeCanvasNode.vue')
+const freeCanvasInspectorSource = read('../src/components/dramaCanvas/FreeCanvasInspector.vue')
+const aiConfigPageSource = read('../src/views/AiConfig.vue')
 
 const ALLOWED_SOURCES = {
   ...mediaLibraryFiles,
@@ -158,6 +171,16 @@ const ALLOWED_SOURCES = {
   'AiConfigCoverageHeader.vue': aiConfigCoverageHeaderSource,
   'AiConfigCoveragePanel.vue': aiConfigCoveragePanelSource,
   'AiConfigConfigsPanel.vue': aiConfigConfigsPanelSource,
+  'NotFound.vue': notFoundSource,
+  'Backup.vue': backupPageSource,
+  'BackupHeader.vue': backupHeaderSource,
+  'BackupList.vue': backupListSource,
+  'BackupFailureBanners.vue': backupFailureSource,
+  'BackupReadiness.vue': backupReadinessSource,
+  'BackupRestoreDialog.vue': backupRestoreSource,
+  'BackupSelectedFile.vue': backupSelectedSource,
+  'ProjectReadinessPanel.vue': projectReadinessPanelSource,
+  'AiConfig.vue': aiConfigPageSource,
 }
 
 const CHINESE_RE = /[\u4e00-\u9fff]/
@@ -243,7 +266,12 @@ test('SD2 资产库对话框、表单和反馈文案改为简体中文，接口�
   assert.match(sd2Source, /placeholder="控制台 IAM 私有密钥"/)
   assert.match(sd2Source, /ElMessage\.warning\('请填写名称'\)/)
   assert.match(sd2Source, /ElMessage\.warning\('请填写资产组编号与名称'\)/)
-  assert.match(sd2Source, /return '请先填写接口地址（Base URL）'/)
+  assert.match(sd2Source, /return '请先填写接口地址'/)
+  assert.match(sd2Source, /label="接口地址"/)
+  assert.doesNotMatch(sd2Source, /接口地址（Base URL）/)
+  assert.doesNotMatch(sd2Source, /label="Base URL"/)
+  assert.match(sd2Source, /POST \{接口地址\}/)
+  assert.doesNotMatch(sd2Source, /POST \{Base\}/)
   assert.match(sd2Source, /创建资产组（CreateAssetGroup）/)
   assert.match(sd2Source, /创建资产（CreateAsset）→ 列表 \/ 查询 \/ 更新 \/ 删除/)
 
@@ -380,6 +408,35 @@ test('404 页主标题是本地短剧助手，英文品牌只作次要标识', (
   assert.match(notFoundSource, /class="logo-sub">LocalMiniDrama/)
   assert.match(notFoundSource, /<h1[^>]*>页面不存在<\/h1>/)
   assert.doesNotMatch(notFoundSource, /<p class="product-name">LocalMiniDrama<\/p>/)
+})
+
+test('页头、404、备份页和就绪提示不再直出英文界面词，配置节点保持停止等待', () => {
+  const headerSources = [
+    filmListHeaderSource,
+    dramaDetailHeaderSource,
+    freeCreateHeaderSource,
+    mediaLibraryHeaderSource,
+    backupHeaderSource,
+    aiConfigPageSource,
+  ]
+  for (const source of headerSources) {
+    assert.doesNotMatch(source, /微信我/)
+    assert.doesNotMatch(source, />(Cancel|Retry|Error|Save|Loading|Timeout)</)
+  }
+  assert.match(notFoundSource, /返回项目列表/)
+  assert.doesNotMatch(notFoundSource, /微信我/)
+  assert.match(backupHeaderSource, /数据备份与维护/)
+  assert.match(backupHeaderSource, /aria-label="创建全量备份"/)
+  assert.match(backupCopySource, /正在创建备份，请稍候/)
+  assert.doesNotMatch(backupCopySource, /\b(Cancel|Retry|Error|Save|Loading|Timeout)\b/)
+  assert.match(projectReadinessSource, /请补充 API 密钥或有效的厂商认证/)
+  assert.doesNotMatch(projectReadinessSource, /API Key/)
+  assert.doesNotMatch(sd2Source, /\bAPI Key\b/)
+  assert.doesNotMatch(sd2Source, /\bBase URL\b/)
+  assert.match(freeCanvasNodeSource, />\s*停止等待\s*</)
+  assert.match(freeCanvasNodeSource, /aria-label="停止等待"/)
+  assert.match(freeCanvasInspectorSource, /aria-label="停止等待"/)
+  assert.match(freeCanvasInspectorSource, />\s*停止等待\s*</)
 })
 
 test('允许修改的页面里，用户可见字符串都带有简体中文', () => {

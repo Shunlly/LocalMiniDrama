@@ -1464,7 +1464,7 @@ test('中英混杂 fallback 不会被当成可信中文，图片空厂商名也�
   assert.doesNotMatch(emptyVideoTimeout.message, /图片服务|\bVideo\b|\bImage\b/);
 });
 
-test('连接测试失败对用户是中文，日志是脱敏后的技术错误且不含密钥', async () => {
+test('连接测试失败对用户是中文，日志是重建后的安全文案且不含密钥', async () => {
   const aiConfigService = require('../src/services/aiConfigService');
   const secret = 'sk-connection-user-secret-123456';
   const original = aiConfigService.testConnection;
@@ -1494,8 +1494,8 @@ test('连接测试失败对用户是中文，日志是脱敏后的技术错误�
     assert.doesNotMatch(serialized, /sk-connection-user-secret-123456/);
     const errorEvent = events.find((item) => item.message === 'AI config test connection failed');
     assert.ok(errorEvent);
-    assert.match(errorEvent.metadata.error, /invalid api key/);
-    assert.doesNotMatch(errorEvent.metadata.error, /sk-connection-user-secret/);
+    assert.match(errorEvent.metadata.error, /连接测试失败|无法解析的错误/);
+    assert.doesNotMatch(errorEvent.metadata.error, /invalid api key|sk-connection-user-secret/i);
     assert.equal(errorEvent.metadata.userError, res.body.error.message);
   } finally {
     aiConfigService.testConnection = original;

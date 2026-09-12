@@ -12,3 +12,23 @@ dcf6cc47fe3b526cf57c294e3a0b72a7719d1a45:backend-node/test/maintenanceRecoveryCl
 5fcc14cddb83b9faaa33f50c1d998861d9ef58df:backend-node/test/dataBackupService.test.js:generic-api-key:1907
 5fcc14cddb83b9faaa33f50c1d998861d9ef58df:backend-node/test/dataBackupService.test.js:generic-api-key:1996
 5fcc14cddb83b9faaa33f50c1d998861d9ef58df:scripts/rollback-drill-contract.test.cjs:generic-api-key:95
+
+# Synthetic request-observability credential fixtures; the current test builds them from fragments.
+14b9bd3e0f72f5b0b19862c75200d3b3ba6b69ec:frontweb/test/requestObservability.test.js:generic-api-key:238
+14b9bd3e0f72f5b0b19862c75200d3b3ba6b69ec:frontweb/test/requestObservability.test.js:generic-api-key:241
+
+# Synthetic AI-config connection/TTS credential fixture; the current test builds it from fragments.
+933546c8816aa997b6f40478b58e7be08f624ae9:backend-node/test/aiConfigConnection.test.js:generic-api-key:233
+
+# Synthetic discover-models credential fixture; the current test builds it from fragments.
+933546c8816aa997b6f40478b58e7be08f624ae9:backend-node/test/aiConfigDiscoverModels.test.js:generic-api-key:427
+
+# Synthetic OCR credential fixtures; the current test builds them from fragments.
+933546c8816aa997b6f40478b58e7be08f624ae9:backend-node/test/aiConfigOcrTranscription.test.js:generic-api-key:112
+933546c8816aa997b6f40478b58e7be08f624ae9:backend-node/test/aiConfigOcrTranscription.test.js:generic-api-key:265
+
+# Synthetic image/video assembly credential fixture; the current test builds it from fragments.
+f285d312216d495f34f5d6748fce81347ec3aea2:backend-node/test/imageVideoGatewayAssemblyContract.test.js:generic-api-key:75
+
+# Synthetic route-observability credential fixture; the current test builds it from fragments.
+f285d312216d495f34f5d6748fce81347ec3aea2:backend-node/test/routeObservability.test.js:generic-api-key:71

@@ -106,9 +106,18 @@ function resolveLabelledDialogElement() {
   return dialog
 }
 
+function applyDialogCloseButtonName(root) {
+  if (!root || typeof root.querySelector !== 'function') return
+  const closeBtn = root.querySelector('.el-dialog__headerbtn')
+  if (!closeBtn) return
+  if (typeof closeBtn.setAttribute === 'function') closeBtn.setAttribute('aria-label', '关闭')
+}
+
 function applyDialogAccessibleName() {
   const labelled = resolveLabelledDialogElement()
-  if (!labelled || typeof labelled.querySelector !== 'function' || typeof labelled.setAttribute !== 'function') return
+  if (!labelled || typeof labelled.querySelector !== 'function') return
+  applyDialogCloseButtonName(labelled)
+  if (typeof labelled.setAttribute !== 'function') return
   const titleEl = labelled.querySelector('.el-dialog__title')
   if (!titleEl) return
   if (!titleEl.id) {

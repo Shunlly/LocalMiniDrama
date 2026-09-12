@@ -103,7 +103,7 @@ async function openProductionFromList(page, baseUrl) {
   await page.waitForURL((url) => url.pathname === `/film/${PROJECT_ID}`, { timeout: 20000 })
   await page.getByRole('button', { name: '返回剧集', exact: true }).waitFor({ timeout: 30000 })
   await page.getByRole('heading', { name: PROJECT_TITLE, exact: true }).waitFor({ timeout: 10000 })
-  await page.getByRole('button', { name: 'AI 配置', exact: true }).waitFor({ timeout: 10000 })
+  await page.getByRole('button', { name: '打开 AI 配置', exact: true }).waitFor({ timeout: 10000 })
 }
 
 async function expandPipelineDetails(page) {
@@ -134,7 +134,7 @@ test('制作页 AI 配置弹窗未保存时继续编辑会保留内容，放弃�
   await stubProductionWorkspace(page)
 
   await openProductionFromList(page, baseUrl)
-  await page.getByRole('button', { name: 'AI 配置', exact: true }).click()
+  await page.getByRole('button', { name: '打开 AI 配置', exact: true }).click()
 
   const workspace = page.getByRole('dialog', { name: 'AI 配置', exact: true })
   await workspace.waitFor({ state: 'visible', timeout: 20000 })
@@ -215,7 +215,12 @@ test('制作页全流程可暂停后再停止，并真正请求取消任务', { 
   )
   assert.ok(cancelSweep.some((item) => item.phase === 'start'), `缺少任务取消开始: ${JSON.stringify(logs)}`)
   assert.ok(
-    cancelSweep.some((item) => item.phase === 'success' || item.phase === 'error'),
+    cancelSweep.some((item) => item.phase === 'cancel' || item.phase === 'error'),
     `缺少任务取消结果: ${JSON.stringify(logs)}`,
+  )
+  assert.equal(
+    cancelSweep.some((item) => item.phase === 'success' || item.status === 'success'),
+    false,
+    '任务取消不得记成成功',
   )
 })

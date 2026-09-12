@@ -57,6 +57,10 @@ function jsonResponse(body, status = 200) {
   });
 }
 
+function syntheticServiceSecret(serviceType) {
+  return [String(serviceType), '-secret-key-123456'].join('');
+}
+
 function configRequest(serviceType, overrides = {}) {
   return {
     service_type: serviceType,
@@ -64,7 +68,7 @@ function configRequest(serviceType, overrides = {}) {
     provider: 'openai_compatible',
     api_protocol: 'openai',
     base_url: 'https://provider.example.com/v1',
-    api_key: `${serviceType}-secret-key-123456`,
+    api_key: syntheticServiceSecret(serviceType),
     model: [`${serviceType}-model`],
     default_model: `${serviceType}-model`,
     is_default: true,
@@ -75,7 +79,7 @@ function configRequest(serviceType, overrides = {}) {
 function connectionOpts(serviceType, overrides = {}) {
   return {
     base_url: 'https://provider.example.com/v1',
-    api_key: `${serviceType}-secret-key-123456`,
+    api_key: syntheticServiceSecret(serviceType),
     provider: 'openai_compatible',
     api_protocol: 'openai',
     service_type: serviceType,
@@ -109,12 +113,12 @@ describe('aiConfigService OCR/transcription createConfig', () => {
       assert.equal(ocr.service_type, 'ocr');
       assert.equal(ocr.provider, 'openai_compatible');
       assert.equal(ocr.endpoint, '/chat/completions');
-      assert.equal(ocr.api_key, 'ocr-secret-key-123456');
+      assert.equal(ocr.api_key, syntheticServiceSecret('ocr'));
       assert.deepEqual(ocr.model, ['ocr-model']);
 
       assert.equal(transcription.service_type, 'transcription');
       assert.equal(transcription.endpoint, '/audio/transcriptions');
-      assert.equal(transcription.api_key, 'transcription-secret-key-123456');
+      assert.equal(transcription.api_key, syntheticServiceSecret('transcription'));
 
       const listedOcr = aiConfigService.listConfigs(db, 'ocr');
       const listedTranscription = aiConfigService.listConfigs(db, 'transcription');
@@ -124,7 +128,7 @@ describe('aiConfigService OCR/transcription createConfig', () => {
       assert.equal(listedTranscription[0].id, transcription.id);
 
       const observable = JSON.stringify(log.records);
-      assert.doesNotMatch(observable, /ocr-secret-key-123456|transcription-secret-key-123456/);
+      assert.doesNotMatch(observable, new RegExp(`${syntheticServiceSecret('ocr')}|${syntheticServiceSecret('transcription')}`));
     } finally {
       db.close();
     }
@@ -157,7 +161,7 @@ describe('aiConfigService OCR/transcription createConfig', () => {
       assert.equal(savedTranscription.service_type, 'transcription');
 
       const observable = JSON.stringify({ ocr: ocrRes.body, transcription: transcriptionRes.body, log: log.records });
-      assert.doesNotMatch(observable, /ocr-secret-key-123456|transcription-secret-key-123456/);
+      assert.doesNotMatch(observable, new RegExp(`${syntheticServiceSecret('ocr')}|${syntheticServiceSecret('transcription')}`));
     } finally {
       db.close();
     }
@@ -176,7 +180,7 @@ describe('aiConfigService.testConnection OCR/transcription', () => {
 
     assert.equal(calls.length, 1);
     assert.equal(calls[0].url, 'https://provider.example.com/v1/models');
-    assert.equal(calls[0].options.headers.Authorization, 'Bearer ocr-secret-key-123456');
+    assert.equal(calls[0].options.headers.Authorization, `Bearer ${syntheticServiceSecret('ocr')}`);
     assertNoMediaPayload(calls);
   });
 
@@ -262,7 +266,7 @@ describe('aiConfigService.testConnection OCR/transcription', () => {
   });
 
   it('returns Chinese auth errors for OCR without leaking keys or status codes', async () => {
-    const secret = 'ocr-secret-key-123456';
+    const secret = syntheticServiceSecret('ocr');
     const fetchImpl = async () => jsonResponse({
       error: { message: `API Key 无效 (401) Bearer ${secret}` },
     }, 401);

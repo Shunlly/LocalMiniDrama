@@ -42,7 +42,7 @@ test('新建空白项目落到分集列表，0 集卡片只说去创建剧集', 
   assert.equal(projectCardContinueLabel({ episodes: [] }, false), '去创建剧集')
   assert.equal(projectCardContinueLabel({ episodes: [{ id: 'bad' }] }, false), '去创建剧集')
   assert.equal(projectCardContinueLabel({ episodes: [{ id: 3 }] }, false), '继续制作')
-  assert.equal(projectCardOpenLabel({ title: '雨巷', episodes: [{ id: 3 }] }, false), '打开项目「雨巷」，继续制作')
+  assert.equal(projectCardOpenLabel({ title: '雨巷', episodes: [{ id: 3 }] }, false), '打开项目「雨巷」')
   assert.match(gridSource, /projectCardContinueLabel\(d, sourceImportIntent\)/)
   assert.match(gridSource, /projectCardOpenLabel\(d, sourceImportIntent\)/)
   assert.doesNotMatch(gridSource, /d\.episodes && d\.episodes\.length/)

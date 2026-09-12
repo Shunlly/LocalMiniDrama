@@ -9,6 +9,7 @@
         class="project-card-link"
         :to="projectCardDestination(d, sourceImportIntent, projectListReturnTo)"
         :aria-label="projectCardOpenLabel(d, sourceImportIntent)"
+        :aria-describedby="`project-card-next-${d.id}`"
       >
         <div class="project-card-body">
           <div class="project-card-layout">
@@ -51,7 +52,7 @@
               </div>
               <div class="project-card-footer">
                 <p class="project-meta">创建于 {{ formatDate(d.created_at) || '未知时间' }}</p>
-                <span class="project-card-continue">{{ projectCardContinueLabel(d, sourceImportIntent) }} <el-icon aria-hidden="true"><ArrowRight /></el-icon></span>
+                <span :id="`project-card-next-${d.id}`" class="project-card-continue">{{ projectCardContinueLabel(d, sourceImportIntent) }} <el-icon aria-hidden="true"><ArrowRight /></el-icon></span>
               </div>
             </div>
           </div>

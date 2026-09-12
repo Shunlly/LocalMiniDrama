@@ -9,9 +9,9 @@ export function projectCardContinueLabel(project, sourceImportIntent) {
   return hasProjectEpisodes(project) ? '继续制作' : '去创建剧集'
 }
 
-export function projectCardOpenLabel(project, sourceImportIntent) {
+export function projectCardOpenLabel(project) {
   const title = project?.title || '未命名项目'
-  return `打开项目「${title}」，${projectCardContinueLabel(project, sourceImportIntent)}`
+  return `打开项目「${title}」`
 }
 
 export function projectCardDestination(project, sourceImportIntent, returnTo) {

@@ -19,10 +19,14 @@ import {
 } from './helpers/accessibleDialogStub.js'
 
 const dialogsUrl = new URL('../src/components/aiConfig/AiConfigOneKeyDialogs.vue', import.meta.url)
+const labelsUrl = new URL('../src/utils/aiConfigLabels.js', import.meta.url).href
 const AiConfigOneKeyDialogs = await loadCompiledSfc(
   dialogsUrl,
   'ai-config-one-key-dialogs-component',
-  new Map([['vue', vueUrl]]),
+  new Map([
+    ['vue', vueUrl],
+    ['@/utils/aiConfigLabels.js', labelsUrl],
+  ]),
 )
 
 const renderer = createHostRenderer()
@@ -119,7 +123,12 @@ test('三个一键配置密钥输入的 aria-label 必须是通义密钥、火�
     assert.equal(inputByAriaLabel(harness.root, '通义 API Key'), undefined)
     assert.equal(inputByAriaLabel(harness.root, 'DashScope 密钥'), undefined)
     assert.match(textContent(dialogByTitle(harness.root, '一键配置通义千问 / 万象（不推荐）')), /将自动创建以下配置/)
-    assert.match(textContent(dialogByTitle(harness.root, '一键配置火山引擎（方舟）')), /如何申请 API Key/)
+    assert.match(textContent(dialogByTitle(harness.root, '一键配置火山引擎（方舟）')), /如何申请 API 密钥/)
+    assert.doesNotMatch(textContent(dialogByTitle(harness.root, '一键配置火山引擎（方舟）')), /如何申请 API Key/)
+    assert.match(textContent(dialogByTitle(harness.root, '一键配置 Agnes AI')), /设置 → API 密钥/)
+    assert.doesNotMatch(textContent(dialogByTitle(harness.root, '一键配置 Agnes AI')), /Settings → API Keys/)
+    assert.match(textContent(dialogByTitle(harness.root, '一键配置 Agnes AI')), /Agnes 图片 2\.1 Flash（agnes-image-2\.1-flash）/)
+    assert.doesNotMatch(textContent(dialogByTitle(harness.root, '一键配置 Agnes AI')), /Agnes Image 2\.1 Flash/)
     assert.match(textContent(dialogByTitle(harness.root, '一键配置 Agnes AI')), /将自动创建以下配置/)
   } finally {
     harness.app.unmount()

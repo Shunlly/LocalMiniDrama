@@ -345,7 +345,7 @@ test('普通模式校验摘要展示中文字段，即梦2认证隐藏模型分�
       default_model: '',
     },
     configValidationSummary: [
-      { prop: 'api_key', label: 'API Key', message: '请输入 API 密钥' },
+      { prop: 'api_key', label: 'API 密钥', message: '请输入 API 密钥' },
     ],
   })
   try {

@@ -56,7 +56,9 @@ test('预设帮助数据覆盖新增厂商，且条目 name 互不混用', () =>
 })
 
 test('预设帮助标签和免责声明保持简体中文', () => {
-  assert.match(PRESET_HELP_DISCLAIMER, /选择预设只会自动填入公开 Base URL 和常见模型名/)
+  assert.match(PRESET_HELP_DISCLAIMER, /选择预设只会自动填入公开接口地址（Base URL）和常见模型名/)
+  assert.match(flattenBody(getPresetHelpItem('openai-text').body), /接口地址（Base URL）/)
+  assert.match(flattenBody(getPresetHelpItem('openai-text').body), /自定义网关请改接口地址（Base URL）/)
   assert.match(PRESET_HELP_DISCLAIMER, /不代表本应用已真实接入或跑通对应厂商/)
   assert.equal(PRESET_HELP_TAG.text.label, '文本')
   assert.equal(PRESET_HELP_TAG.img.label, '图片')

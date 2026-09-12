@@ -7,6 +7,7 @@ import {
   isProjectInstanceDisposedError,
 } from '../src/utils/projectInstanceLifecycle.js'
 import { useFilmCreateProjectLoad } from '../src/composables/filmCreate/useFilmCreateProjectLoad.js'
+import { useFilmCreateEpisodeAssets } from '../src/composables/filmCreate/useFilmCreateEpisodeAssets.js'
 import { useCharacters } from '../src/composables/filmCreate/useCharacters.js'
 import { useProps } from '../src/composables/filmCreate/useProps.js'
 import { useScenes } from '../src/composables/filmCreate/useScenes.js'
@@ -73,20 +74,30 @@ test('FilmCreate owns API, message, and load invalidation for its keyed project 
 
 test('FilmCreate resource composables receive the same project-owned dependencies', () => {
   const source = remainingImportedFunctionSource(useCharacters, useProps, useScenes)
+  const episodeAssetsSource = remainingImportedFunctionSource(useFilmCreateEpisodeAssets)
   assert.match(source, /ElMessage = RawElMessage/)
   assert.match(source, /characterAPI = rawCharacterAPI/)
   assert.match(source, /propAPI = rawPropAPI/)
   assert.match(source, /sceneAPI = rawSceneAPI/)
   assert.match(
     filmCreateSource,
-    /useCharacters\(\{[\s\S]*ElMessage[\s\S]*characterAPI[\s\S]*characterLibraryAPI[\s\S]*generationAPI[\s\S]*uploadAPI[\s\S]*\}\)/,
+    /useFilmCreateEpisodeAssets\(\{[\s\S]*ElMessage[\s\S]*characterAPI[\s\S]*characterLibraryAPI[\s\S]*generationAPI[\s\S]*uploadAPI[\s\S]*propAPI[\s\S]*propLibraryAPI[\s\S]*sceneAPI[\s\S]*sceneLibraryAPI[\s\S]*\}\)/,
+  )
+  assert.doesNotMatch(filmCreateSource, /useCharacters\(/)
+  assert.doesNotMatch(filmCreateSource, /usePropsComposable\(/)
+  assert.doesNotMatch(filmCreateSource, /useScenes\(\{/)
+  assert.match(episodeAssetsSource, /ElMessage: ctx\.ElMessage/)
+  assert.match(episodeAssetsSource, /uploadAPI: ctx\.uploadAPI/)
+  assert.match(
+    episodeAssetsSource,
+    /useCharacters\(\{[\s\S]*characterAPI: ctx\.characterAPI[\s\S]*characterLibraryAPI: ctx\.characterLibraryAPI[\s\S]*generationAPI: ctx\.generationAPI[\s\S]*\}\)/,
   )
   assert.match(
-    filmCreateSource,
-    /usePropsComposable\(\{[\s\S]*ElMessage[\s\S]*propAPI[\s\S]*propLibraryAPI[\s\S]*uploadAPI[\s\S]*\}\)/,
+    episodeAssetsSource,
+    /usePropsComposable\(\{[\s\S]*propAPI: ctx\.propAPI[\s\S]*propLibraryAPI: ctx\.propLibraryAPI[\s\S]*\}\)/,
   )
   assert.match(
-    filmCreateSource,
-    /useScenes\(\{[\s\S]*ElMessage[\s\S]*sceneAPI[\s\S]*sceneLibraryAPI[\s\S]*uploadAPI[\s\S]*\}\)/,
+    episodeAssetsSource,
+    /useScenes\(\{[\s\S]*sceneAPI: ctx\.sceneAPI[\s\S]*sceneLibraryAPI: ctx\.sceneLibraryAPI[\s\S]*\}\)/,
   )
 })

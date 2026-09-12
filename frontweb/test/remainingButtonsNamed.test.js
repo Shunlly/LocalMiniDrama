@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 function listVueFiles(dir, acc = []) {
   for (const name of readdirSync(dir)) {
@@ -41,7 +42,7 @@ function unlabeledButtons(source) {
 
 test('前端 Vue 源码里的 button/el-button 都有 aria-label 或 aria-labelledby', () => {
   const root = new URL('../src', import.meta.url)
-  const files = listVueFiles(root.pathname.replace(/^\//, ''))
+  const files = listVueFiles(fileURLToPath(root))
   const missing = []
   for (const file of files) {
     const unlabeled = unlabeledButtons(readFileSync(file, 'utf8'))

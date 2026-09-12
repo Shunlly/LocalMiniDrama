@@ -3,7 +3,7 @@
     <div class="config-section-header">
       <div>
         <h4>厂商与认证</h4>
-        <p>选择预设厂商可自动带入中文名称、Base URL 和常用模型，也支持自定义兼容服务。预设只用于填表，不代表对应厂商已在本应用中真实跑通生成。</p>
+        <p>选择预设厂商可自动带入中文名称、{{ baseUrlLabel }}和常用模型，也支持自定义兼容服务。预设只用于填表，不代表对应厂商已在本应用中真实跑通生成。</p>
       </div>
       <span class="config-section-index">02</span>
     </div>
@@ -13,7 +13,7 @@
           <el-tooltip placement="top" popper-class="cfg-tip-popper">
             <template #content>
               <div class="cfg-tip-content">
-                从下拉选择预设厂商，会自动填入 Base URL 和模型列表。<br>
+                从下拉选择预设厂商，会自动填入 {{ baseUrlLabel }}和模型列表。<br>
                 覆盖 OpenRouter、硅基流动、Moonshot、DeepSeek、智谱、MiniMax、可灵、Runway、Luma、Ollama、ComfyUI 等常见目录。<br>
                 也可选择「自定义」并直接输入厂商名（需手动填写其他字段）。<br>
                 <b>推荐</b>：通义千问 / 火山引擎 / 硅基流动，国内访问较稳。预设不代表已真实接入生成。
@@ -52,7 +52,7 @@
     </el-form-item>
     <el-form-item prop="api_key">
       <template #label>
-        <span class="form-label-tip">{{ form.service_type === 'jimeng2_character_auth' ? '令牌（Token）' : 'API 密钥' }}
+        <span class="form-label-tip">{{ form.service_type === 'jimeng2_character_auth' ? '令牌（Token）' : apiKeyLabel }}
           <el-tooltip placement="top" popper-class="cfg-tip-popper">
             <template #content>
               <div class="cfg-tip-content">
@@ -75,7 +75,7 @@
         v-model="form.api_key"
         data-ai-config-field="api_key"
         type="password"
-        :placeholder="form.service_type === 'jimeng2_character_auth' ? '请输入 Bearer 令牌' : (form.provider === 'jimeng_ai_api' ? '即梦 Session，多个用英文逗号分隔' : 'API 密钥')"
+        :placeholder="form.service_type === 'jimeng2_character_auth' ? '请输入 Bearer 令牌' : (form.provider === 'jimeng_ai_api' ? '即梦 Session，多个用英文逗号分隔' : apiKeyLabel)"
         show-password
         :aria-invalid="isConfigFieldInvalid('api_key')"
         :aria-describedby="configFieldDescriptionId('api_key')"
@@ -113,7 +113,7 @@
           v-model="form.kling_access_key"
           type="password"
           show-password
-          placeholder="可灵开放平台 AccessKey（与 SecretKey 成对，可不填上方 API Key）"
+          :placeholder="`可灵开放平台 AccessKey（与 SecretKey 成对，可不填上方 ${apiKeyLabel}）`"
           autocomplete="off"
         />
         <p class="field-tip">
@@ -122,7 +122,7 @@
           （<a href="https://app.klingai.com/cn/dev/document-api/apiReference/commonInfo" target="_blank" rel="noopener noreferrer">中文版</a>）。
           后端使用与官方示例一致的 HS256（<code>iss</code>=AccessKey，<code>exp</code>、<code>nbf</code>）生成 Token。
           若接口返回签名无效（错误码 <code>1000 Authorization signature is invalid</code>）：请确认访问密钥和私有密钥未填反、无多余空格；并尝试勾选下方「私有密钥为 Base64」；
-          Base URL 区域（<code>api-beijing.klingai.com</code> / <code>api-singapore.klingai.com</code>）须与密钥所属区域一致。
+          {{ baseUrlLabel }}区域（<code>api-beijing.klingai.com</code> / <code>api-singapore.klingai.com</code>）须与密钥所属区域一致。
         </p>
       </el-form-item>
       <el-form-item>
@@ -212,6 +212,10 @@
 
 <script setup>
 import { QuestionFilled } from '@element-plus/icons-vue'
+import { configFieldDisplayLabel } from '@/utils/aiConfigLabels.js'
+
+const apiKeyLabel = configFieldDisplayLabel('API Key')
+const baseUrlLabel = configFieldDisplayLabel('Base URL')
 
 defineProps({
   form: { type: Object, required: true },

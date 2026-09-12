@@ -1,4 +1,6 @@
 const aiConfigService = require('../services/aiConfigService');
+const { collectConnectionSecrets } = require('../services/aiConfigConnection');
+const { sanitizeProviderText, toSafeProviderErrorMessage } = require('../services/providerErrorSanitizer');
 const response = require('../response');
 const { publicErrorMessage, logCaughtRouteError } = require('./serviceFailure');
 
@@ -216,6 +218,25 @@ function applySavedConfigSecrets(savedConfig, body) {
   };
 }
 
+const SAFE_PROVIDER_ERROR = Symbol.for('localMiniDrama.safeProviderError');
+
+function cloneErrorWithMessage(err, message) {
+  const cloned = new Error(message);
+  if (err && err.code) cloned.code = err.code;
+  if (err && err.name) cloned.name = err.name;
+  return cloned;
+}
+
+function sanitizeConnectionTestLogError(err, opts, reconstructedMessage) {
+  const technical = (err && err.cause) || err;
+  const secrets = collectConnectionSecrets(opts);
+  const markedSafe = !!(err && err[SAFE_PROVIDER_ERROR]);
+  // 未标记安全的厂商原文可能夹带请求外密钥，日志只保留重建后的安全文案。
+  const raw = markedSafe ? String((technical && technical.message) || technical || '') : reconstructedMessage;
+  const logMessage = sanitizeProviderText(raw, secrets) || reconstructedMessage;
+  return cloneErrorWithMessage(technical, logMessage);
+}
+
 function testConnection(db, log) {
   return async (req, res) => {
     const body = req.body || {};
@@ -257,9 +278,8 @@ function testConnection(db, log) {
       if (err?.code === 'INVALID_AI_CONFIG') {
         return response.error(res, err.status || 400, err.code, publicErrorMessage(err, 'AI 配置无效'), err.details);
       }
-      const { toSafeProviderErrorMessage } = require('../services/providerErrorSanitizer');
       const trustedMessage = publicErrorMessage(err, '');
-      const markedSafe = !!err?.[Symbol.for('localMiniDrama.safeProviderError')];
+      const markedSafe = !!err?.[SAFE_PROVIDER_ERROR];
       const safeMessage = trustedMessage && markedSafe
         ? trustedMessage
         : toSafeProviderErrorMessage(err, {
@@ -269,7 +289,7 @@ function testConnection(db, log) {
       const userMessage = (err?.code === 'ERR_CANCELED' || err?.name === 'AbortError')
         ? (safeMessage || '连接测试已取消')
         : (trustedMessage && markedSafe ? safeMessage : ('连接测试失败: ' + safeMessage));
-      logCaughtRouteError(log, 'AI config test connection failed', err.cause || err, {
+      logCaughtRouteError(log, 'AI config test connection failed', sanitizeConnectionTestLogError(err, opts, safeMessage), {
         provider: opts.provider || null,
         fallback: userMessage,
       });

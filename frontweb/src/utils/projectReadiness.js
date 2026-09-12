@@ -126,7 +126,7 @@ export function buildProjectReadiness({ drama, sources, sourceCount, aiConfigs }
     const selected = [config?.name || config?.provider, model].filter(Boolean).join(' / ') || '默认配置'
     let detail = '缺少启用的默认配置'
     if (config && configReadiness.issue === 'missing_workflow') detail = '默认配置缺少 ComfyUI 工作流模板，请补充后再启动正式制作'
-    else if (config && configReadiness.issue === 'missing_credentials') detail = '默认配置缺少生产凭据，请补充 API Key 或有效的厂商认证'
+    else if (config && configReadiness.issue === 'missing_credentials') detail = '默认配置缺少生产凭据，请补充 API 密钥或有效的厂商认证'
     else if (config && !configured) detail = '默认配置存在，但未选择可用模型'
     else if (connectionFailed) detail = '最近一次连接测试失败，请检查配置后重试'
     else if (verified) detail = `连接已验证：${selected}`

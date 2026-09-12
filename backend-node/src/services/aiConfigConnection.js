@@ -1,6 +1,7 @@
 // 连接探测与模型发现：失败时 fail-closed，不把供应商原文或密钥回传给用户。
 
 const { applyDeepSeekConnectivityOptions } = require('./deepseekConfig');
+const { isSensitiveFieldKey } = require('./sensitiveFieldPolicy');
 const { probeComfyUiConnection } = require('./comfyUiClient');
 const { requireCompleteProviderNetworkPolicy } = require('./providerNetworkPolicy');
 const {
@@ -42,10 +43,56 @@ const {
   toDiscoverModelsError,
 } = require('./aiConfigConnectionDiscover');
 
+function parseConnectionSettings(settings) {
+  if (!settings) return {};
+  if (typeof settings === 'object' && !Array.isArray(settings)) return settings;
+  if (typeof settings !== 'string') return {};
+  try {
+    const parsed = JSON.parse(settings);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch (_) {
+    return {};
+  }
+}
+
+function collectSensitiveSettingSecrets(settings) {
+  const secrets = [];
+  const parsed = parseConnectionSettings(settings);
+  const headers = parsed.headers && typeof parsed.headers === 'object' && !Array.isArray(parsed.headers)
+    ? parsed.headers
+    : {};
+  // 自定义请求头都可能被厂商回显，连接测试按请求原值清洗。
+  for (const value of Object.values(headers)) {
+    const text = value == null ? '' : String(value).trim();
+    if (text.length >= 3) secrets.push(text);
+  }
+  const visit = (value, key) => {
+    if (value == null) return;
+    if (typeof value === 'string') {
+      if (key && isSensitiveFieldKey(key) && value.trim().length >= 3) secrets.push(value.trim());
+      return;
+    }
+    if (Array.isArray(value)) {
+      for (const item of value) visit(item, key);
+      return;
+    }
+    if (typeof value !== 'object') return;
+    for (const [childKey, childValue] of Object.entries(value)) {
+      if (childKey === 'headers') continue;
+      visit(childValue, childKey);
+    }
+  };
+  visit(parsed, '');
+  return secrets;
+}
+
 function collectConnectionSecrets(opts = {}) {
-  return [opts.api_key, opts.access_key_id, opts.secret_access_key, opts.session_token]
-    .filter((value) => value != null && String(value).length >= 3)
-    .map(String);
+  // 连接测试与日志共用：api_key、自定义请求头，以及 settings 中的其它密钥字段。
+  return [...new Set(
+    [opts.api_key, opts.access_key_id, opts.secret_access_key, opts.session_token, ...collectSensitiveSettingSecrets(opts.settings)]
+      .filter((value) => value != null && String(value).length >= 3)
+      .map(String)
+  )];
 }
 
 /**

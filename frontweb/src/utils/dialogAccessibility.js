@@ -135,7 +135,7 @@ function isDialogCloseControl(element, boundary) {
     current = current.parentElement
   }
   const name = accessibleName(element)
-  return name === '关闭此对话框' || name === '关闭对话框'
+  return name === '关闭此对话框' || name === '关闭对话框' || name === '关闭'
 }
 
 function isTextEntryControl(element) {
@@ -174,7 +174,11 @@ function focusElement(element) {
   try {
     element.focus({ preventScroll: true })
   } catch {
-    element.focus()
+    try {
+      element.focus()
+    } catch {
+      return false
+    }
   }
   return element.ownerDocument?.activeElement === element
 }

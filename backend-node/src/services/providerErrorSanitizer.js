@@ -63,7 +63,8 @@ const PROVIDER_LABELS = Object.freeze({
   OpenAI: 'OpenAI',
 });
 
-const ALLOWED_LATIN_TOKEN_RE = /^(?:ffmpeg|libx264|tesseract|comfyui|openai|ollama|minimax|seedance|kling|gemini|sora|dashscope|volcengine|vidu|agnes|jimeng|http|https|json|pdf|txt|zip|api|tts|ocr|url|jwt|bearer|sqlite|modelark)$/i;
+// 产品允许品牌名保留英文；连续两个未允许拉丁词视为不可信。
+const ALLOWED_LATIN_TOKEN_RE = /^(?:ffmpeg|libx264|tesseract|comfyui|openai|ollama|minimax|seedance|kling|gemini|sora|dashscope|volcengine|vidu|agnes|jimeng|wikimedia|commons|openverse|http|https|json|pdf|txt|zip|api|tts|ocr|url|jwt|bearer|sqlite|modelark)$/i;
 const MIXED_TECHNICAL_ENGLISH_RE = /invalid api key|incorrect api key|this model does not support|image generation did not complete|video generation did not complete|model is overloaded|retry later/i;
 const GENERIC_PROVIDER_ALIAS_RE = /\b(?:image|video)(?:\s+provider)?\b/i;
 
@@ -124,6 +125,28 @@ function sanitizeUrl(value) {
 
 function replaceUrls(value) {
   return value.replace(/https?:\/\/[^\s"'<>\\]+/gi, (url) => sanitizeUrl(url));
+}
+
+function sanitizeProviderText(value, secrets = []) {
+  // 连接测试等同场景：按已知密钥清洗厂商回显，避免合成密钥进入日志。
+  let text = String(value || '').replace(/[\u0000-\u001f\u007f]+/g, ' ').trim();
+  for (const secret of secrets) {
+    const token = String(secret || '');
+    if (!token) continue;
+    text = text.split(token).join('********');
+  }
+  text = text
+    .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]+/gi, 'Bearer ********')
+    .replace(/((?:api[-_]?key|access[-_]?token|token|secret|authorization)["'\s:=]+)[^\s,"'}]+/gi, '$1********')
+    .replace(/https?:\/\/[^\s"']+/gi, (rawUrl) => {
+      try {
+        const parsed = new URL(rawUrl);
+        return `${parsed.protocol}//${parsed.host}${parsed.pathname}`;
+      } catch (_) {
+        return '[redacted-url]';
+      }
+    });
+  return text.slice(0, 300);
 }
 
 function sanitizeString(value) {
@@ -614,6 +637,7 @@ module.exports = {
   sanitizeLogValue,
   sanitizeProviderException,
   sanitizeProviderResult,
+  sanitizeProviderText,
   sanitizeString,
   sanitizeUrl,
   summarizeProviderResponse,

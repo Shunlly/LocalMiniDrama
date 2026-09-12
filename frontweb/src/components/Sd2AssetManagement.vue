@@ -393,7 +393,7 @@ function connReady() {
 }
 
 function connWarn() {
-  if (!baseUrl.value.trim()) return '请先填写接口地址（Base URL）'
+  if (!baseUrl.value.trim()) return '请先填写接口地址'
   if (savedConfigId.value) return ''
   if (authMode.value === 'volc_sign') {
     if (!accessKeyId.value.trim() || !secretAccessKey.value.trim()) {

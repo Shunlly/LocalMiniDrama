@@ -71,3 +71,15 @@ test('抓取失败按原因翻译，不把上游英文细节暴露给用户', ()
   assertChineseError(wrapped, 'NETWORK_MEDIA_UPSTREAM', 502, 'Openverse 服务暂时不可用');
   assert.doesNotMatch(wrapped.message, /ECONNREFUSED|127\.0\.0\.1/);
 });
+
+test('中文加 Wikimedia/Openverse 品牌名视为可信，技术英文仍拒绝', () => {
+  assert.equal(isTrustedChineseUserError(NETWORK_MEDIA_MESSAGES.COMMONS_SEARCH_FAILED), true);
+  assert.equal(isTrustedChineseUserError(NETWORK_MEDIA_MESSAGES.OPENVERSE_SEARCH_FAILED), true);
+  assert.equal(isTrustedChineseUserError(NETWORK_MEDIA_MESSAGES.SOURCE_UNSUPPORTED), true);
+  assert.equal(isTrustedChineseUserError(NETWORK_MEDIA_MESSAGES.HASH_MISSING), true);
+  assert.equal(isTrustedChineseUserError(`${NETWORK_MEDIA_MESSAGES.OPENVERSE_UPSTREAM}暂时不可用`), true);
+  assert.equal(isTrustedChineseUserError('Image 图片请求超时，请稍后重试'), false);
+  assert.equal(isTrustedChineseUserError('Video 视频请求超时，请稍后重试'), false);
+  assert.equal(isTrustedChineseUserError('认证失败: Invalid API key'), false);
+  assert.equal(isTrustedChineseUserError('认证失败: invalid api key'), false);
+});

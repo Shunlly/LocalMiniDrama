@@ -4,6 +4,7 @@
 
 const {
   isTrustedChineseUserError,
+  sanitizeProviderText,
   toUserFacingGatewayError,
   toUserFacingProcessError,
 } = require('./providerErrorSanitizer');
@@ -16,25 +17,6 @@ class ComfyUiError extends Error {
     if (details.status != null) this.status = details.status;
     if (details.promptId) this.promptId = details.promptId;
   }
-}
-
-function sanitizeProviderText(value, secrets = []) {
-  let text = String(value || '').replace(/[\u0000-\u001f\u007f]+/g, ' ').trim();
-  for (const secret of secrets) {
-    text = text.split(secret).join('********');
-  }
-  text = text
-    .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]+/gi, 'Bearer ********')
-    .replace(/((?:api[-_]?key|access[-_]?token|token|secret|authorization)["'\s:=]+)[^\s,"'}]+/gi, '$1********')
-    .replace(/https?:\/\/[^\s"']+/gi, (rawUrl) => {
-      try {
-        const parsed = new URL(rawUrl);
-        return `${parsed.protocol}//${parsed.host}${parsed.pathname}`;
-      } catch (_) {
-        return '[redacted-url]';
-      }
-    });
-  return text.slice(0, 300);
 }
 
 function trustedChineseDetail(value, secrets = []) {

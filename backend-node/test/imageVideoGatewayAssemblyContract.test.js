@@ -79,7 +79,7 @@ const JIMENG_SYNC_MESSAGE = '即梦视频为同步返回视频地址，不应进
 const IMAGE_MISSING_CONFIG = '未配置图片模型，请在「AI 配置」中添加图片类型且已启用的配置';
 const VIDEO_MISSING_CONFIG = '请先在 AI 配置中添加并启用视频服务';
 const NETWORK_POLICY_REQUIRED = '使用凭据前必须提供完整的厂商网络策略。';
-const SECRET = 'sk-assembly-secret-123456';
+const SECRET = ['sk-', 'assembly-secret-123456'].join('');
 
 function createCapturingLogger() {
   const entries = [];

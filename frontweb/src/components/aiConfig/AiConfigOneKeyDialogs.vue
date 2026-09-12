@@ -22,14 +22,14 @@
           </ul>
         </div>
         <div class="one-key-section">
-          <div class="one-key-section-title">🔑 如何申请 API Key</div>
+          <div class="one-key-section-title">🔑 如何申请 {{ apiKeyLabel }}</div>
           <ol class="one-key-list">
             <li>前往阿里云百炼控制台：<a href="https://bailian.console.aliyun.com/" target="_blank" rel="noopener noreferrer" class="one-key-link">bailian.console.aliyun.com</a></li>
             <li>注册/登录阿里云账号，开通「百炼」服务（新用户有免费额度）</li>
-            <li>左侧菜单点击「API Key」→「创建 API Key」</li>
-            <li>复制生成的 Key（格式：<code>sk-xxxxxxxx</code>）填入下方</li>
+            <li>左侧菜单点击「{{ apiKeyLabel }}」→「创建 {{ apiKeyLabel }}」</li>
+            <li>复制生成的密钥（格式：<code>sk-xxxxxxxx</code>）填入下方</li>
           </ol>
-          <p class="one-key-note">💡 通义一个 Key 同时支持文本、图片、视频等所有服务</p>
+          <p class="one-key-note">💡 通义一个密钥同时支持文本、图片、视频等所有服务</p>
         </div>
       </div>
       <el-form label-width="0" style="margin-top: 8px">
@@ -38,7 +38,7 @@
             v-model="oneKeyTongyiKey"
             type="password"
             aria-label="通义密钥"
-            placeholder="请输入通义（DashScope）API Key，格式：sk-xxxxxxxx"
+            placeholder="请输入通义（DashScope）API 密钥，格式：sk-xxxxxxxx"
             show-password
             clearable
           />
@@ -73,14 +73,14 @@
           </ul>
         </div>
         <div class="one-key-section">
-          <div class="one-key-section-title">🔑 如何申请 API Key</div>
+          <div class="one-key-section-title">🔑 如何申请 {{ apiKeyLabel }}</div>
           <ol class="one-key-list">
             <li>前往火山引擎方舟控制台：<a href="https://console.volcengine.com/ark" target="_blank" rel="noopener noreferrer" class="one-key-link">console.volcengine.com/ark</a></li>
             <li>注册/登录字节跳动火山引擎账号（新用户有免费 token 额度）</li>
-            <li>左侧菜单点击「API Key 管理」→「创建 API Key」</li>
-            <li>复制生成的 Key 填入下方</li>
+            <li>左侧菜单点击「{{ apiKeyLabel }}管理」→「创建 {{ apiKeyLabel }}」</li>
+            <li>复制生成的密钥填入下方</li>
           </ol>
-          <p class="one-key-note">💡 方舟平台一个 Key 同时支持豆包文本、即梦图片与视频等所有服务</p>
+          <p class="one-key-note">💡 方舟平台一个密钥同时支持豆包文本、即梦图片与视频等所有服务</p>
           <p class="one-key-note">⚠️ 视频生成需在控制台「开通」对应模型（即梦 Seedance）后方可使用</p>
         </div>
       </div>
@@ -90,7 +90,7 @@
             v-model="oneKeyVolcKey"
             type="password"
             aria-label="火山引擎密钥"
-            placeholder="请输入火山引擎（方舟）API Key"
+            placeholder="请输入火山引擎（方舟）API 密钥"
             show-password
             clearable
           />
@@ -119,20 +119,20 @@
           <div class="one-key-section-title">📋 将自动创建以下配置</div>
           <ul class="one-key-list">
             <li><b>文本/对话</b>：Agnes 2.0 Flash（agnes-2.0-flash）— 生成故事剧本</li>
-            <li><b>文本生成图片</b>：Agnes Image 2.1 Flash — 角色/场景/道具图</li>
-            <li><b>分镜图片生成</b>：Agnes Image 2.1 Flash — 支持参考图编辑</li>
+            <li><b>文本生成图片</b>：Agnes 图片 2.1 Flash（agnes-image-2.1-flash）— 角色/场景/道具图</li>
+            <li><b>分镜图片生成</b>：Agnes 图片 2.1 Flash（agnes-image-2.1-flash）— 支持参考图编辑</li>
             <li><b>视频生成</b>：Agnes Video V2.0（agnes-video-v2.0）— 生成视频片段</li>
           </ul>
         </div>
         <div class="one-key-section">
-          <div class="one-key-section-title">🔑 如何申请 API Key</div>
+          <div class="one-key-section-title">🔑 如何申请 {{ apiKeyLabel }}</div>
           <ol class="one-key-list">
             <li>前往 Agnes 平台：<a href="https://platform.agnes-ai.com/settings/apiKeys" target="_blank" rel="noopener noreferrer" class="one-key-link">platform.agnes-ai.com/settings/apiKeys</a></li>
-            <li>注册/登录账号，进入 Settings → API Keys</li>
-            <li>点击「Create new secret key」创建密钥</li>
-            <li>复制 Key 填入下方</li>
+            <li>注册/登录账号，进入设置 → {{ apiKeyLabel }}</li>
+            <li>点击「创建新密钥」</li>
+            <li>复制密钥填入下方</li>
           </ol>
-          <p class="one-key-note">💡 一个 Key 同时支持文本、图片、视频；接口文档见 <a href="https://agnes-ai.com/doc/agnes-20-flash" target="_blank" rel="noopener noreferrer" class="one-key-link">agnes-ai.com/doc</a></p>
+          <p class="one-key-note">💡 一个密钥同时支持文本、图片、视频；接口文档见 <a href="https://agnes-ai.com/doc/agnes-20-flash" target="_blank" rel="noopener noreferrer" class="one-key-link">agnes-ai.com/doc</a></p>
         </div>
       </div>
       <el-form label-width="0" style="margin-top: 8px">
@@ -141,7 +141,7 @@
             v-model="oneKeyAgnesKey"
             type="password"
             aria-label="Agnes 密钥"
-            placeholder="请输入 Agnes API Key"
+            placeholder="请输入 Agnes API 密钥"
             show-password
             clearable
           />
@@ -158,7 +158,11 @@
 </template>
 
 <script setup>
+import { configFieldDisplayLabel } from '@/utils/aiConfigLabels.js'
+
 defineOptions({ inheritAttrs: false })
+
+const apiKeyLabel = configFieldDisplayLabel('API Key')
 
 defineProps({
   configWriteLocked: { type: Boolean, default: false },

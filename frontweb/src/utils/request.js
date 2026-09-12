@@ -20,12 +20,25 @@ const request = axios.create({
 
 let requestErrorToastOwnerDepth = 0
 
+function releaseOwnedRequestErrorToast() {
+  if (requestErrorToastOwnerDepth > 0) requestErrorToastOwnerDepth -= 1
+}
+
+function retainOwnedRequestErrorToast(result) {
+  if (result && typeof result.then === 'function') {
+    return Promise.resolve(result).finally(releaseOwnedRequestErrorToast)
+  }
+  releaseOwnedRequestErrorToast()
+  return result
+}
+
 export function runWithOwnedRequestErrorToast(operation) {
   requestErrorToastOwnerDepth += 1
   try {
-    return operation()
-  } finally {
-    requestErrorToastOwnerDepth -= 1
+    return retainOwnedRequestErrorToast(operation())
+  } catch (error) {
+    releaseOwnedRequestErrorToast()
+    throw error
   }
 }
 
@@ -122,17 +135,35 @@ function logRequestFailure(error, userMessage) {
   })
 }
 
-request.interceptors.request.use((config) => {
+function applyOwnedRequestErrorToastFlag(config) {
   if (requestErrorToastOwnerDepth > 0) config.suppressErrorToast = true
-  ensureRequestId(config)
+}
+
+function rejectAlreadyAbortedRequest(config) {
   if (!config.signal?.aborted) return config
   const timedOut = Boolean(config.signal.reason?.isTimeout)
   const error = timedOut
     ? Object.assign(new Error('请求超时'), { config, code: 'ECONNABORTED', isTimeout: true, cause: config.signal.reason })
     : new axios.CanceledError('请求已取消', config)
   applyRequestFailure(error)
-  return Promise.reject(error)
-})
+  const originalSignal = config.signal
+  // 同步拦截器不能 return Promise.reject，否则 axios 会把 Promise 当成 config 继续发请求。
+  // 也不能把已 abort 的 signal 交给 dispatchRequest，否则超时会被改写成普通取消。
+  config.adapter = () => Promise.reject(error)
+  config.signal = undefined
+  error.config = { ...config, signal: originalSignal }
+  return config
+}
+
+request.interceptors.request.use(
+  (config) => {
+    applyOwnedRequestErrorToastFlag(config)
+    ensureRequestId(config)
+    return rejectAlreadyAbortedRequest(config)
+  },
+  undefined,
+  { synchronous: true },
+)
 
 function finalizeTransportError(error) {
   applyRequestFailure(error)

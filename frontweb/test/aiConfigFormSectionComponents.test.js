@@ -58,6 +58,7 @@ const AiConfigFormVendorSection = await loadCompiledSfc(
   new Map([
     ['vue', vueUrl],
     ['@element-plus/icons-vue', iconStubUrl],
+    ['@/utils/aiConfigLabels.js', labelsUrl],
   ]),
 )
 const AiConfigFormEndpointSection = await loadCompiledSfc(
@@ -299,6 +300,8 @@ test('厂商区按服务类型切换即梦2、可灵和 TTS 字段', async () =>
   try {
     await nextTick()
     assert.match(textContent(harness.root), /厂商与认证/)
+    assert.match(textContent(harness.root), /自动带入中文名称、接口地址（Base URL）和常用模型/)
+    assert.doesNotMatch(textContent(harness.root), /自动带入中文名称、Base URL 和常用模型/)
     assert.match(textContent(harness.root), /令牌（Token）/)
     assert.match(textContent(harness.root), /列出素材/)
     assert.match(textContent(harness.root), /素材登记接口/)
@@ -310,7 +313,7 @@ test('厂商区按服务类型切换即梦2、可灵和 TTS 字段', async () =>
     click(listed)
     assert.deepEqual(events, [['open-assets']])
     assert.equal(findAll(harness.root, (node) => node.props?.['aria-label'] === '声音 ID').length, 0)
-    assert.equal(findAll(harness.root, (node) => node.props?.placeholder === '可灵开放平台 AccessKey（与 SecretKey 成对，可不填上方 API Key）').length, 0)
+    assert.equal(findAll(harness.root, (node) => node.props?.placeholder === '可灵开放平台 AccessKey（与 SecretKey 成对，可不填上方 API 密钥）').length, 0)
 
     form.service_type = 'tts'
     await nextTick()
@@ -321,7 +324,7 @@ test('厂商区按服务类型切换即梦2、可灵和 TTS 字段', async () =>
     form.service_type = 'video'
     form.api_protocol = 'kling_omni'
     await nextTick()
-    assert.ok(findAll(harness.root, (node) => node.props?.placeholder === '可灵开放平台 AccessKey（与 SecretKey 成对，可不填上方 API Key）')[0])
+    assert.ok(findAll(harness.root, (node) => node.props?.placeholder === '可灵开放平台 AccessKey（与 SecretKey 成对，可不填上方 API 密钥）')[0])
     assert.ok(findAll(harness.root, (node) => node.props?.placeholder === '可灵开放平台 SecretKey')[0])
     assert.equal(findAll(harness.root, (node) => node.props?.['aria-label'] === '声音 ID').length, 0)
   } finally {
@@ -364,6 +367,8 @@ test('高级接口区可打开规范说明，并按类型展示本地 HTTP、工
   try {
     await nextTick()
     assert.match(textContent(harness.root), /高级接口设置/)
+    assert.match(textContent(harness.root), /接口地址（Base URL）、接口规范及自定义端点/)
+    assert.doesNotMatch(textContent(harness.root), /Base URL、接口规范及自定义端点/)
     assert.match(textContent(harness.root), /本地 HTTP/)
     assert.match(textContent(harness.root), /工作流 JSON/)
     assert.match(textContent(harness.root), /系统将使用以下接口地址/)

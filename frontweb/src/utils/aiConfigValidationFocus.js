@@ -1,3 +1,5 @@
+import { configFieldDisplayLabel } from '@/utils/aiConfigLabels.js'
+
 const FIELD_DEFINITIONS = Object.freeze([
   Object.freeze({
     prop: 'service_type',
@@ -23,8 +25,8 @@ const FIELD_DEFINITIONS = Object.freeze([
   Object.freeze({
     prop: 'api_key',
     field: 'api_key',
-    label: 'API Key',
-    message: '请输入有效的 API Key 或凭据',
+    label: configFieldDisplayLabel('API Key'),
+    message: `请输入有效的 ${configFieldDisplayLabel('API Key')}或凭据`,
     section: null,
     sensitive: true,
   }),
@@ -38,15 +40,15 @@ const FIELD_DEFINITIONS = Object.freeze([
   Object.freeze({
     prop: 'base_url',
     field: 'base_url',
-    label: 'Base URL',
-    message: '请输入 Base URL',
+    label: configFieldDisplayLabel('Base URL'),
+    message: `请输入${configFieldDisplayLabel('Base URL')}`,
     section: 'endpoint',
   }),
   Object.freeze({
     prop: 'comfy_workflow_json',
     field: 'comfy_workflow_json',
-    label: 'Workflow JSON',
-    message: '请填写有效的 Workflow JSON',
+    label: configFieldDisplayLabel('Workflow JSON'),
+    message: `请填写有效的${configFieldDisplayLabel('Workflow JSON')}`,
     section: 'endpoint',
   }),
   Object.freeze({

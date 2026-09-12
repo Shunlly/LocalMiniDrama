@@ -14,13 +14,20 @@ const MESSAGE_BOX_METHODS = ['alert', 'confirm', 'prompt']
 const INSTALLED = Symbol('messageBoxAccessibility')
 
 function whenSettled(result, onSettle) {
+  const settle = () => {
+    try {
+      onSettle()
+    } catch (_) {
+      // 确认框已经关掉后，焦点恢复失败不能把确认/取消结果改写成异常。
+    }
+  }
   if (result && typeof result.finally === 'function') {
-    return result.finally(onSettle)
+    return result.finally(settle)
   }
   if (result && typeof result.then === 'function') {
-    return Promise.resolve(result).finally(onSettle)
+    return Promise.resolve(result).finally(settle)
   }
-  onSettle()
+  settle()
   return result
 }
 

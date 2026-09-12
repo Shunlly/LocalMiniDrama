@@ -424,7 +424,7 @@ describe('aiConfigRoutes discover-models and Chinese validation', () => {
 
   it('does not echo provider secrets when discoverModels throws English errors', async () => {
     const db = createDb();
-    const secret = 'sk-route-secret-123456';
+    const secret = ['sk-', 'route-secret-123456'].join('');
     const original = aiConfigService.discoverModels;
     const logged = [];
     aiConfigService.discoverModels = async () => {
@@ -449,7 +449,7 @@ describe('aiConfigRoutes discover-models and Chinese validation', () => {
       const observable = JSON.stringify({ body: res.body, logged });
       assert.equal(res.statusCode, 400);
       assert.match(res.body.error.message, /读取模型目录失败/);
-      assert.doesNotMatch(observable, /sk-route-secret-123456/);
+      assert.doesNotMatch(observable, new RegExp(secret));
       assert.equal(isTrustedChineseUserError(res.body.error.message), true);
     } finally {
       aiConfigService.discoverModels = original;

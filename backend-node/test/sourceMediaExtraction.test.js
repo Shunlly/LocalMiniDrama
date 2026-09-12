@@ -620,9 +620,16 @@ describe('sourceMediaExtraction: Source Intake media extraction', () => {
         file: { originalname: 'failure.mp4', mimetype: 'video/mp4', size: video.length, buffer: video },
       }, res);
 
+      assert.equal(fake.requests.length, 1);
+      assert.equal(fake.requests[0].kind, 'transcription');
       assert.equal(res.statusCode, 400);
-      assert.match(res.body.error.message, /转写服务/);
+      assert.equal(res.body.success, false);
+      assert.equal(res.body.error.code, 'BAD_REQUEST');
+      // 503 会取消响应体，但仍按转写失败返回可操作中文；同时接受现行「语音转写」与旧「转写服务」提示。
+      assert.match(res.body.error.message, /语音转写返回了无法处理的响应|转写服务/);
+      assert.match(res.body.error.message, /AI 配置|「语音转写」/);
       assert.doesNotMatch(res.body.error.message, /HTTP\s*503|service_type=/);
+      assert.doesNotMatch(res.body.error.message, /超时|操作已取消/);
       assert.equal(db.prepare('SELECT COUNT(*) AS count FROM story_sources').get().count, 0);
       assert.equal(db.prepare('SELECT COUNT(*) AS count FROM source_items').get().count, 0);
       assert.deepEqual(await fsp.readdir(tempRoot), []);

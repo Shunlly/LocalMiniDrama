@@ -95,5 +95,13 @@ test('制作页文本框架流程可停止，并留下取消生命周期日志',
     `缺少停止结果: ${JSON.stringify(filmEvents)}`,
   )
   assert.ok(cancelSweep.some((item) => item.phase === 'start'), `缺少任务取消开始: ${JSON.stringify(logs)}`)
-  assert.ok(cancelSweep.some((item) => item.phase === 'success' || item.phase === 'error'), `缺少任务取消结果: ${JSON.stringify(logs)}`)
+  assert.ok(
+    cancelSweep.some((item) => item.phase === 'cancel' || item.phase === 'error'),
+    `缺少任务取消结果: ${JSON.stringify(logs)}`,
+  )
+  assert.equal(
+    cancelSweep.some((item) => item.phase === 'success' || item.status === 'success'),
+    false,
+    '任务取消不得记成成功',
+  )
 })

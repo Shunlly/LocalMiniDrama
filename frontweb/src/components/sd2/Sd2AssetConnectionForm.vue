@@ -1,11 +1,11 @@
 <template>
   <el-form label-width="120px" class="sd2-form">
-    <el-form-item label="接口地址（Base URL）">
+    <el-form-item label="接口地址">
       <el-input
         v-model="baseUrl"
         placeholder="须含 /api/v3，如 https://ark.ap-southeast-1.byteplusapi.com/api/v3（仅域名时后端会尝试自动补全）"
         clearable
-        aria-label="接口地址（Base URL）"
+        aria-label="接口地址"
       />
       <p class="field-hint">OpenAPI 与推理共用前缀一般为 <code>/api/v3</code>；若只填域名可能导致路由不对、工程名不生效。</p>
     </el-form-item>
@@ -32,9 +32,9 @@
     </template>
     <el-form-item label="路径模式">
       <el-select v-model="pathMode" style="width: 100%" aria-label="路径模式">
-        <el-option label="官方 OpenAPI：POST {Base}?Action=…&Version=…（火山/BytePlus 默认）" value="open_api_query" />
-        <el-option label="路径：POST {Base}/asset/{Action}（部分中转）" value="asset_subpath" />
-        <el-option label="扁平：POST {Base}/{Action}" value="flat" />
+        <el-option label="官方 OpenAPI：POST {接口地址}?Action=…&Version=…（火山/BytePlus 默认）" value="open_api_query" />
+        <el-option label="路径：POST {接口地址}/asset/{Action}（部分中转）" value="asset_subpath" />
+        <el-option label="扁平：POST {接口地址}/{Action}" value="flat" />
       </el-select>
       <p class="field-hint">官方接口必须在查询参数里带动作名 <code>Action</code>；若用 AnyFast 等自建路径再选中转模式。</p>
     </el-form-item>

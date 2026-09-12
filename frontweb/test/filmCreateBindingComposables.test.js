@@ -277,8 +277,8 @@ test('分镜绑定保存失败走中文警告，并按镜号去重受影响分�
     assert.equal(ctx.settings[0].episodeId, EPISODE_ID)
     assert.notEqual(ctx.settings[0].dramaId, ctx.settings[0].episodeId)
 
-    ctx.api.scrollToStoryboard(STORYBOARD_ID)
-    ctx.api.scrollToStoryboard(DUP_STORYBOARD_ID)
+    await ctx.api.scrollToStoryboard(STORYBOARD_ID)
+    await ctx.api.scrollToStoryboard(DUP_STORYBOARD_ID)
     assert.equal(scrolled.length, 1)
     assert.deepEqual(scrolled[0].opts, { behavior: 'smooth', block: 'center' })
   } finally {

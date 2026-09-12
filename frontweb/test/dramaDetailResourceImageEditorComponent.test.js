@@ -65,17 +65,18 @@ function mountEditor(initial = {}) {
   return { ...mounted, events, form }
 }
 
-test('没有图片时预览改为空态占位，AI 生成仍交给页面', async () => {
+test('没有图片时预览禁用并给出暂无图片，AI 生成仍交给页面', async () => {
   const harness = mountEditor()
   try {
     await nextTick()
-    assert.equal(buttonByAriaLabel(harness.root, '预览角色图片'), undefined)
-    const empty = findAll(harness.root, (node) => node.props?.['aria-label'] === '暂无图片')[0]
-    assert.ok(empty, '缺少暂无图片占位')
-    assert.equal(empty.props.role, 'img')
-    assert.equal(empty.props.disabled, undefined)
+    const preview = buttonByAriaLabel(harness.root, '预览角色图片')
+    assert.ok(preview)
+    assert.equal(preview.props.disabled, true)
+    assert.equal(preview.props.title, '暂无图片')
+    click(preview)
+    assert.deepEqual(harness.events, [['preview', '']])
     click(buttonByText(harness.root, 'AI 生成'))
-    assert.deepEqual(harness.events, [['generate']])
+    assert.deepEqual(harness.events, [['preview', ''], ['generate']])
   } finally {
     harness.app.unmount()
   }
@@ -86,7 +87,8 @@ test('已有图片可预览；上传中禁用生成，生成中禁用上传', as
   try {
     await nextTick()
     const preview = buttonByAriaLabel(ready.root, '预览角色图片')
-    assert.notEqual(preview.props.disabled, true)
+    assert.equal(preview.props.disabled, false)
+    assert.equal(preview.props.title, undefined)
     click(preview)
     assert.deepEqual(ready.events, [['preview', '/static/char.png']])
   } finally {

@@ -719,7 +719,7 @@ test('AI 配置失败反馈走 toUserFacingError，不直出 e.message', () => {
 })
 
 test('AI 配置帮助区覆盖新增厂商预设，并保留自定义入口', () => {
-  assert.match(presetHelpSource, /选择预设只会自动填入公开 Base URL 和常见模型名/)
+  assert.match(presetHelpSource, /选择预设只会自动填入公开\$\{configFieldDisplayLabel\('Base URL'\)\}和常见模型名/)
   assert.match(presetHelpSource, /不代表本应用已真实接入或跑通对应厂商/)
   assert.match(presetHelpSource, /name: "openrouter-text"/)
   assert.match(presetHelpSource, /name: "siliconflow-text"/)

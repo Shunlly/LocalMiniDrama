@@ -1,6 +1,7 @@
 /**
  * AI 配置预设帮助的文案数据。主折叠组件只负责容器，厂商段落从这里读取。
  */
+import { configFieldDisplayLabel } from '@/utils/aiConfigLabels.js'
 
 function b(bold) {
   return { bold }
@@ -8,6 +9,10 @@ function b(bold) {
 
 function c(code) {
   return { code }
+}
+
+function fieldHeading(label) {
+  return b(`${configFieldDisplayLabel(label)}：`)
 }
 
 function line(...parts) {
@@ -30,7 +35,7 @@ export const PRESET_HELP_TAG = Object.freeze({
   asr: Object.freeze({ label: '转写', className: 'ph-tag-asr' }),
 })
 
-export const PRESET_HELP_DISCLAIMER = "选择预设只会自动填入公开 Base URL 和常见模型名，方便保存配置。以下说明用于对照填写，不代表本应用已真实接入或跑通对应厂商的图片、视频、语音、识别或转写。"
+export const PRESET_HELP_DISCLAIMER = `选择预设只会自动填入公开${configFieldDisplayLabel('Base URL')}和常见模型名，方便保存配置。以下说明用于对照填写，不代表本应用已真实接入或跑通对应厂商的图片、视频、语音、识别或转写。`
 
 export const PRESET_HELP_SECTIONS = Object.freeze([
     {
@@ -43,9 +48,9 @@ export const PRESET_HELP_SECTIONS = Object.freeze([
         title: "OpenAI 兼容网关",
         body: [
           line(b("适用："), "OpenAI 官方、OpenAI 兼容网关、多数中转站。"),
-          line(b("Base URL："), c("https://api.openai.com/v1")),
+          line(fieldHeading('Base URL'), c("https://api.openai.com/v1")),
           line(b("常见模型："), c("gpt-5.5"), "、", c("gpt-4.1"), "、", c("gpt-4o-mini")),
-          line("文本服务默认走 ", c("/chat/completions"), "。自定义网关请改 Base URL，不要改服务类型。"),
+          line("文本服务默认走 ", c("/chat/completions"), `。自定义网关请改${configFieldDisplayLabel('Base URL')}，不要改服务类型。`),
         ],
       },
       {
@@ -53,7 +58,7 @@ export const PRESET_HELP_SECTIONS = Object.freeze([
         tag: "text",
         title: "OpenRouter 聚合网关",
         body: [
-          line(b("Base URL："), c("https://openrouter.ai/api/v1")),
+          line(fieldHeading('Base URL'), c("https://openrouter.ai/api/v1")),
           line(b("常见模型："), c("openai/gpt-5.5"), "、", c("anthropic/claude-sonnet-4.5"), "、", c("google/gemini-3-pro-preview")),
           line("模型名通常带厂商前缀。选此预设只填表，实际能否对话取决于你的密钥和网关。"),
         ],
@@ -63,7 +68,7 @@ export const PRESET_HELP_SECTIONS = Object.freeze([
         tag: "text",
         title: "硅基流动 SiliconFlow",
         body: [
-          line(b("Base URL："), c("https://api.siliconflow.cn/v1")),
+          line(fieldHeading('Base URL'), c("https://api.siliconflow.cn/v1")),
           line(b("常见模型："), c("Qwen/Qwen3-235B-A22B-Instruct-2507"), "、", c("deepseek-ai/DeepSeek-V3.1"), "、", c("moonshotai/Kimi-K2-Instruct")),
         ],
       },
@@ -72,7 +77,7 @@ export const PRESET_HELP_SECTIONS = Object.freeze([
         tag: "text",
         title: "通义千问 / 阿里云百炼",
         body: [
-          line(b("Base URL："), c("https://dashscope.aliyuncs.com/compatible-mode/v1")),
+          line(fieldHeading('Base URL'), c("https://dashscope.aliyuncs.com/compatible-mode/v1")),
           line(b("常见模型："), c("qwen3.8-max"), "、", c("qwen-plus"), "、", c("qwen-flash")),
           line("国内访问较稳。选此预设只填表，实际对话取决于密钥和已开通的模型。"),
         ],
@@ -82,7 +87,7 @@ export const PRESET_HELP_SECTIONS = Object.freeze([
         tag: "text",
         title: "火山引擎方舟",
         body: [
-          line(b("Base URL："), c("https://ark.cn-beijing.volces.com/api/v3")),
+          line(fieldHeading('Base URL'), c("https://ark.cn-beijing.volces.com/api/v3")),
           line(b("常见模型："), "填方舟控制台的接入点 ID，例如 ", c("deepseek-v3-2-251201"), "，不要填展示名。"),
           line("推荐用于国内文本生成。预设不代表已真实接入。"),
         ],
@@ -103,7 +108,7 @@ export const PRESET_HELP_SECTIONS = Object.freeze([
         tag: "text",
         title: "Ollama / LM Studio / vLLM 本地",
         body: [
-          line(b("Ollama："), c("http://127.0.0.1:11434/v1"), "，模型如 ", c("qwen3:8b"), "。本地服务通常可不填 API Key。"),
+          line(b("Ollama："), c("http://127.0.0.1:11434/v1"), "，模型如 ", c("qwen3:8b"), `。本地服务通常可不填 ${configFieldDisplayLabel('API Key')}。`),
           line(b("LM Studio："), c("http://127.0.0.1:1234/v1")),
           line(b("vLLM："), c("http://127.0.0.1:8000/v1")),
           line("请先在本机启动对应服务。保存时请使用本机地址，例如 127.0.0.1。"),
@@ -114,7 +119,7 @@ export const PRESET_HELP_SECTIONS = Object.freeze([
         tag: "text",
         title: "Agnes AI（一键配置）",
         body: [
-          line(b("Base URL："), c("https://apihub.agnes-ai.com/v1")),
+          line(fieldHeading('Base URL'), c("https://apihub.agnes-ai.com/v1")),
           line(b("常见模型："), "文本 ", c("agnes-2.0-flash"), "，图片 ", c("agnes-image-2.1-flash"), "，视频 ", c("agnes-video-v2.0"), "。"),
           line("可用页面「一键配置 Agnes」同时创建文本、图片、视频三类配置。只填表，不代表已真实跑通生成。"),
         ],
@@ -141,7 +146,7 @@ export const PRESET_HELP_SECTIONS = Object.freeze([
         title: "火山引擎 — 豆包 Seedream",
         body: [
           line(b("Endpoint："), c("POST /api/v3/images/generations")),
-          line(b("Base URL："), c("https://ark.cn-beijing.volces.com/api/v3")),
+          line(fieldHeading('Base URL'), c("https://ark.cn-beijing.volces.com/api/v3")),
           pre("{ \"model\": \"doubao-seedream-4-5-251128\", \"prompt\": \"...\", \"size\": \"1024x1024\" }"),
         ],
       },
@@ -150,7 +155,7 @@ export const PRESET_HELP_SECTIONS = Object.freeze([
         tag: "img",
         title: "通义万象 DashScope",
         body: [
-          line(b("Base URL："), c("https://dashscope.aliyuncs.com")),
+          line(fieldHeading('Base URL'), c("https://dashscope.aliyuncs.com")),
           line(b("Endpoint："), c("POST /api/v1/services/aigc/text2image/image-synthesis")),
         ],
       },
@@ -178,7 +183,7 @@ export const PRESET_HELP_SECTIONS = Object.freeze([
         tag: "img",
         title: "可灵 Kling 图像",
         body: [
-          line(b("Base URL："), c("https://api.klingai.com")),
+          line(fieldHeading('Base URL'), c("https://api.klingai.com")),
           line(b("常见模型："), c("kling-image"), "、", c("kling-omni-image")),
         ],
       },
@@ -187,9 +192,9 @@ export const PRESET_HELP_SECTIONS = Object.freeze([
         tag: "img",
         title: "ComfyUI 本地工作流",
         body: [
-          line(b("Base URL："), c("http://127.0.0.1:8188")),
+          line(fieldHeading('Base URL'), c("http://127.0.0.1:8188")),
           line(b("默认路径："), "提交 ", c("/prompt"), "，查询 ", c("/history/{promptId}")),
-          line("本地工作流通常可不填 API Key。请先启动 ComfyUI。模型栏可保留 ", c("custom-workflow"), "。"),
+          line(`本地工作流通常可不填 ${configFieldDisplayLabel('API Key')}。请先启动 ComfyUI。模型栏可保留 `, c("custom-workflow"), "。"),
         ],
       },
       ],
@@ -237,7 +242,7 @@ export const PRESET_HELP_SECTIONS = Object.freeze([
         title: "火山引擎 — 豆包 Seedance",
         body: [
           line(b("Endpoint："), c("POST …/contents/generations/tasks"), "（与后端一致）"),
-          line(b("Base URL："), c("https://ark.cn-beijing.volces.com/api/v3")),
+          line(fieldHeading('Base URL'), c("https://ark.cn-beijing.volces.com/api/v3")),
           pre("{ \"model\": \"doubao-seedance-1-5-pro-251215\",\n  \"content\": [{ \"type\": \"text\", \"text\": \"...\" }],\n  \"ratio\": \"9:16\", \"duration\": 5,\n  \"watermark\": false, \"resolution\": \"720p\" }"),
         ],
       },
@@ -258,7 +263,7 @@ export const PRESET_HELP_SECTIONS = Object.freeze([
         tag: "vid",
         title: "通义万象 DashScope",
         body: [
-          line(b("Base URL："), c("https://dashscope.aliyuncs.com")),
+          line(fieldHeading('Base URL'), c("https://dashscope.aliyuncs.com")),
           line(b("Endpoint："), c("POST /api/v1/services/aigc/video-generation/video-synthesis")),
           pre("{ \"model\": \"wan2.2-kf2v-flash\",\n  \"input\": { \"prompt\": \"...\", \"img_url\": \"https://...\" },\n  \"parameters\": { \"size\": \"1280*720\", \"duration\": 5 } }"),
         ],
@@ -277,7 +282,7 @@ export const PRESET_HELP_SECTIONS = Object.freeze([
         tag: "vid",
         title: "可灵 Kling 视频",
         body: [
-          line(b("Base URL："), c("https://api.klingai.com"), " 或区域地址 ", c("api-beijing.klingai.com"), " / ", c("api-singapore.klingai.com"), "，须与密钥所属区域一致。"),
+          line(fieldHeading('Base URL'), c("https://api.klingai.com"), " 或区域地址 ", c("api-beijing.klingai.com"), " / ", c("api-singapore.klingai.com"), "，须与密钥所属区域一致。"),
           line(b("常见模型："), c("kling-v3-omni"), "、", c("kling-video"), "、", c("kling-omni-video")),
           line("可灵图片和视频是不同服务类型。选此预设只填表，不代表视频生成已真实跑通。"),
         ],
@@ -300,8 +305,8 @@ export const PRESET_HELP_SECTIONS = Object.freeze([
         title: "Jimeng AI API（自建服务）",
         body: [
           line(b("说明："), "需自行部署 ", c("jimeng-free-api-all"), " 等即梦 OpenAI 兼容服务并启动（如 ", c("http://127.0.0.1:8000"), "）。本系统仅作为客户端转发请求。"),
-          line(b("Base URL："), "填你的服务根地址，无尾斜杠。"),
-          line(b("API Key："), "填即梦网页 ", b("Session"), "；多个账号用", b("英文逗号"), "分隔，由对方服务轮询使用。"),
+          line(fieldHeading('Base URL'), "填你的服务根地址，无尾斜杠。"),
+          line(fieldHeading('API Key'), "填即梦网页 ", b("Session"), "；多个账号用", b("英文逗号"), "分隔，由对方服务轮询使用。"),
           line(b("默认路径："), c("POST /v1/videos/generations"), "（可在「Endpoint」覆盖）。Seedance 多图需分镜参考图；响应为同步 ", c("data[0].url"), "。"),
         ],
       },
@@ -310,7 +315,7 @@ export const PRESET_HELP_SECTIONS = Object.freeze([
         tag: "vid",
         title: "MiniMax 海螺",
         body: [
-          line(b("Base URL："), c("https://api.minimaxi.com/v1")),
+          line(fieldHeading('Base URL'), c("https://api.minimaxi.com/v1")),
           line(b("常见模型："), c("MiniMax-Hailuo-2.3"), "、", c("MiniMax-Hailuo-2.3-Fast")),
           line("预设会带入海螺视频端点。是否真正生成成功取决于密钥和后端适配，当前只提供配置目录。"),
         ],
@@ -320,7 +325,7 @@ export const PRESET_HELP_SECTIONS = Object.freeze([
         tag: "vid",
         title: "Runway",
         body: [
-          line(b("Base URL："), c("https://api.dev.runwayml.com/v1")),
+          line(fieldHeading('Base URL'), c("https://api.dev.runwayml.com/v1")),
           line(b("常见模型："), c("gen4_turbo"), "、", c("gen4_aleph"), "、", c("gen3a_turbo")),
           line("接口规范可先选 OpenAI 兼容，再按 Runway 文档补端点。此条目只用于自动填表。"),
         ],
@@ -330,7 +335,7 @@ export const PRESET_HELP_SECTIONS = Object.freeze([
         tag: "vid",
         title: "Luma 梦境引擎",
         body: [
-          line(b("Base URL："), c("https://api.lumalabs.ai/dream-machine/v1")),
+          line(fieldHeading('Base URL'), c("https://api.lumalabs.ai/dream-machine/v1")),
           line(b("常见模型："), c("ray-2"), "、", c("ray-flash-2"), "、", c("ray-1-6")),
           line("预设不代表 Dream Machine 已在本应用中真实跑通。"),
         ],
@@ -355,7 +360,7 @@ export const PRESET_HELP_SECTIONS = Object.freeze([
         tag: "tts",
         title: "OpenAI 兼容 TTS",
         body: [
-          line(b("Base URL："), c("https://api.openai.com/v1")),
+          line(fieldHeading('Base URL'), c("https://api.openai.com/v1")),
           line(b("常见模型："), c("gpt-4o-mini-tts"), "、", c("tts-1-hd")),
         ],
       },
@@ -364,7 +369,7 @@ export const PRESET_HELP_SECTIONS = Object.freeze([
         tag: "tts",
         title: "MiniMax T2A",
         body: [
-          line(b("Base URL："), c("https://api.minimaxi.com/v1")),
+          line(fieldHeading('Base URL'), c("https://api.minimaxi.com/v1")),
           line(b("常见模型："), c("speech-02-hd"), "、", c("speech-02-turbo")),
         ],
       },
@@ -392,7 +397,7 @@ export const PRESET_HELP_SECTIONS = Object.freeze([
         title: "OpenAI 兼容视觉",
         body: [
           line(b("适用："), "PDF/图片抽文字。通常走视觉对话接口 ", c("/chat/completions"), "，而不是单独的 OCR 接口。"),
-          line(b("Base URL："), "与文本配置相同，例如 ", c("https://api.openai.com/v1"), " 或兼容网关。"),
+          line(fieldHeading('Base URL'), "与文本配置相同，例如 ", c("https://api.openai.com/v1"), " 或兼容网关。"),
           line(b("常见模型："), c("gpt-4o-mini"), "、", c("gpt-4o"), "、", c("qwen-vl-max")),
           line("下一步：添加一个配置并设为默认，即可用于素材抽取。预设不代表识别已真实跑通。"),
         ],
@@ -419,7 +424,7 @@ export const PRESET_HELP_SECTIONS = Object.freeze([
         title: "OpenAI 兼容转写",
         body: [
           line(b("适用："), "音频/视频转写。通常走 ", c("/audio/transcriptions"), "，而不是对话接口。"),
-          line(b("Base URL："), "与文本配置相同，例如 ", c("https://api.openai.com/v1"), " 或兼容网关。"),
+          line(fieldHeading('Base URL'), "与文本配置相同，例如 ", c("https://api.openai.com/v1"), " 或兼容网关。"),
           line(b("常见模型："), c("whisper-1"), "、", c("gpt-4o-mini-transcribe")),
           line("下一步：添加一个配置并设为默认，即可用于音视频素材抽取。预设不代表转写已真实跑通。"),
         ],

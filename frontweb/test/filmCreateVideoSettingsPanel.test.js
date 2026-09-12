@@ -42,7 +42,7 @@ test('视频设置面板保留成片控件语义和无障碍标签', () => {
   assert.match(panelSource, /placeholder="右下角水印文字"/)
   assert.match(panelSource, /active-text="开"/)
   assert.match(panelSource, /inactive-text="关"/)
-  assert.match(panelSource, /<button type="button" class="ai-config-text-button" @click="emit\('open-ai-config'\)">AI 配置<\/button>/)
+  assert.match(panelSource, /<button type="button" class="ai-config-text-button" aria-label="前往 AI 配置" @click="emit\('open-ai-config'\)">AI 配置<\/button>/)
   assert.match(panelSource, /分辨率也会用于新生成的分镜视频；字幕、对白烧录和水印只影响合成整集。/)
   assert.match(panelSource, /分辨率会用于新生成的分镜视频。字幕、对白烧录和水印只在合成整集时生效，不会改已经生成的分镜视频。/)
   assert.match(panelSource, /id="video-settings-lock-reason"/)

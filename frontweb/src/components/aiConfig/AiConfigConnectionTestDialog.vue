@@ -1,5 +1,5 @@
 <template>
-  <AccessibleDialog v-model="testVisible" title="测试连接" width="420px" class="ai-config-overlay" @closed="restoreTestedCoverageCardFocus">
+  <AccessibleDialog v-model="testVisible" title="测试连接" width="420px" class="ai-config-overlay" :show-close="false" @closed="restoreTestedCoverageCardFocus">
     <p class="test-result-announcement" role="status" aria-live="polite">{{ testResultAnnouncement }}</p>
     <p v-if="testResult === null">正在测试…</p>
     <template v-else-if="testResult">
@@ -52,7 +52,7 @@
         :loading="testingConfigId !== null"
         :aria-label="testingConfigId !== null ? '正在重试连接' : '重试连接测试'" @click="retryConnectionTest"
       >重试</el-button>
-      <el-button aria-label="关闭连接测试" @click="testVisible = false">关闭</el-button>
+      <el-button aria-label="关闭" @click="testVisible = false">关闭</el-button>
     </template>
   </AccessibleDialog>
 </template>

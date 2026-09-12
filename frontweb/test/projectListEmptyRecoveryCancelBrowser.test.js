@@ -48,7 +48,7 @@ test('空项目展示起步入口，新建弹窗焦点落在标题并在关闭�
     return Boolean(active && active.getAttribute('aria-label') === '项目标题')
   }, null, { timeout: 10000 })
 
-  await dialog.getByRole('button', { name: '取消', exact: true }).click()
+  await dialog.getByRole('button', { name: '取消新建项目', exact: true }).click()
   await dialog.waitFor({ state: 'hidden', timeout: 10000 })
   const restored = await emptyNewButton.evaluate((button) => (
     button === document.activeElement || button.contains(document.activeElement)

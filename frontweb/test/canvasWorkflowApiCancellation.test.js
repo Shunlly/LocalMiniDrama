@@ -2,16 +2,8 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { register } from 'node:module'
 
-const srcRoot = new URL('../src/', import.meta.url).href
-const loaderSource = `
-export async function resolve(specifier, context, nextResolve) {
-  if (specifier.startsWith('@/')) {
-    return { url: ${JSON.stringify(srcRoot)} + specifier.slice(2) + '.js', shortCircuit: true }
-  }
-  return nextResolve(specifier, context)
-}
-`
-register(`data:text/javascript,${encodeURIComponent(loaderSource)}`, import.meta.url)
+// 与 npm test 共用 srcAliasLoader，避免把 @/foo.js 解析成 foo.js.js。
+register(new URL('./srcAliasLoader.js', import.meta.url))
 
 const { default: request } = await import('../src/utils/request.js')
 const { imagesAPI } = await import('../src/api/images.js')

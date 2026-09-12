@@ -1,20 +1,9 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { register } from 'node:module'
 import { readFileSync } from 'node:fs'
 
-const srcRoot = new URL('../src/', import.meta.url).href
-const loaderSource = `
-export async function resolve(specifier, context, nextResolve) {
-  if (specifier.startsWith('@/')) {
-    return { url: ${JSON.stringify(srcRoot)} + specifier.slice(2) + '.js', shortCircuit: true }
-  }
-  return nextResolve(specifier, context)
-}
-`
-register(`data:text/javascript,${encodeURIComponent(loaderSource)}`, import.meta.url)
+import { storyboardsAPI } from '../src/api/storyboards.js'
 
-const { storyboardsAPI } = await import('../src/api/storyboards.js')
 const storyboardsSource = readFileSync(new URL('../src/api/storyboards.js', import.meta.url), 'utf8')
 const universalSource = readFileSync(new URL('../src/composables/filmCreate/useFilmCreateUniversalSegment.js', import.meta.url), 'utf8')
 

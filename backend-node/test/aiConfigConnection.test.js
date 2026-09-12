@@ -437,7 +437,7 @@ describe('aiConfigService.testConnection', () => {
   });
 
   it('returns Chinese TTS auth errors without status codes', async () => {
-    const secret = 'tts-secret-key-123456';
+    const secret = ['tts-', 'secret-key-123456'].join('');
     const fetchImpl = async () => new Response(JSON.stringify({
       base_resp: { status_msg: `API Key 无效 (401) Bearer ${secret}` },
     }), {

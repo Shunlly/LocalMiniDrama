@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { existsSync, readFileSync } from 'node:fs'
 import { readAiConfigFormDialogTreeSource } from './helpers/aiConfigFormDialogSources.js'
+import { configFieldDisplayLabel } from '../src/utils/aiConfigLabels.js'
 
 const componentSource = readFileSync(
   new URL('../src/components/AIConfigContent.vue', import.meta.url),
@@ -102,6 +103,9 @@ test('model validation preserves the existing model-less ComfyUI workflow except
 
 test('validation errors follow visual field order and never expose an API key', async () => {
   assert.equal(existsSync(validationUtilityUrl), true, 'validation focus utility should exist')
+  const validationSource = readFileSync(validationUtilityUrl, 'utf8')
+  assert.match(validationSource, /configFieldDisplayLabel\('API Key'\)/)
+  assert.match(validationSource, /configFieldDisplayLabel\('Base URL'\)/)
   const { createAiConfigValidationSummary } = await import(validationUtilityUrl.href)
   const secret = 'sk-live-secret-value'
 
@@ -119,7 +123,9 @@ test('validation errors follow visual field order and never expose an API key', 
     { field: 'model', prop: 'modelText', section: null },
   ])
   assert.equal(summary.some((item) => item.message.includes(secret)), false)
-  assert.match(summary.find((item) => item.field === 'api_key').message, /API Key|凭据/)
+  assert.equal(summary.find((item) => item.field === 'api_key').label, configFieldDisplayLabel('API Key'))
+  assert.equal(summary.find((item) => item.field === 'api_key').message, `请输入有效的 ${configFieldDisplayLabel('API Key')}或凭据`)
+  assert.doesNotMatch(summary.find((item) => item.field === 'api_key').message, /API Key/)
 })
 
 test('validation focus expands the owning section, scrolls its dialog container, and focuses the field', async () => {
@@ -148,7 +154,7 @@ test('validation focus expands the owning section, scrolls its dialog container,
     scrollTo: (options) => calls.push(['scroll', options]),
   }
   const summary = createAiConfigValidationSummary({
-    base_url: [{ message: '请输入 Base URL' }],
+    base_url: [{ message: `请输入${configFieldDisplayLabel('Base URL')}` }],
   })
 
   const focusedField = await focusFirstInvalidAiConfigField(summary, {

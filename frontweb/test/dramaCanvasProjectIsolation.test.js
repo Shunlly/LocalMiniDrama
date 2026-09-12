@@ -58,8 +58,7 @@ function extractFunction(name) {
   return remainingExtractNamedFunction(canvasSource, name)
 }
 
-function loadCanvasFunctions(names, dependencies) {
-  const dependencyNames = Object.keys(dependencies)
+function loadCanvasFunctions(names, dependencies = {}) {
   const persistHelpers = [
     'mergeFailedCanvasSaveOperations',
     'canvasSaveOperationError',
@@ -67,7 +66,7 @@ function loadCanvasFunctions(names, dependencies) {
   ]
   let sourceNames = names.includes('persistCanvasState')
     ? [...persistHelpers.filter((name) => !names.includes(name)), ...names]
-    : names
+    : [...names]
   const guardedActions = ['onAlignNodes', 'onCreateWorkflowGroup', 'onDeleteActiveGroup', 'onRunActiveGroup']
   if (names.some((name) => guardedActions.includes(name))) {
     sourceNames = [
@@ -87,10 +86,45 @@ function loadCanvasFunctions(names, dependencies) {
       ...sourceNames,
     ]
   }
+
+  const resolvedDependencies = { ...dependencies }
+  const returnedNames = [...names]
+  // 创建/键盘激活都会调用 activateFreeCanvasNode，测试装配必须把它和焦点桩放进同一作用域。
+  const needsFreeCanvasActivation = names.some((name) => (
+    ['createFreeCanvasNode', 'activateFreeCanvasNode', 'handleFreeCanvasKeydown'].includes(name)
+  ))
+  if (needsFreeCanvasActivation) {
+    if (!sourceNames.includes('activateFreeCanvasNode')) {
+      sourceNames = ['activateFreeCanvasNode', ...sourceNames]
+    }
+    if (!returnedNames.includes('activateFreeCanvasNode')) {
+      returnedNames.push('activateFreeCanvasNode')
+    }
+    if (!('isFreeCanvasNodeId' in resolvedDependencies) && !sourceNames.includes('isFreeCanvasNodeId')) {
+      sourceNames = ['isFreeCanvasNodeId', ...sourceNames]
+    }
+    if (!('synchronizeFreeCanvasSelection' in resolvedDependencies)) {
+      resolvedDependencies.synchronizeFreeCanvasSelection = synchronizeFreeCanvasSelection
+    }
+    if (!('claimCanvasEntityFocus' in resolvedDependencies)) {
+      resolvedDependencies.claimCanvasEntityFocus = (nodeId) => ({ nodeId })
+    }
+    if (!('ownsCanvasEntityFocus' in resolvedDependencies)) {
+      resolvedDependencies.ownsCanvasEntityFocus = () => true
+    }
+    if (!('waitForFreeCanvasInspectorFocus' in resolvedDependencies)) {
+      resolvedDependencies.waitForFreeCanvasInspectorFocus = async () => true
+    }
+    if (!('edges' in resolvedDependencies)) {
+      resolvedDependencies.edges = { value: [] }
+    }
+  }
+
+  const dependencyNames = Object.keys(resolvedDependencies)
   return new Function(
     ...dependencyNames,
-    `'use strict'; ${sourceNames.map(extractFunction).join('\n')}; return { ${names.join(', ')} };`,
-  )(...dependencyNames.map((name) => dependencies[name]))
+    `'use strict'; ${sourceNames.map(extractFunction).join('\n')}; return { ${returnedNames.join(', ')} };`,
+  )(...dependencyNames.map((name) => resolvedDependencies[name]))
 }
 
 function loadCanvasFunction(name, dependencies) {
@@ -105,6 +139,12 @@ function loadCanvasFunction(name, dependencies) {
       ].join('\n')
     : name === 'abandonCanvasSaveOperation'
       ? [extractFunction('canvasSaveOperationError'), extractFunction(name)].join('\n')
+    : name === 'createFreeCanvasNode'
+      ? [
+          extractFunction('isFreeCanvasNodeId'),
+          extractFunction('activateFreeCanvasNode'),
+          extractFunction(name),
+        ].join('\n')
     : guardedActions.includes(name)
       ? [
           extractFunction('currentCanvasProjectId'),
@@ -395,6 +435,9 @@ function keyboardControllerHarness() {
     isDeleteShortcutBlockedByUx,
     isFreeCanvasNodeId: (id) => freeCanvas.value.nodes.some((node) => String(node.id) === String(id)),
     synchronizeFreeCanvasSelection,
+    claimCanvasEntityFocus: (nodeId) => ({ nodeId }),
+    ownsCanvasEntityFocus: () => true,
+    waitForFreeCanvasInspectorFocus: async () => true,
     normalizeFreeCanvasForProject: normalizeFreeCanvas,
     removeFreeSelection,
     nextTick(callback) {
@@ -689,6 +732,7 @@ function realPlacementCreationHarness(screenRect) {
     'defaultFreeNodePosition',
     'freeNodeDefaults',
     'createFreeCanvasNode',
+    'activateFreeCanvasNode',
   ], {
     canvasMainRef: {
       value: screenRect
@@ -699,6 +743,7 @@ function realPlacementCreationHarness(screenRect) {
     screenRectToFreeCanvasBounds,
     findFreeNodeSpawnPosition,
     nodes,
+    edges: { value: [] },
     selectedFreeNodeId,
     selectedFreeNodeIds,
     selectedFreeEdgeIds,
@@ -708,9 +753,21 @@ function realPlacementCreationHarness(screenRect) {
     setCanvasMode: async () => {},
     ElMessage: { warning: (message) => warnings.push(message) },
     createFreeNode,
+    isFreeCanvasNodeId: (id) => freeCanvas.value.nodes.some((node) => String(node.id) === String(id)),
+    synchronizeFreeCanvasSelection,
+    claimCanvasEntityFocus: (nodeId) => ({ nodeId }),
+    ownsCanvasEntityFocus: () => true,
+    waitForFreeCanvasInspectorFocus: async () => true,
     commitFreeCanvasState(nextState, reason) {
       commits.push(reason)
       freeCanvas.value = history.commit(normalizeFreeCanvas(nextState), reason)
+      const remaining = new Set(freeCanvas.value.nodes.map((node) => String(node.id)))
+      nodes.value = [
+        ...nodes.value.filter((node) => remaining.has(String(node.id))),
+        ...freeCanvas.value.nodes
+          .filter((node) => !nodes.value.some((item) => String(item.id) === String(node.id)))
+          .map((node) => ({ id: node.id, type: 'freeCanvas', selected: true })),
+      ]
     },
   })
 

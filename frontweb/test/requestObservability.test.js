@@ -308,14 +308,15 @@ test('business envelope failures keep requestId without double toast', async () 
 })
 
 test('request failure logs do not record API keys', async () => {
+  const secret = ['sk-', 'secret-key-123456'].join('')
   await assert.rejects(
     request.get('/secret', {
       headers: {
-        Authorization: 'Bearer sk-secret-key-123456',
-        'X-API-Key': 'sk-secret-key-123456',
+        Authorization: `Bearer ${secret}`,
+        'X-API-Key': secret,
       },
       adapter: async (config) => {
-        const error = new Error('Network Error api_key=sk-secret-key-123456')
+        const error = new Error(`Network Error api_key=${secret}`)
         error.code = 'ERR_NETWORK'
         error.config = config
         throw error
@@ -323,7 +324,7 @@ test('request failure logs do not record API keys', async () => {
     }),
     (error) => {
       const serialized = JSON.stringify(httpLogs())
-      assert.doesNotMatch(serialized, /sk-secret-key-123456/)
+      assert.doesNotMatch(serialized, new RegExp(secret))
       assert.doesNotMatch(serialized, /Bearer sk-secret/)
       assert.equal(error.category, REQUEST_ERROR_CATEGORY.NETWORK)
       return true

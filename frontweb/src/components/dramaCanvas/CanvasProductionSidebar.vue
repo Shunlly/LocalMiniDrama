@@ -22,15 +22,15 @@
         :item-key="characterItemKey"
         :force-index="characterForceIndex"
       >
-        <template #item="{ item }">
+        <template #item="{ item: c }">
           <button
             type="button"
             class="sidebar-item"
-            :class="{ active: highlightAssetId === 'char:' + item.id }"
-            :aria-label="`定位角色${item.name || '未命名'}`"
-            @click="selectSidebarAsset('char:' + item.id)"
+            :class="{ active: highlightAssetId === 'char:' + c.id }"
+            :aria-label="`定位角色${c.name || '未命名'}`"
+            @click="selectSidebarAsset('char:' + c.id)"
           >
-            {{ item.name || '未命名' }}
+            {{ c.name || '未命名' }}
           </button>
         </template>
       </CanvasWindowedList>

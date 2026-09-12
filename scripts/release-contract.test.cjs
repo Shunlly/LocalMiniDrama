@@ -12485,7 +12485,7 @@ test('source-only release verification dispatches only Node 20 source and contai
 })
 
 test('package test scripts use Node discovery instead of shell-expanded globs', () => {
-  assert.equal(frontendPackage.scripts.test, 'node --test')
+  assert.equal(frontendPackage.scripts.test, 'node --import ./test/registerSrcAlias.js --test')
   assert.equal(backendPackage.scripts.test, 'node --test --test-concurrency=1')
   for (const packageJson of [frontendPackage, backendPackage]) {
     assert.doesNotMatch(packageJson.scripts.test, /[?*]/)
@@ -12632,7 +12632,28 @@ test('source secret scanning covers every tracked path and isolates worktree out
     '5fcc14cddb83b9faaa33f50c1d998861d9ef58df:backend-node/test/dataBackupService.test.js:generic-api-key:1907',
     '5fcc14cddb83b9faaa33f50c1d998861d9ef58df:backend-node/test/dataBackupService.test.js:generic-api-key:1996',
     '5fcc14cddb83b9faaa33f50c1d998861d9ef58df:scripts/rollback-drill-contract.test.cjs:generic-api-key:95',
+    '14b9bd3e0f72f5b0b19862c75200d3b3ba6b69ec:frontweb/test/requestObservability.test.js:generic-api-key:238',
+    '14b9bd3e0f72f5b0b19862c75200d3b3ba6b69ec:frontweb/test/requestObservability.test.js:generic-api-key:241',
+    '933546c8816aa997b6f40478b58e7be08f624ae9:backend-node/test/aiConfigConnection.test.js:generic-api-key:233',
+    '933546c8816aa997b6f40478b58e7be08f624ae9:backend-node/test/aiConfigDiscoverModels.test.js:generic-api-key:427',
+    '933546c8816aa997b6f40478b58e7be08f624ae9:backend-node/test/aiConfigOcrTranscription.test.js:generic-api-key:112',
+    '933546c8816aa997b6f40478b58e7be08f624ae9:backend-node/test/aiConfigOcrTranscription.test.js:generic-api-key:265',
+    'f285d312216d495f34f5d6748fce81347ec3aea2:backend-node/test/imageVideoGatewayAssemblyContract.test.js:generic-api-key:75',
+    'f285d312216d495f34f5d6748fce81347ec3aea2:backend-node/test/routeObservability.test.js:generic-api-key:71',
   ])
+
+  const currentSyntheticSources = {
+    'frontweb/test/requestObservability.test.js': /\['sk-', 'secret-key-123456'\]\.join\(''\)/,
+    'backend-node/test/aiConfigConnection.test.js': /\['tts-', 'secret-key-123456'\]\.join\(''\)/,
+    'backend-node/test/aiConfigDiscoverModels.test.js': /\['sk-', 'route-secret-123456'\]\.join\(''\)/,
+    'backend-node/test/aiConfigOcrTranscription.test.js': /\[String\(serviceType\), '-secret-key-123456'\]\.join\(''\)/,
+    'backend-node/test/imageVideoGatewayAssemblyContract.test.js': /\['sk-', 'assembly-secret-123456'\]\.join\(''\)/,
+    'backend-node/test/routeObservability.test.js': /\['sk-', 'route-obs-secret-123456'\]\.join\(''\)/,
+  }
+  for (const [relativePath, fragmentPattern] of Object.entries(currentSyntheticSources)) {
+    const source = fs.readFileSync(path.join(root, relativePath), 'utf8')
+    assert.match(source, fragmentPattern)
+  }
 
   for (const secretScanJob of [
     jobBlock('secret-scan', ciWorkflow),
@@ -12645,7 +12666,9 @@ test('source secret scanning covers every tracked path and isolates worktree out
     )
     assert.match(secretScanJob, /docker run --rm "\$GITLEAKS_IMAGE" version[\s\S]*v8\.30\.1/)
     assert.match(secretScanJob, /--volume "\$GITHUB_WORKSPACE:\/repo:ro"/)
+    assert.match(secretScanJob, /--workdir \/repo/)
     assert.match(secretScanJob, /git --config \.gitleaks\.toml --redact --no-banner --log-opts=--all/)
+    assert.doesNotMatch(secretScanJob, /--ignore-gitleaks-allow/)
   }
 })
 
