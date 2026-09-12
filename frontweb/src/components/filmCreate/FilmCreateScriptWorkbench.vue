@@ -224,6 +224,7 @@
 import { computed } from 'vue'
 import { Document, DocumentAdd, Plus } from '@element-plus/icons-vue'
 import ActionGate from '@/components/filmCreate/ActionGate.vue'
+import { describeActionAriaLabel } from '@/components/filmCreate/filmCreateActionCopy.js'
 import { saveCurrentEpisodeDisabledReason as describeSaveCurrentEpisodeDisabledReason } from '@/utils/filmCreateActionState'
 
 defineOptions({ inheritAttrs: false })
@@ -259,19 +260,12 @@ const generateStoryDisabledReason = computed(() => {
   return ''
 })
 
-function actionAriaLabel(actionLabel, { loading, loadingLabel, disabledReason } = {}) {
-  if (loading) return String(loadingLabel || `正在${actionLabel}`).trim()
-  const reason = String(disabledReason || '').trim()
-  if (reason) return `${actionLabel}不可用：${reason}`
-  return String(actionLabel || '').trim()
-}
-
-const generateStoryButtonAriaLabel = computed(() => actionAriaLabel('生成剧本', {
+const generateStoryButtonAriaLabel = computed(() => describeActionAriaLabel('生成剧本', {
   loading: props.isStoryGenRunning,
   loadingLabel: '正在生成剧本',
   disabledReason: generateStoryDisabledReason.value,
 }))
-const saveCurrentEpisodeButtonAriaLabel = computed(() => actionAriaLabel('保存当前集', {
+const saveCurrentEpisodeButtonAriaLabel = computed(() => describeActionAriaLabel('保存当前集', {
   loading: props.scriptGenerating,
   loadingLabel: '正在保存当前集',
   disabledReason: saveCurrentEpisodeDisabledReason.value,

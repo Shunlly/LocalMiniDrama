@@ -28,12 +28,15 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { ArrowLeft } from '@element-plus/icons-vue'
 import AIConfigContent from '@/components/AIConfigContent.vue'
+import {
+  createAiConfigLeaveNavigation,
+  preloadAiConfigReturnTarget,
+  preloadProjectListPage,
+} from '@/composables/createAiConfigLeaveNavigation.js'
 
 const router = useRouter()
 const route = useRoute()
 const aiConfigContentRef = ref(null)
-let skipNextRouteGuard = false
-let leaveConfirmed = false
 const filterableServiceTypes = new Set(['text', 'image', 'storyboard_image', 'video', 'tts', 'ocr', 'transcription'])
 const initialServiceType = computed(() => {
   const raw = Array.isArray(route.query.service_type)
@@ -54,32 +57,24 @@ const backButtonLabel = computed(() => {
 const backButtonText = backButtonLabel
 const logoBackLabel = computed(() => '本地短剧助手，' + backButtonLabel.value)
 
-async function requestAiConfigPageClose() {
-  if (leaveConfirmed) return true
-  const allowed = (await aiConfigContentRef.value?.requestClose?.()) !== false
-  if (allowed) leaveConfirmed = true
-  return allowed
-}
-
-async function goBack() {
-  if (!await requestAiConfigPageClose()) return
-  skipNextRouteGuard = true
-  try {
+const leaveNavigation = createAiConfigLeaveNavigation({
+  requestClose: () => aiConfigContentRef.value?.requestClose?.(),
+  preload() {
+    return Promise.all([
+      preloadProjectListPage(),
+      preloadAiConfigReturnTarget(returnTo.value),
+    ])
+  },
+  async navigateBack() {
     await router.replace(returnTo.value || { name: 'list' })
-  } finally {
-    skipNextRouteGuard = false
-  }
-}
-
-async function goBackup() {
-  if (!await requestAiConfigPageClose()) return
-  skipNextRouteGuard = true
-  try {
+  },
+  async navigateBackup() {
     await router.push({ name: 'backup', query: { returnTo: '/ai-config' } })
-  } finally {
-    skipNextRouteGuard = false
-  }
-}
+  },
+})
+
+const goBack = leaveNavigation.goBack
+const goBackup = leaveNavigation.goBackup
 
 function handleBeforeUnload(event) {
   if (!aiConfigContentRef.value?.hasUnsavedChanges?.()) return
@@ -87,13 +82,11 @@ function handleBeforeUnload(event) {
   event.returnValue = ''
 }
 
-onBeforeRouteLeave(() => {
-  if (skipNextRouteGuard || leaveConfirmed) return true
-  return requestAiConfigPageClose()
-})
+onBeforeRouteLeave(leaveNavigation.allowRouteLeave)
 
 onMounted(() => {
   window.addEventListener('beforeunload', handleBeforeUnload)
+  void preloadProjectListPage()
 })
 
 onBeforeUnmount(() => {

@@ -139,6 +139,10 @@
 <script setup>
 import { computed } from 'vue'
 import { Check, Close, Expand, Fold, Loading, Minus, Plus, WarningFilled } from '@element-plus/icons-vue'
+import {
+  describeOverflowTaskCopy,
+  navStepLabel,
+} from '@/components/filmCreate/filmCreateQuickNavCopy.js'
 
 const props = defineProps({
   navCollapsed: { type: Boolean, default: false },
@@ -152,26 +156,11 @@ const props = defineProps({
 
 const storyboardMenuExpanded = defineModel('storyboardMenuExpanded', { type: Boolean, default: false })
 
-function navStepStatusLabel(status) {
-  if (status === 'done') return '已完成'
-  if (status === 'partial') return '部分完成'
-  if (status === 'generating') return '生成中'
-  return '未开始'
-}
-
-function navStepLabel(step) {
-  return `跳转到${step.label}（${navStepStatusLabel(step.status)}）`
-}
-
-const overflowTaskItems = computed(() => (props.allActiveTaskItems || []).slice(8))
-const overflowTaskCount = computed(() => overflowTaskItems.value.length)
-const overflowTaskTitle = computed(() => overflowTaskItems.value.map((item) => item.label).filter(Boolean).join('\n'))
-const overflowTaskAriaLabel = computed(() => {
-  const labels = overflowTaskItems.value.map((item) => item.label).filter(Boolean).join('、')
-  return labels
-    ? `还有 ${overflowTaskCount.value} 个任务未列出：${labels}`
-    : `还有 ${overflowTaskCount.value} 个任务未列出`
-})
+const overflowTaskCopy = computed(() => describeOverflowTaskCopy(props.allActiveTaskItems))
+const overflowTaskItems = computed(() => overflowTaskCopy.value.items)
+const overflowTaskCount = computed(() => overflowTaskCopy.value.count)
+const overflowTaskTitle = computed(() => overflowTaskCopy.value.title)
+const overflowTaskAriaLabel = computed(() => overflowTaskCopy.value.ariaLabel)
 
 const emit = defineEmits([
   'toggle-nav',

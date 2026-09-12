@@ -8,6 +8,7 @@ import {
   click,
   compileIconStub,
   createHostRenderer,
+  findByClass,
   loadCompiledSfc,
   mountHarness,
   textContent,
@@ -34,33 +35,42 @@ function mountEmpty(initial = {}) {
     networkError: initial.networkError ?? '',
     networkSearched: Boolean(initial.networkSearched),
     networkItems: initial.networkItems ?? [],
+    searchNetworkMedia: () => events.push(['search']),
     clearNetworkSearch: () => events.push(['clear']),
   }))
   return { ...mounted, events }
 }
 
-test('\u672a\u641c\u7d22\u7a7a\u6001\u8bf4\u660e\u4f1a\u9644\u5e26\u6765\u6e90\u548c\u8bb8\u53ef\u4fe1\u606f', async () => {
+test('未搜索空态说明会附带来源和许可信息', async () => {
   const harness = mountEmpty()
   try {
     await nextTick()
     const copy = textContent(harness.root)
-    assert.match(copy, /\u641c\u7d22\u53ef\u5bfc\u5165\u7684\u7f51\u7edc\u7d20\u6750/)
-    assert.match(copy, /\u8bb8\u53ef/)
+    assert.match(copy, /搜索可导入的网络素材/)
+    assert.match(copy, /许可/)
     assert.doesNotMatch(copy, /No data|Search results|Network Error/i)
+    const [empty] = findByClass(harness.root, 'network-empty')
+    assert.equal(empty.props.role, 'status')
+    assert.equal(empty.props['aria-live'], 'polite')
+    assert.equal(buttonByAriaLabel(harness.root, '重新搜索网络素材'), undefined)
   } finally {
     harness.app.unmount()
   }
 })
 
-test('\u6ca1\u6709\u7ed3\u679c\u65f6\u6e05\u9664\u641c\u7d22\u662f\u4e2d\u6587\uff0c\u4e0d\u6f0f\u82f1\u6587', async () => {
+test('没有结果时可以重新搜索或清除搜索，不漏英文', async () => {
   const harness = mountEmpty({ networkSearched: true, networkItems: [] })
   try {
     await nextTick()
     const copy = textContent(harness.root)
-    assert.match(copy, /\u6ca1\u6709\u627e\u5230\u5339\u914d\u7684\u7f51\u7edc\u7d20\u6750/)
+    assert.match(copy, /没有找到匹配的网络素材/)
     assert.doesNotMatch(copy, /No results|Clear search|canceled|AbortError/i)
-    click(buttonByAriaLabel(harness.root, '\u6e05\u9664\u7f51\u7edc\u7d20\u6750\u641c\u7d22'))
-    assert.deepEqual(harness.events, [['clear']])
+    const [empty] = findByClass(harness.root, 'network-empty')
+    assert.equal(empty.props.role, 'status')
+    assert.equal(empty.props['aria-live'], 'polite')
+    click(buttonByAriaLabel(harness.root, '重新搜索网络素材'))
+    click(buttonByAriaLabel(harness.root, '清除网络素材搜索'))
+    assert.deepEqual(harness.events, [['search'], ['clear']])
   } finally {
     harness.app.unmount()
   }

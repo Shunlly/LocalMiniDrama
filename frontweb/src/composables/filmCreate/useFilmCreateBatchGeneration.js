@@ -6,69 +6,10 @@ import {
   buildStoryboardVideoRequest,
   videoConfigSupportsGridReference,
 } from '@/utils/storyboardVideoRequest'
+import { hasActiveMediaGenerationWork } from './filmCreateActiveMediaWork.js'
+import { recordBatchPollFailure } from './filmCreateBatchPoll.js'
 
-function isCancelledPollStatus(status) {
-  const value = String(status || '').toLowerCase()
-  return value === 'cancelled' || value === 'canceled'
-}
-
-function recordBatchPollFailure(errorsRef, progressRef, sb, pollRes, stoppingRef) {
-  const status = String(pollRes?.status || '').toLowerCase()
-  if (!status || status === 'completed') return false
-  if (isCancelledPollStatus(status) && stoppingRef?.value) return false
-  let message = toUserFacingError(pollRes.error, '生成未完成')
-  if (status === 'failed') message = toUserFacingError(pollRes.error, '生成失败')
-  else if (status === 'timeout') message = toUserFacingError(pollRes.error, '生成超时，请稍后重试')
-  else if (isCancelledPollStatus(status)) message = toUserFacingError(pollRes.error, '操作已取消')
-  errorsRef.value.push(`#${sb.storyboard_number ?? sb.id}: ${message}`)
-  progressRef.value = { ...progressRef.value, failed: progressRef.value.failed + 1 }
-  return true
-}
-
-function readActiveFlag(value) {
-  if (value == null) return false
-  if (typeof value === 'object' && 'value' in value) return Boolean(value.value)
-  return Boolean(value)
-}
-
-function hasActiveIdCollection(value) {
-  if (value == null) return false
-  const collection = typeof value === 'object' && 'value' in value ? value.value : value
-  if (collection == null) return false
-  if (typeof collection.size === 'number') return collection.size > 0
-  if (typeof collection.length === 'number') return collection.length > 0
-  return false
-}
-
-function hasRunningTaskList(value) {
-  if (value == null) return false
-  const list = typeof value === 'object' && 'value' in value ? value.value : value
-  if (list == null) return false
-  if (typeof list.size === 'number') return list.size > 0
-  if (typeof list.length === 'number') return list.length > 0
-  return false
-}
-
-/** 批量/单条生图、生视频、配音、超分、角色/场景/道具/全景，以及任务中心里的进行中任务。不含普通编辑。 */
-export function hasActiveMediaGenerationWork(state = {}) {
-  return readActiveFlag(state.batchImageRunning)
-    || readActiveFlag(state.batchImageStopping)
-    || readActiveFlag(state.batchVideoRunning)
-    || readActiveFlag(state.batchVideoStopping)
-    || hasActiveIdCollection(state.generatingSbImageIds)
-    || hasActiveIdCollection(state.generatingSbVideoIds)
-    || hasActiveIdCollection(state.generatingSbFirstImageIds)
-    || hasActiveIdCollection(state.generatingSbLastImageIds)
-    || hasActiveIdCollection(state.generatingUniversalSegmentIds)
-    || hasActiveIdCollection(state.ttsSbIds)
-    || hasActiveIdCollection(state.ttsSbNarrationIds)
-    || hasActiveIdCollection(state.upscalingSbIds)
-    || hasActiveIdCollection(state.generatingCharIds)
-    || hasActiveIdCollection(state.generatingSceneIds)
-    || hasActiveIdCollection(state.generatingPropIds)
-    || hasActiveIdCollection(state.generatingPanoramaIds)
-    || hasRunningTaskList(state.runningGenerationTasks)
-}
+export { hasActiveMediaGenerationWork }
 
 export function useFilmCreateBatchGeneration(deps = {}) {
   const {

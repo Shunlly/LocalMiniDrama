@@ -9,7 +9,7 @@
     <div class="canvas-load-failure-card">
       <p class="canvas-load-eyebrow">项目加载失败</p>
       <h1 class="canvas-load-title">当前画布暂时无法打开</h1>
-      <p class="canvas-load-message">{{ error }}</p>
+      <p class="canvas-load-message">{{ displayError }}</p>
       <p class="canvas-load-detail">
         {{ notFound ? '项目可能已移入回收站或已删除。' : '请确认本地服务可用后，在当前页面直接重试。' }}
       </p>
@@ -22,9 +22,10 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
+import { toCanvasChineseMessage } from './canvasExperienceCopy.js'
 
-defineProps({
+const props = defineProps({
   loading: { type: Boolean, default: false },
   error: { type: String, default: '' },
   notFound: { type: Boolean, default: false },
@@ -32,6 +33,9 @@ defineProps({
   goProjectList: { type: Function, required: true },
 })
 
+const displayError = computed(() => (
+  toCanvasChineseMessage(props.error, '当前画布暂时无法打开')
+))
 const rootRef = ref(null)
 
 // 加载 composable 仍对 canvasLoadFailureRef.focus() 调用，组件实例需转发到可聚焦根节点

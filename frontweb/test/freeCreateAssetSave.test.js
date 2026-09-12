@@ -119,6 +119,23 @@ test('没有本地文件时不能保存，并给出中文原因', () => {
   const item = { type: 'image', url: 'https://cdn.example/remote.png', prompt: '云' }
   assert.equal(getFreeCreateSaveDisabledReason(item), '该结果还没有可保存的本地文件')
   assert.match(getFreeCreateSaveAriaLabel(item), /保存到素材中心不可用：该结果还没有可保存的本地文件/)
+  assert.equal(
+    getFreeCreateSaveAriaLabel({
+      url: '/static/library/images/a.png',
+      localPath: 'library/images/a.png',
+      assetSaveError: '保存到素材中心失败，请稍后重试',
+    }),
+    '重试保存到全局素材中心',
+  )
+  assert.equal(
+    getFreeCreateSaveAriaLabel({
+      url: '/static/library/images/a.png',
+      localPath: 'library/images/a.png',
+      assetId: 77,
+      assetSaveError: '保存到素材中心失败，请稍后重试',
+    }),
+    '已保存到全局素材中心',
+  )
   assert.throws(
     () => buildFreeCreateAssetPayload(item, null),
     /该结果还没有可保存的本地文件/,

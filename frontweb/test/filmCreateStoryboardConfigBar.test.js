@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs'
 
 import { compileScript, parse } from '@vue/compiler-sfc'
 
-import { remainingExtractNamedFunction } from './helpers/remainingSourceBetween.js'
+import { describeStoryboardConfigControls } from '../src/components/filmCreate/filmCreateStoryboardConfigBarCopy.js'
 
 const panelSource = readFileSync(
   new URL('../src/components/filmCreate/FilmCreateStoryboardPanel.vue', import.meta.url),
@@ -13,17 +13,18 @@ const panelSource = readFileSync(
   new URL('../src/components/filmCreate/FilmCreateStoryboardPanel.css', import.meta.url),
   'utf8',
 )
-const configBarSource = readFileSync(
+const configBarVue = readFileSync(
   new URL('../src/components/filmCreate/FilmCreateStoryboardConfigBar.vue', import.meta.url),
   'utf8',
 ).replace(/\r\n?/g, '\n')
-
-const describeStoryboardConfigControls = new Function(
-  `'use strict'; ${remainingExtractNamedFunction(configBarSource, 'describeStoryboardConfigControls')}; return describeStoryboardConfigControls;`,
-)()
+const configBarCopy = readFileSync(
+  new URL('../src/components/filmCreate/filmCreateStoryboardConfigBarCopy.js', import.meta.url),
+  'utf8',
+).replace(/\r\n?/g, '\n')
+const configBarSource = configBarVue + '\n' + configBarCopy
 
 test('分镜配置条可独立编译', () => {
-  const parsed = parse(configBarSource, { filename: 'FilmCreateStoryboardConfigBar.vue' })
+  const parsed = parse(configBarVue, { filename: 'FilmCreateStoryboardConfigBar.vue' })
   assert.deepEqual(parsed.errors, [])
   assert.doesNotThrow(() => compileScript(parsed.descriptor, { id: 'storyboard-config-bar' }))
 })

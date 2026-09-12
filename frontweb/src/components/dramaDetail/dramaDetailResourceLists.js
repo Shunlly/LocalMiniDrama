@@ -4,6 +4,10 @@
  */
 import { ref } from 'vue'
 
+export function dramaDetailResourceDeletedMessage(name) {
+  return '已删除「' + name + '」。可以从素材库重新导入，或在制作页提取后再入库。'
+}
+
 export function createDramaDetailResourceLists({
   dramaId,
   characterLibraryAPI,
@@ -50,8 +54,8 @@ export function createDramaDetailResourceLists({
     } catch (e) { ElMessage.error(dramaDetailUserError(e, '保存失败')) } finally { editCharSaving.value = false }
   }
   async function deleteChar(item) {
-    try { await ElMessageBox.confirm(`确定删除「${(item.name || '未命名').slice(0, 20)}」？`, '删除确认', { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' }) } catch { return }
-    try { await characterLibraryAPI.delete(item.id); ElMessage.success('已删除'); loadCharList() } catch (e) { ElMessage.error(dramaDetailUserError(e, '删除失败')) }
+    try { await ElMessageBox.confirm(`确定删除「${(item.name || '未命名').slice(0, 20)}」？`, '删除确认', { type: 'warning', confirmButtonText: '删除该角色', cancelButtonText: '取消删除' }) } catch { return }
+    try { await characterLibraryAPI.delete(item.id); ElMessage.success(dramaDetailResourceDeletedMessage((item.name || '未命名').slice(0, 20))); loadCharList() } catch (e) { ElMessage.error(dramaDetailUserError(e, '删除失败')) }
   }
 
   // 场景
@@ -82,8 +86,8 @@ export function createDramaDetailResourceLists({
   }
   async function deleteScene(item) {
     const n = (item.location || item.time || '未命名').slice(0, 20)
-    try { await ElMessageBox.confirm(`确定删除「${n}」？`, '删除确认', { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' }) } catch { return }
-    try { await sceneLibraryAPI.delete(item.id); ElMessage.success('已删除'); loadSceneList() } catch (e) { ElMessage.error(dramaDetailUserError(e, '删除失败')) }
+    try { await ElMessageBox.confirm(`确定删除「${n}」？`, '删除确认', { type: 'warning', confirmButtonText: '删除该场景', cancelButtonText: '取消删除' }) } catch { return }
+    try { await sceneLibraryAPI.delete(item.id); ElMessage.success(dramaDetailResourceDeletedMessage(n)); loadSceneList() } catch (e) { ElMessage.error(dramaDetailUserError(e, '删除失败')) }
   }
 
   // 道具
@@ -113,8 +117,8 @@ export function createDramaDetailResourceLists({
     } catch (e) { ElMessage.error(dramaDetailUserError(e, '保存失败')) } finally { editPropSaving.value = false }
   }
   async function deleteProp(item) {
-    try { await ElMessageBox.confirm(`确定删除「${(item.name || '未命名').slice(0, 20)}」？`, '删除确认', { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' }) } catch { return }
-    try { await propLibraryAPI.delete(item.id); ElMessage.success('已删除'); loadPropList() } catch (e) { ElMessage.error(dramaDetailUserError(e, '删除失败')) }
+    try { await ElMessageBox.confirm(`确定删除「${(item.name || '未命名').slice(0, 20)}」？`, '删除确认', { type: 'warning', confirmButtonText: '删除该道具', cancelButtonText: '取消删除' }) } catch { return }
+    try { await propLibraryAPI.delete(item.id); ElMessage.success(dramaDetailResourceDeletedMessage((item.name || '未命名').slice(0, 20))); loadPropList() } catch (e) { ElMessage.error(dramaDetailUserError(e, '删除失败')) }
   }
 
   return {

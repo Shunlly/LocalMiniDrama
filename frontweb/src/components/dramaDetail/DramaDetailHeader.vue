@@ -6,7 +6,10 @@
           <span class="logo-sub">LocalMiniDrama</span>
         </button>
         <span class="breadcrumb-sep">›</span>
-        <span class="page-title">{{ pageTitle }}</span>
+        <div class="header-context">
+          <span class="header-context-label">项目</span>
+          <h1 class="page-title">{{ pageTitle }}</h1>
+        </div>
         <el-button class="btn-back-list" aria-label="返回项目列表" @click="emit('go-list')">
           <el-icon aria-hidden="true"><ArrowLeft /></el-icon>返回项目列表
         </el-button>
@@ -154,7 +157,22 @@ html.light .drama-detail .logo-sub {
   user-select: none;
 }
 html.light .breadcrumb-sep { color: #d1d5db; }
+.header-context {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 6px;
+}
+.header-context-label {
+  flex-shrink: 0;
+  color: #71717a;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+}
+html.light .header-context-label { color: #6b7280; }
 .page-title {
+  margin: 0;
   font-size: 0.88rem;
   font-weight: 500;
   color: #a1a1aa;
@@ -217,7 +235,7 @@ html.light .btn-theme {
     flex-wrap: wrap;
   }
   .breadcrumb-sep,
-  .page-title {
+  .header-context {
     display: none;
   }
   .btn-back-list {

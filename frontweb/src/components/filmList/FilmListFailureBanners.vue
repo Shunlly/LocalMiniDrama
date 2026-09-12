@@ -13,7 +13,7 @@
       <h2>{{ listIsStale ? '项目列表刷新失败' : '项目数据加载失败' }}</h2>
       <p>暂时无法确认服务器中的最新项目。您的项目数据没有被删除。</p>
       <p v-if="listIsStale" class="data-load-state__stale">下方显示上次成功加载的数据，当前内容已过期；成功重试前不能新增、导入、编辑或移除项目。</p>
-      <p v-else class="data-load-state__detail">项目空态不会在连接恢复前显示，也不会执行任何项目写操作。</p>
+      <p v-else class="data-load-state__detail">请先重试加载。成功后即可新建或导入项目。</p>
       <p class="data-load-state__detail">错误详情：{{ listError }}</p>
     </div>
     <el-button type="primary" plain :loading="loading" :aria-label="loading ? '正在加载项目列表' : '重试加载'" @click="loadList">

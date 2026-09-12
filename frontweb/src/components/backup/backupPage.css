@@ -137,3 +137,7 @@
   outline: 2px solid var(--el-color-primary, #818cf8);
   outline-offset: 2px;
 }
+
+.data-load-state__hint {
+  color: var(--text-primary, var(--text-bright, #e4e4e7));
+}

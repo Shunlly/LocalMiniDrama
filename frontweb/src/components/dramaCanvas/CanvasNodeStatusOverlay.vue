@@ -15,6 +15,7 @@
 <script setup>
 import { computed } from 'vue'
 import { useCanvasContext } from '@/composables/useCanvasContext'
+import { toCanvasChineseMessage } from './canvasExperienceCopy.js'
 
 const props = defineProps({
   nodeId: { type: String, required: true },
@@ -35,7 +36,8 @@ const visible = computed(() => Boolean(status.value || fallbackText.value))
 
 const displayMessage = computed(() => {
   const fromStatus = String(status.value?.message || '').trim()
-  return fromStatus || fallbackText.value || '处理中…'
+  const fallback = fallbackText.value || '处理中…'
+  return toCanvasChineseMessage(fromStatus, fallback)
 })
 
 const stepClass = computed(() => status.value?.step || 'busy')

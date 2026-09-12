@@ -6,9 +6,14 @@ import { computed, defineComponent, h, nextTick, ref } from 'vue'
 import { backupAccessState } from '../src/composables/useBackupSettings.js'
 import {
   BACKUP_LEAVE_CONFIRM_MESSAGE,
+  BACKUP_READY_NOT_SPA_HINT,
+  BACKUP_READY_SPA_HTML_MESSAGE,
+  BACKUP_RESTORE_CANCEL_TEXT,
   confirmBackupLeave,
+  describeBackupReadinessDisplayError,
   getBackupRestoreLockReason,
   getBackupWriteLockReason,
+  looksLikeBackupReadySpaHtmlFailure,
 } from '../src/components/backup/backupPageCopy.js'
 import {
   buttonByAriaLabel,
@@ -62,9 +67,11 @@ const backupSettingsStubUrl = dataModule(`
   }
 `)
 
+const backupPageCopyUrl = new URL('../src/components/backup/backupPageCopy.js', import.meta.url).href
 const backupChildReplacements = new Map([
   ['vue', vueUrl],
   ['@element-plus/icons-vue', iconStubUrl],
+  ['./backupPageCopy.js', backupPageCopyUrl],
 ])
 function compileBackupChild(name, id) {
   return compileSfc(new URL(`../src/components/backup/${name}`, import.meta.url), id, backupChildReplacements)
@@ -600,6 +607,142 @@ test('备份页创建锁定时用 aria-describedby 关联中文原因', async ()
     const [reason] = findAll(harness.root, (node) => node.props.id === 'backup-header-lock-reason')
     assert.ok(reason)
     assert.match(textContent(reason), /正在创建备份/)
+  } finally {
+    harness.app.unmount()
+    resetVueRouterHarness()
+    delete globalThis.__backupPageSettings
+  }
+})
+
+test('取消恢复文案仍是取消恢复备份，离开确认为中文', () => {
+  assert.equal(BACKUP_RESTORE_CANCEL_TEXT, '\u53d6\u6d88\u6062\u590d\u5907\u4efd')
+  assert.match(BACKUP_LEAVE_CONFIRM_MESSAGE, /[\u4e00-\u9fff]/)
+  assert.match(BACKUP_LEAVE_CONFIRM_MESSAGE, /\u79bb\u5f00/)
+  assert.doesNotMatch(BACKUP_LEAVE_CONFIRM_MESSAGE, /leave|unload|busy|confirm/i)
+  assert.equal(confirmBackupLeave(false, () => { throw new Error('should not confirm') }), true)
+})
+
+test('空闲时离开备份页不弹确认', async () => {
+  const originalConfirm = window.confirm
+  const harness = mountBackup({
+    hasSuccessfulListLoad: true,
+    hasSuccessfulReadinessLoad: true,
+    readiness: { ready: true, maintenanceError: '' },
+  })
+  try {
+    await nextTick()
+    window.confirm = () => { throw new Error('should not confirm') }
+    let allowed
+    await harness.router.leaveGuards[0]({}, {}, (value) => { allowed = value })
+    assert.equal(allowed, true)
+    assert.equal(harness.leaveRegistrations[0].handlers.shouldBlockUnload(), false)
+    assert.equal(await harness.leaveRegistrations[0].handlers.confirmLeave(), true)
+  } finally {
+    window.confirm = originalConfirm
+    harness.app.unmount()
+    resetVueRouterHarness()
+    delete globalThis.__backupPageSettings
+  }
+})
+
+test('恢复进行中离开也弹中文确认', async () => {
+  const originalConfirm = window.confirm
+  const harness = mountBackup({
+    restoring: true,
+    hasSuccessfulListLoad: true,
+    hasSuccessfulReadinessLoad: true,
+    readiness: { ready: true, maintenanceError: '' },
+  })
+  try {
+    await nextTick()
+    window.confirm = (message) => {
+      assert.equal(message, BACKUP_LEAVE_CONFIRM_MESSAGE)
+      return false
+    }
+    let allowed
+    await harness.router.leaveGuards[0]({}, {}, (value) => { allowed = value })
+    assert.equal(allowed, false)
+    assert.equal(harness.leaveRegistrations[0].handlers.shouldBlockUnload(), true)
+  } finally {
+    window.confirm = originalConfirm
+    harness.app.unmount()
+    resetVueRouterHarness()
+    delete globalThis.__backupPageSettings
+  }
+})
+
+test('就绪失败能区分 /ready 与 SPA HTML', () => {
+  assert.equal(looksLikeBackupReadySpaHtmlFailure(''), false)
+  assert.equal(looksLikeBackupReadySpaHtmlFailure('\u7ef4\u62a4\u670d\u52a1\u6682\u65f6\u4e0d\u53ef\u7528\uff08HTTP 503\uff09'), false)
+  assert.equal(looksLikeBackupReadySpaHtmlFailure('\u7ef4\u62a4\u670d\u52a1\u6682\u65f6\u4e0d\u53ef\u7528\uff08HTTP 200\uff09'), true)
+  assert.equal(looksLikeBackupReadySpaHtmlFailure('<!DOCTYPE html><html><div id="app">app</div></html>'), true)
+  assert.equal(
+    describeBackupReadinessDisplayError('\u7ef4\u62a4\u670d\u52a1\u6682\u65f6\u4e0d\u53ef\u7528\uff08HTTP 200\uff09'),
+    BACKUP_READY_SPA_HTML_MESSAGE,
+  )
+  assert.equal(
+    describeBackupReadinessDisplayError('\u7ef4\u62a4\u670d\u52a1\u6682\u65f6\u4e0d\u53ef\u7528\uff08HTTP 503\uff09'),
+    '\u7ef4\u62a4\u670d\u52a1\u6682\u65f6\u4e0d\u53ef\u7528\uff08HTTP 503\uff09',
+  )
+  assert.match(BACKUP_READY_NOT_SPA_HINT, /\/ready/)
+  assert.match(BACKUP_READY_NOT_SPA_HINT, /SPA HTML/)
+  assert.doesNotMatch(BACKUP_READY_SPA_HTML_MESSAGE, /<!DOCTYPE html/i)
+})
+
+test('就绪 HTTP 200 会说明 /ready 返回了前端页面', async () => {
+  const harness = mountBackup({
+    readinessError: '\u7ef4\u62a4\u670d\u52a1\u6682\u65f6\u4e0d\u53ef\u7528\uff08HTTP 200\uff09',
+    hasSuccessfulReadinessLoad: false,
+  })
+  try {
+    await nextTick()
+    const pageText = textContent(harness.root)
+    assert.match(pageText, /\u7ef4\u62a4\u72b6\u6001\u52a0\u8f7d\u5931\u8d25/)
+    assert.match(pageText, /\/ready/)
+    assert.match(pageText, /SPA HTML/)
+    assert.ok(pageText.includes(BACKUP_READY_NOT_SPA_HINT))
+    assert.ok(pageText.includes(BACKUP_READY_SPA_HTML_MESSAGE))
+    assert.doesNotMatch(pageText, /HTTP 200/)
+    assert.doesNotMatch(pageText, /<!DOCTYPE html/i)
+  } finally {
+    harness.app.unmount()
+    resetVueRouterHarness()
+    delete globalThis.__backupPageSettings
+  }
+})
+
+test('就绪 HTTP 503 仍指向 /ready，不误判 SPA HTML', async () => {
+  const harness = mountBackup({
+    readinessError: '\u7ef4\u62a4\u670d\u52a1\u6682\u65f6\u4e0d\u53ef\u7528\uff08HTTP 503\uff09',
+    hasSuccessfulReadinessLoad: false,
+  })
+  try {
+    await nextTick()
+    const pageText = textContent(harness.root)
+    assert.match(pageText, /\u7ef4\u62a4\u72b6\u6001\u52a0\u8f7d\u5931\u8d25/)
+    assert.match(pageText, /\/ready/)
+    assert.ok(pageText.includes(BACKUP_READY_NOT_SPA_HINT))
+    assert.match(pageText, /HTTP 503/)
+    assert.equal(pageText.includes(BACKUP_READY_SPA_HTML_MESSAGE), false)
+  } finally {
+    harness.app.unmount()
+    resetVueRouterHarness()
+    delete globalThis.__backupPageSettings
+  }
+})
+
+test('就绪失败不把 SPA HTML 正文渲进页面', async () => {
+  const harness = mountBackup({
+    readinessError: '<!DOCTYPE html><html><div id="app">\u672c\u5730\u77ed\u5267\u52a9\u624b</div></html>',
+    hasSuccessfulReadinessLoad: false,
+  })
+  try {
+    await nextTick()
+    const pageText = textContent(harness.root)
+    assert.match(pageText, /\/ready/)
+    assert.ok(pageText.includes(BACKUP_READY_SPA_HTML_MESSAGE))
+    assert.doesNotMatch(pageText, /\u672c\u5730\u77ed\u5267\u52a9\u624b/)
+    assert.doesNotMatch(pageText, /<!DOCTYPE html/i)
   } finally {
     harness.app.unmount()
     resetVueRouterHarness()

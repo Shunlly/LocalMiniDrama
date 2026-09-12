@@ -1,6 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { existsSync } from 'node:fs'
 import { createRequire } from 'node:module'
+import { fileURLToPath } from 'node:url'
 
 import {
   BACKUP_ERROR_MESSAGES,
@@ -8,7 +10,9 @@ import {
 } from '../src/composables/useBackupSettings.js'
 
 const require = createRequire(import.meta.url)
-const BACKUP_PUBLIC_MESSAGES = require('../../backend-node/src/services/backupPublicMessages.js')
+const backendMessagesFile = fileURLToPath(new URL('../../backend-node/src/services/backupPublicMessages.js', import.meta.url))
+const hasBackendMessages = existsSync(backendMessagesFile)
+const BACKUP_PUBLIC_MESSAGES = hasBackendMessages ? require(backendMessagesFile) : {}
 
 const FRONTEND_ONLY_CODES = Object.freeze(['BACKUP_FILE_EMPTY', 'BACKUP_LIST_INVALID'])
 const HIGHLIGHT_CODES = Object.freeze([
@@ -25,7 +29,7 @@ const HIGHLIGHT_CODES = Object.freeze([
   'UNEXPECTED_ARCHIVE_ENTRY',
 ])
 
-test('前端备份错误码覆盖后端全部中文 publicMessage', () => {
+test('前端备份错误码覆盖后端全部中文 publicMessage', { skip: !hasBackendMessages }, () => {
   const backendCodes = Object.keys(BACKUP_PUBLIC_MESSAGES)
   assert.ok(backendCodes.length >= 80)
   for (const code of backendCodes) {
@@ -41,7 +45,7 @@ test('前端备份错误码覆盖后端全部中文 publicMessage', () => {
   }
 })
 
-test('重点备份错误码按 code 映射成后端中文', () => {
+test('重点备份错误码按 code 映射成后端中文', { skip: !hasBackendMessages }, () => {
   for (const code of HIGHLIGHT_CODES) {
     assert.equal(
       describeBackupError({

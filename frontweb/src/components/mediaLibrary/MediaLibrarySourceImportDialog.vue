@@ -41,6 +41,7 @@
         v-else-if="hasSuccessfulLoad && projects.length === 0"
         class="source-import-state"
         role="status"
+        aria-live="polite"
       >
         <h2>{{ keyword.trim() ? '没有匹配的项目' : '还没有可导入的项目' }}</h2>
         <p>{{ keyword.trim() ? '请更换关键词后再试。' : '请先新建项目，再回到素材中心选择目标项目。' }}</p>

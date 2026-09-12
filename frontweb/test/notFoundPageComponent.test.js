@@ -91,3 +91,66 @@ test('有可返回上一页时，返回项目列表仍然保留独立读屏名�
     resetVueRouterHarness()
   }
 })
+
+test('制作页深链接失效时展示中文原因和下一步', async () => {
+  const harness = mountNotFound({
+    query: { from: '/film/abc' },
+    fullPath: '/not-found?from=/film/abc',
+  })
+  try {
+    await nextTick()
+    const home = buttonByText(harness.root, '返回项目列表')
+    assert.ok(home)
+    assert.equal(home.props['aria-label'], '返回项目列表')
+    assert.match(textContent(harness.root), /无法打开地址 \/film\/abc/)
+    assert.match(textContent(harness.root), /制作页深链接已失效/)
+    assert.match(textContent(harness.root), /项目编号不正确，无法进入制作/)
+    assert.match(textContent(harness.root), /下一步：回到项目列表，从项目卡片重新打开制作页。/)
+    assert.equal(buttonByText(harness.root, '返回上一页'), undefined)
+    click(home)
+    assert.deepEqual(harness.router.calls, [['replace', { name: 'list' }]])
+  } finally {
+    harness.app.unmount()
+    resetVueRouterHarness()
+  }
+})
+
+test('详情深链接失效时展示中文原因和下一步', async () => {
+  const harness = mountNotFound({
+    query: { from: '/drama/0' },
+    fullPath: '/not-found?from=/drama/0',
+  })
+  try {
+    await nextTick()
+    assert.match(textContent(harness.root), /无法打开地址 \/drama\/0/)
+    assert.match(textContent(harness.root), /项目详情深链接已失效/)
+    assert.match(textContent(harness.root), /下一步：回到项目列表，从项目卡片重新进入详情。/)
+    const home = buttonByText(harness.root, '返回项目列表')
+    assert.ok(home)
+    assert.equal(home.props['aria-label'], '返回项目列表')
+  } finally {
+    harness.app.unmount()
+    resetVueRouterHarness()
+  }
+})
+
+test('未知路径进入命名 404 后说明地址不在应用里', async () => {
+  const harness = mountNotFound({
+    name: 'not-found-catchall',
+    fullPath: '/this-page-does-not-exist',
+    query: {},
+  })
+  try {
+    await nextTick()
+    assert.match(textContent(harness.root), /无法打开地址 \/this-page-does-not-exist/)
+    assert.match(textContent(harness.root), /这个地址不在应用里/)
+    assert.match(textContent(harness.root), /可以回到项目列表继续制作/)
+    const home = buttonByText(harness.root, '返回项目列表')
+    assert.ok(home)
+    click(home)
+    assert.deepEqual(harness.router.calls, [['replace', { name: 'list' }]])
+  } finally {
+    harness.app.unmount()
+    resetVueRouterHarness()
+  }
+})

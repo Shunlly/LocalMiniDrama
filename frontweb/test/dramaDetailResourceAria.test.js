@@ -7,6 +7,7 @@ const library = read('../src/components/dramaDetail/DramaDetailResourceLibrary.v
 const charEdit = read('../src/components/dramaDetail/DramaDetailCharacterEditDialogs.vue')
 const sceneEdit = read('../src/components/dramaDetail/DramaDetailSceneEditDialogs.vue')
 const propEdit = read('../src/components/dramaDetail/DramaDetailPropEditDialogs.vue')
+const dialogs = read('../src/components/dramaDetail/DramaDetailResourceDialogs.vue')
 const canvasActions = read('../src/components/dramaCanvas/CanvasStoryboardPanelActions.vue')
 const contextMenu = read('../src/components/dramaCanvas/CanvasContextMenu.vue')
 
@@ -22,10 +23,20 @@ test('详情页资源库标签和列表操作带中文名称', () => {
 })
 
 test('详情页编辑弹窗取消和保存有中文名称', () => {
+  assert.match(charEdit, /aria-label="取消编辑制作角色"/)
   assert.match(charEdit, /aria-label="取消编辑角色"/)
+  assert.match(charEdit, /'保存制作角色'/)
   assert.match(charEdit, /'保存角色'/)
+  assert.match(sceneEdit, /aria-label="取消编辑制作场景"/)
   assert.match(sceneEdit, /aria-label="取消编辑场景"/)
+  assert.match(sceneEdit, /'保存制作场景'/)
+  assert.match(sceneEdit, /'保存场景'/)
+  assert.match(propEdit, /aria-label="取消编辑制作道具"/)
+  assert.match(propEdit, /aria-label="取消编辑道具"/)
+  assert.match(propEdit, /'保存制作道具'/)
   assert.match(propEdit, /'保存道具'/)
+  assert.match(dialogs, /取消导入\$\{importTypeLabel\(importType\)\}/)
+  assert.match(dialogs, /前往制作页新增并入库/)
 })
 
 test('画布分镜操作条和右键菜单使用中文动作名', () => {

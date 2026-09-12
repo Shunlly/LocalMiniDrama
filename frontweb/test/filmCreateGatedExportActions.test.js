@@ -5,24 +5,30 @@ import { readFileSync } from 'node:fs'
 import { useFilmCreateDeliveryActions } from '../src/composables/filmCreate/useFilmCreateDeliveryActions.js'
 import { useFilmCreateMediaPreview } from '../src/composables/filmCreate/useFilmCreateMediaPreview.js'
 import { useFilmCreateProjectLoadSurface } from '../src/composables/filmCreate/useFilmCreateProjectLoadSurface.js'
-import { remainingExtractNamedFunction } from './helpers/remainingSourceBetween.js'
+import { describeOutputVideoSettingsLock } from '../src/components/filmCreate/filmCreateOutputSectionCopy.js'
 
 const storyboardPanel = readFileSync(new URL('../src/components/filmCreate/FilmCreateStoryboardPanel.vue', import.meta.url), 'utf8') + '\n' + readFileSync(new URL('../src/components/filmCreate/FilmCreateStoryboardPanel.css', import.meta.url), 'utf8')
-const storyboardConfigBar = readFileSync(new URL('../src/components/filmCreate/FilmCreateStoryboardConfigBar.vue', import.meta.url), 'utf8')
+const storyboardConfigBar = [
+  readFileSync(new URL('../src/components/filmCreate/FilmCreateStoryboardConfigBar.vue', import.meta.url), 'utf8'),
+  readFileSync(new URL('../src/components/filmCreate/filmCreateStoryboardConfigBarCopy.js', import.meta.url), 'utf8'),
+].join('\n')
 const scriptWorkbench = readFileSync(new URL('../src/components/filmCreate/FilmCreateScriptWorkbench.vue', import.meta.url), 'utf8')
 const resourcePanel = [
   readFileSync(new URL('../src/components/filmCreate/FilmCreateResourcePanel.vue', import.meta.url), 'utf8'),
   readFileSync(new URL('../src/components/filmCreate/FilmCreateCharacterBlock.vue', import.meta.url), 'utf8'),
   readFileSync(new URL('../src/components/filmCreate/FilmCreatePropBlock.vue', import.meta.url), 'utf8'),
   readFileSync(new URL('../src/components/filmCreate/FilmCreateSceneBlock.vue', import.meta.url), 'utf8'),
+  readFileSync(new URL('../src/components/filmCreate/filmCreateResourcePanelCopy.js', import.meta.url), 'utf8'),
 ].join('\n')
-const outputSection = readFileSync(new URL('../src/components/filmCreate/FilmCreateOutputSection.vue', import.meta.url), 'utf8')
-const deliveryPanel = readFileSync(new URL('../src/components/filmCreate/FilmCreateDeliveryPanel.vue', import.meta.url), 'utf8')
+const outputSection = [
+  readFileSync(new URL('../src/components/filmCreate/FilmCreateOutputSection.vue', import.meta.url), 'utf8'),
+  readFileSync(new URL('../src/components/filmCreate/filmCreateOutputSectionCopy.js', import.meta.url), 'utf8'),
+].join('\n')
+const deliveryPanel = [
+  readFileSync(new URL('../src/components/filmCreate/FilmCreateDeliveryPanel.vue', import.meta.url), 'utf8'),
+  readFileSync(new URL('../src/components/filmCreate/filmCreateDeliveryPanelCopy.js', import.meta.url), 'utf8'),
+].join('\n')
 const warningSource = readFileSync(new URL('../src/components/filmCreate/FilmCreateProjectDependencyWarning.vue', import.meta.url), 'utf8')
-
-const describeOutputVideoSettingsLock = new Function(
-  `'use strict'; ${remainingExtractNamedFunction(outputSection, 'describeOutputVideoSettingsLock')}; return describeOutputVideoSettingsLock;`,
-)()
 
 const DRAMA_ID = 11
 const EPISODE_ID = 22

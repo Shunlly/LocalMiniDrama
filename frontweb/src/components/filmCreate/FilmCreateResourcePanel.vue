@@ -161,10 +161,15 @@
   </div>
 </template>
 <script setup>
-import { toUserFacingError } from '@/utils/userFacingError'
 import { computed, ref } from 'vue'
 import { ArrowDown, ArrowUp } from '@element-plus/icons-vue'
 import ActionGate from '@/components/filmCreate/ActionGate.vue'
+import {
+  describeMissingScenePanoramaReason,
+  describeResourceAssetErrorText,
+  describeResourceMissingAssetImageReason,
+  describeSd2CertActionTitle,
+} from '@/components/filmCreate/filmCreateResourcePanelCopy.js'
 import FilmCreateCharacterBlock from '@/components/filmCreate/FilmCreateCharacterBlock.vue'
 import FilmCreatePropBlock from '@/components/filmCreate/FilmCreatePropBlock.vue'
 import FilmCreateSceneBlock from '@/components/filmCreate/FilmCreateSceneBlock.vue'
@@ -241,19 +246,11 @@ const emit = defineEmits([
 const { hasAssetImage, assetImageUrl } = props
 
 function missingAssetImageReason(item, kind) {
-  if (hasAssetImage(item)) return ''
-  if (kind === 'prop') return '请先为该道具生成或上传主图'
-  if (kind === 'scene') return '请先为该场景生成或上传主图'
-  return '请先为该角色生成或上传主图'
+  return describeResourceMissingAssetImageReason(item, kind, hasAssetImage(item))
 }
 
-/** 认证按钮的悬停帮助文案 */
 function sd2CertActionTitle(char) {
-  const status = String(char?.seedance2_asset?.status || '').toLowerCase()
-  if (status === 'active') return '查看认证资产详情'
-  if (status === 'processing') return '刷新认证资产状态'
-  if (status === 'failed') return '重新提交认证资产'
-  return '将角色主图登记为认证资产'
+  return describeSd2CertActionTitle(char)
 }
 
 function scenePanoramaUrl(scene) {
@@ -264,11 +261,11 @@ function scenePanoramaUrl(scene) {
 }
 
 function assetErrorText(asset) {
-  return toUserFacingError(asset?.error_msg || asset?.errorMsg, '生成失败')
+  return describeResourceAssetErrorText(asset)
 }
 
 function missingScenePanoramaReason(scene) {
-  return hasAssetImage(scene) ? '' : '请先为该场景生成或上传主图'
+  return describeMissingScenePanoramaReason(hasAssetImage(scene))
 }
 
 const EPISODE_REQUIRED_REASON = '请先创建或选择剧集'

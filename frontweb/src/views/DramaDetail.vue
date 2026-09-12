@@ -105,6 +105,7 @@ import { sceneAPI as rawSceneAPI } from '@/api/scenes'
 import { propAPI as rawPropAPI } from '@/api/props'
 import { buildProjectReadiness } from '@/utils/projectReadiness'
 import { normalizeProjectListReturnTo, projectRouteInstanceKey, resolveProjectEpisodeId } from '@/utils/projectListRoute'
+import { DRAMA_DETAIL_SECTION_IDS, describeDramaDetailDeepLink, stripDramaDetailDeepLinkQuery } from '@/components/dramaDetail/dramaDetailDeepLink.js'
 import { createProjectInstanceLifecycle } from '@/utils/projectInstanceLifecycle.js'
 
 const projectLifecycle = createProjectInstanceLifecycle()
@@ -403,6 +404,7 @@ const {
   loadDrama,
   episodeBatchImportDialogRef,
   dramaDetailUserError,
+  scrollToSection,
 })
 
 async function onAddEpisode() {
@@ -496,13 +498,27 @@ const {
 
 let handledRouteAnchor = ''
 watch(
-  () => [route.path, route.hash, Boolean(drama.value), sourceImportIntent.value],
-  async ([, , ready]) => {
-    const id = String(route.hash || '').replace(/^#/, '')
-    if (!ready || !['source-intake-workflow', 'episode-list', 'project-resources'].includes(id)) return
-    const key = `${route.path}#${id}:${sourceImportIntent.value ? 'source-url' : ''}`
+  () => [route.path, route.hash, route.query.episode, isDramaReady.value, episodes.value, sourceImportIntent.value],
+  async ([, , , ready]) => {
+    if (!ready) return
+    const recovery = describeDramaDetailDeepLink({
+      hash: route.hash,
+      episodeQuery: route.query.episode,
+      episodes: episodes.value,
+    })
+    const id = recovery?.scrollTo || String(route.hash || '').replace(/^#/, '')
+    const key = `${route.path}#${id}:${sourceImportIntent.value ? 'source-url' : ''}:${recovery?.kind || 'none'}:${String(route.query.episode || '')}`
     if (handledRouteAnchor === key) return
     handledRouteAnchor = key
+    if (recovery?.message) ElMessage.warning(recovery.message)
+    if (recovery?.dropHash || recovery?.dropEpisode) {
+      router.replace({
+        path: route.path,
+        query: stripDramaDetailDeepLinkQuery(route.query, recovery),
+        hash: recovery.dropHash ? '' : (route.hash || ''),
+      }).catch(() => {})
+    }
+    if (!DRAMA_DETAIL_SECTION_IDS.includes(id)) return
     await nextTick()
     window.setTimeout(() => scrollToSection(id, { focus: !(id === 'source-intake-workflow' && sourceImportIntent.value) }), 0)
   },

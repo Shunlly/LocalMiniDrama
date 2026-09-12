@@ -131,7 +131,7 @@
         />
       </div>
       <template #footer>
-        <el-button aria-label="关闭导入弹窗" @click="importVisible = false">关闭</el-button>
+        <el-button :aria-label="`取消导入${importTypeLabel(importType)}`" @click="importVisible = false">取消</el-button>
       </template>
     </AccessibleDialog>
 
@@ -151,6 +151,12 @@ import DramaDetailPropEditDialogs from './DramaDetailPropEditDialogs.vue'
 import ImagePreviewDialog from '@/components/ImagePreviewDialog.vue'
 
 defineOptions({ inheritAttrs: false })
+
+function importTypeLabel(type) {
+  if (type === 'scene') return '场景'
+  if (type === 'prop') return '道具'
+  return '角色'
+}
 
 defineProps({
   addingEpisode: { type: Boolean, default: false },

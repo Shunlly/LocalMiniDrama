@@ -199,9 +199,9 @@ async function refreshPanoramaScene() {
 }
 
 function panoramaTaskError(task, fallback = '全景图生成失败') {
-  if (typeof task?.error === 'string' && task.error.trim()) return task.error
-  if (task?.error?.message) return task.error.message
-  if (typeof task?.message === 'string' && task.message.trim()) return task.message
+  if (typeof task?.error === 'string' && task.error.trim()) return canvasUserError(task.error, fallback)
+  if (task?.error) return canvasUserError(task.error, fallback)
+  if (typeof task?.message === 'string' && task.message.trim()) return canvasUserError(task.message, fallback)
   return fallback
 }
 

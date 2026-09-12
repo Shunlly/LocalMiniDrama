@@ -32,6 +32,7 @@
         :aligning-nodes="aligningNodes"
         :is-dark="isDark"
         :canvas-mode="canvasMode"
+        :empty-next-copy="emptyNextCopy"
         @edit-script="focusScriptNode"
         @create="openCreateDialog"
         @align="onAlignNodes"
@@ -53,11 +54,14 @@
 </template>
 
 <script setup>
+import { computed } from 'vue'
+
 import CanvasPageHeader from './CanvasPageHeader.vue'
 import CanvasDesktopToolbar from './CanvasDesktopToolbar.vue'
+import { getCanvasEpisodeEmptyNextCopy } from './canvasExperienceCopy.js'
 
 /** 画布页头、集数筛选和桌面工具条的闭合区块 */
-defineProps({
+const props = defineProps({
   drama: { type: Object, default: null },
   filterEpisodeId: { default: null },
   layoutSaveState: { type: String, default: '' },
@@ -100,4 +104,13 @@ defineProps({
   batchGenerateImages: { type: Function, required: true },
   batchGenerateVideos: { type: Function, required: true },
 })
+
+const emptyNextCopy = computed(() => {
+  if (props.canvasMode === 'free') return ''
+  const selected = (props.drama?.episodes || []).find((item) => (
+    String(item?.id) === String(props.filterEpisodeId)
+  ))
+  return getCanvasEpisodeEmptyNextCopy(selected)
+})
 </script>
+

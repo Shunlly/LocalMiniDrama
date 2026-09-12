@@ -38,12 +38,25 @@ const openaiImageModels = ['gpt-image-1', 'dall-e-3', 'dall-e-2']
 const nanoBananaImageModels = ['nano-banana-2', 'nano-banana-pro', 'nano-banana']
 const zhipuImageModels = ['cogview-4', 'cogview-3-flash']
 const agnesImageModels = ['agnes-image-2.1-flash', 'agnes-image-2.0-flash']
+const grokImageModels = ['grok-2-image', 'grok-imagine']
+const deepseekImageModels = ['janus-pro-7b', 'deepseek-vl2']
+const kimiImageModels = ['kimi-k2.5']
+const claudeCompatibleImageModels = ['gpt-image-1', 'dall-e-3', 'black-forest-labs/FLUX.1-schnell']
+const ollamaImageModels = ['flux', 'qwen-image', 'sdxl', 'llava']
+const lmstudioImageModels = ['flux', 'sdxl', 'local-image-model']
+const deepseekVisionModels = ['deepseek-vl2', 'deepseek-v4-flash', 'deepseek-chat']
+const kimiVisionModels = ['kimi-k2.5', 'kimi-latest', 'moonshot-v1-128k']
+const claudeVisionModels = ['claude-sonnet-4-5', 'claude-opus-4-6', 'claude-haiku-4-5']
+const grokVisionModels = ['grok-2-vision-1212', 'grok-4']
+const ollamaTtsModels = ['kokoro', 'speecht5', 'tts-1']
+const ollamaAsrModels = ['whisper', 'whisper-large', 'qwen2-audio']
+const openaiCompatibleVideoModels = ['sora-2', 'sora-2-pro', 'sora', 'veo-3.0-generate-preview', 'kling-v3']
 
 export const providerConfigs = {
   text: [
     { id: 'openai', name: 'OpenAI（官方）', models: openAiCompatibleTextModels },
     { id: 'azure_openai', name: 'Azure OpenAI（微软）', models: ['gpt-5.5', 'gpt-5.4', 'gpt-4.1', 'gpt-4o'] },
-    { id: 'openai_compatible', name: 'OpenAI 兼容网关', models: ['gpt-4o', 'claude-sonnet-4-5', 'gemini-2.5-pro', 'deepseek-v3.2', 'qwen3-max'] },
+    { id: 'openai_compatible', name: 'OpenAI 兼容网关', models: ['gpt-4o', 'claude-sonnet-4-5', 'gemini-2.5-pro', 'deepseek-v3.2', 'qwen3-max', 'kimi-k2.5', 'grok-4'] },
     { id: 'openrouter', name: 'OpenRouter（聚合网关）', models: ['openai/gpt-5.5', 'openai/gpt-6-astra', 'anthropic/claude-sonnet-4.5', 'google/gemini-3-pro-preview', 'deepseek/deepseek-v4-pro', 'qwen/qwen3.8-max'] },
     { id: 'siliconflow', name: '硅基流动 SiliconFlow', models: ['deepseek-ai/DeepSeek-V4-Flash', 'zai-org/GLM-5.3', 'Qwen/Qwen3-235B-A22B-Instruct-2507', 'deepseek-ai/DeepSeek-V3.1', 'moonshotai/Kimi-K2-Instruct', 'zai-org/GLM-4.5', 'Qwen/Qwen2.5-VL-72B-Instruct'] },
     { id: 'volcengine', name: '火山引擎', models: ['deepseek-v3-2-251201', 'doubao-1-5-pro-32k-250115', 'doubao-seed-1-6-250615', 'kimi-k2-thinking-251104'] },
@@ -102,6 +115,12 @@ export const providerConfigs = {
     { id: 'comfyui', name: 'ComfyUI 本地工作流', models: ['custom-workflow'] },
     { id: 'dashscope', name: '通义万象 / 阿里云百炼', models: dashscopeImageModels },
     { id: 'qwen_image', name: '通义千问', models: qwenImageModels },
+    { id: 'deepseek', name: 'DeepSeek 兼容图像', models: deepseekImageModels },
+    { id: 'moonshot', name: 'Moonshot Kimi 兼容图像', models: kimiImageModels },
+    { id: 'anthropic', name: 'Claude 兼容图像网关', models: claudeCompatibleImageModels },
+    { id: 'xai', name: 'xAI Grok 兼容图像', models: grokImageModels },
+    { id: 'ollama', name: 'Ollama 本地图像', models: ollamaImageModels },
+    { id: 'lmstudio', name: 'LM Studio 本地图像', models: lmstudioImageModels },
     { id: 'agnes', name: 'Agnes AI（艾格妮丝）', models: agnesImageModels },
   ],
   storyboard_image: [
@@ -124,6 +143,12 @@ export const providerConfigs = {
     { id: 'local_sd', name: '本地 SD/Flux 网关', models: localSdImageModels },
     { id: 'comfyui', name: 'ComfyUI 本地工作流', models: ['custom-workflow'] },
     { id: 'qwen_image', name: '通义千问', models: qwenImageModels },
+    { id: 'deepseek', name: 'DeepSeek 兼容图像', models: deepseekImageModels },
+    { id: 'moonshot', name: 'Moonshot Kimi 兼容图像', models: kimiImageModels },
+    { id: 'anthropic', name: 'Claude 兼容图像网关', models: claudeCompatibleImageModels },
+    { id: 'xai', name: 'xAI Grok 兼容图像', models: grokImageModels },
+    { id: 'ollama', name: 'Ollama 本地图像', models: ollamaImageModels },
+    { id: 'lmstudio', name: 'LM Studio 本地图像', models: lmstudioImageModels },
     { id: 'agnes', name: 'Agnes AI（艾格妮丝）', models: agnesImageModels },
   ],
   video: [
@@ -153,6 +178,11 @@ export const providerConfigs = {
     },
     { id: 'openai', name: 'OpenAI Sora（视频）', models: ['sora-2', 'sora-2-pro', 'sora'] },
     { id: 'xai', name: 'xAI Grok Imagine（视频）', models: ['grok-imagine-video', 'grok-imagine'] },
+    { id: 'openai_compatible', name: 'OpenAI 兼容视频网关', models: openaiCompatibleVideoModels },
+    { id: 'deepseek', name: 'DeepSeek 兼容视频', models: openaiCompatibleVideoModels },
+    { id: 'moonshot', name: 'Moonshot Kimi 兼容视频', models: openaiCompatibleVideoModels },
+    { id: 'anthropic', name: 'Claude 兼容视频网关', models: openaiCompatibleVideoModels },
+    { id: 'ollama', name: 'Ollama 本地兼容（视频）', models: ['local-video-model'] },
     { id: 'agnes', name: 'Agnes AI（艾格妮丝）', models: ['agnes-video-v2.0'] },
   ],
   tts: [
@@ -165,6 +195,13 @@ export const providerConfigs = {
     { id: 'zhipu', name: '智谱 GLM 语音', models: ['glm-tts'] },
     { id: 'groq', name: 'Groq 语音', models: ['playai-tts'] },
     { id: 'elevenlabs', name: 'ElevenLabs 语音', models: ['eleven_v3', 'eleven_multilingual_v2', 'eleven_flash_v2_5', 'eleven_turbo_v2_5'] },
+    { id: 'ollama', name: 'Ollama 本地语音', models: ollamaTtsModels },
+    { id: 'lmstudio', name: 'LM Studio 本地语音', models: ['kokoro', 'tts-1', 'local-tts-model'] },
+    { id: 'openrouter', name: 'OpenRouter 兼容语音网关', models: ['openai/gpt-4o-mini-tts', 'openai/tts-1-hd'] },
+    { id: 'moonshot', name: 'Moonshot Kimi 兼容语音', models: ['tts-1', 'gpt-4o-mini-tts'] },
+    { id: 'deepseek', name: 'DeepSeek 兼容语音', models: ['tts-1'] },
+    { id: 'anthropic', name: 'Claude 兼容语音网关', models: ['tts-1', 'gpt-4o-mini-tts'] },
+    { id: 'xai', name: 'xAI Grok 兼容语音', models: ['tts-1'] },
   ],
   ocr: [
     { id: 'openai', name: 'OpenAI 视觉（官方）', models: ['gpt-4o-mini', 'gpt-4o', 'gpt-4.1'] },
@@ -177,6 +214,11 @@ export const providerConfigs = {
     { id: 'zhipu', name: '智谱 GLM 视觉', models: ['glm-4.6v', 'glm-4.5v'] },
     { id: 'ollama', name: 'Ollama 本地视觉', models: ['qwen2.5vl', 'llava', 'llama3.2-vision', 'minicpm-v'] },
     { id: 'lmstudio', name: 'LM Studio 本地视觉', models: ['qwen2.5vl', 'llava', 'local-vl-model'] },
+    { id: 'deepseek', name: 'DeepSeek 视觉', models: deepseekVisionModels },
+    { id: 'moonshot', name: 'Moonshot Kimi 视觉', models: kimiVisionModels },
+    { id: 'anthropic', name: 'Anthropic Claude 视觉', models: claudeVisionModels },
+    { id: 'xai', name: 'xAI Grok 视觉', models: grokVisionModels },
+    { id: 'vllm', name: 'vLLM 本地视觉', models: ['qwen2.5vl', 'llava', 'local-vl-model'] },
   ],
   transcription: [
     { id: 'openai', name: 'OpenAI 语音转写（官方）', models: ['whisper-1', 'gpt-4o-mini-transcribe', 'gpt-4o-transcribe'] },
@@ -185,6 +227,14 @@ export const providerConfigs = {
     { id: 'groq', name: 'Groq 语音转写', models: ['whisper-large-v3', 'whisper-large-v3-turbo', 'distil-whisper-large-v3-en'] },
     { id: 'qwen', name: '通义千问 / 阿里云百炼', models: ['qwen3-asr-flash', 'paraformer-v2', 'fun-asr'] },
     { id: 'siliconflow', name: '硅基流动 SiliconFlow', models: ['FunAudioLLM/SenseVoiceSmall'] },
+    { id: 'openrouter', name: 'OpenRouter（转写网关）', models: ['openai/whisper-1', 'openai/gpt-4o-mini-transcribe'] },
+    { id: 'ollama', name: 'Ollama 本地转写', models: ollamaAsrModels },
+    { id: 'lmstudio', name: 'LM Studio 本地转写', models: ['whisper', 'local-asr-model'] },
+    { id: 'vllm', name: 'vLLM 本地转写', models: ['whisper', 'local-asr-model'] },
+    { id: 'moonshot', name: 'Moonshot Kimi 兼容转写', models: ['whisper-1', 'gpt-4o-mini-transcribe'] },
+    { id: 'deepseek', name: 'DeepSeek 兼容转写', models: ['whisper-1'] },
+    { id: 'anthropic', name: 'Claude 兼容转写网关', models: ['whisper-1', 'gpt-4o-mini-transcribe'] },
+    { id: 'xai', name: 'xAI Grok 兼容转写', models: ['whisper-1'] },
   ],
   jimeng2_character_auth: [
     { id: 'jimeng_material_api', name: '即梦业务素材 API（/api/business/v1）', models: ['-'] },
@@ -258,4 +308,5 @@ export const openAiCompatibleProviders = new Set([
   'qianfan',
   'sensenova',
   'tiangong',
+  'xai',
 ])

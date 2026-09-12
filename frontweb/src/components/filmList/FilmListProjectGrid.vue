@@ -9,7 +9,7 @@
         class="project-card-link"
         :to="projectCardDestination(d, sourceImportIntent, projectListReturnTo)"
         :aria-label="projectCardOpenLabel(d, sourceImportIntent)"
-        :aria-describedby="`project-card-next-${d.id}`"
+        :aria-describedby="projectCardDescribedById(d) || undefined"
       >
         <div class="project-card-body">
           <div class="project-card-layout">
@@ -52,12 +52,17 @@
               </div>
               <div class="project-card-footer">
                 <p class="project-meta">创建于 {{ formatDate(d.created_at) || '未知时间' }}</p>
-                <span :id="`project-card-next-${d.id}`" class="project-card-continue">{{ projectCardContinueLabel(d, sourceImportIntent) }} <el-icon aria-hidden="true"><ArrowRight /></el-icon></span>
+                <span class="project-card-continue" aria-hidden="true">{{ projectCardContinueLabel(d, sourceImportIntent) }} <el-icon aria-hidden="true"><ArrowRight /></el-icon></span>
               </div>
             </div>
           </div>
         </div>
       </RouterLink>
+      <p
+        v-if="projectCardDescribedById(d)"
+        :id="projectCardDescribedById(d)"
+        class="visually-hidden project-card-next-step"
+      >{{ projectCardNextStepText(d, sourceImportIntent) }}</p>
       <RouterLink
         v-if="!sourceImportIntent"
         class="project-card-assets"
@@ -106,7 +111,7 @@
 <script setup>
 // 项目卡片网格：封面、继续制作入口和卡片操作菜单
 import { Edit, Delete, PictureFilled, Download, Files, MoreFilled, ArrowRight } from '@element-plus/icons-vue'
-import { projectCardContinueLabel, projectCardOpenLabel } from '@/utils/sourceImportNavigation.js'
+import { projectCardContinueLabel, projectCardDescribedById, projectCardNextStepText, projectCardOpenLabel } from '@/utils/sourceImportNavigation.js'
 import { countProjectEpisodes } from './filmListFormatters.js'
 
 defineProps({

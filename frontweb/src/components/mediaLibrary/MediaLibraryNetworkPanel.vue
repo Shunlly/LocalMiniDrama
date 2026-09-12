@@ -62,6 +62,7 @@
         <div>
           <h2>网络素材搜索失败</h2>
           <p>{{ networkError }}</p>
+          <p>下一步：请检查网络后点「重试」。</p>
         </div>
         <el-button
           type="primary"
@@ -103,6 +104,7 @@
           :network-error="networkError"
           :network-searched="networkSearched"
           :network-items="networkItems"
+          :search-network-media="searchNetworkMedia"
           :clear-network-search="clearNetworkSearch"
         />
       </div>

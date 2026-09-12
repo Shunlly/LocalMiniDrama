@@ -8,10 +8,12 @@ import {
   buttonByAriaLabel,
   buttonByText,
   click,
+  findAll,
   compileIconStub,
   createHostRenderer,
   loadCompiledSfc,
   mountHarness,
+  textContent,
   vueUrl,
 } from './helpers/vueComponentHarness.js'
 
@@ -57,6 +59,9 @@ test('DramaDetail 把页头交给独立组件，Logo 读屏名称仍是返回项
   assert.match(pageSource, /@go-canvas-mode="goCanvasMode"/)
   assert.match(pageSource, /:current-episode-id="currentEpisodeId"/)
   assert.match(headerSource, /aria-label="返回项目列表"/)
+  assert.match(headerSource, /class="header-context-label">项目/)
+  assert.match(headerSource, /<h1 class="page-title">/)
+  assert.doesNotMatch(headerSource, /返回剧集/)
   assert.match(headerSource, /emit\('go-list'\)/)
   assert.doesNotMatch(pageSource, /<header class="header">/)
 })
@@ -72,6 +77,9 @@ test('无分集时进入制作和画布模式保留中文禁用原因', async ()
     assert.ok(back, '缺少返回项目列表按钮')
     assert.equal(back.props['aria-label'], '返回项目列表')
     assert.equal(buttonByText(harness.root, '返回列表'), undefined)
+    assert.equal(buttonByText(harness.root, '返回剧集'), undefined)
+    assert.match(textContent(harness.root), /项目/)
+    assert.equal(findAll(harness.root, (node) => node.type === 'h1')[0]?.props?.class, 'page-title')
     click(back)
     assert.deepEqual(harness.events, ['go-list', 'go-list'])
 

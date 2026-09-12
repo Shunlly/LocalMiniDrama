@@ -177,7 +177,11 @@ test('页头返回按钮读屏名称是返回项目首页，并通知页面返�
   try {
     const back = buttonByAriaLabel(harness.root, '返回项目首页')
     assert.ok(back)
-    assert.equal(buttonByText(harness.root, '项目首页'), back)
+    assert.equal(buttonByText(harness.root, '返回项目首页'), back)
+    assert.equal(back.props['aria-label'], '返回项目首页')
+    assert.match(textContent(back), /返回项目首页/)
+    assert.equal(buttonByText(harness.root, '项目首页'), undefined)
+    assert.equal(buttonByAriaLabel(harness.root, '返回项目列表'), undefined)
     assert.match(textContent(harness.root), /自由创作/)
     assert.match(textContent(harness.root), /不绑定剧集，直接输入文字生成图片或视频/)
     click(back)
@@ -284,6 +288,13 @@ test('结果空态展示中文说明，失败时可重新检查服务', () => {
   })
   try {
     assert.match(textContent(harness.root), /暂时无法读取图片服务配置，因此还不能生成。/)
+    const [empty] = findByClass(harness.root, 'empty-result')
+    assert.ok(empty)
+    assert.equal(empty.props.role, 'status')
+    assert.equal(empty.props['aria-live'], 'polite')
+    const [actions] = findByClass(harness.root, 'empty-result-actions')
+    assert.equal(actions.props.role, 'group')
+    assert.equal(actions.props['aria-label'], '空结果下一步')
     const retry = buttonByText(harness.root, '重新检查服务')
     assert.ok(retry)
     click(retry)
@@ -357,6 +368,32 @@ test('生成成功后可以保存到素材中心，并给出中文无障碍名�
     assert.ok(save)
     assert.equal(save.props['aria-label'], '保存到全局素材中心')
     click(save)
+    assert.equal(harness.events[0][0], 'save-item')
+  } finally {
+    harness.app.unmount()
+  }
+})
+
+test('保存失败后按钮改为重试保存，读屏名称仍是中文', async () => {
+  const item = {
+    type: 'image',
+    prompt: '灯塔',
+    status: 'completed',
+    url: '/static/library/images/a.png',
+    assetSaveError: '保存到素材中心失败，请稍后重试',
+  }
+  const harness = mountResult({
+    results: [item],
+    saveItemDisabledReason: () => '',
+    saveItemAriaLabel: () => '重试保存到全局素材中心',
+  })
+  try {
+    await nextTick()
+    const retry = buttonByText(harness.root, '重试保存')
+    assert.ok(retry)
+    assert.equal(retry.props['aria-label'], '重试保存到全局素材中心')
+    assert.equal(buttonByText(harness.root, '保存到素材中心'), undefined)
+    click(retry)
     assert.equal(harness.events[0][0], 'save-item')
   } finally {
     harness.app.unmount()

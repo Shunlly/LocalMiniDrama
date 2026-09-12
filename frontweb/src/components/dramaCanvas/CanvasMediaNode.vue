@@ -112,7 +112,7 @@ const showMediaQueryWarning = computed(() => (
 const kindLabel = computed(() => {
   if (props.data.frameLabel) return props.data.frameLabel
   const map = { text: '脚本摘要', universal: '全能分镜词', image: '分镜图', video: '视频', audio: '音频' }
-  return map[props.data.kind] || props.data.kind
+  return map[props.data.kind] || '媒体'
 })
 
 const imageUrl = computed(() => String(props.data.url || '').trim())

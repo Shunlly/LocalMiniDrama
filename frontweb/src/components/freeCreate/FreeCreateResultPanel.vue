@@ -16,7 +16,7 @@
           </el-button>
         </div>
 
-        <div v-if="results.length === 0 && !generating" class="empty-result">
+        <div v-if="results.length === 0 && !generating" class="empty-result" role="status" aria-live="polite">
           <el-icon class="empty-icon">
             <Picture v-if="mode === 'image'" />
             <VideoCamera v-else />
@@ -25,6 +25,7 @@
           <div
             v-if="generationCapability.status !== 'loading' && !generationCapability.ready"
             class="empty-result-actions"
+            role="group"
             aria-label="空结果下一步"
           >
             <el-button
@@ -91,33 +92,37 @@
               </div>
               <div v-else-if="item.status === 'failed'" class="media-error" role="alert">
                 <el-icon><CircleClose /></el-icon>
-                <span>{{ item.error || '生成失败' }}</span>
+                <span :id="`free-create-result-error-${idx}`">{{ item.error || '生成失败' }}</span>
                 <el-button
+                  v-if="canRetryItem(item)"
                   size="small"
                   type="primary"
                   plain
                   :disabled="generating || cancelling"
                   :title="resultBusyDisabledReason || undefined"
+                  :aria-describedby="`free-create-result-error-${idx}`"
                   :aria-label="(generating || cancelling) ? (resultBusyDisabledReason || '正在处理') : '重试生成'" @click="retryGeneration(item)"
                 >
                   重试
                 </el-button>
               </div>
-              <div v-else-if="item.status === 'cancelled'" class="media-cancelled">
+              <div v-else-if="item.status === 'cancelled'" class="media-cancelled" role="status">
                 <el-icon><CircleClose /></el-icon>
-                <span>{{ item.error || '生成已取消' }}</span>
+                <span :id="`free-create-result-cancel-${idx}`">{{ item.error || '生成已取消' }}</span>
                 <el-button
+                  v-if="canRetryItem(item)"
                   size="small"
                   type="primary"
                   plain
                   :disabled="generating || cancelling"
                   :title="resultBusyDisabledReason || undefined"
+                  :aria-describedby="`free-create-result-cancel-${idx}`"
                   :aria-label="(generating || cancelling) ? (resultBusyDisabledReason || '正在处理') : '重试生成'" @click="retryGeneration(item)"
                 >
                   重试
                 </el-button>
               </div>
-              <div v-else class="media-error">
+              <div v-else class="media-error" role="alert">
                 <el-icon><CircleClose /></el-icon>
                 <span>{{ item.error || '暂无生成结果' }}</span>
                 <el-button
@@ -154,7 +159,7 @@
                   :title="saveItemDisabledReason(item) || undefined"
                   :aria-label="saveItemAriaLabel(item)"
                   @click="saveItemToAssets(item)"
-                >{{ item.assetId ? '已保存' : '保存到素材中心' }}</el-button>
+                >{{ item.assetId ? '已保存' : (item.assetSaveError ? '重试保存' : '保存到素材中心') }}</el-button>
               </div>
               <p
                 v-if="item.assetSaveError"

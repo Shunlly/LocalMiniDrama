@@ -289,6 +289,10 @@ test('制作页离开保护覆盖批量生图生视频和单条生成', () => {
     new URL('../src/composables/filmCreate/useFilmCreateBatchGeneration.js', import.meta.url),
     'utf8',
   ).replace(/\r\n?/g, '\n')
+  const activeWorkSource = readFileSync(
+    new URL('../src/composables/filmCreate/filmCreateActiveMediaWork.js', import.meta.url),
+    'utf8',
+  ).replace(/\r\n?/g, '\n')
   const call = filmCreateSource.match(/useFilmCreateNavigationGuards\(\{[\s\S]*?\}\)/)?.[0] || ''
   assert.match(call, /batchImageRunning/)
   assert.match(call, /batchImageStopping/)
@@ -299,6 +303,8 @@ test('制作页离开保护覆盖批量生图生视频和单条生成', () => {
   assert.match(guardsSource, /hasActiveMediaGenerationWork/)
   assert.match(guardsSource, /媒体生成仍在执行/)
   assert.match(guardsSource, /计费可能继续/)
-  assert.match(batchSource, /export function hasActiveMediaGenerationWork/)
+  assert.match(batchSource, /from '\.\/filmCreateActiveMediaWork\.js'/)
+  assert.match(batchSource, /export \{ hasActiveMediaGenerationWork \}/)
+  assert.match(activeWorkSource, /export function hasActiveMediaGenerationWork/)
   assert.match(filmCreateSource, /onBeforeRouteLeave\(allowNavigationAfterDraftFlush\)/)
 })

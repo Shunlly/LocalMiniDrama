@@ -1,5 +1,13 @@
 <template>
-  <div class="canvas-episode-node" role="group" :aria-label="accessibleLabel">
+  <div
+    class="canvas-episode-node"
+    role="button"
+    tabindex="0"
+    :aria-label="accessibleLabel"
+    :title="accessibleLabel"
+    @keydown.enter.stop.prevent="activateEpisode"
+    @keydown.space.stop.prevent="activateEpisode"
+  >
     <Handle type="target" :position="Position.Left" />
     <span class="badge">第 {{ data.episode?.episode_number ?? '?' }} 集</span>
     <span class="title">{{ data.episode?.title || '未命名集' }}</span>
@@ -10,15 +18,30 @@
 <script setup>
 import { computed } from 'vue'
 import { Handle, Position } from '@vue-flow/core'
+import { useCanvasContext } from '@/composables/useCanvasContext'
 
 const props = defineProps({
   data: { type: Object, required: true },
 })
 
+const ctx = useCanvasContext()
+
 const accessibleLabel = computed(() => {
   const episode = props.data.episode || {}
-  return `第 ${episode.episode_number ?? '?'} 集，${episode.title || '未命名集'}，${(episode.storyboards || []).length} 个分镜`
+  const count = (episode.storyboards || []).length
+  const next = count > 0 ? '展开第一个分镜' : '新建分镜'
+  return `第 ${episode.episode_number ?? '?'} 集，${episode.title || '未命名集'}，${count} 个分镜，按 Enter 或空格${next}`
 })
+
+async function activateEpisode() {
+  const episode = props.data.episode || {}
+  const first = (episode.storyboards || [])[0]
+  if (first?.id) {
+    await ctx?.setFocusedNode?.(`sb:${first.id}`)
+    return
+  }
+  ctx?.openCreateDialog?.('storyboard')
+}
 </script>
 
 <style scoped>
@@ -45,5 +68,9 @@ const accessibleLabel = computed(() => {
 .count {
   font-size: 11px;
   opacity: 0.75;
+}
+.canvas-episode-node:focus-visible {
+  outline: 2px solid var(--canvas-focus-ring, #818cf8);
+  outline-offset: 3px;
 }
 </style>

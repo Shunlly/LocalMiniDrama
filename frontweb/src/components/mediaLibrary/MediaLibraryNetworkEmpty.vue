@@ -3,13 +3,23 @@
     v-if="!networkLoading && !networkError && networkSearched && networkItems.length === 0"
     class="network-empty"
     role="status"
+    aria-live="polite"
   >
     <el-icon><Files /></el-icon>
     <h2>没有找到匹配的网络素材</h2>
     <p>请更换关键词或素材类型后重试。</p>
-    <el-button aria-label="清除网络素材搜索" @click="clearNetworkSearch">清除搜索</el-button>
+    <div class="network-empty-actions">
+      <el-button
+        v-if="searchNetworkMedia"
+        type="primary"
+        plain
+        aria-label="重新搜索网络素材"
+        @click="searchNetworkMedia"
+      >重新搜索</el-button>
+      <el-button aria-label="清除网络素材搜索" @click="clearNetworkSearch">清除搜索</el-button>
+    </div>
   </div>
-  <div v-else-if="!networkLoading && !networkError && !networkSearched" class="network-empty" role="status">
+  <div v-else-if="!networkLoading && !networkError && !networkSearched" class="network-empty" role="status" aria-live="polite">
     <el-icon><Search /></el-icon>
     <h2>搜索可导入的网络素材</h2>
     <p>结果会在这里显示，并附带来源和许可信息。</p>
@@ -25,6 +35,7 @@ defineProps({
   networkError: { type: String, default: '' },
   networkSearched: { type: Boolean, default: false },
   networkItems: { type: Array, default: () => [] },
+  searchNetworkMedia: { type: Function, default: null },
   clearNetworkSearch: { type: Function, required: true },
 })
 </script>
@@ -51,7 +62,11 @@ defineProps({
   margin: 0;
 }
 
-.network-empty .el-button {
+.network-empty-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
   margin-top: 12px;
 }
 

@@ -1,5 +1,20 @@
 import { ElMessageBox } from '@/utils/elementPlusFeedback.js'
 
+export const SOURCE_INTAKE_LEAVE_COPY = Object.freeze({
+  busyMessage: '素材正在保存、解析或启动工作流，请完成后再离开。',
+  title: '离开素材编辑？',
+  message: '网页地址、原始素材或待上传文件尚未保存，离开后会丢失。',
+  confirmButtonText: '放弃并离开',
+  cancelButtonText: '继续编辑',
+})
+
+export const SOURCE_INTAKE_CANCEL_COPY = Object.freeze({
+  title: '取消处理？',
+  message: '取消后当前流程会停止，已完成步骤会保留，可稍后重新启动。',
+  confirmButtonText: '确认取消',
+  cancelButtonText: '继续处理',
+})
+
 export function shouldBlockSourceIntakeUnload({
   hasUnsavedSourceInput,
   sourceOperationActive,
@@ -16,10 +31,10 @@ export async function confirmUnsavedSourceIntakeLeave({
   setConfirmationOpen?.(true)
   try {
     await confirmLeave({
-      message: '网页地址、原始素材或待上传文件尚未保存，离开后会丢失。',
-      title: '离开素材编辑？',
-      confirmButtonText: '放弃并离开',
-      cancelButtonText: '继续编辑',
+      message: SOURCE_INTAKE_LEAVE_COPY.message,
+      title: SOURCE_INTAKE_LEAVE_COPY.title,
+      confirmButtonText: SOURCE_INTAKE_LEAVE_COPY.confirmButtonText,
+      cancelButtonText: SOURCE_INTAKE_LEAVE_COPY.cancelButtonText,
       type: 'warning',
       distinguishCancelAndClose: true,
     })
@@ -40,7 +55,7 @@ export function createSourceIntakeLeaveController({
 
   async function confirmSourceInputLeave() {
     if (sourceOperationActive.value) {
-      showWorkflowMessage('warning', '素材正在保存、解析或启动工作流，请完成后再离开。')
+      showWorkflowMessage('warning', SOURCE_INTAKE_LEAVE_COPY.busyMessage)
       return false
     }
     if (!hasUnsavedSourceInput.value) return true
@@ -58,11 +73,33 @@ export function createSourceIntakeLeaveController({
     })
   }
 
+  async function confirmCancelProcessing() {
+    if (leaveConfirmationOpen) return false
+    leaveConfirmationOpen = true
+    try {
+      await ElMessageBox.confirm(
+        SOURCE_INTAKE_CANCEL_COPY.message,
+        SOURCE_INTAKE_CANCEL_COPY.title,
+        {
+          confirmButtonText: SOURCE_INTAKE_CANCEL_COPY.confirmButtonText,
+          cancelButtonText: SOURCE_INTAKE_CANCEL_COPY.cancelButtonText,
+          type: 'warning',
+          distinguishCancelAndClose: true,
+        },
+      )
+      return true
+    } catch {
+      return false
+    } finally {
+      leaveConfirmationOpen = false
+    }
+  }
+
   function handleBeforeUnload(event) {
     if (!hasUnsavedSourceInput.value && !sourceOperationActive.value) return
     event.preventDefault()
     event.returnValue = ''
   }
 
-  return { confirmSourceInputLeave, handleBeforeUnload }
+  return { confirmSourceInputLeave, confirmCancelProcessing, handleBeforeUnload }
 }

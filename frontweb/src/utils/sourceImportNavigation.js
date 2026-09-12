@@ -14,6 +14,16 @@ export function projectCardOpenLabel(project) {
   return `打开项目「${title}」`
 }
 
+export function projectCardDescribedById(project) {
+  const id = project?.id
+  if (id == null || id === '') return ''
+  return `project-card-next-${id}`
+}
+
+export function projectCardNextStepText(project, sourceImportIntent) {
+  return `下一步：${projectCardContinueLabel(project, sourceImportIntent)}`
+}
+
 export function projectCardDestination(project, sourceImportIntent, returnTo) {
   const id = Number(project?.id)
   if (!Number.isInteger(id) || id <= 0) return null

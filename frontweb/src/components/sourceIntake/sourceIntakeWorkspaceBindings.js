@@ -148,6 +148,15 @@ export function createSourceIntakeWorkspaceComputeds({
       },
     )
   })
+  const intakeExtractionNextStep = computed(() => {
+    const error = String(sourceOperationError.value || '').trim()
+    if (!error) return null
+    return resolveSourceIntakeExtractionNextStep(error, {
+      file: sourceFile.value,
+      filename: selectedFilename.value,
+      message: error,
+    })
+  })
   const productionLaunchReason = computed(() => {
     if (workflowMode.value !== 'production') return ''
     if (readinessChecking.value) return '正在检查正式制作能力'
@@ -362,6 +371,7 @@ export function createSourceIntakeWorkspaceComputeds({
     runTagType,
     runProgressStatus,
     pollStatusMessage,
+    intakeExtractionNextStep,
   }
 }
 

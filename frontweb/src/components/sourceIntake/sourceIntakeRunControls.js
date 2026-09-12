@@ -24,6 +24,7 @@ export function createSourceIntakeRunControls({
   shouldIgnoreError,
   isUserFacingAbort,
   toUserFacingError,
+  confirmCancel,
 } = {}) {
   async function retryRun() {
     if (!selectedRun.value?.id || isActionBusy() || getControlReasons().retry) return
@@ -54,6 +55,10 @@ export function createSourceIntakeRunControls({
 
   async function cancelRun() {
     if (!selectedRun.value?.id || isActionBusy() || getControlReasons().cancel) return
+    if (typeof confirmCancel === 'function') {
+      const allowed = await confirmCancel()
+      if (!allowed) return
+    }
     cancelling.value = true
     try {
       const nextRun = await cancelRunApi(selectedRun.value.id, cancelReason)

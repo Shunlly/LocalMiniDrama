@@ -16,6 +16,24 @@ export const SOURCE_FILE_EXTENSIONS = Object.freeze([
 export const SOURCE_FILE_ACCEPT = SOURCE_FILE_EXTENSIONS.join(',')
 export const SOURCE_FILE_EXTENSION_SET = new Set(SOURCE_FILE_EXTENSIONS)
 export const TEXT_SOURCE_FILE_EXTENSIONS = new Set(['.txt', '.md', '.csv', '.tsv', '.srt', '.vtt', '.ass', '.json'])
+export const OCR_SOURCE_FILE_EXTENSIONS = new Set(['.pdf', '.png', '.jpg', '.jpeg', '.webp', '.gif'])
+export const TRANSCRIPTION_SOURCE_FILE_EXTENSIONS = new Set([
+  '.mp3', '.wav', '.m4a', '.aac', '.flac', '.ogg', '.oga',
+  '.mp4', '.mov', '.mkv', '.avi', '.webm', '.ogv',
+])
+
+export function sourceIntakeSelectedFileStatus(file) {
+  const name = String(file?.name || '素材文件')
+  const mime = String(file?.type || '').toLowerCase()
+  const extension = sourceFileExtension(name)
+  if (mime === 'application/pdf' || mime.startsWith('image/') || OCR_SOURCE_FILE_EXTENSIONS.has(extension)) {
+    return name + ' 已选择。导入后会尝试图片识别；失败时可到「AI 配置」添加「图片识别」服务，也可先用本机 Tesseract。'
+  }
+  if (mime.startsWith('audio/') || mime.startsWith('video/') || TRANSCRIPTION_SOURCE_FILE_EXTENSIONS.has(extension)) {
+    return name + ' 已选择。导入后会尝试语音转写；失败时可到「AI 配置」添加「语音转写」服务。'
+  }
+  return name + ' 已选择，导入时将上传并解析。'
+}
 
 export function createSourceIntakeFileSelectController({
   form,
@@ -82,7 +100,7 @@ export function createSourceIntakeFileSelectController({
     } else {
       form.text = ''
     }
-    sourceOperationMessage.value = `${file.name} 已选择，导入时将上传并解析。`
+    sourceOperationMessage.value = sourceIntakeSelectedFileStatus(file)
     showWorkflowMessage('success', `已选择 ${file.name}`)
   }
 

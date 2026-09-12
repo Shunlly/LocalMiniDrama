@@ -2,6 +2,12 @@ export const MAX_NOVEL_FILE_BYTES = 20 * 1024 * 1024
 export const MAX_NOVEL_TEXT_BYTES = 2 * 1024 * 1024
 export const NOVEL_INTAKE_EXTENSIONS = Object.freeze(['.txt', '.md'])
 
+export const NOVEL_INTAKE_OCR_EXTENSIONS = Object.freeze(['.pdf', '.png', '.jpg', '.jpeg', '.webp', '.gif'])
+export const NOVEL_INTAKE_TRANSCRIPTION_EXTENSIONS = Object.freeze([
+  '.mp3', '.wav', '.m4a', '.aac', '.flac', '.ogg', '.oga',
+  '.mp4', '.mov', '.mkv', '.avi', '.webm', '.ogv',
+])
+
 export const NOVEL_INTAKE_HINT = '文本可直接粘贴或上传 .txt / .md。PDF/图片需要图片识别，音视频需要语音转写。可先用本机 Tesseract，或在 AI 配置中添加对应服务。单次文本不超过 2MB。导入后会尝试按章节拆成剧本，请确认已有版权或授权。'
 
 export const NOVEL_INTAKE_PLACEHOLDER = '粘贴小说正文。PDF/图片需要图片识别，音视频需要语音转写。'
@@ -16,6 +22,8 @@ export const NOVEL_INTAKE_MESSAGES = Object.freeze({
   oversizedText: '小说文本超过 2MB，请拆分后再导入。',
   encoding: '无法按 UTF-8 读取该文件。请将文件转换为 UTF-8 后重试。',
   binary: '文件包含二进制数据，请改用 UTF-8 纯文本。',
+  unsupportedPdfOrImage: 'PDF/图片需要图片识别。请先转成 .txt / .md，或到「AI 配置」添加「图片识别」服务后再导入。',
+  unsupportedAudioOrVideo: '音视频需要语音转写。请先转成 .txt / .md，或到「AI 配置」添加「语音转写」服务后再导入。',
   unsupportedType: 'PDF/图片需要图片识别，音视频需要语音转写。请先转成 .txt / .md，或到「AI 配置」添加对应服务后再导入。',
   readFailed: '读取文本文件失败，请重新选择。',
 })
@@ -36,6 +44,17 @@ export function novelIntakeExtension(filename) {
   const name = String(filename || '').trim().split(/[\\/]/).pop() || ''
   const index = name.lastIndexOf('.')
   return index >= 0 ? name.slice(index).toLowerCase() : ''
+}
+
+export function novelIntakeUnsupportedMessage(filename) {
+  const extension = novelIntakeExtension(filename)
+  if (NOVEL_INTAKE_OCR_EXTENSIONS.includes(extension)) {
+    return NOVEL_INTAKE_MESSAGES.unsupportedPdfOrImage
+  }
+  if (NOVEL_INTAKE_TRANSCRIPTION_EXTENSIONS.includes(extension)) {
+    return NOVEL_INTAKE_MESSAGES.unsupportedAudioOrVideo
+  }
+  return NOVEL_INTAKE_MESSAGES.unsupportedType
 }
 
 export function resolveNovelIntakeFile(input) {
@@ -89,7 +108,7 @@ export function inspectNovelIntakeText(text, { allowEmpty = false } = {}) {
 export function inspectNovelIntakeBytes(bytes, { filename = '' } = {}) {
   const extension = novelIntakeExtension(filename)
   if (extension && !NOVEL_INTAKE_EXTENSIONS.includes(extension)) {
-    return { error: NOVEL_INTAKE_MESSAGES.unsupportedType }
+    return { error: novelIntakeUnsupportedMessage(filename) }
   }
   const data = toUint8Array(bytes)
   if (!data.length) return { error: NOVEL_INTAKE_MESSAGES.emptyFile }
@@ -118,7 +137,7 @@ export async function inspectNovelIntakeFile(input) {
   const filename = String(file.name || input?.name || '')
   const extension = novelIntakeExtension(filename)
   if (!NOVEL_INTAKE_EXTENSIONS.includes(extension)) {
-    return { error: NOVEL_INTAKE_MESSAGES.unsupportedType }
+    return { error: novelIntakeUnsupportedMessage(filename) }
   }
   const size = Number(file.size)
   if (Number.isFinite(size)) {

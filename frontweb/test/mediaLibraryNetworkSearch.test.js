@@ -84,12 +84,13 @@ test('网络空态区分未搜索和没有结果，并具备状态角色', () =>
   assert.match(source, /没有找到匹配的网络素材/)
   assert.match(source, /请更换关键词或素材类型后重试。/)
   assert.match(source, /aria-label="清除网络素材搜索"/)
+  assert.match(source, /aria-label="重新搜索网络素材"/)
   assert.match(source, /function clearNetworkSearch/)
   assert.match(source, /function cancelNetworkSearch/)
   assert.match(source, /@click="cancelNetworkSearch"/)
   assert.match(source, /搜索可导入的网络素材/)
-  assert.match(source, /class="network-empty"\s*role="status"/)
-  assert.match(source, /!networkSearched" class="network-empty" role="status"/)
+  assert.match(source, /class="network-empty"[\s\S]*role="status"[\s\S]*aria-live="polite"/)
+  assert.match(source, /!networkSearched" class="network-empty" role="status" aria-live="polite"/)
 })
 
 test('导入中离开保护文案仍会拦住路由和刷新', () => {

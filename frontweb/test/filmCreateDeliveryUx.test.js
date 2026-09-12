@@ -4,29 +4,31 @@ import { readFileSync } from 'node:fs'
 
 import { compileScript, parse } from '@vue/compiler-sfc'
 
-import { remainingExtractNamedFunction } from './helpers/remainingSourceBetween.js'
+import { describeDeliveryPanelState } from '../src/components/filmCreate/filmCreateDeliveryPanelCopy.js'
+import {
+  describeDeliveryOutputNextStep,
+  describeOutputDeliveryMessages,
+  describeOutputVideoSettingsLock,
+} from '../src/components/filmCreate/filmCreateOutputSectionCopy.js'
 
-const deliveryPanelSource = readFileSync(
+const deliveryPanelVue = readFileSync(
   new URL('../src/components/filmCreate/FilmCreateDeliveryPanel.vue', import.meta.url),
   'utf8',
 ).replace(/\r\n?/g, '\n')
-const outputSectionSource = readFileSync(
+const deliveryPanelCopy = readFileSync(
+  new URL('../src/components/filmCreate/filmCreateDeliveryPanelCopy.js', import.meta.url),
+  'utf8',
+).replace(/\r\n?/g, '\n')
+const outputSectionVue = readFileSync(
   new URL('../src/components/filmCreate/FilmCreateOutputSection.vue', import.meta.url),
   'utf8',
 ).replace(/\r\n?/g, '\n')
-
-const describeDeliveryPanelState = new Function(
-  `'use strict'; ${remainingExtractNamedFunction(deliveryPanelSource, 'describeDeliveryPanelState')}; return describeDeliveryPanelState;`,
-)()
-const describeOutputVideoSettingsLock = new Function(
-  `'use strict'; ${remainingExtractNamedFunction(outputSectionSource, 'describeOutputVideoSettingsLock')}; return describeOutputVideoSettingsLock;`,
-)()
-const describeDeliveryOutputNextStep = new Function(
-  `'use strict'; ${remainingExtractNamedFunction(outputSectionSource, 'describeDeliveryOutputNextStep')}; return describeDeliveryOutputNextStep;`,
-)()
-const describeOutputDeliveryMessages = new Function(
-  `'use strict'; ${remainingExtractNamedFunction(outputSectionSource, 'toOutputUserFacingText')}; ${remainingExtractNamedFunction(outputSectionSource, 'toOutputDisabledReasonText')}; ${remainingExtractNamedFunction(outputSectionSource, 'describeDeliveryOutputNextStep')}; ${remainingExtractNamedFunction(outputSectionSource, 'describeOutputDeliveryMessages')}; return describeOutputDeliveryMessages;`,
-)()
+const outputSectionCopy = readFileSync(
+  new URL('../src/components/filmCreate/filmCreateOutputSectionCopy.js', import.meta.url),
+  'utf8',
+).replace(/\r\n?/g, '\n')
+const deliveryPanelSource = deliveryPanelVue + '\n' + deliveryPanelCopy
+const outputSectionSource = outputSectionVue + '\n' + outputSectionCopy
 
 const DRAMA_ID = 11
 const EPISODE_ID = 22
@@ -39,8 +41,8 @@ function compileVue(source, filename, id) {
 }
 
 test('交付面板和输出区可以独立编译', () => {
-  compileVue(deliveryPanelSource, 'FilmCreateDeliveryPanel.vue', 'film-create-delivery-ux')
-  compileVue(outputSectionSource, 'FilmCreateOutputSection.vue', 'film-create-output-ux')
+  compileVue(deliveryPanelVue, 'FilmCreateDeliveryPanel.vue', 'film-create-delivery-ux')
+  compileVue(outputSectionVue, 'FilmCreateOutputSection.vue', 'film-create-output-ux')
 })
 
 test('没有可播放分镜视频时给出中文空状态和下一步入口', () => {

@@ -85,6 +85,11 @@ export function createSourceIntakeImportActions({
     }
   }
 
+  async function focusSourceIntakeForm() {
+    await nextTickFn()
+    sourceUrlInput.value?.focus?.()
+  }
+
   async function openSourceImportIntent() {
     await revealSourceImportIntent({
       historyExpanded: workflowHistoryExpanded,
@@ -121,6 +126,7 @@ export function createSourceIntakeImportActions({
     importSourceOnly,
     refreshImportedSources,
     openSourceImportIntent,
+    focusSourceIntakeForm,
     openSourceDetail,
   }
 }

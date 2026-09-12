@@ -402,6 +402,11 @@ test('备份页在创建或恢复时注册离开保护', () => {
   assert.match(source, /inject\('appRouteLeaveProtection'/)
   assert.match(source, /leaveProtection\?\.register\?\.\('backup'/)
   assert.match(source, /正在备份或恢复，离开会中断当前操作/)
+  assert.match(pageSource, /BACKUP_READY_NOT_SPA_HINT/)
+  assert.match(pageSource, /BACKUP_READY_SPA_HTML_MESSAGE/)
+  assert.match(pageSource, /\/ready/)
+  assert.match(pageSource, /SPA HTML/)
+
   assert.match(source, /onBeforeRouteLeave/)
   assert.match(source, /result\.message/)
 })

@@ -74,11 +74,12 @@
                 <span>已导入素材</span>
                 <span class="count">{{ sources.length }}</span>
               </div>
-              <div v-if="flowState.sourceEmptyState" class="empty-stage-state">
-                <strong>{{ flowState.sourceEmptyState.title }}</strong>
-                <p>{{ flowState.sourceEmptyState.description }}</p>
-                <p class="empty-stage-hint">可用上方「导入故事素材」或「导入并启动{{ workflowModeShortLabel }}」保存后，记录会显示在这里。</p>
-              </div>
+              <SourceIntakeEmptyRecords
+                v-if="flowState.sourceEmptyState"
+                v-bind="emptyRecordsView"
+                @focus-form="focusSourceIntakeForm"
+                @open-extraction-ai-config="openAiConfigForExtraction"
+              />
               <div v-else class="mini-list">
                 <div v-for="source in sources" :key="source.id" class="mini-item">
                   <span class="source-record-identity">
@@ -148,6 +149,7 @@
           <SourceIntakeQaStageCard
             v-bind="qaStageBindings"
             @run-qa="runQaAudit"
+            @select-step="selectFlowStep"
           />
         </template>
 
@@ -181,6 +183,7 @@ import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vu
 import SourceIntakeCompletionBanner from '@/components/sourceIntake/SourceIntakeCompletionBanner.vue'
 import SourceIntakeCurrentStageCard from '@/components/sourceIntake/SourceIntakeCurrentStageCard.vue'
 import SourceIntakeDeliveryStageCard from '@/components/sourceIntake/SourceIntakeDeliveryStageCard.vue'
+import SourceIntakeEmptyRecords from '@/components/sourceIntake/SourceIntakeEmptyRecords.vue'
 import SourceIntakeIntakeStageForm from '@/components/sourceIntake/SourceIntakeIntakeStageForm.vue'
 import SourceIntakeLaunchModeCard from '@/components/sourceIntake/SourceIntakeLaunchModeCard.vue'
 import SourceIntakeProcessStageCard from '@/components/sourceIntake/SourceIntakeProcessStageCard.vue'
@@ -193,6 +196,7 @@ import { createSourceIntakeFlowStepController } from '@/components/sourceIntake/
 import { createSourceIntakeImportActions } from '@/components/sourceIntake/sourceIntakeImportActions.js'
 import { createSourceIntakeLaunchController } from '@/components/sourceIntake/sourceIntakeLaunchActions.js'
 import { createSourceIntakeLeaveController } from '@/components/sourceIntake/sourceIntakeLeaveGuard.js'
+import { buildSourceIntakeEmptyRecordsView } from '@/components/sourceIntake/sourceIntakeEmptyState.js'
 import { createSourceIntakeMessageHelpers } from '@/components/sourceIntake/sourceIntakeMessages.js'
 import { createSourceIntakePollSession } from '@/components/sourceIntake/sourceIntakePoll.js'
 import { createSourceIntakeQaActions } from '@/components/sourceIntake/sourceIntakeQaActions.js'
@@ -343,6 +347,7 @@ const {
   compactCompletionVisible,
   inspectedFlowStep,
   pollStatusMessage,
+  intakeExtractionNextStep,
 } = workspaceComputeds
 const {
   completionBannerBindings,
@@ -424,6 +429,13 @@ const {
   readinessChecking,
 })
 
+const emptyRecordsView = computed(() => buildSourceIntakeEmptyRecordsView({
+  emptyState: flowState.value.sourceEmptyState,
+  workflowModeShortLabel: workflowModeShortLabel.value,
+  operationError: sourceOperationError.value,
+  extractionNextStep: intakeExtractionNextStep.value,
+}))
+
 const snapshotBridge = {
   refreshWorkflowSnapshot: async () => ({ status: 'ignored' }),
 }
@@ -485,6 +497,7 @@ const {
   importSourceOnly,
   refreshImportedSources,
   openSourceImportIntent,
+  focusSourceIntakeForm,
   openSourceDetail,
 } = createSourceIntakeImportActions({
   rawSourceUrl,
@@ -618,6 +631,7 @@ const { retryRun, pauseRun, resumeRun, cancelRun } = createSourceIntakeRunContro
   shouldIgnoreError: (error) => shouldIgnoreSourceWorkflowPollError(error, sourceWorkflowLifecycle),
   isUserFacingAbort,
   toUserFacingError,
+  confirmCancel: () => confirmCancelProcessing(),
 })
 
 const { runQaAudit, remediateQa } = createSourceIntakeQaActions({
@@ -645,7 +659,7 @@ const { runQaAudit, remediateQa } = createSourceIntakeQaActions({
   toUserFacingError,
 })
 
-const { confirmSourceInputLeave, handleBeforeUnload } = createSourceIntakeLeaveController({
+const { confirmSourceInputLeave, confirmCancelProcessing, handleBeforeUnload } = createSourceIntakeLeaveController({
   sourceOperationActive,
   hasUnsavedSourceInput,
   showWorkflowMessage,

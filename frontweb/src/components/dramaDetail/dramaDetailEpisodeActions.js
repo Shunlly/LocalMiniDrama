@@ -14,6 +14,15 @@ export function toDramaDetailEpisodeSavePayload(episodes = []) {
   }))
 }
 
+export function dramaDetailEpisodeDeletedNextStep(remainingCount) {
+  if (Number(remainingCount) <= 0) return '当前没有剧集，请新增一集或批量导入剧本。'
+  return '可继续制作剩余剧集，或再新增一集。'
+}
+
+export function dramaDetailEpisodeDeletedMessage(label, remainingCount) {
+  return label + ' 已删除。' + dramaDetailEpisodeDeletedNextStep(remainingCount)
+}
+
 export function createDramaDetailEpisodeActions({
   dramaId,
   episodes,
@@ -23,6 +32,7 @@ export function createDramaDetailEpisodeActions({
   loadDrama,
   episodeBatchImportDialogRef,
   dramaDetailUserError,
+  scrollToSection,
 } = {}) {
   const addingEpisode = ref(false)
   const deletingEpisodeId = ref(null)
@@ -41,15 +51,16 @@ export function createDramaDetailEpisodeActions({
     const label = '第 ' + (ep.episode_number ?? '?') + ' 集「' + (ep.title || '未命名') + '」'
     try {
       await ElMessageBox.confirm('确定删除 ' + label + '？此操作不可恢复。', '删除确认', {
-        type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消'
+        type: 'warning', confirmButtonText: '删除该集', cancelButtonText: '取消删除'
       })
     } catch { return }
     deletingEpisodeId.value = ep.id
     try {
       const remaining = toDramaDetailEpisodeSavePayload(episodes.value.filter((e) => e.id !== ep.id))
       await dramaAPI.saveEpisodes(dramaId, remaining)
-      ElMessage.success(label + ' 已删除')
+      ElMessage.success(dramaDetailEpisodeDeletedMessage(label, remaining.length))
       await loadDrama()
+      if (remaining.length === 0) scrollToSection?.('episode-list')
     } catch (e) {
       ElMessage.error(dramaDetailUserError(e, '删除失败'))
     } finally {

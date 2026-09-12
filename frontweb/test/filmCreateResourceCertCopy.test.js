@@ -5,10 +5,12 @@ import { readFileSync } from 'node:fs'
 import { createPinia, setActivePinia } from 'pinia'
 
 import { useCharacters } from '../src/composables/filmCreate/useCharacters.js'
-import { remainingExtractNamedFunction } from './helpers/remainingSourceBetween.js'
+import { describeResourceMissingAssetImageReason } from '../src/components/filmCreate/filmCreateResourcePanelCopy.js'
 import { readFilmCreateResourceDialogTree } from './helpers/filmCreateResourceDialogSources.js'
 
-const panel = readFileSync(new URL('../src/components/filmCreate/FilmCreateResourcePanel.vue', import.meta.url), 'utf8')
+const panelVue = readFileSync(new URL('../src/components/filmCreate/FilmCreateResourcePanel.vue', import.meta.url), 'utf8')
+const panelCopy = readFileSync(new URL('../src/components/filmCreate/filmCreateResourcePanelCopy.js', import.meta.url), 'utf8')
+const panel = panelVue + '\n' + panelCopy
 const characterBlock = readFileSync(new URL('../src/components/filmCreate/FilmCreateCharacterBlock.vue', import.meta.url), 'utf8')
 const propBlock = readFileSync(new URL('../src/components/filmCreate/FilmCreatePropBlock.vue', import.meta.url), 'utf8')
 const sceneBlock = readFileSync(new URL('../src/components/filmCreate/FilmCreateSceneBlock.vue', import.meta.url), 'utf8')
@@ -19,6 +21,7 @@ const resourceSurface = panel + '\n' + characterBlock + '\n' + propBlock + '\n' 
 
 const USER_VISIBLE_SOURCES = {
   'FilmCreateResourcePanel.vue': panel,
+  'filmCreateResourcePanelCopy.js': panelCopy,
   'FilmCreateCharacterBlock.vue': characterBlock,
   'FilmCreatePropBlock.vue': propBlock,
   'FilmCreateSceneBlock.vue': sceneBlock,
@@ -41,14 +44,6 @@ function collectVisibleCopy(source) {
     }
   }
   return values
-}
-
-function loadPanelFunction(name, hasAssetImage = () => false) {
-  const source = remainingExtractNamedFunction(panel, name)
-  return new Function(
-    'hasAssetImage',
-    `'use strict'; ${source}; return ${name};`,
-  )(hasAssetImage)
 }
 
 function createMessages() {
@@ -136,12 +131,10 @@ test('角色道具场景空状态与缺图禁用原因使用完整中文', () =>
   assert.match(panel, /暂无场景，可用「从剧本提取场景」或「添加场景」/)
   assert.match(characterBlock, /class="asset-desc-full">\{\{ char\.appearance \|\| char\.description \|\| '暂无描述' \}\}<\/div>/)
 
-  const missingReason = loadPanelFunction('missingAssetImageReason', () => false)
-  const readyReason = loadPanelFunction('missingAssetImageReason', () => true)
-  assert.equal(missingReason({}, 'character'), '请先为该角色生成或上传主图')
-  assert.equal(missingReason({}, 'prop'), '请先为该道具生成或上传主图')
-  assert.equal(missingReason({}, 'scene'), '请先为该场景生成或上传主图')
-  assert.equal(readyReason({}, 'character'), '')
+  assert.equal(describeResourceMissingAssetImageReason({}, 'character', false), '请先为该角色生成或上传主图')
+  assert.equal(describeResourceMissingAssetImageReason({}, 'prop', false), '请先为该道具生成或上传主图')
+  assert.equal(describeResourceMissingAssetImageReason({}, 'scene', false), '请先为该场景生成或上传主图')
+  assert.equal(describeResourceMissingAssetImageReason({}, 'character', true), '')
   assert.match(characterBlock, /<ActionGate :reason="missingAssetImageReason\(char, 'character'\)" :label="sd2ActionLabel\(char\)">/)
 })
 

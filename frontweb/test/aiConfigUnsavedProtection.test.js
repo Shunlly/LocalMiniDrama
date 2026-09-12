@@ -8,6 +8,7 @@ import { ref } from 'vue'
 
 const contentSource = readFileSync(new URL('../src/components/AIConfigContent.vue', import.meta.url), 'utf8')
 const pageSource = readFileSync(new URL('../src/views/AiConfig.vue', import.meta.url), 'utf8')
+const leaveSource = readFileSync(new URL('../src/composables/createAiConfigLeaveNavigation.js', import.meta.url), 'utf8')
 const filmListSource = readFileSync(new URL('../src/views/FilmList.vue', import.meta.url), 'utf8')
 const filmCreateSource = readFileSync(new URL('../src/views/FilmCreate.vue', import.meta.url), 'utf8')
 const shellBindingsSource = readFileSync(new URL('../src/components/filmCreate/filmCreateShellBindings.js', import.meta.url), 'utf8')
@@ -40,8 +41,9 @@ test('standalone AI config page protects route and browser exits', () => {
   assert.match(pageSource, /onBeforeRouteLeave/)
   assert.match(pageSource, /window\.addEventListener\('beforeunload', handleBeforeUnload\)/)
   assert.match(pageSource, /event\.preventDefault\(\)[\s\S]*event\.returnValue = ''/)
-  assert.match(pageSource, /if \(leaveConfirmed\) return true/)
-  assert.match(pageSource, /if \(allowed\) leaveConfirmed = true/)
+  assert.match(pageSource, /router\.replace\(returnTo\.value \|\| \{ name: 'list' \}\)/)
+  assert.match(leaveSource, /if \(leaveConfirmed \|\| skipNextRouteGuard\) return true/)
+  assert.match(leaveSource, /leaveConfirmed = true/)
 })
 
 test('project list AI config dialog delegates every close request to the content guard', () => {

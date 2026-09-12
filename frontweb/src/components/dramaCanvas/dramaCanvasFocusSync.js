@@ -42,7 +42,7 @@ export function createDramaCanvasFocusSync(ctx = {}) {
     const nodeElement = [...document.querySelectorAll('.vue-flow__node')]
       .find((element) => element.dataset.id === String(nodeId))
     nodeElement
-      ?.querySelector('.canvas-sb-node, .canvas-asset-node, .canvas-media-node, .canvas-script-node, [role="button"]')
+      ?.querySelector('.canvas-sb-node, .canvas-asset-node, .canvas-media-node, .canvas-script-node, .canvas-episode-node, .canvas-add-node, [role="button"]')
       ?.focus({ preventScroll: true })
   }
 

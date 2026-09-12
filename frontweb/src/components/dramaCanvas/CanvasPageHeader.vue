@@ -34,8 +34,8 @@
         v-if="layoutSaveError"
         class="layout-save-error"
         role="alert"
-        :title="layoutSaveError"
-      >{{ layoutSaveError }}</span>
+        :title="displayLayoutSaveError"
+      >{{ displayLayoutSaveError }}</span>
       <el-button
         v-if="layoutSaveState === 'error'"
         link
@@ -91,7 +91,10 @@
 </template>
 
 <script setup>
-defineProps({
+import { computed } from 'vue'
+import { toCanvasChineseMessage } from './canvasExperienceCopy.js'
+
+const props = defineProps({
   pageTitle: { type: String, default: '加载中…' },
   episodes: { type: Array, default: () => [] },
   filterEpisodeId: { default: null },
@@ -109,7 +112,14 @@ defineProps({
   goListMode: { type: Function, required: true },
   retryUnknownStoryboardMedia: { type: Function, required: true },
 })
+
+const displayLayoutSaveError = computed(() => (
+  props.layoutSaveError
+    ? toCanvasChineseMessage(props.layoutSaveError, '画布布局保存失败，请稍后重试')
+    : ''
+))
 </script>
+
 
 <style scoped>
 .header {

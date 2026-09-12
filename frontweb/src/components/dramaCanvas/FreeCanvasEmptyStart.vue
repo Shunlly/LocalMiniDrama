@@ -9,13 +9,14 @@
     <div class="free-canvas-empty-actions">
       <el-button
         v-if="hideProductionNodes"
+        autofocus
         aria-label="显示制作节点"
         @click="setHideProductionNodes(false)"
       >
         <el-icon><View /></el-icon>
         显示制作节点
       </el-button>
-      <el-button type="primary" aria-label="新建文本节点" @click="createFreeCanvasNode('text')">
+      <el-button type="primary" :autofocus="!hideProductionNodes" aria-label="新建文本节点" @click="createFreeCanvasNode('text')">
         <el-icon><Document /></el-icon>
         新建文本
       </el-button>
@@ -82,5 +83,10 @@ const emptyDescription = computed(() => (
   justify-content: center;
   gap: 8px;
   pointer-events: auto;
+}
+
+.free-canvas-empty-actions :deep(.el-button:focus-visible) {
+  outline: 2px solid var(--canvas-focus-ring, #818cf8);
+  outline-offset: 2px;
 }
 </style>

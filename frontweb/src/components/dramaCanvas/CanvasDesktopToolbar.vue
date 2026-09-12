@@ -166,6 +166,12 @@
       </div>
     </div>
 
+    <p
+      v-if="!isFreeMode && emptyNextCopy"
+      class="empty-next-copy"
+      role="status"
+      aria-label="空剧集下一步"
+    >{{ emptyNextCopy }}</p>
     <div v-if="!isFreeMode && (workflowProgress || episodeGenProgress)" class="toolbar-progress" aria-live="polite">
       <span v-if="workflowProgress">{{ workflowProgress }}</span>
       <span v-if="episodeGenProgress" class="episode-progress">{{ episodeGenProgress }}</span>
@@ -212,6 +218,7 @@ const props = defineProps({
   aligningNodes: { type: Boolean, default: false },
   isDark: { type: Boolean, default: false },
   canvasMode: { type: String, default: 'production' },
+  emptyNextCopy: { type: String, default: '' },
 })
 
 const emit = defineEmits([
@@ -327,6 +334,13 @@ const alignTooltip = computed(() => (
 
 .episode-progress {
   color: var(--canvas-success-text, #34d399);
+}
+
+.empty-next-copy {
+  margin: 8px 0 0;
+  color: var(--canvas-text-secondary, #d4d4d8);
+  font-size: 12px;
+  line-height: 18px;
 }
 
 .mode-switch {

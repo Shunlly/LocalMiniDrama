@@ -26,9 +26,9 @@
     <div v-if="showModeSwitch && isFreeMode" class="toolbar-divider" aria-hidden="true" />
 
     <template v-if="isFreeMode">
-      <el-tooltip content="新建自由节点" placement="bottom">
-        <el-dropdown trigger="click" @command="createNode">
-          <el-button size="small" circle aria-label="新建自由节点" title="新建自由节点">
+      <el-tooltip :content="createActionLabel" placement="bottom">
+        <el-dropdown trigger="click" :disabled="atNodeLimit" @command="createNode">
+          <el-button size="small" circle :disabled="atNodeLimit" :aria-label="createActionLabel" :title="createActionLabel">
             <el-icon><Plus /></el-icon>
           </el-button>
           <template #dropdown>
@@ -119,7 +119,12 @@
         <el-button size="small" aria-label="打开素材栏" @click="emit('toggle-library')">打开素材栏</el-button>
       </div>
 
-      <p v-if="densityHint" class="density-hint" role="status">{{ densityHint }}</p>
+      <p
+        v-if="densityHint"
+        class="density-hint"
+        :class="{ 'is-limit': atNodeLimit }"
+        :role="atNodeLimit ? 'alert' : 'status'"
+      >{{ densityHint }}</p>
 
       <div v-if="selectionCount >= 1" class="multi-selection-actions" aria-label="多选操作">
         <span class="selection-summary" role="status">已选 {{ selectionCount }} 项</span>
@@ -161,9 +166,11 @@ import { computed } from 'vue'
 
 import CanvasActionGate from './CanvasActionGate.vue'
 import {
+  FREE_CANVAS_NODE_LIMIT,
   freeCanvasUxState,
   getFreeCanvasAlignDisabledReason,
   getFreeCanvasNodeCapacityHint,
+  getFreeCanvasNodeCapacityWarning,
 } from './freeCanvasUx.js'
 
 const props = defineProps({
@@ -201,7 +208,14 @@ const emptyNextCopy = computed(() => (
     ? '制作节点已隐藏，下一步可显示回来或新建自由节点'
     : '画布是空的，下一步可直接开始'
 ))
-const densityHint = computed(() => getFreeCanvasNodeCapacityHint(effectiveNodeCount.value))
+const capacityWarning = computed(() => getFreeCanvasNodeCapacityWarning(effectiveNodeCount.value))
+const densityHint = computed(() => capacityWarning.value || getFreeCanvasNodeCapacityHint(effectiveNodeCount.value))
+const atNodeLimit = computed(() => effectiveNodeCount.value >= FREE_CANVAS_NODE_LIMIT)
+const createActionLabel = computed(() => (
+  atNodeLimit.value
+    ? (capacityWarning.value || '自由画布已达到 500 个节点上限，请先整理后再添加')
+    : '新建自由节点'
+))
 const alignDisabledReason = computed(() => getFreeCanvasAlignDisabledReason({
   selectionCount: props.selectionCount,
   readonly: Boolean(freeCanvasUxState.readonly),
@@ -213,7 +227,7 @@ function alignSelection(mode) {
 }
 
 function createNode(type) {
-  if (!isFreeMode.value) return
+  if (!isFreeMode.value || atNodeLimit.value) return
   emit('create-node', type)
 }
 
@@ -288,6 +302,10 @@ function cycleBackground() {
   max-width: 280px;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.density-hint.is-limit {
+  color: var(--canvas-danger-text, #f87171);
 }
 
 .free-canvas-toolbar :deep(.el-button:focus-visible) {

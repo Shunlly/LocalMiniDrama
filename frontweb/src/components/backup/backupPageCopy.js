@@ -2,6 +2,28 @@
 
 export const BACKUP_RESTORE_CANCEL_TEXT = '取消恢复备份'
 export const BACKUP_LEAVE_CONFIRM_MESSAGE = '正在备份或恢复，离开会中断当前操作。仍要离开吗？'
+export const BACKUP_READY_NOT_SPA_HINT = '这是后端就绪检查 /ready 的结果，不是备份页或 SPA HTML。'
+export const BACKUP_READY_SPA_HTML_MESSAGE = '后端就绪检查 /ready 没有返回 JSON，而是前端页面。请确认网关把 /ready 精确代理到后端，而不是回退成 SPA HTML。'
+
+/** 当 /ready 返回 SPA HTML 或非 JSON 时，转成用户能看懂的中文说明。 */
+export function looksLikeBackupReadySpaHtmlFailure(raw) {
+  const text = String(raw || '')
+  if (!text.trim()) return false
+  if (/<!DOCTYPE\s+html/i.test(text)) return true
+  if (/<html[\s>]/i.test(text) || /<\/html>/i.test(text)) return true
+  if (/<div[^>]*id=["']app["']/i.test(text)) return true
+  if (/\bHTTP\s*200\b/i.test(text)) return true
+  if (/unexpected token\s+'?</i.test(text)) return true
+  if (/text\/html/i.test(text)) return true
+  return false
+}
+
+export function describeBackupReadinessDisplayError(rawError) {
+  const text = String(rawError || '').trim()
+  if (!text) return ''
+  if (looksLikeBackupReadySpaHtmlFailure(text)) return BACKUP_READY_SPA_HTML_MESSAGE
+  return text
+}
 
 export function getBackupWriteLockReason({
   creating = false,

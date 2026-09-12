@@ -456,6 +456,13 @@ test('自由创作空态、失败、取消和离开保护文案可直接断言',
   assert.equal(shouldBlockFreeCreateUnload({ uploading: true }), true)
   assert.equal(shouldBlockFreeCreateUnload({ hasActive: true }), true)
   assert.equal(shouldBlockFreeCreateUnload({}), false)
+  assert.match(freeCreateHeaderSource, /aria-label="返回项目首页"/)
+  assert.match(freeCreateHeaderSource, />\s*返回项目首页\s*</)
+  assert.doesNotMatch(freeCreateHeaderSource, /返回项目列表/)
+  assert.match(freeCreateResultSource, /class="empty-result" role="status" aria-live="polite"/)
+  assert.match(freeCreateResultSource, /role="group"[\s\S]*aria-label="空结果下一步"/)
+  assert.match(freeCreateResultSource, /item\.assetSaveError \? '重试保存' : '保存到素材中心'/
+  )
 })
 
 test('轮询会把取消和失败写成中文终态', async () => {

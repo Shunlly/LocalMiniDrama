@@ -2,7 +2,13 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import { defineComponent, h, nextTick } from 'vue'
-import { projectCardDestination as resolveProjectCardDestination } from '../src/utils/sourceImportNavigation.js'
+import {
+  projectCardContinueLabel,
+  projectCardDescribedById,
+  projectCardDestination as resolveProjectCardDestination,
+  projectCardNextStepText,
+  projectCardOpenLabel,
+} from '../src/utils/sourceImportNavigation.js'
 
 import {
   buttonByAriaLabel,
@@ -77,6 +83,22 @@ function linkByAriaLabel(root, label) {
   return findAll(root, (node) => node.type === 'a' && node.props?.['aria-label'] === label)[0]
 }
 
+function nodeById(root, id) {
+  return findAll(root, (node) => node.props?.id === id)[0]
+}
+
+function assertCardNextStep(root, project, sourceImportIntent = false) {
+  const card = linkByAriaLabel(root, projectCardOpenLabel(project))
+  assert.ok(card, `缺少卡片 ${projectCardOpenLabel(project)}`)
+  const describedBy = card.props['aria-describedby']
+  const expectedId = projectCardDescribedById(project)
+  assert.equal(describedBy, expectedId)
+  const described = nodeById(root, describedBy)
+  assert.ok(described, `缺少 aria-describedby 目标 ${expectedId}`)
+  assert.equal(textContent(described).trim(), projectCardNextStepText(project, sourceImportIntent))
+  return card
+}
+
 function mountGrid(initial = {}) {
   const events = []
   const mounted = mountHarness(renderer, () => h(FilmListProjectGrid, {
@@ -141,6 +163,8 @@ test('空列表不渲染卡片；无封面时展示中文空态', async () => {
     assert.ok(named)
     assert.ok(linkByAriaLabel(harness.root, '打开项目「未命名项目」的故事素材流程'))
     assert.ok(linkByAriaLabel(harness.root, '打开项目「雨巷」的故事素材流程'))
+    assertCardNextStep(harness.root, { id: DRAMA_ID, title: '', episodes: [] })
+    assertCardNextStep(harness.root, { id: OTHER_DRAMA_ID, title: '雨巷', episodes: [{ id: 1 }] })
     assert.equal(JSON.parse(unnamed.props['data-to']).name, 'drama-detail')
     assert.equal(JSON.parse(named.props['data-to']).name, 'film')
     assert.equal(JSON.parse(named.props['data-to']).params.id, OTHER_DRAMA_ID)
@@ -199,7 +223,7 @@ test('导入意图下卡片改成导入网页 URL，菜单命令交给页面', a
     assert.doesNotMatch(textContent(harness.root), /继续制作/)
     assert.equal(linkByAriaLabel(harness.root, '打开项目「雨巷」的故事素材流程'), undefined)
     assert.doesNotMatch(textContent(harness.root), /故事素材/)
-    const card = linkByAriaLabel(harness.root, '打开项目「雨巷」')
+    const card = assertCardNextStep(harness.root, { id: OTHER_DRAMA_ID, title: '雨巷', episodes: [{ id: 1 }] }, true)
     assert.ok(card)
     assert.equal(findAll(harness.root, (node) => node.type === 'a').length, 1)
     const items = findAll(harness.root, (node) => node.type === 'dropdown-items')[0]
@@ -225,11 +249,41 @@ test('无效剧集编号的卡片仍显示去创建剧集，不误写成继续�
     assert.doesNotMatch(textContent(harness.root), /继续制作/)
     assert.match(textContent(harness.root), /0/)
     assert.doesNotMatch(textContent(harness.root), /1 集/)
-    const card = linkByAriaLabel(harness.root, '打开项目「残本」')
-    assert.ok(card, '缺少去创建剧集读屏名称')
+    const card = assertCardNextStep(harness.root, { id: DRAMA_ID, title: '残本', episodes: [{ id: 'bad' }] })
     assert.match(textContent(harness.root), /0\s*集/)
     assert.doesNotMatch(textContent(harness.root), /1\s*集/)
     assert.equal(JSON.parse(card.props['data-to']).hash, '#episode-list')
+    assert.match(textContent(nodeById(harness.root, card.props['aria-describedby'])), /去创建剧集/)
+    assert.doesNotMatch(textContent(nodeById(harness.root, card.props['aria-describedby'])), /继续制作/)
+  } finally {
+    harness.app.unmount()
+  }
+})
+
+test('0 集或剧集编号无效时下一步是去创建剧集，有效集才继续制作', async () => {
+  assert.equal(projectCardContinueLabel({ episodes: [] }, false), '去创建剧集')
+  assert.equal(projectCardContinueLabel({ episodes: [{ id: 0 }] }, false), '去创建剧集')
+  assert.equal(projectCardContinueLabel({ episodes: [{ id: 'bad' }] }, false), '去创建剧集')
+  assert.equal(projectCardContinueLabel({ episodes: [{ id: 7 }] }, false), '继续制作')
+  assert.equal(projectCardNextStepText({ id: DRAMA_ID, episodes: [] }, false), '下一步：去创建剧集')
+  assert.equal(projectCardNextStepText({ id: DRAMA_ID, episodes: [{ id: 7 }] }, false), '下一步：继续制作')
+  assert.equal(projectCardDescribedById({ id: DRAMA_ID }), `project-card-next-${DRAMA_ID}`)
+  assert.notEqual(projectCardDescribedById({ id: DRAMA_ID }), projectCardDescribedById({ id: OTHER_DRAMA_ID }))
+
+  const harness = mountGrid({
+    filteredDramas: [
+      { id: DRAMA_ID, title: '空白本', status: 'draft', episodes: [], storyboardCount: 0 },
+      { id: OTHER_DRAMA_ID, title: '零号集', status: 'draft', episodes: [{ id: 0 }], storyboardCount: 0 },
+    ],
+  })
+  try {
+    await nextTick()
+    const blank = assertCardNextStep(harness.root, { id: DRAMA_ID, title: '空白本', episodes: [] })
+    const zero = assertCardNextStep(harness.root, { id: OTHER_DRAMA_ID, title: '零号集', episodes: [{ id: 0 }] })
+    assert.equal(JSON.parse(blank.props['data-to']).hash, '#episode-list')
+    assert.equal(JSON.parse(zero.props['data-to']).hash, '#episode-list')
+    assert.doesNotMatch(textContent(nodeById(harness.root, blank.props['aria-describedby'])), /继续制作/)
+    assert.doesNotMatch(textContent(nodeById(harness.root, zero.props['aria-describedby'])), /继续制作/)
   } finally {
     harness.app.unmount()
   }

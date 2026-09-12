@@ -6,12 +6,9 @@
         <span class="logo-sub">LocalMiniDrama</span>
       </p>
       <p class="status-code" aria-hidden="true">404</p>
-      <h1 id="not-found-title" ref="titleRef" tabindex="-1">页面不存在</h1>
-      <p class="description">
-        <template v-if="fromPath">无法打开地址 {{ fromPath }}。地址可能已失效，或项目编号不正确。</template>
-        <template v-else>地址可能已失效，或项目编号不正确。</template>
-        {{ canGoBack ? '可以返回上一页，或回到项目列表继续制作。' : '可以回到项目列表继续制作。' }}
-      </p>
+      <h1 id="not-found-title" ref="titleRef" tabindex="-1" aria-describedby="not-found-reason not-found-next-step">{{ copy.title }}</h1>
+      <p id="not-found-reason" class="description">{{ copy.reason }}</p>
+      <p id="not-found-next-step" class="next-step">{{ copy.nextStep }}</p>
       <div class="actions">
         <el-button v-if="canGoBack" :icon="ArrowLeft" aria-label="返回上一页" @click="goBack">返回上一页</el-button>
         <el-button type="primary" :icon="HomeFilled" aria-label="返回项目列表" @click="goHome">返回项目列表</el-button>
@@ -24,7 +21,7 @@
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { ArrowLeft, HomeFilled } from '@element-plus/icons-vue'
 import { useRoute, useRouter } from 'vue-router'
-import { resolveNotFoundFromPath, resolveNotFoundNavigation } from '@/utils/notFoundNavigation.js'
+import { resolveNotFoundCopy, resolveNotFoundDisplayPath, resolveNotFoundNavigation } from '@/utils/notFoundNavigation.js'
 
 const route = useRoute()
 const router = useRouter()
@@ -32,7 +29,8 @@ const titleRef = ref(null)
 
 const navigation = computed(() => resolveNotFoundNavigation(router.options.history.state, route.fullPath))
 const canGoBack = computed(() => navigation.value.type === 'back')
-const fromPath = computed(() => resolveNotFoundFromPath(route.query.from) || (route.name === 'not-found-catchall' ? resolveNotFoundFromPath(route.fullPath) : ''))
+const fromPath = computed(() => resolveNotFoundDisplayPath(route))
+const copy = computed(() => resolveNotFoundCopy(fromPath.value, { canGoBack: canGoBack.value }))
 
 function goHome() {
   router.replace({ name: 'list' })
@@ -116,6 +114,13 @@ h1:focus-visible {
   margin: 0;
   color: var(--text-muted);
   line-height: 1.7;
+}
+
+.next-step {
+  margin: 12px 0 0;
+  color: var(--text-primary);
+  line-height: 1.7;
+  font-weight: 600;
 }
 
 .actions {

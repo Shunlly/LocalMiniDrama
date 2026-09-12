@@ -181,6 +181,7 @@
 
 <script setup>
 import { computed } from 'vue'
+import { describeAddToEpisodeDisabledReason } from '@/components/filmCreate/filmCreateResourceDialogsCopy.js'
 import FilmCreateCharacterEditDialog from './FilmCreateCharacterEditDialog.vue'
 import FilmCreateCharacterLibraryDialogs from './FilmCreateCharacterLibraryDialogs.vue'
 import FilmCreatePropEditDialog from './FilmCreatePropEditDialog.vue'
@@ -337,10 +338,6 @@ const sceneLibraryKeyword = defineModel('sceneLibraryKeyword', { type: String, d
 const sceneLibraryPage = defineModel('sceneLibraryPage', { type: Number, default: 1 })
 const sceneLibraryPageSize = defineModel('sceneLibraryPageSize', { type: Number, default: 20 })
 const sceneLibraryTab = defineModel('sceneLibraryTab', { type: String, default: '' })
-
-function describeAddToEpisodeDisabledReason(episodeId) {
-  return episodeId ? '' : '请先创建或选择剧集'
-}
 
 const addToEpisodeDisabledReason = computed(() => describeAddToEpisodeDisabledReason(props.currentEpisodeId))
 </script>

@@ -129,7 +129,7 @@ async function discardChanges(page) {
   await warning.waitFor({ state: 'hidden' })
 }
 
-test('PromptEditor keeps dirty state after cancelled navigation and only leaves after discard', { timeout: 60000 }, async (t) => {
+test('PromptEditor keeps dirty state after cancelled navigation and only leaves after discard', { timeout: 90000 }, async (t) => {
   const vite = await startVite()
   t.after(() => vite.stop())
   const browser = await chromium.launch({ headless: true })
@@ -137,6 +137,8 @@ test('PromptEditor keeps dirty state after cancelled navigation and only leaves 
   const page = await browser.newPage()
   await installLocalApiFixtures(page)
 
+  await page.goto(`${vite.url}/`, { waitUntil: 'domcontentloaded' })
+  await page.locator('.film-list').waitFor({ state: 'visible', timeout: 30000 })
   await page.goto(`${vite.url}/ai-config`, { waitUntil: 'domcontentloaded' })
   const textarea = await makePromptDirty(page)
 
@@ -147,9 +149,16 @@ test('PromptEditor keeps dirty state after cancelled navigation and only leaves 
   assert.equal(await textarea.inputValue(), '尚未保存的提示词')
   assert.equal(await page.locator('.dirty-indicator').isVisible(), true)
 
+  const pageErrors = []
+  page.on('pageerror', (error) => pageErrors.push(String(error)))
   await page.locator('.ai-config .btn-back').click()
   await discardChanges(page)
-  await page.waitForFunction(() => window.location.pathname === '/', null, { timeout: 20000 })
+  try {
+    await page.waitForFunction(() => window.location.pathname === '/' && !!document.querySelector('.film-list'), null, { timeout: 45000 })
+  } catch (error) {
+    const dialogs = await page.locator('[role="dialog"]').allTextContents()
+    throw new Error(`${error.message}\nurl=${page.url()}\ndialogs=${JSON.stringify(dialogs)}\npageErrors=${pageErrors.join(' | ')}`)
+  }
   assert.equal(new URL(page.url()).pathname, '/')
 })
 

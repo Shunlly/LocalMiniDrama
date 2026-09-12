@@ -214,7 +214,8 @@ test('上传失败保留可见反馈，网络空结果不会伪装成成功列�
   assert.match(source, /aria-label="重新上传素材到素材中心"/)
   assert.match(source, /uploadAPI\.uploadAsset\(file, \{ suppressErrorToast: true \}\)/)
   assert.match(source, /没有找到匹配的网络素材/)
-  assert.match(source, /class="network-empty"[\s\S]*role="status"/)
+  assert.match(source, /class="network-empty"[\s\S]*role="status"[\s\S]*aria-live="polite"/)
+  assert.match(source, /aria-label="重新搜索网络素材"/)
 })
 
 test('顶栏上传按钮与筛选空态都提供明确的上传名称', () => {

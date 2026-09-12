@@ -171,6 +171,30 @@ test('requestClose confirms only when something is dirty and never marks drafts 
   assert.equal(cancelled.calls.discarded || 0, 0)
 })
 
+
+test('overlapping requestClose shares one discard confirm', async () => {
+  let release
+  let confirmCalls = 0
+  const delayed = useAiConfigUnsaved({
+    configFormDirty: refOf(true),
+    generationSettingsDirty: refOf(false),
+    credentialDraftDirty: refOf(false),
+    promptEditorRef: refOf({ hasUnsavedChanges: () => false }),
+    sceneModelMapRef: refOf({ hasUnsavedChanges: () => false }),
+    confirmBox: () => new Promise((resolve) => {
+      confirmCalls += 1
+      release = () => resolve(true)
+    }),
+  })
+  const first = delayed.requestClose()
+  const second = delayed.requestClose()
+  await Promise.resolve()
+  assert.equal(confirmCalls, 1)
+  release()
+  assert.deepEqual(await Promise.all([first, second]), [true, true])
+  assert.equal(confirmCalls, 1)
+})
+
 test('config dialog close only consults config form dirty, not generation settings', async () => {
   const generationOnly = createUnsaved({
     generationSettingsDirty: refOf(true),

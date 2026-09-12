@@ -32,7 +32,7 @@
 </tr>
 </table>
 
-市面上 AI 短剧工具不少，但真正能**本地保存工程数据、开箱即用、灵活接入自有 AI API**的并不多。
+市面上 AI 短剧工具不少，但真正能**本地保存工程数据、从源码或 Docker 自行运行、按配置接入自有 AI API**的并不多。
 本项目用纯 JavaScript 从零搭建；SQLite 数据库和生成文件默认保存在本机，使用外部 AI、图床或中转站时，提示词、参考图或素材会发送到对应服务。
 
 > ✅ 无订阅费 · ✅ 工程数据默认本地存储 · ✅ 可配置多家 AI 服务商（预设填表≠已跑通） · ✅ 完全开源可二次开发
@@ -41,7 +41,7 @@
 
 ## 当前怎么运行
 
-包版本为 `1.3.3`。这是仓库 `package.json` 版本号，不是 GitHub Release / tag，也没有把发版合并到 `main`。当前从源码或 Docker 运行即可，不要按发版下载使用。当前分支和脏工作树不能当作发布完成。
+包版本为 `1.3.3`。这是仓库 `package.json` 版本号，不是 GitHub Release / tag，也没有把发版合并到 `main`。Git 目前只有 `v1.3.0`、`v1.3.1`、`v1.3.2` 标签，没有 `v1.3.3` 标签；[Releases 页](https://github.com/Shunlly/LocalMiniDrama/releases) 只是历史记录，不要把这些历史安装包当 1.3.3 用。当前从源码或 Docker 运行即可，不要按发版下载使用。当前分支、当前提交和脏工作树都不能当作发布完成，也不能当作已通过官方 Docker / 浏览器 E2E。
 
 - 后端 `backend-node`：Express + SQLite（better-sqlite3），端口 **5679**，启动执行 `runMigrationsAndEnsure`
 - 前端 `frontweb`：开发用 Vite，端口 **3013**，代理 `/api`、`/static`、`/ready` 与 `/health`；开发 Vite 没有 `/healthz`
@@ -52,7 +52,7 @@
 - 官方 `docker compose up -d --build --wait` 默认映射 `127.0.0.1:3013` 和 `127.0.0.1:5679`，会和源码 `npm run dev` 抢端口，也会撞同一 `backend-node/data`。这两个端口已被占用时不要再起官方 Compose。并存请改 `LOCALMINIDRAMA_FRONTEND_HOST_PORT` / `LOCALMINIDRAMA_BACKEND_HOST_PORT`，并给 Docker 单独的 `LOCALMINIDRAMA_DATA_DIR`；Compose 会按前端宿主机端口写入 `LOCALMINIDRAMA_CORS_ORIGINS`（这是 Compose 字面量，宿主机再设同名变量盖不掉）。对改端口的实例跑 E2E 时，还须设置 `FRONTEND_URL` / `BACKEND_URL`。官方默认仍是 `3013`/`5679`；`23013`/`25679` 只属于旧 candidate 覆盖，不是当前默认值。`npm run docker:e2e:up` 只隔离仓库外 `LOCALMINIDRAMA_DATA_DIR`，不换 `3013`/`5679`，另外占用 `127.0.0.1:5688`
 - 开发模式下回环 Origin 可通过；生产 Docker CORS 跟随前端宿主机端口
 - 生产 Nginx（`frontweb/nginx.conf`）必须有 `location = /ready`，精确代理到后端 `/ready`，并写在 SPA `location /` 之前。`/healthz` 也代理后端 `/ready`，只用于 Compose 前端健康检查。只代理 `/healthz` 不够：备份页会请求 `/ready`；落到 SPA HTML 时无法解析就绪 JSON，不能当作已就绪。空 HTML 不会被当成维护锁定。生产 Nginx 不代理 `/health`，该路径会落到 SPA HTML
-- 生产 E2E 必须在干净工作树执行（证据要求 `working_tree_dirty=false`），不要凭历史 SHA 宣称当前工作树已通过
+- 生产 E2E 必须在干净工作树执行（证据要求 `working_tree_dirty=false`）。当前提交没有这份官方 Docker / 浏览器 E2E 证据；不要把历史 SHA、本地报告或当前工作树当成已通过
 - 未配置外部 API Key 也可以启动和开发界面；真正生成内容到「AI 配置」页填写。厂商预设填表不等于真实图片/视频/TTS 接入已跑通
 - 页面、API 与 CLI 的用户可见错误为简体中文
 - 故事素材可上传 PDF/图片/音视频：文本可直接导入；PDF/图片需要图片识别（可本机 Tesseract 或 AI 配置 OCR）；音视频需要语音转写配置
@@ -182,7 +182,7 @@
 
 当前交付范围为桌面端。素材中心支持本地图片/视频上传，以及从 Wikimedia Commons 搜索公开图片/视频、查看作者和许可来源、预览并安全下载入库；网页 URL 入口用于把故事正文导入项目。素材中心还可从 Openverse 搜索公开图片并经本机代理预览入库；使用者仍需自行确认素材许可是否满足具体用途。故事素材可上传 PDF/图片/音视频：文本可直接导入；PDF/图片需要图片识别（可本机 Tesseract 或 AI 配置 OCR）；音视频需要语音转写配置。这是素材抽取扩展，不是成片就绪条件。AI 配置提供多厂商预设、自定义 OpenAI 兼容厂商、手工模型列表，以及可选的 `/v1/models` 目录读取（合并去重，不自动覆盖）。正式制作仍要求文本、素材图、分镜图、视频、TTS 五类服务就绪。移动/触控、协作与完整 Agent/MCP 后置；真实云 OCR/Whisper 账号以及真实第三方 Provider 的账号、模型、区域、额度、计费与长耗时行为属于部署后深度联调范围，不能写成每个云账号都已联调。自动化测试不调用外部真实 Provider。
 
-📖 [画布工作流完整文档](docs/plans/2026-06-15-drama-canvas-workflow-plan.md) · 验收收尾报告：`http://127.0.0.1:3013/reports/infinite-canvas-20260727/report.html`
+📖 [画布工作流完整文档](docs/plans/2026-06-15-drama-canvas-workflow-plan.md)。本地报告 `http://127.0.0.1:3013/reports/infinite-canvas-20260727/report.html` 只覆盖当时范围，不能当作当前提交的官方 Docker / 浏览器 E2E 证据。
 
 ### 🤖 AI 配置 · 🌓 亮/暗主题 · 自定义提示词
 
@@ -192,7 +192,7 @@ AI 配置按文本、素材图片、分镜图片、视频和 TTS 五类核心服
 
 ## 🚀 快速开始
 
-当前推荐从源码或 Docker 运行。
+当前推荐从源码或 Docker 运行；没有可下载的 `v1.3.3` GitHub Release。
 
 ### 环境要求
 
@@ -272,7 +272,7 @@ npm run verify:docker
 
 `npm run verify:docker` 检查镜像边界，并在临时验证容器内跑前后端测试，不代替正在运行的 Compose 服务。`npm run docker:up` 要求 Git 工作树干净，并把当前 Git SHA 写入镜像 revision；未提交改动请直接用 `docker compose up -d --build --wait`。
 
-生产 E2E 必须在干净工作树、仓库外新建空数据目录后设置 `LOCALMINIDRAMA_DATA_DIR`，再执行 `npm run docker:e2e:up` 和 `npm run verify:e2e`，最后销毁 E2E profile 与临时数据目录。`docker:e2e:up` 只隔离数据目录，不换 `3013`/`5679`，另外占用 `127.0.0.1:5688`；源码 `npm run dev` 已占用这两个端口时不要再跑它。若已改宿主机端口，E2E 还须设置 `FRONTEND_URL` / `BACKEND_URL`。证据绑定完整源码 SHA 且 `working_tree_dirty=false`；当前脏工作树不能当作已通过。完整 PowerShell 命令见 [开发指南](docs/quickstart.md#运行方式二docker)。仓库测试使用本地协议兼容 Provider，不代表真实厂商账号已深度联调。
+生产 E2E 必须在干净工作树、仓库外新建空数据目录后设置 `LOCALMINIDRAMA_DATA_DIR`，再执行 `npm run docker:e2e:up` 和 `npm run verify:e2e`，最后销毁 E2E profile 与临时数据目录。`docker:e2e:up` 只隔离数据目录，不换 `3013`/`5679`，另外占用 `127.0.0.1:5688`；源码 `npm run dev` 已占用这两个端口时不要再跑它。若已改宿主机端口，E2E 还须设置 `FRONTEND_URL` / `BACKEND_URL`。证据绑定完整源码 SHA 且 `working_tree_dirty=false`。当前提交没有这份官方 Docker / 浏览器 E2E 证据；历史 SHA 和脏工作树都不能代替。完整 PowerShell 命令见 [开发指南](docs/quickstart.md#运行方式二docker)。仓库测试使用本地协议兼容 Provider，不代表真实厂商账号已深度联调。
 
 异常退出若留下维护租约，必须按 [维护租约恢复步骤](docs/quickstart.md#q-如何备份迁移项目数据) 先检查归属，再用精确作用域和 PID 显式恢复；不要直接删除锁文件。
 
@@ -295,11 +295,11 @@ npm --prefix frontweb run verify
 npm run verify
 ```
 
-当前没有正式 `v1.3.3` GitHub Release。Windows 安装包只是可选本地构建，不能当作已发版下载入口。若将来从官方 Release 取得 Setup / Portable，必须按下面核验；本地 `desktop/release/` 产物不是 GitHub 正式发布。
+当前没有正式 `v1.3.3` GitHub Release。Git 现有标签只有 `v1.3.0`、`v1.3.1`、`v1.3.2`，Releases 页只是历史，不能当 1.3.3 下载入口。Windows 安装包只是可选本地构建，不能当作已发版下载入口。若将来从官方 Release 取得 Setup / Portable，必须按下面核验；本地 `desktop/release/` 产物不是 GitHub 正式发布。
 
 ### 未签名制品与下载核验
 
-Setup 与 Portable **未做 Authenticode 签名**，Windows 可能显示 `Unknown Publisher` 或 SmartScreen 警告。只能从 [Shunlly/LocalMiniDrama 官方 GitHub Release](https://github.com/Shunlly/LocalMiniDrama/releases) 下载；来源不明、SHA-256 不符、manifest 不符或 GitHub artifact attestation 不匹配时，均不得运行。正式 Release 正文会给出 `$tag` 和完整 `$expectedGitSha`；以下 Windows PowerShell 命令要求 Release tag、预期 Git SHA、`release-manifest.json.git_commit` 与下载的官方标签源码完全一致：
+下面步骤只适用于将来出现正式 GitHub Release 之后；现在不要从 Releases 页下载当前 1.3.3。Setup 与 Portable **未做 Authenticode 签名**，Windows 可能显示 `Unknown Publisher` 或 SmartScreen 警告。将来也只能从 [Shunlly/LocalMiniDrama 官方 GitHub Release](https://github.com/Shunlly/LocalMiniDrama/releases) 下载；来源不明、SHA-256 不符、manifest 不符或 GitHub artifact attestation 不匹配时，均不得运行。正式 Release 正文会给出 `$tag` 和完整 `$expectedGitSha`；以下 Windows PowerShell 命令要求 Release tag、预期 Git SHA、`release-manifest.json.git_commit` 与下载的官方标签源码完全一致：
 
 ```powershell
 $repo = 'Shunlly/LocalMiniDrama'

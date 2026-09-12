@@ -1,9 +1,9 @@
 <template>
 <div class="page-header">
       <div class="header-left">
-        <el-button text aria-label="返回项目首页" @click="goBack">
+        <el-button text class="back-link" aria-label="返回项目首页" @click="goBack">
           <el-icon><ArrowLeft /></el-icon>
-          项目首页
+          返回项目首页
         </el-button>
         <h2 class="page-title">自由创作</h2>
       </div>
@@ -46,3 +46,11 @@ function goBack() {
   margin: 0;
 }
 </style>
+.back-link {
+  padding-left: 0;
+}
+
+.back-link:focus-visible {
+  outline: 2px solid var(--el-color-primary, #818cf8);
+  outline-offset: 2px;
+}

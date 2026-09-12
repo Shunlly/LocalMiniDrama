@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs'
 
 import { remainingExtractNamedFunction } from './helpers/remainingSourceBetween.js'
 import { readFilmCreateResourceDialogTree } from './helpers/filmCreateResourceDialogSources.js'
+import { describeAddToEpisodeDisabledReason } from '../src/components/filmCreate/filmCreateResourceDialogsCopy.js'
 import { useFilmCreateEpisodeCompose } from '../src/composables/filmCreate/useFilmCreateEpisodeCompose.js'
 import { toUserFacingError } from '../src/utils/userFacingError.js'
 
@@ -22,9 +23,6 @@ const DRAMA_ID = 11
 const EPISODE_ID = 22
 assert.notEqual(DRAMA_ID, EPISODE_ID)
 
-const describeAddToEpisodeDisabledReason = new Function(
-  `'use strict'; ${remainingExtractNamedFunction(resourceDialogsParent, 'describeAddToEpisodeDisabledReason')}; return describeAddToEpisodeDisabledReason;`,
-)()
 const describeImageGenerateDisabledReason = new Function(
   `'use strict'; ${remainingExtractNamedFunction(imageColumnCopy, 'describeImageGenerateDisabledReason')}; return describeImageGenerateDisabledReason;`,
 )()

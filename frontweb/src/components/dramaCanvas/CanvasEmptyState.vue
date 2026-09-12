@@ -11,6 +11,7 @@
         placeholder="选择要进入的剧集"
         class="episode-picker"
         aria-label="选择要进入的剧集"
+        autofocus
         @update:model-value="selectDraftEpisode"
       >
         <el-option
@@ -32,6 +33,7 @@
           v-if="actions.primaryAction === 'create-episode'"
           type="primary"
           native-type="button"
+          autofocus
           aria-label="新建第一集"
           title="新建第一集"
           @click="emit('create-episode')"
@@ -45,6 +47,7 @@
           :disabled="effectiveEpisodeId === null"
           :title="effectiveEpisodeId === null ? '请先选择要进入的剧集' : undefined"
           native-type="submit"
+          autofocus
           :aria-label="effectiveEpisodeId === null ? '请先选择要进入的剧集' : '进入这一集'"
         >
           <el-icon><Right /></el-icon>
@@ -221,6 +224,12 @@ p {
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+.start-actions :deep(.el-button:focus-visible),
+.episode-picker:focus-within {
+  outline: 2px solid var(--canvas-focus-ring, #818cf8);
+  outline-offset: 2px;
 }
 
 </style>

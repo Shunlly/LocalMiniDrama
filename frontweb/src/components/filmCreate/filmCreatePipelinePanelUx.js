@@ -1,5 +1,6 @@
 import { isSafeUserFacingMessage } from '../../utils/requestError.js'
 import { getPipelineControlReasons } from '../../utils/filmPipelineAction.js'
+import { describeActionAriaLabel } from './filmCreateActionCopy.js'
 
 /** 把暂停/继续/停止禁用原因收成中文，并描述进行中状态与空状态下一步。 */
 export function toPipelineDisabledReason(value, fallback = '当前不可用') {
@@ -84,18 +85,12 @@ export function describePipelinePanelUx(input = {}) {
     || (productionBusy ? (starting ? '正在确认完整成片的运行条件' : '正在生成完整成片，请稍候') : '')
   const draftButtonTitle = String(input.draftReason || '').trim()
     || (productionBusy ? (starting ? '正在确认完整成片的运行条件' : '正在生成文本框架，请稍候') : '')
-  function actionAriaLabel(actionLabel, { loading, loadingLabel, disabledReason } = {}) {
-    if (loading) return String(loadingLabel || `正在${actionLabel}`).trim()
-    const reason = String(disabledReason || '').trim()
-    if (reason) return `${actionLabel}不可用：${reason}`
-    return String(actionLabel || '').trim()
-  }
-  const productionButtonAriaLabel = actionAriaLabel('一键生成成片', {
+  const productionButtonAriaLabel = describeActionAriaLabel('一键生成成片', {
     loading: productionBusy,
     loadingLabel: starting ? '正在确认完整成片的运行条件' : '正在生成完整成片',
     disabledReason: input.productionReason,
   })
-  const draftButtonAriaLabel = actionAriaLabel('仅生成文本框架', {
+  const draftButtonAriaLabel = describeActionAriaLabel('仅生成文本框架', {
     loading: productionBusy,
     loadingLabel: starting ? '正在确认完整成片的运行条件' : '正在生成文本框架',
     disabledReason: input.draftReason,

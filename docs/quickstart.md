@@ -23,7 +23,7 @@
 
 ## 当前运行建议
 
-包版本为 `1.3.3`。这是仓库 `package.json` 版本号，不是 GitHub Release / tag，也没有把发版合并到 `main`。当前从源码或 Docker 运行，不要按发版下载使用。当前分支和脏工作树不能当作发布完成。仓库是纯 JavaScript，没有 TypeScript。
+包版本为 `1.3.3`。这是仓库 `package.json` 版本号，不是 GitHub Release / tag，也没有把发版合并到 `main`。Git 目前只有 `v1.3.0`、`v1.3.1`、`v1.3.2` 标签，没有 `v1.3.3` 标签；Releases 页只是历史，不要把这些历史安装包当 1.3.3 用。当前从源码或 Docker 运行，不要按发版下载使用。当前分支、当前提交和脏工作树都不能当作发布完成，也不能当作已通过官方 Docker / 浏览器 E2E。仓库是纯 JavaScript，没有 TypeScript。
 
 - 后端端口 **5679**，前端开发用 Vite 端口 **3013**；开发时前端代理 `/api`、`/static`、`/ready` 与 `/health`。开发 Vite 没有 `/healthz`
 - 生产也可先 `npm --prefix frontweb run build`，由后端在 5679 托管 `frontweb/dist`（`WEB_DIST_PATH` 可覆盖）。Docker 生产前端由 Nginx 提供静态页
@@ -36,7 +36,7 @@
 - 正式制作仍以文本、素材图、分镜图、视频、TTS 五类服务为成片就绪条件。真实云 OCR/Whisper 账号联调、真实图片/视频/TTS 厂商接入、移动端仍不在当前完成范围
 - Docker Compose **不 bind-mount 应用源码**。改完代码后执行 `docker compose up -d --build --wait`，容器级校验用根目录 `npm run verify:docker`
 - 生产 Nginx 必须有 `location = /ready`，精确代理到后端 `/ready`，并写在 SPA `location /` 之前。`/healthz` 也代理后端 `/ready`，只用于 Compose 前端健康检查。只代理 `/healthz` 不够：备份页会请求 `/ready`；落到 SPA HTML 时无法解析就绪 JSON，不能当作已就绪。空 HTML 不会被当成维护锁定。生产 Nginx 不代理 `/health`，该路径会落到 SPA HTML
-- 生产 E2E 必须在干净工作树执行（证据要求 `working_tree_dirty=false`），不要凭历史 SHA 宣称当前工作树已通过
+- 生产 E2E 必须在干净工作树执行（证据要求 `working_tree_dirty=false`）。当前提交没有这份官方 Docker / 浏览器 E2E 证据；不要把历史 SHA、本地报告或当前工作树当成已通过
 - 页面、API 与 CLI 的用户可见错误为简体中文；`/ready` 可接业务，失败时 `checks.*.error` 为简体中文；`/health` 只表示进程存活
 - 备份/恢复/维护恢复 CLI 的 `--help` 和失败输出为简体中文
 
@@ -161,7 +161,7 @@ npm run dist:cn
 - `LocalMiniDrama-Portable-x.x.x-x64.exe` — 便携版
 - `win-unpacked/` — 未压缩目录
 
-本地 `npm run dist` 会生成 Setup、Portable 与 `win-unpacked`，只供本机使用，不是发版。`pack` / `dist` 固定 `--publish never`；CI 与 Windows 安全扫描不会创建 GitHub Release。当前请从源码或 Docker 运行。这些 Windows 制品未做 Authenticode 签名；若将来从官方 GitHub Release 下载，核验步骤见根目录 [README](../README.md#未签名制品与下载核验)。若将来发版，正式发布顺序是：分支 CI 通过后创建 annotated tag，再由工作流生成草稿 Release 并人工发布。
+本地 `npm run dist` 会生成 Setup、Portable 与 `win-unpacked`，只供本机使用，不是发版。`pack` / `dist` 固定 `--publish never`；CI 与 Windows 安全扫描不会创建 GitHub Release。现有 `v1.3.0`、`v1.3.1`、`v1.3.2` 标签没有可作为 1.3.3 使用的正式附件。当前请从源码或 Docker 运行，不要按发版下载。这些 Windows 制品未做 Authenticode 签名；若将来从官方 GitHub Release 下载，核验步骤见根目录 [README](../README.md#未签名制品与下载核验)。若将来发版，正式发布顺序是：分支 CI 通过后创建 annotated tag，再由工作流生成草稿 Release 并人工发布。
 
 **打包原理：**
 1. 构建前端静态文件
@@ -302,7 +302,7 @@ npm run verify:docker
 
 该命令在临时验证容器中运行前后端检查，不验证当前正在运行的 Compose 服务。Compose 健康检查：后端探测 `/ready`，前端探测 `/healthz`（生产 Nginx 代理 `/ready`）。生产 Nginx 还必须单独代理 `location = /ready`。后端 `/health` 只是存活探针，`docker compose --wait` 不会等它。验收时看后端 `5679/ready`，需要时再看 `5679/health`；不要用生产前端 `3013/health` 当存活探针。前后端均使用 `unless-stopped` 自动恢复策略；人工停止后不会自行重启。
 
-单独运行 `npm run verify:e2e` 不会自动启动测试服务；下面的 `npm run docker:e2e:up` 会显式启动本地协议兼容测试服务。它只隔离仓库外的 `LOCALMINIDRAMA_DATA_DIR`，**不换** `3013`/`5679`，另外占用 `127.0.0.1:5688`。源码 `npm run dev` 已占用 `3013`/`5679` 时不要再跑这条命令。`LOCALMINIDRAMA_DATA_DIR` 必须指向仓库外新建的绝对空目录，以免 E2E 污染开发数据。必须在干净工作树按顺序执行（证据要求 `working_tree_dirty=false`；当前脏工作树不能当作已通过）：
+单独运行 `npm run verify:e2e` 不会自动启动测试服务；下面的 `npm run docker:e2e:up` 会显式启动本地协议兼容测试服务。它只隔离仓库外的 `LOCALMINIDRAMA_DATA_DIR`，**不换** `3013`/`5679`，另外占用 `127.0.0.1:5688`。源码 `npm run dev` 已占用 `3013`/`5679` 时不要再跑这条命令。`LOCALMINIDRAMA_DATA_DIR` 必须指向仓库外新建的绝对空目录，以免 E2E 污染开发数据。必须在干净工作树按顺序执行（证据要求 `working_tree_dirty=false`）。当前提交没有这份官方 Docker / 浏览器 E2E 证据；历史 SHA 和脏工作树都不能代替：
 
 ```powershell
 $e2eDataDir = Join-Path ([IO.Path]::GetTempPath()) ("localminidrama-e2e-" + [guid]::NewGuid().ToString("N"))

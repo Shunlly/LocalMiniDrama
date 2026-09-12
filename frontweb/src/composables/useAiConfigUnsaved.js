@@ -153,21 +153,31 @@ export function useAiConfigUnsaved(deps = {}) {
       ])
   }
 
+  let discardConfirmPending = null
+
   async function confirmDiscard() {
+    if (discardConfirmPending) return discardConfirmPending
+    discardConfirmPending = (async () => {
+      try {
+        await confirmBox(
+          discardMessage,
+          discardTitle,
+          {
+            confirmButtonText: discardConfirmText,
+            cancelButtonText: discardCancelText,
+            type: 'warning',
+            distinguishCancelAndClose: true,
+          },
+        )
+        return true
+      } catch (_) {
+        return false
+      }
+    })()
     try {
-      await confirmBox(
-        discardMessage,
-        discardTitle,
-        {
-          confirmButtonText: discardConfirmText,
-          cancelButtonText: discardCancelText,
-          type: 'warning',
-          distinguishCancelAndClose: true,
-        },
-      )
-      return true
-    } catch (_) {
-      return false
+      return await discardConfirmPending
+    } finally {
+      discardConfirmPending = null
     }
   }
 

@@ -144,3 +144,22 @@ test('网络说明是 polite live region', async () => {
     harness.app.unmount()
   }
 })
+test('搜索失败展示中文下一步并可重试', async () => {
+  const harness = mountPanel({
+    networkError: '暂时无法搜索网络素材，请稍后重试',
+  })
+  try {
+    await nextTick()
+    const copy = textContent(harness.root)
+    assert.match(copy, /网络素材搜索失败/)
+    assert.match(copy, /暂时无法搜索网络素材，请稍后重试/)
+    assert.match(copy, /下一步：请检查网络后点「重试」/)
+    assert.doesNotMatch(copy, /Network Error|Failed to fetch|AbortError/i)
+    const retry = buttonByAriaLabel(harness.root, '重试搜索网络素材')
+    assert.ok(retry)
+    click(retry)
+    assert.deepEqual(harness.events, [['search']])
+  } finally {
+    harness.app.unmount()
+  }
+})

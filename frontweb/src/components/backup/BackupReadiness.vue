@@ -11,9 +11,18 @@
     <div class="data-load-state__content">
       <h2>{{ hasSuccessfulReadinessLoad ? '维护状态刷新失败' : '维护状态加载失败' }}</h2>
       <p>暂时无法确认维护租约。这不会删除已有备份。</p>
+      <p class="data-load-state__hint" data-testid="backup-readiness-ready-hint">{{ BACKUP_READY_NOT_SPA_HINT }}</p>
+      <p
+        v-if="readinessLooksLikeSpaHtml"
+        class="data-load-state__detail"
+        data-testid="backup-readiness-spa-html"
+      >{{ BACKUP_READY_SPA_HTML_MESSAGE }}</p>
       <p v-if="hasSuccessfulReadinessLoad" class="data-load-state__stale">下方显示上次成功读取的维护状态，当前内容已过期。</p>
       <p v-else>维护正常空态不会在连接恢复前显示。</p>
-      <p class="data-load-state__detail">错误详情：{{ readinessError }}</p>
+      <p
+        v-if="!readinessLooksLikeSpaHtml"
+        class="data-load-state__detail"
+      >错误详情：{{ readinessDisplayError }}</p>
     </div>
     <el-button
       type="primary"
@@ -58,15 +67,25 @@
 </template>
 
 <script setup>
+import { computed } from 'vue'
 import { Refresh } from '@element-plus/icons-vue'
+import {
+  BACKUP_READY_NOT_SPA_HINT,
+  BACKUP_READY_SPA_HTML_MESSAGE,
+  describeBackupReadinessDisplayError,
+  looksLikeBackupReadySpaHtmlFailure,
+} from './backupPageCopy.js'
 
-defineProps({
+const props = defineProps({
   readinessError: { type: String, default: '' },
   readinessLoading: { type: Boolean, default: false },
   hasSuccessfulReadinessLoad: { type: Boolean, default: false },
   readiness: { default: null },
   loadReadiness: { type: Function, required: true },
 })
+
+const readinessLooksLikeSpaHtml = computed(() => looksLikeBackupReadySpaHtmlFailure(props.readinessError))
+const readinessDisplayError = computed(() => describeBackupReadinessDisplayError(props.readinessError))
 </script>
 
 <style scoped src="./backupPage.css"></style>

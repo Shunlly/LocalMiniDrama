@@ -17,6 +17,9 @@ test('未知地址的 404 页焦点落在标题，项目列表按钮回到首页
   const title = page.getByRole('heading', { name: '页面不存在', exact: true })
   await title.waitFor({ timeout: 20000 })
   await page.waitForFunction(() => document.activeElement?.id === 'not-found-title', null, { timeout: 10000 })
+  assert.match(page.url(), /\/not-found(?:\?|$)/)
+  assert.equal(await page.locator('#not-found-reason').innerText(), '无法打开地址 /this-page-does-not-exist。这个地址不在应用里，可能是旧链接或输入错误。')
+  assert.equal(await page.locator('#not-found-next-step').innerText(), '可以回到项目列表继续制作。')
   assert.equal(await page.getByRole('button', { name: '返回上一页', exact: true }).count(), 0)
 
   await page.locator('.not-found-page').getByRole('button', { name: '返回项目列表', exact: true }).click()
@@ -29,9 +32,34 @@ test('非法项目编号进入 404 后可回到项目列表', { timeout: 90_000 
   const page = await launchPage(t)
   await stubFrontendApis(page)
 
-  for (const path of ['film/abc', 'drama/0', 'film/abc/canvas']) {
-    await page.goto(`${baseUrl}${path}`, { waitUntil: 'domcontentloaded' })
+  const cases = [
+    {
+      path: 'film/abc',
+      reason: '无法打开地址 /film/abc。制作页深链接已失效，项目编号不正确，无法进入制作。',
+      nextStep: '下一步：回到项目列表，从项目卡片重新打开制作页。',
+      from: '/film/abc',
+    },
+    {
+      path: 'drama/0',
+      reason: '无法打开地址 /drama/0。项目详情深链接已失效，项目编号不正确，无法打开剧集管理。',
+      nextStep: '下一步：回到项目列表，从项目卡片重新进入详情。',
+      from: '/drama/0',
+    },
+    {
+      path: 'film/abc/canvas',
+      reason: '无法打开地址 /film/abc/canvas。画布深链接已失效，项目编号不正确，无法打开剧集画布。',
+      nextStep: '下一步：回到项目列表，打开有效项目后再进入画布。',
+      from: '/film/abc/canvas',
+    },
+  ]
+  for (const item of cases) {
+    await page.goto(`${baseUrl}${item.path}`, { waitUntil: 'domcontentloaded' })
     await page.getByRole('heading', { name: '页面不存在', exact: true }).waitFor({ timeout: 20000 })
+    const current = new URL(page.url())
+    assert.equal(current.pathname, '/not-found')
+    assert.equal(current.searchParams.get('from'), item.from)
+    assert.equal(await page.locator('#not-found-reason').innerText(), item.reason)
+    assert.equal(await page.locator('#not-found-next-step').innerText(), item.nextStep)
     const home = page.locator('.not-found-page').getByRole('button', { name: '返回项目列表', exact: true })
     await home.click()
     await page.locator('.film-list').waitFor({ state: 'visible', timeout: 20000 })
@@ -50,6 +78,8 @@ test('站内跳到未知路由后，404 页返回上一页回到项目列表', {
     await router.push('/missing-internal-page')
   })
   await page.getByRole('heading', { name: '页面不存在', exact: true }).waitFor({ timeout: 20000 })
+  assert.match(page.url(), /\/not-found/)
+  assert.match(await page.locator('#not-found-reason').innerText(), /这个地址不在应用里/)
   await page.getByRole('button', { name: '返回上一页', exact: true }).click()
   await page.locator('.film-list').waitFor({ state: 'visible', timeout: 20000 })
 })

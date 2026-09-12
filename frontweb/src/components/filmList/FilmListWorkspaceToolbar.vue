@@ -134,9 +134,23 @@
       <div class="action-card-inner">
         <h2 class="action-card-title">没有匹配的项目</h2>
         <p class="action-card-desc">换一个关键词或状态，或清除筛选后查看全部项目。</p>
-        <el-button class="action-btn action-btn-clear-filters" aria-label="清除筛选并查看全部项目" @click="clearProjectFilters">
-          清除筛选
-        </el-button>
+        <div class="action-card-buttons">
+          <el-button class="action-btn action-btn-clear-filters" aria-label="清除筛选并查看全部项目" @click="clearProjectFilters">
+            清除筛选
+          </el-button>
+          <el-tooltip :content="listWriteLockReason" :disabled="!listWriteLocked" placement="top">
+            <span
+              class="tooltip-trigger"
+              :tabindex="listWriteLocked ? 0 : undefined"
+              :aria-label="listWriteLocked ? `新建项目不可用：${listWriteLockReason}` : undefined"
+              :aria-describedby="listWriteLocked && listWriteLockReason ? 'project-list-write-lock-reason' : undefined"
+            >
+              <el-button type="primary" class="action-btn action-btn-new" :disabled="listWriteLocked" aria-label="新建项目" :title="listWriteLocked ? listWriteLockReason : undefined" :aria-describedby="listWriteLocked && listWriteLockReason ? 'project-list-write-lock-reason' : undefined" @click="goNewProject">
+                <el-icon><Plus /></el-icon>新建项目
+              </el-button>
+            </span>
+          </el-tooltip>
+        </div>
       </div>
     </section>
   </template>
@@ -260,6 +274,9 @@ html.dark .workspace-search :deep(.el-input__inner::placeholder) {
 .action-card--search-empty .action-card-inner {
   align-items: center;
   text-align: center;
+}
+.action-card--search-empty .action-card-buttons {
+  justify-content: center;
 }
 .action-card-title {
   font-size: 1.35rem;

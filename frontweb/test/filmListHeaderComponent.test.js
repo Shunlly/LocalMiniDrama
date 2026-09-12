@@ -84,12 +84,14 @@ test('项目列表页头保留品牌，并把素材和工作区入口交给页�
     click(buttonByAriaLabel(harness.root, '打开项目回收站'))
     click(buttonByAriaLabel(harness.root, '切换到暗色模式'))
     click(buttonByAriaLabel(harness.root, '打开数据备份与维护'))
+    click(buttonByAriaLabel(harness.root, '新建项目'))
     assert.deepEqual(harness.events, [
       ['material-center'],
       ['free-create'],
       ['trash'],
       ['theme'],
       ['backup'],
+      ['new-project'],
     ])
   } finally {
     harness.app.unmount()

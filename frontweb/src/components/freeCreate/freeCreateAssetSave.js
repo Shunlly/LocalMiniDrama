@@ -124,6 +124,7 @@ export function getFreeCreateSaveAriaLabel(item, {
   if (item?.savingAsset) return '正在保存到素材中心'
   if (positiveFreeCreateId(item?.assetId)) return `已保存到${targetLabel}`
   if (disabledReason) return `保存到素材中心不可用：${disabledReason}`
+  if (nonEmpty(item?.assetSaveError)) return `重试保存到${targetLabel}`
   return `保存到${targetLabel}`
 }
 
