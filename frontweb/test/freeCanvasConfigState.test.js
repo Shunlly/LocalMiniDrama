@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
+import { getCanvasProductionActionState } from '../src/utils/canvasActionState.js'
 import { buildFreeCreateGenerationPayload } from '../src/utils/freeCreate.js'
 import {
   applyFreeCanvasConfigGenerationResult,
@@ -252,4 +253,61 @@ test('英文失败原因回落到中文下一步，不把技术原文展示给�
   assert.equal(outcome.status, 'failed')
   assert.match(outcome.lastError, /生成失败/)
   assert.doesNotMatch(outcome.lastError, /network error/i)
+})
+
+test('隔离形态的正式能力响应把未连线配置节点标成需要配置，而不是检查失败', () => {
+  const readinessState = {
+    status: 'loaded',
+    data: {
+      qa_mode: 'production',
+      ready: false,
+      capabilities: [
+        { key: 'image', service_type: 'image', ready: false, detail: 'missing' },
+        { key: 'video', service_type: 'video', ready: false, detail: 'missing' },
+        { key: 'tts', service_type: 'tts', ready: false, detail: 'missing' },
+        { key: 'ffmpeg', ready: true },
+      ],
+      missing_capabilities: [
+        { key: 'image', service_type: 'image', detail: 'missing' },
+        { key: 'video', service_type: 'video', detail: 'missing' },
+        { key: 'tts', service_type: 'tts', detail: 'missing' },
+      ],
+    },
+  }
+  const actions = getCanvasProductionActionState(readinessState)
+  const canvas = { nodes: [{ id: 'config-1', type: 'config' }], edges: [] }
+  const runtime = buildFreeCanvasConfigRuntime('config-1', canvas, {
+    gates: { image: actions.image, video: actions.video },
+    capabilities: { image: actions.image, video: actions.video },
+    gate: actions.video,
+    capability: actions.video,
+  })
+  assert.equal(runtime.serviceType, 'image')
+  assert.equal(runtime.status, 'blocked')
+  assert.equal(runtime.statusLabel, '需要配置')
+  assert.equal(runtime.canConfigure, true)
+
+  const stale = getCanvasProductionActionState({
+    status: 'loaded',
+    data: {
+      qa_mode: 'production',
+      ready: false,
+      capabilities: [
+        { key: 'video', service_type: 'video', ready: false, detail: 'missing' },
+        { key: 'tts', service_type: 'tts', ready: false, detail: 'missing' },
+        { key: 'ffmpeg', ready: true },
+      ],
+      missing_capabilities: [
+        { key: 'video', service_type: 'video', detail: 'missing' },
+        { key: 'tts', service_type: 'tts', detail: 'missing' },
+      ],
+    },
+  })
+  const staleRuntime = buildFreeCanvasConfigRuntime('config-1', canvas, {
+    gates: { image: stale.image, video: stale.video },
+    capabilities: { image: stale.image, video: stale.video },
+    gate: stale.video,
+    capability: stale.video,
+  })
+  assert.equal(staleRuntime.statusLabel, '检查失败')
 })

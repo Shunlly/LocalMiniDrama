@@ -776,6 +776,12 @@ test('production E2E gate serially runs free canvas E2E and its verifier after p
   assert.equal(frontendPackage.scripts.verify.includes('free-canvas'), false)
 })
 
+test('isolation mock marks image missing so an unconnected config node stays 需要配置', () => {
+  assert.match(e2eSource, /key: 'image', service_type: 'image', ready: false/)
+  assert.match(e2eSource, /missing_capabilities: \[[\s\S]*key: 'image', service_type: 'image'/)
+  assert.match(e2eSource, /includes\('需要配置'\)/)
+})
+
 test('自由画布删除所选节点后必须确认删除对话框', () => {
   assert.match(e2eSource, /await clickUniqueButton\(page, '删除所选节点'\)/)
   assert.match(e2eSource, /await confirmMessageBox\(page, '删除'\)/)

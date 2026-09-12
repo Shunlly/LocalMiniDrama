@@ -966,11 +966,13 @@ async function installProviderIsolation(page) {
           qa_mode: 'production',
           ready: false,
           capabilities: [
+            { key: 'image', service_type: 'image', ready: false, detail: 'missing' },
             { key: 'video', service_type: 'video', ready: false, detail: 'missing' },
             { key: 'tts', service_type: 'tts', ready: false, detail: 'missing' },
             { key: 'ffmpeg', ready: true },
           ],
           missing_capabilities: [
+            { key: 'image', service_type: 'image', detail: 'missing' },
             { key: 'video', service_type: 'video', detail: 'missing' },
             { key: 'tts', service_type: 'tts', detail: 'missing' },
           ],
