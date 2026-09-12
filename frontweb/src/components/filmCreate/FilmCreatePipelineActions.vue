@@ -4,7 +4,7 @@
       <span class="pipeline-mode-label is-production">完整成片</span>
       <ActionGate label="一键生成成片" :reason="productionReason">
         <el-button
-          type="primary"
+          :type="productionReason ? undefined : 'primary'"
           :loading="starting || (running && !paused && !stopping)"
           :disabled="Boolean(productionReason) || starting"
           :title="productionButtonTitle || undefined"

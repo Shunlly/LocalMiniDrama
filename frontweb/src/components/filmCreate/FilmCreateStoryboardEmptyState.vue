@@ -24,7 +24,7 @@
   <template v-else>
     <p>请先创建或选择剧集，再生成或添加分镜</p>
     <div class="empty-tip-actions">
-      <el-button type="primary" aria-label="去创建剧集" @click="onAddEpisode">去创建剧集</el-button>
+      <el-button aria-label="去创建剧集" @click="onAddEpisode">去创建剧集</el-button>
     </div>
   </template>
 </div>

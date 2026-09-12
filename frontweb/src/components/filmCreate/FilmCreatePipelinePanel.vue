@@ -17,7 +17,7 @@
         <span class="pipeline-compact-next"><span>下一步</span>{{ focusNextStep }}</span>
       </div>
       <div class="pipeline-compact-actions">
-        <span v-if="compactAction" class="pipeline-compact-gate">
+        <span v-if="compactAction && !expanded" class="pipeline-compact-gate">
           <ActionGate
             :reason="compactActionDisabledReason"
             :label="compactAction.label"
@@ -36,7 +36,7 @@
             </button>
           </ActionGate>
         </span>
-        <span v-if="compactSecondaryAction" class="pipeline-compact-gate">
+        <span v-if="compactSecondaryAction && !expanded" class="pipeline-compact-gate">
           <ActionGate
             :reason="compactDisabledReason"
             :label="compactSecondaryAction.label"

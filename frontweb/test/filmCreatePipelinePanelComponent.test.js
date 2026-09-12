@@ -415,3 +415,26 @@ test('缺配置时主次按钮与 readiness 一致，倒计时英文收成中文
     countdown.app.unmount()
   }
 })
+
+test('展开后紧凑入口让出详情区按钮，缺配置时一键成片不再是主按钮', async () => {
+  const harness = mountPipeline({ productionReadinessState: 'missing' })
+  try {
+    await nextTick()
+    const compact = findByTestId(harness.root, 'film-pipeline-action')[0]
+    assert.ok(compact)
+    assert.match(textContent(compact), /先跑草稿预演/)
+    const production = requireButton(harness.root, '一键生成成片')
+    assert.equal(production.props.disabled, true)
+    assert.notEqual(production.props['data-variant'], 'primary')
+    click(findByTestId(harness.root, 'film-pipeline-toggle')[0])
+    await nextTick()
+    assert.equal(findByTestId(harness.root, 'film-pipeline-action').length, 0)
+    assert.equal(findByTestId(harness.root, 'film-pipeline-secondary-action').length, 0)
+    const draft = requireButton(harness.root, '仅生成文本框架')
+    assert.notEqual(draft.props.disabled, true)
+    click(draft)
+    assert.deepEqual(harness.events, [['start-text-framework']])
+  } finally {
+    harness.app.unmount()
+  }
+})
