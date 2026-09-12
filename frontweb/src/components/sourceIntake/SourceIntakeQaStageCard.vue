@@ -63,7 +63,7 @@
     </template>
     <div v-else class="stage-empty stage-empty--actionable">
       <span>还没有质量检查结果。完成处理后点击「执行质量检查」，问题和建议会显示在这里。</span>
-      <el-button type="primary" plain aria-label="去启动处理" @click="$emit('select-step', 'process')">去启动处理</el-button>
+      <el-button plain aria-label="去启动处理" @click="$emit('select-step', 'process')">去启动处理</el-button>
     </div>
   </div>
 </template>

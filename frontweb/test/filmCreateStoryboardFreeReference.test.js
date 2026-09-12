@@ -54,6 +54,7 @@ test('ImageColumn 模板含自由参考图行内入口', () => {
   assert.match(templateSource, /:aria-label="`为分镜\$\{sb\.storyboard_number \|\| i \+ 1\}添加自由参考图`"/)
   assert.match(templateSource, /:aria-label="`预览自由参考图 \$\{item\.name \|\| index \+ 1\}`"/)
   assert.match(imageColumnCss, /\.sb-free-ref\s*\{/)
+  assert.match(imageColumnCss, /\.sb-image-actions \{[\s\S]*?flex-wrap:\s*wrap/)
 })
 
 test('ImageColumn 自由参考图 props 全部可选且带安全默认值', () => {

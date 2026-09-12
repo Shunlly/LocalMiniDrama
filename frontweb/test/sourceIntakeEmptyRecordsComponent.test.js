@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 
 import { h } from 'vue'
 
@@ -19,6 +20,7 @@ import {
 } from '../src/components/sourceIntake/sourceIntakeEmptyState.js'
 
 const emptyUrl = new URL('../src/components/sourceIntake/SourceIntakeEmptyRecords.vue', import.meta.url)
+const emptySource = readFileSync(emptyUrl, 'utf8')
 const SourceIntakeEmptyRecords = await loadCompiledSfc(emptyUrl, 'source-intake-empty-records')
 const renderer = createHostRenderer()
 
@@ -34,6 +36,7 @@ function mountEmpty(view, events = []) {
 }
 
 test('空记录态可聚焦表单，失败时引导到 AI 配置', () => {
+  assert.match(emptySource, /:type="extractionNextStep \? 'default' : 'primary'"/)
   const empty = mountEmpty(buildSourceIntakeEmptyRecordsView({
     emptyState: { title: '还没有已导入素材', description: '保存成功的网页、文件和文本素材会显示在这里。' },
     workflowModeShortLabel: '草稿预演',
@@ -43,7 +46,8 @@ test('空记录态可聚焦表单，失败时引导到 AI 配置', () => {
     assert.match(text, /还没有已导入素材/)
     assert.match(text, /导入故事素材/)
     assert.doesNotMatch(text, /导入未完成/)
-    buttonByText(empty.root, SOURCE_INTAKE_EMPTY_FOCUS_LABEL).props.onClick()
+    const focusEmpty = buttonByText(empty.root, SOURCE_INTAKE_EMPTY_FOCUS_LABEL)
+    focusEmpty.props.onClick()
     assert.deepEqual(empty.events, ['focus-form'])
   } finally {
     empty.app.unmount()
@@ -65,7 +69,10 @@ test('空记录态可聚焦表单，失败时引导到 AI 配置', () => {
     assert.match(text, /导入未完成/)
     assert.match(text, /下一步|图片识别|AI 配置/)
     assert.doesNotMatch(text, /service_type=ocr/)
-    buttonByText(failed.root, SOURCE_OCR_NEXT_STEP_LABEL).props.onClick()
+    const focusFailed = buttonByText(failed.root, SOURCE_INTAKE_EMPTY_FOCUS_LABEL)
+    const extract = buttonByText(failed.root, SOURCE_OCR_NEXT_STEP_LABEL)
+    assert.notEqual(focusFailed.props.type, 'primary')
+    extract.props.onClick()
     assert.deepEqual(failed.events, [['open-extraction-ai-config', 'ocr']])
   } finally {
     failed.app.unmount()

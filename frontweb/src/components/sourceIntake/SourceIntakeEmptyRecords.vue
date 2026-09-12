@@ -9,7 +9,7 @@
     <p class="empty-stage-hint">{{ hint }}</p>
     <p v-if="recoveryMessage" class="empty-stage-recovery">{{ recoveryMessage }}</p>
     <div class="empty-stage-actions">
-      <el-button size="small" type="primary" plain :aria-label="focusActionLabel" @click="$emit('focus-form')">
+      <el-button size="small" :type="extractionNextStep ? 'default' : 'primary'" plain :aria-label="focusActionLabel" @click="$emit('focus-form')">
         {{ focusActionLabel }}
       </el-button>
       <el-button

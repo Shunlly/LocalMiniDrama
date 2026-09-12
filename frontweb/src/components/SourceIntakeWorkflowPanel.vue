@@ -892,7 +892,8 @@ html.light .status-block {
 
 .source-workflow-complete {
   display: grid;
-  grid-template-columns: minmax(180px, 0.8fr) minmax(360px, 1.5fr) auto;
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.5fr) auto;
+  min-width: 0;
   align-items: center;
   gap: 14px;
   max-height: 180px;

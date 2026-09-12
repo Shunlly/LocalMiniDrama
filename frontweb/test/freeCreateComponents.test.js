@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 
 import { defineComponent, h, nextTick, ref } from 'vue'
 
@@ -21,6 +22,7 @@ import {
 const headerUrl = new URL('../src/components/freeCreate/FreeCreateHeader.vue', import.meta.url)
 const inputUrl = new URL('../src/components/freeCreate/FreeCreateInputPanel.vue', import.meta.url)
 const resultUrl = new URL('../src/components/freeCreate/FreeCreateResultPanel.vue', import.meta.url)
+const resultSource = readFileSync(resultUrl, 'utf8')
 
 const iconStubUrl = compileIconStub([
   'ArrowLeft',
@@ -288,6 +290,8 @@ test('结果区在生成或取消中禁用操作，并给出中文原因', async
 })
 
 test('结果空态展示中文说明，失败时可重新检查服务', () => {
+  assert.doesNotMatch(resultSource, /status === 'error'"[\s\S]{0,180}type="primary"[\s\S]{0,120}重新检查服务/)
+  assert.match(resultSource, /!generationCapability.ready[\s\S]{0,180}type="primary"[\s\S]{0,80}前往 AI 配置/)
   const harness = mountResult({
     emptyResultCopy: '暂时无法读取图片服务配置，因此还不能生成。',
     generationCapability: {
@@ -312,6 +316,7 @@ test('结果空态展示中文说明，失败时可重新检查服务', () => {
     assert.equal(actions.props['aria-label'], '空结果下一步')
     const retry = buttonByText(harness.root, '重新检查服务')
     assert.ok(retry)
+    assert.notEqual(retry.props.type, 'primary')
     click(retry)
     assert.deepEqual(harness.events, ['load-service-configs'])
     const config = buttonByText(harness.root, '前往 AI 配置')

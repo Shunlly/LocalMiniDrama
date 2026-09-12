@@ -46,6 +46,7 @@ const SourceIntakeDeliveryStageCard = await loadCompiledSfc(
 const renderer = createHostRenderer()
 const panelSource = readFileSync(panelUrl, 'utf8')
 const launchSource = readFileSync(launchUrl, 'utf8')
+const qaSource = readFileSync(qaUrl, 'utf8')
 
 function emptyQa(overrides = {}) {
   return {
@@ -154,6 +155,8 @@ test('父面板仍保留刷新、启动模式和 AI 配置入口，并把后续�
   assert.match(launchSource, /aria-label="工作流启动模式"/)
   assert.match(launchSource, /前往 AI 配置/)
   assert.doesNotMatch(panelSource, /from 'element-plus'/)
+  assert.match(qaSource, /<el-button plain aria-label="去启动处理"/)
+  assert.doesNotMatch(qaSource, /type="primary"[^>]*aria-label="去启动处理"/)
 })
 
 test('QA 卡片空态展示中文引导，并把审计动作交给父级', () => {
@@ -165,7 +168,9 @@ test('QA 卡片空态展示中文引导，并把审计动作交给父级', () =>
     assert.match(text, /执行质量检查/)
     assert.doesNotMatch(text, /Invalid Date/)
     assert.equal(findByClass(harness.root, 'qa-line').length, 0)
-    buttonByText(harness.root, '去启动处理').props.onClick()
+    const goProcess = buttonByText(harness.root, '去启动处理')
+    assert.notEqual(goProcess.props.type, 'primary')
+    goProcess.props.onClick()
     const button = buttonByText(harness.root, '执行质量检查')
     assert.equal(Boolean(button.props.disabled), false)
     button.props.onClick()

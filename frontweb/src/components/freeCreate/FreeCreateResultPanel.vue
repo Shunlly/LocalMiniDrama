@@ -31,7 +31,6 @@
             <el-button
               v-if="generationCapability.status === 'error'"
               size="small"
-              type="primary"
               plain
               aria-label="重新检查服务" @click="loadServiceConfigs"
             >
@@ -41,7 +40,6 @@
               v-if="!generationCapability.ready"
               size="small"
               type="primary"
-              :plain="generationCapability.status === 'error'"
               aria-label="前往 AI 配置" @click="openAiConfig"
             >
               前往 AI 配置

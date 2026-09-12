@@ -705,11 +705,17 @@ html.light .sb-universal-tooltip strong {
 
   display: flex;
 
+  flex-wrap: wrap;
+
   gap: 8px;
 
   margin-top: 8px;
 
-  flex-shrink: 0;
+  max-width: 100%;
+
+  min-width: 0;
+
+  flex-shrink: 1;
 
   padding-top: 6px;
 
