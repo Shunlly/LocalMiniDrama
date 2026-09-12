@@ -184,6 +184,7 @@ test('制作资源空态在无分集时说明先新增一集', async () => {
     const addFirst = buttonByAriaLabel(missingEpisode.root, '新增一集后再提取角色')
     assert.ok(addFirst)
     assert.equal(buttonByText(missingEpisode.root, '先去新增一集'), addFirst)
+    assert.notEqual(addFirst.props['data-variant'], 'primary')
     click(addFirst)
     assert.deepEqual(missingEpisode.events, [['goCreateOrAddEpisode']])
   } finally {
@@ -203,6 +204,7 @@ test('制作资源空态在无分集时说明先新增一集', async () => {
     assert.match(textContent(ready.root), /可进入制作页，从当前剧集提取角色/)
     const extract = buttonByAriaLabel(ready.root, '进入制作页提取角色')
     assert.ok(extract)
+    assert.equal(extract.props['data-variant'], 'primary')
     click(extract)
     assert.deepEqual(ready.events, [['goCreateOrAddEpisode']])
     assert.doesNotMatch(textContent(ready.root), new RegExp(String(EPISODE_ID)))

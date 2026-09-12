@@ -274,7 +274,7 @@
                 title="本剧暂无制作角色"
                 :copy="currentEpisodeId ? '可进入制作页，从当前剧集提取角色。' : '请先新增一集，再进入制作页提取角色。'"
               >
-                <el-button size="small" type="primary" :loading="!currentEpisodeId && addingEpisode" :aria-label="currentEpisodeId ? '进入制作页提取角色' : '新增一集后再提取角色'" @click="goCreateOrAddEpisode">{{ currentEpisodeId ? '进入制作页提取角色' : '先去新增一集' }}</el-button>
+                <el-button size="small" :type="currentEpisodeId ? 'primary' : undefined" :loading="!currentEpisodeId && addingEpisode" :aria-label="currentEpisodeId ? '进入制作页提取角色' : '新增一集后再提取角色'" @click="goCreateOrAddEpisode">{{ currentEpisodeId ? '进入制作页提取角色' : '先去新增一集' }}</el-button>
               </DramaDetailResourceEmptyState>
             </template>
           </DramaDetailResourceProductionList>
@@ -325,7 +325,7 @@
                 title="本剧暂无制作场景"
                 :copy="currentEpisodeId ? '可进入制作页，从当前剧集提取场景。' : '请先新增一集，再进入制作页提取场景。'"
               >
-                <el-button size="small" type="primary" :loading="!currentEpisodeId && addingEpisode" :aria-label="currentEpisodeId ? '进入制作页提取场景' : '新增一集后再提取场景'" @click="goCreateOrAddEpisode">{{ currentEpisodeId ? '进入制作页提取场景' : '先去新增一集' }}</el-button>
+                <el-button size="small" :type="currentEpisodeId ? 'primary' : undefined" :loading="!currentEpisodeId && addingEpisode" :aria-label="currentEpisodeId ? '进入制作页提取场景' : '新增一集后再提取场景'" @click="goCreateOrAddEpisode">{{ currentEpisodeId ? '进入制作页提取场景' : '先去新增一集' }}</el-button>
               </DramaDetailResourceEmptyState>
             </template>
           </DramaDetailResourceProductionList>
@@ -376,7 +376,7 @@
                 title="本剧暂无制作道具"
                 :copy="currentEpisodeId ? '可进入制作页，从当前剧集提取道具。' : '请先新增一集，再进入制作页提取道具。'"
               >
-                <el-button size="small" type="primary" :loading="!currentEpisodeId && addingEpisode" :aria-label="currentEpisodeId ? '进入制作页提取道具' : '新增一集后再提取道具'" @click="goCreateOrAddEpisode">{{ currentEpisodeId ? '进入制作页提取道具' : '先去新增一集' }}</el-button>
+                <el-button size="small" :type="currentEpisodeId ? 'primary' : undefined" :loading="!currentEpisodeId && addingEpisode" :aria-label="currentEpisodeId ? '进入制作页提取道具' : '新增一集后再提取道具'" @click="goCreateOrAddEpisode">{{ currentEpisodeId ? '进入制作页提取道具' : '先去新增一集' }}</el-button>
               </DramaDetailResourceEmptyState>
             </template>
           </DramaDetailResourceProductionList>

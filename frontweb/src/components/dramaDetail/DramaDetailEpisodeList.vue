@@ -26,7 +26,7 @@
                 :aria-label="episodeEmptyState.primaryDisabledReason ? `${episodeEmptyState.primaryAction.label}不可用：${episodeEmptyState.primaryDisabledReason}` : undefined"
               >
                 <el-button
-                  type="primary"
+                  :type="isAddEpisodeEmptyAction ? undefined : 'primary'"
                   :disabled="Boolean(episodeEmptyState.primaryDisabledReason)"
                   :title="episodeEmptyState.primaryDisabledReason || undefined"
                   :aria-describedby="episodeEmptyState.primaryDisabledReason || episodeEmptyState.note ? 'episode-empty-reason' : undefined"
@@ -94,13 +94,13 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { Delete, Plus, VideoPlay } from '@element-plus/icons-vue'
 import EpisodeBatchImportDialog from '@/components/EpisodeBatchImportDialog.vue'
 
 // 分集列表只负责展示，新增、删除和批量导入仍由页面处理
 
-defineProps({
+const props = defineProps({
   episodes: { type: Array, default: () => [] },
   episodeEmptyState: { type: Object, required: true },
   nextEpisodeNumber: { type: Number, default: 1 },
@@ -117,6 +117,10 @@ defineProps({
 })
 
 const episodeBatchImportDialogRef = ref(null)
+const isAddEpisodeEmptyAction = computed(() => {
+  const action = props.episodeEmptyState?.primaryAction
+  return action?.id === 'create_blank_episode' || action?.target === 'add-episode'
+})
 
 defineExpose({
   openDialog: (...args) => episodeBatchImportDialogRef.value?.openDialog?.(...args),
