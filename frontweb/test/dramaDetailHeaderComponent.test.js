@@ -20,7 +20,7 @@ import {
 const headerSource = readFileSync(new URL('../src/components/dramaDetail/DramaDetailHeader.vue', import.meta.url), 'utf8')
 const pageSource = readFileSync(new URL('../src/views/DramaDetail.vue', import.meta.url), 'utf8')
 const headerUrl = new URL('../src/components/dramaDetail/DramaDetailHeader.vue', import.meta.url)
-const iconStubUrl = compileIconStub(['ArrowLeft', 'Grid', 'Moon', 'Sunny', 'VideoPlay'])
+const iconStubUrl = compileIconStub(['ArrowLeft', 'Grid', 'Moon', 'Plus', 'Sunny', 'VideoPlay'])
 const DramaDetailHeader = await loadCompiledSfc(
   headerUrl,
   'drama-detail-header-component',
@@ -48,6 +48,7 @@ function mountHeader(initial = {}) {
     onToggleTheme: () => events.push('toggle-theme'),
     onGoCreate: () => events.push('go-create'),
     onGoCanvasMode: () => events.push('go-canvas-mode'),
+    onAddEpisode: () => events.push('add-episode'),
   }))
   return { ...mounted, events, props }
 }
@@ -57,6 +58,7 @@ test('DramaDetail 把页头交给独立组件，Logo 读屏名称带产品前缀
   assert.match(pageSource, /@go-list="goList"/)
   assert.match(pageSource, /@go-create="goCreate"/)
   assert.match(pageSource, /@go-canvas-mode="goCanvasMode"/)
+  assert.match(pageSource, /@add-episode="onAddEpisode"/)
   assert.match(pageSource, /:current-episode-id="currentEpisodeId"/)
   assert.match(headerSource, /aria-label="返回项目列表"/)
   assert.match(headerSource, /class="header-context-label">项目/)
@@ -66,7 +68,7 @@ test('DramaDetail 把页头交给独立组件，Logo 读屏名称带产品前缀
   assert.doesNotMatch(pageSource, /<header class="header">/)
 })
 
-test('无分集时进入制作和画布模式保留中文禁用原因', async () => {
+test('无分集时页头主按钮是新增空白集，画布模式保留中文禁用原因', async () => {
   const harness = mountHeader({ isDramaReady: true, currentEpisodeId: null })
   try {
     await nextTick()
@@ -83,16 +85,19 @@ test('无分集时进入制作和画布模式保留中文禁用原因', async ()
     click(back)
     assert.deepEqual(harness.events, ['go-list', 'go-list'])
 
-    const create = buttonByText(harness.root, '进入制作')
+    assert.equal(buttonByText(harness.root, '进入制作'), undefined)
+    const addEpisode = buttonByText(harness.root, '新增空白集')
     const canvas = buttonByText(harness.root, '画布模式')
-    assert.ok(create, '缺少进入制作')
+    assert.ok(addEpisode, '缺少新增空白集')
     assert.ok(canvas, '缺少画布模式')
-    assert.equal(create.props.disabled, true)
+    assert.notEqual(addEpisode.props.disabled, true)
+    assert.equal(addEpisode.props['aria-label'], '新增空白集')
+    assert.equal(addEpisode.props['data-variant'], 'primary')
     assert.equal(canvas.props.disabled, true)
-    assert.equal(create.props['aria-label'], '进入制作不可用：请先新增一集')
     assert.equal(canvas.props['aria-label'], '画布模式不可用：请先新增一集')
-    assert.equal(create.props['aria-describedby'], 'drama-header-episode-reason')
     assert.equal(canvas.props['aria-describedby'], 'drama-header-episode-reason')
+    click(addEpisode)
+    assert.deepEqual(harness.events, ['go-list', 'go-list', 'add-episode'])
   } finally {
     harness.app.unmount()
   }

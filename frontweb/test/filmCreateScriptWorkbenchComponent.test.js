@@ -136,8 +136,8 @@ test('空剧集给出添加一集下一步，保存当前集门闩仍是先创�
     const empty = findByClass(harness.root, 'film-episode-empty-actions')[0]
     assert.ok(empty)
     const primaries = findByType(empty, 'button').filter((node) => node.props['data-variant'] === 'primary')
-    assert.equal(primaries.length, 1)
-    assert.equal(primaries[0], add)
+    assert.equal(primaries.length, 0)
+    assert.notEqual(add.props['data-variant'], 'primary')
     assert.match(String(add.props['aria-label'] || ''), /添加一集/)
     assert.equal(buttonByAriaLabel(harness.root, '返回剧集管理'), undefined)
     assert.equal(buttonByText(harness.root, '保存当前集'), undefined)
@@ -203,9 +203,23 @@ test('\u7a7a\u5267\u96c6\u7a7a\u6001\u53ea\u6709\u4e00\u4e2a primary\uff0c\u8bfb
   })
   try {
     await nextTick()
-    assertEmptyActions(harness.root, 'film-episode-empty-actions', '\u6dfb\u52a0\u4e00\u96c6')
+    const section = findByClass(harness.root, 'film-episode-empty-actions')[0]
+    assert.ok(section)
+    const buttons = findByType(section, 'button')
+    const primaries = buttons.filter((node) => node.props['data-variant'] === 'primary')
+    assert.equal(primaries.length, 0)
+    const add = buttonByAriaLabel(harness.root, '\u6dfb\u52a0\u4e00\u96c6')
     const back = buttonByAriaLabel(harness.root, '\u8fd4\u56de\u5267\u96c6')
+    assert.ok(add)
+    assert.ok(back)
+    assert.notEqual(add.props['data-variant'], 'primary')
     assert.equal(back.props['data-variant'], '')
+    for (const button of buttons) {
+      const visible = visibleButtonText(button)
+      const label = String(button.props['aria-label'] || '')
+      assert.ok(visible)
+      assert.ok(label.includes(visible), `${visible} should be inside aria-label "${label}"`)
+    }
   } finally {
     harness.app.unmount()
   }

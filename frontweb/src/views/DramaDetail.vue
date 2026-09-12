@@ -5,10 +5,12 @@
       :is-dark="isDark"
       :is-drama-ready="isDramaReady"
       :current-episode-id="currentEpisodeId"
+      :adding-episode="addingEpisode"
       @go-list="goList"
       @toggle-theme="toggleTheme"
       @go-create="goCreate"
       @go-canvas-mode="goCanvasMode"
+      @add-episode="onAddEpisode"
     />
 
     <main class="main" :aria-busy="dramaLoadState === 'loading'">

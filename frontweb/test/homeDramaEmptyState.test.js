@@ -162,7 +162,7 @@ test('无剧集时资源空状态会新增一集，而不是点页头或只滚�
     /:disabled="!currentEpisodeId"/,
   )
   assert.match(dramaDetailSource, /@go-create="goCreate"/)
-  assert.match(dramaDetailHeaderSource, /进入制作不可用：请先新增一集/)
+  assert.match(dramaDetailHeaderSource, /aria-label="新增空白集"/)
   assert.match(dramaDetailHeaderSource, /画布模式不可用：请先新增一集/)
 })
 

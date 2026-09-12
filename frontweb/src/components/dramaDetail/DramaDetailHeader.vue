@@ -23,29 +23,23 @@
             <el-icon><Sunny v-if="isDark" /><Moon v-else /></el-icon>
             {{ isDark ? '浅色' : '暗色' }}
           </el-button>
-          <el-tooltip
-            v-if="isDramaReady"
-            content="请先新增一集，再进入制作"
-            :disabled="Boolean(currentEpisodeId)"
-            placement="bottom"
+          <el-button
+            v-if="isDramaReady && currentEpisodeId"
+            type="primary"
+            aria-label="进入制作"
+            @click="emit('go-create')"
           >
-            <span
-              class="tooltip-trigger"
-              :tabindex="currentEpisodeId ? undefined : 0"
-              :aria-label="currentEpisodeId ? undefined : '进入制作不可用：请先新增一集'"
-              :aria-describedby="currentEpisodeId ? undefined : 'drama-header-episode-reason'"
-            >
-              <el-button
-                type="primary"
-                :disabled="!currentEpisodeId"
-                :aria-label="currentEpisodeId ? '进入制作' : '进入制作不可用：请先新增一集'"
-                :aria-describedby="currentEpisodeId ? undefined : 'drama-header-episode-reason'"
-                @click="emit('go-create')"
-              >
-                <el-icon><VideoPlay /></el-icon>进入制作
-              </el-button>
-            </span>
-          </el-tooltip>
+            <el-icon><VideoPlay /></el-icon>进入制作
+          </el-button>
+          <el-button
+            v-else-if="isDramaReady"
+            type="primary"
+            :loading="addingEpisode"
+            aria-label="新增空白集"
+            @click="emit('add-episode')"
+          >
+            <el-icon><Plus /></el-icon>新增空白集
+          </el-button>
           <el-tooltip
             v-if="isDramaReady"
             content="请先新增一集，再进入画布"
@@ -76,7 +70,7 @@
 </template>
 
 <script setup>
-import { ArrowLeft, Grid, Moon, Sunny, VideoPlay } from '@element-plus/icons-vue'
+import { ArrowLeft, Grid, Moon, Plus, Sunny, VideoPlay } from '@element-plus/icons-vue'
 
 // 页头只负责展示，返回项目列表与进入制作等方法仍由页面处理
 
@@ -85,9 +79,10 @@ defineProps({
   isDark: { type: Boolean, default: false },
   isDramaReady: { type: Boolean, default: false },
   currentEpisodeId: { default: null },
+  addingEpisode: { type: Boolean, default: false },
 })
 
-const emit = defineEmits(['go-list', 'toggle-theme', 'go-create', 'go-canvas-mode'])
+const emit = defineEmits(['go-list', 'toggle-theme', 'go-create', 'go-canvas-mode', 'add-episode'])
 </script>
 
 <style scoped>

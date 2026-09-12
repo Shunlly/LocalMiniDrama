@@ -182,7 +182,6 @@
     <div v-else-if="hasEpisode === false" class="pipeline-empty" role="status" data-testid="film-pipeline-empty">
       <p>{{ emptyGuidanceText }}</p>
       <el-button
-        type="primary"
         data-testid="film-pipeline-empty-action"
         :aria-label="emptyActionAriaLabel"
         @click="$emit('add-episode')"

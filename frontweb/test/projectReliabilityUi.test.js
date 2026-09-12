@@ -70,7 +70,8 @@ test('剧集资源库失败与空搜索分开展示，无分集时进入制作�
   assert.match(dramaDetailSource, /ElMessage\.warning\('请先新增一集，再进入制作'\)/)
   assert.match(dramaDetailHeaderSource, /:disabled="!currentEpisodeId"/)
   assert.match(dramaDetailSource, /@go-create="goCreate"/)
-  assert.match(dramaDetailHeaderSource, /进入制作不可用：请先新增一集/)
+  assert.match(dramaDetailSource, /@add-episode="onAddEpisode"/)
+  assert.match(dramaDetailHeaderSource, /aria-label="新增空白集"/)
   assert.match(dramaDetailSource, /ElMessage.warning\('请先新增一集，再进入画布'\)/)
   assert.match(dramaDetailSource, /@go-canvas-mode="goCanvasMode"/)
   assert.match(dramaDetailHeaderSource, /画布模式不可用：请先新增一集/)
@@ -78,10 +79,7 @@ test('剧集资源库失败与空搜索分开展示，无分集时进入制作�
 
 test('DramaDetail 禁用操作和空封面提供可焦点的中文说明', () => {
   assert.match(dramaDetailHeaderSource, /:tabindex="currentEpisodeId \? undefined : 0"/)
-  assert.match(
-    dramaDetailHeaderSource,
-    /:aria-label="currentEpisodeId \? undefined : '进入制作不可用：请先新增一集'"/,
-  )
+  assert.match(dramaDetailHeaderSource, /aria-label="新增空白集"/)
   assert.match(
     dramaDetailHeaderSource,
     /:aria-label="currentEpisodeId \? undefined : '画布模式不可用：请先新增一集'"/,

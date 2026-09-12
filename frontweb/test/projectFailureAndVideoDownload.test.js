@@ -202,8 +202,10 @@ test('project pages keep core load failures outside every editable project surfa
   assert.match(dramaDetailSource, /<template v-else-if="isDramaReady">[\s\S]*<DramaDetailInfoCard/)
   assert.match(dramaDetailInfoCardSource, /剧集信息/)
   assert.match(dramaDetailSource, /<template v-if="isDramaReady">\s*<DramaDetailResourceDialogs v-bind="resourceDialogsBindings"/)
-  assert.match(dramaDetailHeaderSource, /<el-tooltip[\s\S]*v-if="isDramaReady"[\s\S]*content="请先新增一集，再进入制作"[\s\S]*:disabled="!currentEpisodeId"[\s\S]*emit\('go-create'\)/)
+  assert.match(dramaDetailHeaderSource, /emit\('go-create'\)/)
+  assert.match(dramaDetailHeaderSource, /emit\('add-episode'\)/)
   assert.match(dramaDetailSource, /@go-create="goCreate"/)
+  assert.match(dramaDetailSource, /@add-episode="onAddEpisode"/)
 
   assert.match(filmCreateSource, /<FilmCreateQuickNav[\s\S]*v-if="projectLoadState === 'ready'"/)
   assert.match(filmCreateLoadStateSource, /<main v-if="state === 'loading'"/)
