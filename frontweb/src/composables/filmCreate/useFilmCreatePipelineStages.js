@@ -69,7 +69,9 @@ export function useFilmCreatePipelineStages(deps = {}) {
           cancelButtonText: '先留在制作页',
         },
       )
-      if (typeof openAiConfigFromPipeline === 'function') openAiConfigFromPipeline('text')
+      if (typeof openAiConfigFromPipeline === 'function') {
+        openAiConfigFromPipeline('text', { source: 'compact-action' })
+      }
     } catch (_) {}
     return true
   }

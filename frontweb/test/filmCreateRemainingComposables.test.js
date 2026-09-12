@@ -387,8 +387,8 @@ test('缺文本模型时草稿预演先提示配置，不启动提取', async ()
       productionCapabilityGaps: refOf([
         { service_type: 'text', label: '文本模型', detail: '还没有可用的默认配置' },
       ]),
-      openAiConfigFromPipeline: (serviceType) => {
-        configCalls.push(serviceType)
+      openAiConfigFromPipeline: (serviceType, context) => {
+        configCalls.push([serviceType, context && context.source])
       },
       executeOwnedPipelineRun: async () => {
         executeCalls.push('run')
@@ -400,14 +400,14 @@ test('缺文本模型时草稿预演先提示配置，不启动提取', async ()
     assert.equal(feedback.last('confirm').title, '需要配置文本模型')
     assert.equal(feedback.last('confirm').options.confirmButtonText, '去配置文本模型')
     assert.equal(feedback.last('confirm').options.cancelButtonText, '先留在制作页')
-    assert.deepEqual(configCalls, ['text'])
+    assert.deepEqual(configCalls, [['text', 'compact-action']])
     assert.equal(executeCalls.length, 0)
 
     feedback.setConfirm(async () => {
       throw new Error('cancel')
     })
     await missingText.startTextFrameworkPipeline()
-    assert.deepEqual(configCalls, ['text'])
+    assert.deepEqual(configCalls, [['text', 'compact-action']])
     assert.equal(executeCalls.length, 0)
   } finally {
     feedback.restore()
