@@ -43,7 +43,7 @@
           @change="$emit('source-file-change', $event)"
         />
         <ActionGate label="选择故事素材文件" :reason="sourceUploadBusyReason">
-          <el-button size="small" :loading="sourceFileReading" :disabled="Boolean(sourceUploadBusyReason)" aria-label="选择故事素材文件" @click="sourceFileInput?.click()">选择文件</el-button>
+          <el-button size="small" :loading="sourceFileReading" :disabled="Boolean(sourceUploadBusyReason)" :title="sourceUploadBusyReason || undefined" :aria-label="sourceUploadBusyReason || '选择故事素材文件'" @click="sourceFileInput?.click()">选择文件</el-button>
         </ActionGate>
         <ActionGate v-if="sourceFile" label="移除已选文件" :reason="sourceUploadBusyReason">
           <el-button size="small" link type="danger" :disabled="Boolean(sourceUploadBusyReason)" :aria-label="sourceUploadBusyReason || '移除已选文件'" @click="$emit('clear-selected-file')">移除</el-button>
