@@ -1160,7 +1160,7 @@ code {
     box-sizing: border-box;
   }
 }
-@media (max-width: 760px) {
+@media (max-width: 769px) {
   .ai-config-content,
   .tab-content,
   .config-workspace-panel {

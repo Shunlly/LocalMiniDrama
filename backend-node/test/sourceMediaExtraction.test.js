@@ -67,6 +67,7 @@ function createLog() {
     info(message, fields) { records.push({ level: 'info', message, fields }); },
     warn(message, fields) { records.push({ level: 'warn', message, fields }); },
     error(message, fields) { records.push({ level: 'error', message, fields }); },
+    operation(event) { records.push({ level: 'operation', event }); },
   };
 }
 
@@ -180,7 +181,7 @@ async function startFakeExtractionService(options = {}) {
         });
         res.writeHead(options.ocrStatus || 200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(options.ocrStatus && options.ocrStatus !== 200
-          ? { error: { message: 'local test failure' } }
+          ? (options.ocrErrorBody || { error: { message: 'local test failure' } })
           : { choices: [{ message: { content: options.ocrText || 'Characters: Mira\nLocation: Harbor\nMira finds a coded sign.' } }] }));
         return;
       }
@@ -194,7 +195,7 @@ async function startFakeExtractionService(options = {}) {
         });
         res.writeHead(options.transcriptionStatus || 200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(options.transcriptionStatus && options.transcriptionStatus !== 200
-          ? { error: { message: 'local test failure' } }
+          ? (options.transcriptionErrorBody || { error: { message: 'local test failure' } })
           : { text: options.transcriptText || 'Speaker 1: The hidden door is open.' }));
         return;
       }
@@ -639,6 +640,58 @@ describe('sourceMediaExtraction: Source Intake media extraction', () => {
       db.close();
       await fake.close();
       await fsp.rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('OCR HTTP 404 Invalid Authorization 返回认证失败，不泄漏状态或英文错误码', async () => {
+    const fake = await startFakeExtractionService({
+      ocrStatus: 404,
+      ocrErrorBody: { error: 'Invalid Authorization', code: 'AUTH_DENIED' },
+    });
+    const db = createDb();
+    const log = createLog();
+    try {
+      addAiConfig(db, 'ocr', fake.baseUrl);
+      const image = await sharp({ create: { width: 16, height: 16, channels: 3, background: '#ffffff' } }).png().toBuffer();
+      const routes = createRoutes(db, log);
+      const res = mockResponse();
+      await routes.uploadForDrama({
+        params: { id: 1 }, body: {},
+        file: { originalname: 'auth.png', mimetype: 'image/png', size: image.length, buffer: image },
+      }, res);
+      assert.equal(res.statusCode, 400);
+      assert.match(res.body.error.message, /认证失败/);
+      assert.doesNotMatch(res.body.error.message, /HTTP\s*404|Invalid Authorization|AUTH_DENIED|Not Found/i);
+      const op = log.records.find((item) => item.level === 'operation');
+      assert.ok(!op || op.event.phase !== 'success');
+    } finally {
+      db.close();
+      await fake.close();
+    }
+  });
+
+  it('转写 HTTP 404 Invalid Authorization 返回认证失败，不泄漏状态或英文错误码', async () => {
+    const fake = await startFakeExtractionService({
+      transcriptionStatus: 404,
+      transcriptionErrorBody: { error: 'Invalid Authorization', code: 'AUTH_DENIED' },
+    });
+    const db = createDb();
+    const log = createLog();
+    try {
+      addAiConfig(db, 'transcription', fake.baseUrl);
+      const audio = wavAudio();
+      const routes = createRoutes(db, log);
+      const res = mockResponse();
+      await routes.uploadForDrama({
+        params: { id: 1 }, body: {},
+        file: { originalname: 'auth.wav', mimetype: 'audio/wav', size: audio.length, buffer: audio },
+      }, res);
+      assert.equal(res.statusCode, 400);
+      assert.match(res.body.error.message, /认证失败/);
+      assert.doesNotMatch(res.body.error.message, /HTTP\s*404|Invalid Authorization|AUTH_DENIED|Not Found/i);
+    } finally {
+      db.close();
+      await fake.close();
     }
   });
 

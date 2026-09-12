@@ -64,16 +64,24 @@ const addStoryboardAriaLabel = computed(() => describeActionAriaLabel('添加一
   font-size: 0.9rem;
   line-height: 1.55;
   padding: 16px 0;
+  min-width: 0;
+  max-width: 100%;
 }
 
 html.light .empty-tip { color: var(--film-empty-copy, #64748b); }
-.empty-tip p { margin: 0; }
+.empty-tip p {
+  margin: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
 .empty-tip-actions {
   display: flex;
   flex-wrap: wrap;
   align-items: flex-start;
   gap: 8px;
   margin-top: 12px;
+  min-width: 0;
+  max-width: 100%;
 }
 .empty-tip-actions :deep(.el-button:focus-visible) {
   outline: 2px solid #818cf8;

@@ -329,6 +329,24 @@ onBeforeUnmount(() => {
   outline-offset: 2px;
 }
 
+@media (max-width: 769px) {
+  .accessible-dialog.el-dialog.ai-config-overlay > .el-dialog__header,
+  .accessible-dialog.el-dialog.ai-config-overlay > .el-dialog__body,
+  .accessible-dialog.el-dialog.ai-config-overlay > .el-dialog__footer {
+    min-width: 0;
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+  .accessible-dialog.el-dialog.ai-config-overlay > .el-dialog__body {
+    overflow-wrap: anywhere;
+  }
+  .accessible-dialog.el-dialog.ai-config-overlay > .el-dialog__footer {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+}
+
 @media (max-width: 520px) {
   .accessible-dialog.el-dialog {
     display: flex;

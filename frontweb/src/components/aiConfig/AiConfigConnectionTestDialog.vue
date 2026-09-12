@@ -46,13 +46,15 @@
       :closable="false"
     />
     <template #footer>
-      <el-button
-        v-if="testResult === false"
-        type="primary"
-        :loading="testingConfigId !== null"
-        :aria-label="testingConfigId !== null ? '正在重试连接' : '重试连接测试'" @click="retryConnectionTest"
-      >重试</el-button>
-      <el-button aria-label="关闭连接测试" @click="testVisible = false">关闭</el-button>
+      <div class="test-dialog-footer">
+        <el-button
+          v-if="testResult === false"
+          type="primary"
+          :loading="testingConfigId !== null"
+          :aria-label="testingConfigId !== null ? '正在重试连接' : '重试连接测试'" @click="retryConnectionTest"
+        >重试</el-button>
+        <el-button aria-label="关闭连接测试" @click="testVisible = false">关闭</el-button>
+      </div>
     </template>
   </AccessibleDialog>
 </template>
@@ -88,9 +90,49 @@ const testVisible = defineModel('testVisible', { type: Boolean, default: false }
   border: 0;
 }
 .field-tip {
+  min-width: 0;
+  max-width: 100%;
   margin: 6px 0 0;
   font-size: 12px;
   color: var(--el-text-color-secondary, #909399);
   line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+:deep(.el-alert),
+:deep(.el-alert__content),
+:deep(.el-alert__title),
+:deep(.el-alert__description) {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+.test-dialog-footer {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+}
+.test-dialog-footer :deep(.el-button + .el-button) {
+  margin-left: 0;
+}
+@media (max-width: 1024px) {
+  .field-tip,
+  .test-dialog-footer,
+  :deep(.el-alert) {
+    min-width: 0;
+    max-width: 100%;
+  }
+}
+@media (max-width: 769px) {
+  .field-tip,
+  .test-dialog-footer,
+  :deep(.el-alert),
+  :deep(.el-alert__description) {
+    min-width: 0;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+  }
 }
 </style>

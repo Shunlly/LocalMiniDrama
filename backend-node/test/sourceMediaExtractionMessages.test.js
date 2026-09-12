@@ -79,6 +79,11 @@ describe('sourceMediaExtraction user-visible messages', () => {
       "timed out after",
       "is unavailable.",
       "Check the active AI configuration.",
+      "Invalid Authorization",
+      "HTTP 错误:",
+      "HTTP ${response.status}",
+      "HTTP ${status}",
+      "ListAssetGroups",
     ];
     for (const phrase of leftover) {
       assert.equal(SERVICE_SOURCE.includes(phrase), false, phrase);

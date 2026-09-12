@@ -7,13 +7,16 @@ const { spawn } = require('node:child_process');
 const { secureHttpFetch } = require('./secureHttpFetch');
 const {
   actionableError,
+  isExtractionCancelled,
+  isExtractionTimeout,
   processChildError,
   processDiagnosticOverflowError,
   processFailedError,
   processOutputOverflowError,
   processTimeoutError,
   processUnavailableError,
-  providerBadResponseError,
+  providerCancelledError,
+  providerHttpFailureError,
   providerTimeoutError,
   providerUnreachableError,
 } = require('./sourceMediaExtractionErrors');
@@ -37,17 +40,44 @@ function selectActiveConfig(db, serviceType) {
   return { ...row, settings_object: parseSettings(row.settings) };
 }
 
-async function readBoundedResponse(response, maxBytes) {
+async function readBoundedResponse(response, maxBytes, signal, onAbort) {
   const declaredLength = Number(response.headers.get('content-length') || 0);
   if (declaredLength > maxBytes) throw actionableError('抽取服务返回内容过大。请缩短源文件后重试。');
   if (!response.body) return Buffer.alloc(0);
+  if (signal?.aborted) throw onAbort();
 
   const reader = response.body.getReader();
   const chunks = [];
   let total = 0;
   try {
     while (true) {
-      const { done, value } = await reader.read();
+      if (signal?.aborted) {
+        await reader.cancel().catch(() => {});
+        throw onAbort();
+      }
+      const { done, value } = signal
+        ? await new Promise((resolve, reject) => {
+          const fail = () => {
+            reader.cancel().catch(() => {});
+            reject(onAbort());
+          };
+          if (signal.aborted) {
+            fail();
+            return;
+          }
+          signal.addEventListener('abort', fail, { once: true });
+          reader.read().then(
+            (result) => {
+              signal.removeEventListener('abort', fail);
+              resolve(result);
+            },
+            (error) => {
+              signal.removeEventListener('abort', fail);
+              reject(error);
+            }
+          );
+        })
+        : await reader.read();
       if (done) break;
       total += value.byteLength;
       if (total > maxBytes) {
@@ -65,21 +95,41 @@ async function readBoundedResponse(response, maxBytes) {
 async function requestBounded(url, init, options) {
   const timeoutMs = clampInteger(options.timeoutMs, 60000, 1000, 120000);
   const maxResponseBytes = clampInteger(options.maxResponseBytes, MAX_PROVIDER_RESPONSE_BYTES, 1024, MAX_PROVIDER_RESPONSE_BYTES);
+  const label = options.label || '抽取服务';
+  const parentSignal = options.signal;
+  if (parentSignal?.aborted) throw providerCancelledError(label, parentSignal.reason);
+
   const controller = new AbortController();
-  const timeoutReason = providerTimeoutError(options.label);
+  const timeoutReason = providerTimeoutError(label);
   const timer = setTimeout(() => controller.abort(timeoutReason), timeoutMs);
-  timer.unref?.();
+  const onParentAbort = () => {
+    if (!controller.signal.aborted) {
+      controller.abort(parentSignal?.reason || providerCancelledError(label));
+    }
+  };
+  if (parentSignal) parentSignal.addEventListener('abort', onParentAbort, { once: true });
+
+  const classifyAbort = (error) => {
+    const reason = controller.signal.reason || parentSignal?.reason || error;
+    if (isExtractionTimeout(reason) || reason === timeoutReason || isExtractionTimeout(error)) {
+      return providerTimeoutError(label, error);
+    }
+    if (isExtractionCancelled(reason) || isExtractionCancelled(error) || parentSignal?.aborted) {
+      return providerCancelledError(label, error);
+    }
+    return providerTimeoutError(label, error);
+  };
+
   try {
     let response;
     try {
-      if (typeof options.fetchImpl === 'function') {
-        response = await options.fetchImpl(url, {
+      const fetchPromise = typeof options.fetchImpl === 'function'
+        ? options.fetchImpl(url, {
           ...init,
           redirect: 'error',
           signal: controller.signal,
-        });
-      } else {
-        response = await secureHttpFetch(url, {
+        })
+        : secureHttpFetch(url, {
           ...init,
           redirect: 'error',
           signal: controller.signal,
@@ -91,23 +141,54 @@ async function requestBounded(url, init, options) {
           maxBytes: maxResponseBytes,
           maxRedirects: 0,
         });
-      }
+      fetchPromise.catch(() => {});
+      response = await new Promise((resolve, reject) => {
+        const onAbort = () => reject(classifyAbort(controller.signal.reason));
+        if (controller.signal.aborted) {
+          onAbort();
+          return;
+        }
+        controller.signal.addEventListener('abort', onAbort, { once: true });
+        Promise.resolve(fetchPromise).then(
+          (value) => {
+            controller.signal.removeEventListener('abort', onAbort);
+            resolve(value);
+          },
+          (error) => {
+            controller.signal.removeEventListener('abort', onAbort);
+            reject(error);
+          }
+        );
+      });
     } catch (err) {
-      if (controller.signal.aborted || err?.name === 'TimeoutError' || err?.isTimeout === true || err?.name === 'AbortError') {
-        throw providerTimeoutError(options.label, err);
+      if (err?.code === 'OPERATION_CANCELLED' && isExtractionCancelled(err) && /取消/.test(String(err.message || ''))) {
+        throw err;
       }
-      throw providerUnreachableError(options.label, err);
+      if (isExtractionTimeout(err) && err.isTimeout === true && /超时/.test(String(err.message || ''))) {
+        throw err;
+      }
+      if (controller.signal.aborted || isExtractionCancelled(err) || isExtractionTimeout(err) || err?.name === 'TimeoutError' || err?.isTimeout === true || err?.name === 'AbortError') {
+        throw classifyAbort(err);
+      }
+      throw providerUnreachableError(label, err);
     }
     if (!response.ok) {
-      await response.body?.cancel().catch(() => {});
-      throw providerBadResponseError(options.label);
+      let snippet = '';
+      try {
+        const buf = await readBoundedResponse(response, Math.min(maxResponseBytes, 4096), controller.signal, () => classifyAbort(controller.signal.reason));
+        snippet = buf.toString('utf8');
+      } catch (_) {
+        await response.body?.cancel().catch(() => {});
+      }
+      throw providerHttpFailureError(label, response.status, snippet);
     }
     return {
-      body: await readBoundedResponse(response, maxResponseBytes),
+      body: await readBoundedResponse(response, maxResponseBytes, controller.signal, () => classifyAbort(controller.signal.reason)),
       contentType: normalizeMime(response.headers.get('content-type')),
     };
   } finally {
     clearTimeout(timer);
+    parentSignal?.removeEventListener('abort', onParentAbort);
   }
 }
 
@@ -144,6 +225,11 @@ function runBoundedProcess(command, args, options = {}) {
     const maxStdoutBytes = clampInteger(options.maxStdoutBytes, 1024 * 1024, 1024, 4 * 1024 * 1024);
     const maxStderrBytes = clampInteger(options.maxStderrBytes, 64 * 1024, 1024, 256 * 1024);
     const label = options.label || '媒体处理工具';
+    const parentSignal = options.signal;
+    if (parentSignal?.aborted) {
+      reject(providerCancelledError(label, parentSignal.reason));
+      return;
+    }
     let child;
     try {
       child = spawn(command, args, {
@@ -168,15 +254,21 @@ function runBoundedProcess(command, args, options = {}) {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      parentSignal?.removeEventListener('abort', onAbort);
       if (error) reject(error);
       else resolve(result);
+    };
+
+    const onAbort = () => {
+      try { child.kill('SIGKILL'); } catch (_) {}
+      finish(providerCancelledError(label, parentSignal?.reason));
     };
 
     const timer = setTimeout(() => {
       child.kill('SIGKILL');
       finish(processTimeoutError(label));
     }, timeoutMs);
-    timer.unref?.();
+    if (parentSignal) parentSignal.addEventListener('abort', onAbort, { once: true });
 
     child.stdout.on('data', (chunk) => {
       stdoutBytes += chunk.length;

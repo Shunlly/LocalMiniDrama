@@ -402,6 +402,12 @@ async function processImageGeneration(db, log, imageGenId) {
     removeUncommittedImage(uncommittedStoragePath, uncommittedLocalPath, log);
     if (imageTaskCancelled(err, signal)) {
       log.info('[图生] 已取消，未提交生成结果', { id: imageGenId, total_elapsed: elapsed() });
+      log.operation?.({
+        operation: 'image_generation',
+        phase: 'cancel',
+        status: 'cancelled',
+        id: imageGenId,
+      });
       return;
     }
     await persistImageFailure(db, row, err);

@@ -35,8 +35,8 @@
 <script setup>
 import { computed, ref } from 'vue'
 import { ArrowLeft, Loading, Refresh, WarningFilled } from '@element-plus/icons-vue'
-import { describeActionAriaLabel, toFilmCreateUserFacingText } from './filmCreateActionCopy.js'
-import { filmCreateActionTitle } from './filmCreateActionTitle.js'
+import { describeActionAriaLabel, toFilmCreateUserFacingText } from '@/components/filmCreate/filmCreateActionCopy.js'
+import { filmCreateActionTitle } from '@/components/filmCreate/filmCreateActionTitle.js'
 
 const props = defineProps({
   state: { type: String, default: 'loading' },

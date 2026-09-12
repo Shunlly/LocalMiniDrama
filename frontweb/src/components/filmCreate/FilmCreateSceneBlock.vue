@@ -150,7 +150,7 @@
 import { computed } from 'vue'
 import { Delete, MagicStick, Upload, ZoomIn } from '@element-plus/icons-vue'
 import ActionGate from '@/components/filmCreate/ActionGate.vue'
-import { describeActionAriaLabel, toFilmCreateUserFacingText } from './filmCreateActionCopy.js'
+import { describeActionAriaLabel, toFilmCreateUserFacingText } from '@/components/filmCreate/filmCreateActionCopy.js'
 
 defineOptions({ inheritAttrs: false })
 

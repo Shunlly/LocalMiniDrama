@@ -133,6 +133,12 @@ test('空剧集给出添加一集下一步，保存当前集门闩仍是先创�
     assert.ok(back)
     assert.equal(back.props['aria-label'], '返回剧集')
     assert.equal(buttonByText(harness.root, '返回剧集'), back)
+    const empty = findByClass(harness.root, 'film-episode-empty-actions')[0]
+    assert.ok(empty)
+    const primaries = findByType(empty, 'button').filter((node) => node.props['data-variant'] === 'primary')
+    assert.equal(primaries.length, 1)
+    assert.equal(primaries[0], add)
+    assert.match(String(add.props['aria-label'] || ''), /添加一集/)
     assert.equal(buttonByAriaLabel(harness.root, '返回剧集管理'), undefined)
     assert.equal(buttonByText(harness.root, '保存当前集'), undefined)
     click(add)

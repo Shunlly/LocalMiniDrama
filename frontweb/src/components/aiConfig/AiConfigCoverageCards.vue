@@ -95,7 +95,7 @@ defineEmits(['select', 'action'])
     min-width: 0;
   }
 }
-@media (max-width: 760px) {
+@media (max-width: 769px) {
   .coverage-grid,
   .coverage-grid-extraction {
     grid-template-columns: minmax(0, 1fr);

@@ -206,8 +206,9 @@ test('结构菜单保持原有禁用、loading 和中文 title', async () => {
     const insertAfter = buttonByText(first.root, '后插')
     const append = buttonByText(first.root, '追加')
     assert.equal(moveUp.props.disabled, true)
-    assert.equal(moveUp.props.title, '已经是本集第一条分镜')
-    assert.equal(moveUp.props['aria-label'], '已经是本集第一条分镜')
+    assert.equal(moveUp.props.title, '上移不可用：已经是本集第一条分镜')
+    assert.equal(moveUp.props['aria-label'], '上移不可用：已经是本集第一条分镜')
+    assert.ok(String(moveUp.props['aria-label']).includes('上移'))
     assert.equal(insertBefore.props.title, '在此分镜前插入空白分镜')
     assert.equal(insertBefore.props['aria-label'], '在此分镜前插入空白分镜')
     assert.equal(insertAfter.props.title, '在此分镜后插入空白分镜')
@@ -224,8 +225,9 @@ test('结构菜单保持原有禁用、loading 和中文 title', async () => {
     await openStructureMenu(last.root)
     const moveDown = buttonByText(last.root, '下移')
     assert.equal(moveDown.props.disabled, true)
-    assert.equal(moveDown.props.title, '已经是本集最后一条分镜')
-    assert.equal(moveDown.props['aria-label'], '已经是本集最后一条分镜')
+    assert.equal(moveDown.props.title, '下移不可用：已经是本集最后一条分镜')
+    assert.equal(moveDown.props['aria-label'], '下移不可用：已经是本集最后一条分镜')
+    assert.ok(String(moveDown.props['aria-label']).includes('下移'))
   } finally {
     last.app.unmount()
   }
@@ -241,8 +243,9 @@ test('结构菜单保持原有禁用、loading 和中文 title', async () => {
     for (const label of ['上移', '下移', '前插', '后插', '追加']) {
       const item = buttonByText(blocked.root, label)
       assert.equal(item.props.disabled, true)
-      assert.equal(item.props.title, reason)
-      assert.equal(item.props['aria-label'], reason)
+      assert.equal(item.props.title, `${label}不可用：${reason}`)
+      assert.equal(item.props['aria-label'], `${label}不可用：${reason}`)
+      assert.ok(String(item.props['aria-label']).includes(label))
     }
   } finally {
     blocked.app.unmount()

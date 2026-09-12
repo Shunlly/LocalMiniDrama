@@ -153,7 +153,7 @@ test('就绪后下载和导出走真实按钮入口；失败态收成中文并�
     harness.props.value = {
       ...harness.props.value,
       videoStatus: 'error',
-      videoErrorMsg: 'HTTP Error',
+      videoErrorMsg: '成片合成失败（HTTP 503）',
       videoDownloadStatus: 'error',
       videoDownloadError: 'Failed to fetch',
       deliveryExportHasError: true,
@@ -169,7 +169,7 @@ test('就绪后下载和导出走真实按钮入口；失败态收成中文并�
     assert.equal(requireButton(harness.root, '重试下载').props['aria-label'], '重试下载')
     assert.equal(requireButton(harness.root, '重试字幕').props['aria-label'], '重试字幕')
     assert.equal(requireButton(harness.root, '重试项目包').props['aria-label'], '重试项目包')
-    assert.doesNotMatch(textContent(harness.root), /HTTP Error|Failed to fetch|Network Error/)
+    assert.doesNotMatch(textContent(harness.root), /HTTP Error|Failed to fetch|Network Error|HTTP\s*503/i)
     assert.doesNotMatch(textContent(harness.root), new RegExp(`${DRAMA_ID}|${EPISODE_ID}`))
   } finally {
     harness.app.unmount()

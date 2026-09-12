@@ -170,7 +170,7 @@
       v-if="!isFreeMode && emptyNextCopy"
       class="empty-next-copy"
       role="status"
-      aria-label="空剧集下一步"
+      :aria-label="`空剧集下一步：${emptyNextCopy}`"
     >{{ emptyNextCopy }}</p>
     <div v-if="!isFreeMode && (workflowProgress || episodeGenProgress)" class="toolbar-progress" aria-live="polite">
       <span v-if="workflowProgress">{{ workflowProgress }}</span>
@@ -341,10 +341,13 @@ const alignTooltip = computed(() => (
 }
 
 .empty-next-copy {
+  min-width: 0;
+  max-width: 100%;
   margin: 8px 0 0;
   color: var(--canvas-text-secondary, #d4d4d8);
   font-size: 12px;
   line-height: 18px;
+  overflow-wrap: anywhere;
 }
 
 .mode-switch {

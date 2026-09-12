@@ -1,6 +1,6 @@
 const path = require('node:path');
 const response = require('../response');
-const { sendCaughtRouteError, publicErrorMessage } = require('./serviceFailure');
+const { sendCaughtRouteError, publicErrorMessage, logCaughtRouteError, createClientAbort } = require('./serviceFailure');
 const sourceIntakeService = require('../services/sourceIntakeService');
 const sourceMediaExtractionService = require('../services/sourceMediaExtractionService');
 const uploadService = require('../services/uploadService');
@@ -113,11 +113,14 @@ module.exports = function storySourceRoutes(db, log, routeOptions = {}) {
     },
 
     async uploadForDrama(req, res) {
+      const clientAbort = createClientAbort(req, res, '素材抽取已取消');
       try {
+        const extractionOptions = { ...(routeOptions.extractionOptions || {}) };
+        if (!extractionOptions.signal) extractionOptions.signal = clientAbort.signal;
         const extracted = await sourceMediaExtractionService.extractUploadedSource(
           db,
           req.file,
-          routeOptions.extractionOptions || {}
+          extractionOptions
         );
         const file = extracted.file;
         const body = req.body || {};
@@ -145,8 +148,13 @@ module.exports = function storySourceRoutes(db, log, routeOptions = {}) {
         });
         response.created(res, result);
       } catch (err) {
-        log.error('story sources upload', { error: err.message, drama_id: req.params.id });
+        logCaughtRouteError(log, 'story sources upload', err, {
+          drama_id: req.params.id,
+          fallback: '素材源操作失败，请稍后重试',
+        });
         badRequestOrInternal(res, err);
+      } finally {
+        clientAbort.dispose();
       }
     },
 

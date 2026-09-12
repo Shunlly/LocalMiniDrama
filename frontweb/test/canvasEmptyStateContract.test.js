@@ -263,6 +263,9 @@ test('disabled confirm action explains missing episode selection', async () => {
     const disabledButton = findConfirmButton(missingSelection.root)
     assert.equal(disabledButton.props.disabled, true)
     assert.equal(disabledButton.props.title, '请先选择要进入的剧集')
+    assert.equal(disabledButton.props['aria-label'], '进入这一集')
+    assert.equal(disabledButton.props['aria-describedby'], 'canvas-empty-episode-reason')
+    assert.ok(String(disabledButton.props['aria-label']).includes('进入这一集'))
 
     findAll(missingSelection.root, 'select')[0].props.onChange({ target: { value: '12' } })
     await nextTick()
@@ -282,6 +285,7 @@ test('disabled confirm action explains missing episode selection', async () => {
     const enabledButton = findConfirmButton(preselected.root)
     assert.equal(enabledButton.props.disabled, false)
     assert.equal(enabledButton.props.title, undefined)
+    assert.equal(enabledButton.props['aria-label'], '进入这一集')
   } finally {
     preselected.app.unmount()
   }
@@ -300,6 +304,19 @@ test('空态下一步入口带 autofocus，方便键盘直接开始', () => {
   assert.match(componentSource, /autofocus/)
   assert.match(componentSource, /:autofocus="!actions.primaryAction"/)
   assert.match(componentSource, /aria-label="新建第一集"/)
-  assert.match(componentSource, /aria-label="进入这一集"|请先选择要进入的剧集/)
+  assert.match(componentSource, /aria-label="进入这一集"/)
+  assert.match(componentSource, /id="canvas-empty-episode-reason"/)
+  assert.match(componentSource, /请先选择要进入的剧集/)
   assert.match(componentSource, /aria-label="返回列表模式"/)
+})
+
+test('空态面板窄屏换行，读屏名包含可见文案', () => {
+  assert.match(componentSource, /\.start-panel \{[\s\S]*?max-width: 100%;/)
+  assert.match(componentSource, /overflow-wrap: anywhere;/)
+  assert.match(componentSource, /aria-label="进入这一集"/)
+  assert.match(componentSource, />\s*进入这一集\s*</)
+  assert.match(componentSource, /aria-label="返回列表模式"/)
+  assert.match(componentSource, />\s*列表模式\s*</)
+  assert.match(componentSource, /aria-label="新建第一集"/)
+  assert.match(componentSource, />\s*新建第一集\s*</)
 })

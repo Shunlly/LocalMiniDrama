@@ -33,7 +33,7 @@
 <script setup>
 import { computed } from 'vue'
 import { Refresh, WarningFilled } from '@element-plus/icons-vue'
-import { describeActionAriaLabel, toFilmCreateOptionalUserFacingText } from './filmCreateActionCopy.js'
+import { describeActionAriaLabel, toFilmCreateOptionalUserFacingText } from '@/components/filmCreate/filmCreateActionCopy.js'
 
 const props = defineProps({
   mediaError: { type: String, default: '' },

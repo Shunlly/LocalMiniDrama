@@ -184,7 +184,6 @@ const labels = {
 
 const typeLabel = computed(() => labels[props.node.type] || '节点')
 const displayTitle = computed(() => String(props.node.title || props.node.label || typeLabel.value))
-const accessibleLabel = computed(() => `${typeLabel.value}：${displayTitle.value}，按 Enter 或空格打开设置`)
 const displayContent = computed(() => String(props.node.content ?? props.node.text ?? props.node.description ?? ''))
 const isFreeMode = computed(() => props.freeMode)
 const isConfigNode = computed(() => props.node.type === 'config')
@@ -197,6 +196,20 @@ const mediaRenderKey = computed(() => `${props.node.id}:${props.mediaUrl}:${medi
 const isLoading = computed(() => isMediaNode.value && mediaState.value === 'loading')
 const hasError = computed(() => isMediaNode.value && mediaState.value === 'error')
 const emptyLabel = computed(() => isLoading.value ? '内容加载中' : (hasError.value ? '内容加载失败' : '暂无内容'))
+const accessibleLabel = computed(() => {
+  const base = `${typeLabel.value}：${displayTitle.value}，按 Enter 或空格打开设置`
+  if (isConfigNode.value) {
+    const status = String(props.configRuntime?.statusLabel || '').trim()
+    return status ? `${base}，${status}` : base
+  }
+  if (isMediaNode.value) {
+    if (isLoading.value) return `${base}，正在加载预览`
+    if (hasError.value) return `${base}，${props.mediaUrl ? '素材预览失败' : '未找到可预览素材'}`
+    return base
+  }
+  if (!displayContent.value.trim()) return `${base}，${emptyLabel.value}`
+  return base
+})
 
 function isActivateKeyBlocked(target) {
   return Boolean(target?.closest?.(
@@ -251,6 +264,7 @@ watch(
   height: 208px;
   grid-template-rows: 24px 20px minmax(72px, 1fr) 24px;
   gap: 8px;
+  min-width: 0;
   overflow: visible;
   padding: 12px;
   border: 1px solid var(--border-color, #3f3f46);
@@ -290,8 +304,12 @@ watch(
 
 .node-kind,
 .node-state {
+  min-width: 0;
+  overflow: hidden;
   font-size: 12px;
   color: var(--canvas-text-subtle, var(--text-subtle, #a1a1aa));
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .node-state.error { color: var(--canvas-danger-text, #f87171); }
@@ -318,18 +336,21 @@ watch(
 
 .node-content {
   display: -webkit-box;
+  min-width: 0;
   min-height: 0;
   margin: 0;
   overflow: hidden;
   color: var(--canvas-text-muted, var(--text-muted, #a1a1aa));
   font-size: 12px;
   line-height: 18px;
+  overflow-wrap: anywhere;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 4;
 }
 
 .config-runtime {
   display: grid;
+  min-width: 0;
   min-height: 0;
   align-content: start;
   gap: 5px;
@@ -337,27 +358,32 @@ watch(
 }
 
 .config-runtime p {
+  min-width: 0;
   margin: 0;
   overflow: hidden;
   font-size: 11px;
   line-height: 16px;
+  overflow-wrap: anywhere;
 }
 
 .config-input {
   display: -webkit-box;
   color: var(--canvas-text-muted, var(--text-muted, #a1a1aa));
   white-space: pre-line;
+  overflow-wrap: anywhere;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 3;
 }
 
 .config-provider {
+  min-width: 0;
   color: var(--canvas-text-primary, var(--text-primary, #e4e4e7));
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .config-reason {
+  min-width: 0;
   color: var(--canvas-text-subtle, var(--text-subtle, #a1a1aa));
   text-overflow: ellipsis;
   white-space: nowrap;

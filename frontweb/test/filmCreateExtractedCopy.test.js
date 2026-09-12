@@ -140,6 +140,7 @@ test('按钮读屏名称把禁用原因读出来', () => {
     describeActionAriaLabel('重试加载素材', { disabledReason: '加载失败 HTTP 502' }),
     '重试加载素材不可用：当前不可用',
   )
+  assert.equal(describeActionTitle({ disabledReason: '加载失败（HTTP 502）' }), '当前不可用')
   assert.equal(toFilmCreateDisabledReasonText('', '当前不可用'), '')
 })
 

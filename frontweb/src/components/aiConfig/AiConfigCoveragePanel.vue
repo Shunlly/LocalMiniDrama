@@ -87,7 +87,7 @@ defineEmits(['select', 'action'])
     box-sizing: border-box;
   }
 }
-@media (max-width: 760px) {
+@media (max-width: 769px) {
   .config-workspace-panel {
     width: 100%;
     max-width: 100%;

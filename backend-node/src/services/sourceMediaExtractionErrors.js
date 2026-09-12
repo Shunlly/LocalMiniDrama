@@ -59,12 +59,57 @@ function providerBadResponseError(label) {
   return actionableError(`${label}返回了无法处理的响应。请检查当前 AI 配置。`);
 }
 
+function providerAuthFailureError(label) {
+  const error = actionableError(`${label}认证失败，请检查「AI 配置」中的密钥后重试。`);
+  error.providerAuthFailure = true;
+  return error;
+}
+
+function isExtractionAuthFailure(error) {
+  return error?.providerAuthFailure === true || /认证失败/.test(String(error?.message || ''));
+}
+
+function providerHttpFailureError(label, status, bodyText) {
+  const { looksLikeAuthFailure } = require('./providerErrorSanitizer');
+  const code = Number(status);
+  if (looksLikeAuthFailure(bodyText, status) || code === 401 || code === 403) {
+    return providerAuthFailureError(label);
+  }
+  return providerBadResponseError(label);
+}
+
 function isExtractionTimeout(error) {
   return error?.isTimeout === true || error?.process_code === 'PROCESS_TIMEOUT';
 }
 
+function isExtractionCancelled(error) {
+  if (!error || typeof error !== 'object' || isExtractionTimeout(error)) return false;
+  const name = String(error.name || '');
+  const code = String(error.code || '');
+  return name === 'AbortError'
+    || name === 'CanceledError'
+    || code === 'OPERATION_CANCELLED'
+    || code === 'ERR_CANCELED'
+    || code === 'ABORT_ERR';
+}
+
+function providerCancelledError(label, cause) {
+  const { isTrustedChineseUserError } = require('./providerErrorSanitizer');
+  const raw = String(cause?.message || '').trim();
+  const message = isTrustedChineseUserError(raw) ? raw : `${label}已取消`;
+  const error = Object.assign(actionableError(message, cause), {
+    name: 'AbortError',
+    code: 'OPERATION_CANCELLED',
+    retryable: false,
+  });
+  return error;
+}
+
 function throwOcrFallbackError(config, tesseract, providerError) {
+  if (isExtractionCancelled(providerError)) throw providerError;
+  if (isExtractionAuthFailure(providerError)) throw providerError;
   if (isExtractionTimeout(providerError)) throw providerError;
+  if (!providerError && isExtractionCancelled(tesseract?.error)) throw tesseract.error;
   if (!providerError && isExtractionTimeout(tesseract?.error)) throw tesseract.error;
   if (!config && tesseract.unavailable) {
     throw actionableError('未配置图片识别服务，且本机 Tesseract 不可用。请在「AI 配置」中添加并启用「图片识别」，或安装 Tesseract 命令行工具。');
@@ -75,6 +120,8 @@ function throwOcrFallbackError(config, tesseract, providerError) {
 
 module.exports = {
   actionableError,
+  isExtractionAuthFailure,
+  isExtractionCancelled,
   isExtractionTimeout,
   processUnavailableError,
   processChildError,
@@ -85,5 +132,8 @@ module.exports = {
   providerTimeoutError,
   providerUnreachableError,
   providerBadResponseError,
+  providerAuthFailureError,
+  providerHttpFailureError,
+  providerCancelledError,
   throwOcrFallbackError,
 };

@@ -169,3 +169,25 @@ test('厂商锁定模式只保留导出和一键换密钥', async () => {
     harness.app.unmount()
   }
 })
+
+test('删除选中和通义按钮的可见文案都在读屏名里', async () => {
+  const firstId = 41
+  const secondId = 52
+  assert.notEqual(firstId, secondId)
+  const harness = mountToolbar({
+    selectedRows: [{ id: firstId }, { id: secondId }],
+  })
+  try {
+    await nextTick()
+    const removed = findAll(harness.root, (node) => node.type === 'button' && /删除选中/.test(textContent(node)))[0]
+    assert.ok(removed)
+    assert.equal(textContent(removed).replace(/\s+/g, ' ').trim(), '删除选中 2 项配置')
+    assert.equal(removed.props['aria-label'], '删除选中 2 项配置')
+    const tongyi = findAll(harness.root, (node) => node.type === 'button' && textContent(node).includes('一键配置通义'))[0]
+    assert.ok(tongyi)
+    assert.equal(textContent(tongyi).replace(/\s+/g, ' ').trim(), '一键配置通义（不推荐）')
+    assert.equal(tongyi.props['aria-label'], '一键配置通义（不推荐）')
+  } finally {
+    harness.app.unmount()
+  }
+})

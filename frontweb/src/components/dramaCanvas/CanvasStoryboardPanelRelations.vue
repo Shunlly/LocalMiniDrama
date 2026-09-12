@@ -66,9 +66,9 @@
     </el-form-item>
   </div>
   <div class="inline-add-row">
-    <el-button link type="primary" size="small" :aria-label="storyboardControlLabel('添加角色')" @click.stop="createAsset('character')">+角色</el-button>
-    <el-button link type="primary" size="small" :aria-label="storyboardControlLabel('添加场景')" @click.stop="createAsset('scene')">+场景</el-button>
-    <el-button link type="primary" size="small" :aria-label="storyboardControlLabel('添加道具')" @click.stop="createAsset('prop')">+道具</el-button>
+    <el-button link type="primary" size="small" :aria-label="storyboardControlLabel('添加角色')" @click.stop="createAsset('character')">添加角色</el-button>
+    <el-button link type="primary" size="small" :aria-label="storyboardControlLabel('添加场景')" @click.stop="createAsset('scene')">添加场景</el-button>
+    <el-button link type="primary" size="small" :aria-label="storyboardControlLabel('添加道具')" @click.stop="createAsset('prop')">添加道具</el-button>
   </div>
 </template>
 

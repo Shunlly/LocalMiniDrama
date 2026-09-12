@@ -145,9 +145,12 @@ test('空剧本时角色/道具/场景提取都禁用，空态指向真实按钮
     }
 
     assert.ok(actionGateReasons(harness.root).includes(EMPTY_SCRIPT_REASON))
-    const extractAria = buttonByAriaLabel(harness.root, '剧本自动提取角色')
-    assert.ok(extractAria)
-    assert.equal(extractAria.props.disabled, true)
+    const extractButtons = buttonsByText(harness.root, '剧本自动提取角色')
+    assert.ok(extractButtons.length >= 2)
+    for (const button of extractButtons) {
+      assert.equal(button.props.disabled, true)
+      assert.match(String(button.props['aria-label'] || ''), /剧本自动提取角色/)
+    }
     assert.equal(buttonsByText(harness.root, '去创建剧集').length, 0)
   } finally {
     harness.app.unmount()

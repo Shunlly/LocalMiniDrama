@@ -112,6 +112,7 @@ function bindConfigListSectionRef(el) {
 .config-list-section {
   min-width: 0;
   max-width: 100%;
+  overflow-x: auto;
   scroll-margin-top: 88px;
 }
 .default-tip {
@@ -140,7 +141,7 @@ function bindConfigListSectionRef(el) {
     box-sizing: border-box;
   }
 }
-@media (max-width: 760px) {
+@media (max-width: 769px) {
   .config-workspace-panel {
     width: 100%;
     max-width: 100%;

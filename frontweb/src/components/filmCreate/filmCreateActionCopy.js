@@ -39,6 +39,6 @@ export function describeActionTitle({ loading, loadingLabel, disabledReason } = 
     const text = String(loadingLabel || '').trim()
     return text ? `${text}，请稍候` : '正在处理，请稍候'
   }
-  const reason = String(disabledReason || '').trim()
+  const reason = toFilmCreateDisabledReasonText(disabledReason)
   return reason || undefined
 }

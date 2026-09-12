@@ -53,7 +53,7 @@ test('剧集画布空下一步、节点上限和停止等待文案没有回退',
   const inspector = read('../src/components/dramaCanvas/FreeCanvasInspector.vue')
   const derived = read('../src/components/dramaCanvas/dramaCanvasDerivedState.js')
 
-  assert.match(toolbar, /aria-label="空剧集下一步"/)
+  assert.match(toolbar, /:aria-label="`空剧集下一步：\$\{emptyNextCopy\}`"/)
   assert.match(chrome, /getCanvasEpisodeEmptyNextCopy/)
   assert.match(freeToolbar, /atNodeLimit/)
   assert.match(freeToolbar, /getFreeCanvasNodeCapacityWarning/)

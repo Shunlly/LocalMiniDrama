@@ -215,7 +215,11 @@ async function callModelArkAsset(opts, log) {
 
   if (!action || typeof action !== 'string') throw new Error('缺少操作名称');
   const act = action.trim();
-  if (!ALLOWED_ACTIONS.has(act)) throw new Error('不支持的资产库操作：' + act);
+  if (!ALLOWED_ACTIONS.has(act)) {
+    const error = new Error('不支持的资产库操作');
+    error.code = 'BAD_REQUEST';
+    throw error;
+  }
 
   const base = normalizeBaseUrl(ensureArkOpenApiBasePath(base_url));
   const pathMode = (path_mode || 'open_api_query').toString();

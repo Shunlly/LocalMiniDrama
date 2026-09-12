@@ -2,7 +2,7 @@ const aiConfigService = require('../services/aiConfigService');
 const { collectConnectionSecrets } = require('../services/aiConfigConnection');
 const { sanitizeProviderText, toSafeProviderErrorMessage, isTimeoutLikeError, isUserFacingAbort } = require('../services/providerErrorSanitizer');
 const response = require('../response');
-const { publicErrorMessage, logCaughtRouteError } = require('./serviceFailure');
+const { publicErrorMessage, logCaughtRouteError, createClientAbort } = require('./serviceFailure');
 
 function list(db) {
   return (req, res) => {
@@ -160,31 +160,6 @@ function mergeSettingsForRequest(savedSettings, bodySettings) {
   };
 }
 
-function createClientAbort(req, res, cancelMessage = '连接测试已取消') {
-  const controller = new AbortController();
-  const abort = () => {
-    if (controller.signal.aborted) return;
-    const error = new Error(cancelMessage);
-    error.code = 'ERR_CANCELED';
-    error.name = 'AbortError';
-    controller.abort(error);
-  };
-  const onClose = () => {
-    if (!res?.headersSent && !res?.writableEnded) abort();
-  };
-  if (typeof res?.on === 'function') res.on('close', onClose);
-  if (typeof req?.on === 'function') req.on('aborted', abort);
-  return {
-    signal: controller.signal,
-    dispose() {
-      if (typeof res?.off === 'function') res.off('close', onClose);
-      else if (typeof res?.removeListener === 'function') res.removeListener('close', onClose);
-      if (typeof req?.off === 'function') req.off('aborted', abort);
-      else if (typeof req?.removeListener === 'function') req.removeListener('aborted', abort);
-    },
-  };
-}
-
 function applySavedConfigSecrets(savedConfig, body) {
   if (!savedConfig) return body;
   const savedSettings = mergeSettingsForRequest(savedConfig.settings, body.settings);
@@ -338,8 +313,12 @@ function modelArkAsset(db, log) {
       );
       response.success(res, data);
     } catch (err) {
-      const { toSafeProviderErrorMessage } = require('../services/providerErrorSanitizer');
-      const safeMessage = toSafeProviderErrorMessage(err, { provider: 'ModelArk', operation: action || 'request' });
+      const { toSafeProviderErrorMessage, isTrustedChineseUserError } = require('../services/providerErrorSanitizer');
+      const { ALLOWED_ACTIONS } = require('../services/modelArkAssetProxyService');
+      const operation = ALLOWED_ACTIONS.has(action) ? action : 'request';
+      const safeMessage = (err?.code === 'BAD_REQUEST' && isTrustedChineseUserError(err.message))
+        ? err.message
+        : toSafeProviderErrorMessage(err, { provider: 'ModelArk', operation });
       logCaughtRouteError(log, 'model-ark-asset proxy failed', sanitizeConnectionTestLogError(err, opts, safeMessage || '请求失败'), { action, fallback: safeMessage || '请求失败' });
       const status = err.status >= 400 && err.status < 600 ? err.status : 400;
       return response.error(res, status, 'MODEL_ARK_ASSET', safeMessage || '请求失败');

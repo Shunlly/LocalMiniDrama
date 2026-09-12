@@ -56,10 +56,10 @@
                     </template>
                     <template v-else>
                       <ActionGate :reason="characterGenerationDisabledReason" label="剧本自动提取角色">
-                        <el-button type="primary" size="small" :loading="charactersGenerating" :disabled="Boolean(characterGenerationDisabledReason)" :title="charactersGenerating ? '正在提取角色，请稍候' : (characterGenerationDisabledReason || undefined)" aria-label="剧本自动提取角色" @click="emit('generate-characters')">剧本自动提取角色</el-button>
+                        <el-button type="primary" size="small" :loading="charactersGenerating" :disabled="Boolean(characterGenerationDisabledReason)" :title="charactersGenerating ? '正在提取角色，请稍候' : (characterGenerationDisabledReason || undefined)" :aria-label="extractCharactersEmptyAriaLabel" @click="emit('generate-characters')">剧本自动提取角色</el-button>
                       </ActionGate>
                       <ActionGate :reason="projectActionDisabledReason" label="添加角色">
-                        <el-button size="small" :disabled="Boolean(projectActionDisabledReason)" :title="projectActionDisabledReason || undefined" aria-label="添加角色" @click="emit('add-character')">添加角色</el-button>
+                        <el-button size="small" :disabled="Boolean(projectActionDisabledReason)" :title="projectActionDisabledReason || undefined" :aria-label="addCharacterEmptyAriaLabel" @click="emit('add-character')">添加角色</el-button>
                       </ActionGate>
                     </template>
                   </div>
@@ -100,10 +100,10 @@
                     </template>
                     <template v-else>
                       <ActionGate :reason="propsExtractionDisabledReason" label="从剧本提取道具">
-                        <el-button type="primary" size="small" :loading="propsExtracting" :disabled="Boolean(propsExtractionDisabledReason)" :title="propsExtracting ? '正在提取道具，请稍候' : (propsExtractionDisabledReason || undefined)" aria-label="从剧本提取道具" @click="emit('extract-props')">从剧本提取道具</el-button>
+                        <el-button type="primary" size="small" :loading="propsExtracting" :disabled="Boolean(propsExtractionDisabledReason)" :title="propsExtracting ? '正在提取道具，请稍候' : (propsExtractionDisabledReason || undefined)" :aria-label="extractPropsEmptyAriaLabel" @click="emit('extract-props')">从剧本提取道具</el-button>
                       </ActionGate>
                       <ActionGate :reason="projectActionDisabledReason" label="添加道具">
-                        <el-button size="small" :disabled="Boolean(projectActionDisabledReason)" :title="projectActionDisabledReason || undefined" aria-label="添加道具" @click="emit('add-prop')">添加道具</el-button>
+                        <el-button size="small" :disabled="Boolean(projectActionDisabledReason)" :title="projectActionDisabledReason || undefined" :aria-label="addPropEmptyAriaLabel" @click="emit('add-prop')">添加道具</el-button>
                       </ActionGate>
                     </template>
                   </div>
@@ -144,10 +144,10 @@
                     </template>
                     <template v-else>
                       <ActionGate :reason="scenesExtractionDisabledReason" label="从剧本提取场景">
-                        <el-button type="primary" size="small" :loading="scenesExtracting" :disabled="Boolean(scenesExtractionDisabledReason)" :title="scenesExtracting ? '正在提取场景，请稍候' : (scenesExtractionDisabledReason || undefined)" aria-label="从剧本提取场景" @click="emit('extract-scenes')">从剧本提取场景</el-button>
+                        <el-button type="primary" size="small" :loading="scenesExtracting" :disabled="Boolean(scenesExtractionDisabledReason)" :title="scenesExtracting ? '正在提取场景，请稍候' : (scenesExtractionDisabledReason || undefined)" :aria-label="extractScenesEmptyAriaLabel" @click="emit('extract-scenes')">从剧本提取场景</el-button>
                       </ActionGate>
                       <ActionGate :reason="projectActionDisabledReason" label="添加场景">
-                        <el-button size="small" :disabled="Boolean(projectActionDisabledReason)" :title="projectActionDisabledReason || undefined" aria-label="添加场景" @click="emit('add-scene')">添加场景</el-button>
+                        <el-button size="small" :disabled="Boolean(projectActionDisabledReason)" :title="projectActionDisabledReason || undefined" :aria-label="addSceneEmptyAriaLabel" @click="emit('add-scene')">添加场景</el-button>
                       </ActionGate>
                     </template>
                   </div>
@@ -170,6 +170,7 @@ import {
   describeResourceMissingAssetImageReason,
   describeSd2CertActionTitle,
 } from '@/components/filmCreate/filmCreateResourcePanelCopy.js'
+import { describeActionAriaLabel } from '@/components/filmCreate/filmCreateActionCopy.js'
 import FilmCreateCharacterBlock from '@/components/filmCreate/FilmCreateCharacterBlock.vue'
 import FilmCreatePropBlock from '@/components/filmCreate/FilmCreatePropBlock.vue'
 import FilmCreateSceneBlock from '@/components/filmCreate/FilmCreateSceneBlock.vue'
@@ -270,9 +271,35 @@ function missingScenePanoramaReason(scene) {
 
 const EPISODE_REQUIRED_REASON = '请先创建或选择剧集'
 const needsEpisode = computed(() => (
-  props.propsExtractionDisabledReason === EPISODE_REQUIRED_REASON
+  props.characterGenerationDisabledReason === EPISODE_REQUIRED_REASON
+  || props.propsExtractionDisabledReason === EPISODE_REQUIRED_REASON
   || props.scenesExtractionDisabledReason === EPISODE_REQUIRED_REASON
 ))
+
+const extractCharactersEmptyAriaLabel = computed(() => describeActionAriaLabel('剧本自动提取角色', {
+  loading: props.charactersGenerating,
+  loadingLabel: '正在剧本自动提取角色',
+  disabledReason: props.characterGenerationDisabledReason,
+}))
+const addCharacterEmptyAriaLabel = computed(() => describeActionAriaLabel('添加角色', {
+  disabledReason: props.projectActionDisabledReason,
+}))
+const extractPropsEmptyAriaLabel = computed(() => describeActionAriaLabel('从剧本提取道具', {
+  loading: props.propsExtracting,
+  loadingLabel: '正在从剧本提取道具',
+  disabledReason: props.propsExtractionDisabledReason,
+}))
+const addPropEmptyAriaLabel = computed(() => describeActionAriaLabel('添加道具', {
+  disabledReason: props.projectActionDisabledReason,
+}))
+const extractScenesEmptyAriaLabel = computed(() => describeActionAriaLabel('从剧本提取场景', {
+  loading: props.scenesExtracting,
+  loadingLabel: '正在从剧本提取场景',
+  disabledReason: props.scenesExtractionDisabledReason,
+}))
+const addSceneEmptyAriaLabel = computed(() => describeActionAriaLabel('添加场景', {
+  disabledReason: props.projectActionDisabledReason,
+}))
 
 function goCreateEpisode() {
   if (typeof props.onAddEpisode === 'function') {
@@ -547,15 +574,28 @@ html.light .section-desc { color: #6b7280; }
   flex-direction: column;
   align-items: flex-start;
   gap: 12px;
+  min-width: 0;
+  max-width: 100%;
 }
 .resource-empty-copy {
   margin: 0;
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 .resource-empty-actions {
   display: flex;
   flex-wrap: wrap;
   align-items: flex-start;
   gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+}
+@media (max-width: 769px) {
+  .resource-empty-actions {
+    width: 100%;
+  }
 }
 .resource-empty-actions :deep(.el-button:focus-visible) {
   outline: 2px solid #818cf8;

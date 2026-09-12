@@ -348,6 +348,18 @@ html.light .section-desc { color: #6b7280; }
 html.light .empty-tip {
   color: var(--film-empty-copy, #64748b);
 }
+.script-workbench-unified,
+.script-pane-inner,
+.script-sub-block,
+.row,
+.script-episode-meta,
+.film-episode-empty,
+.film-episode-empty-actions,
+.script-select-empty,
+.script-select-empty-actions {
+  min-width: 0;
+  max-width: 100%;
+}
 .script-workbench-unified {
   margin-bottom: 0;
 }
@@ -415,13 +427,18 @@ html.light .preview-block-title {
   margin-bottom: 10px;
 }
 .script-title-input {
-  flex: 1 1 280px;
-  min-width: min(280px, 100%);
+  flex: 1 1 160px;
+  min-width: 0;
   max-width: min(520px, 100%);
   width: auto;
 }
 .script-add-episode {
   margin-left: auto;
+}
+@media (max-width: 769px) {
+  .script-add-episode {
+    margin-left: 0;
+  }
 }
 .script-save-row {
   margin-top: 8px;
@@ -496,6 +513,11 @@ html.light .select-script-title {
   font-weight: 600;
   color: var(--text-primary);
 }
+.film-episode-empty p,
+.script-select-empty p {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
 .film-episode-empty p {
   margin: 0;
 }
@@ -505,6 +527,8 @@ html.light .select-script-title {
   align-items: center;
   gap: 8px;
   margin-top: 12px;
+  min-width: 0;
+  max-width: 100%;
 }
 .film-episode-empty-actions :deep(.el-button:focus-visible),
 .script-select-empty-actions :deep(.el-button:focus-visible),

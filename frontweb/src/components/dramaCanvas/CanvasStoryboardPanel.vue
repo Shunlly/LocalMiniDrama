@@ -927,8 +927,11 @@ async function refreshAfterUnknownAudio() {
 
 <style scoped>
 .sb-panel {
+  box-sizing: border-box;
   margin-top: 10px;
   width: min(560px, 94vw);
+  min-width: 0;
+  max-width: 100%;
   padding: 10px 14px 12px;
   border-radius: 8px;
   border: 1px solid var(--canvas-indigo-border, rgba(129, 140, 248, 0.45));

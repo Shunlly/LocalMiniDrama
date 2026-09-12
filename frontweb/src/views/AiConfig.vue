@@ -206,7 +206,7 @@ html.light .main {
   border-color: rgba(139, 92, 246, 0.15);
   box-shadow: 0 4px 20px rgba(139, 92, 246, 0.08);
 }
-@media (max-width: 760px) {
+@media (max-width: 769px) {
   .ai-config {
     overflow-x: clip;
   }

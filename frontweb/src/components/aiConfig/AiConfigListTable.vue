@@ -88,7 +88,7 @@
             size="small"
             aria-label="清除当前服务筛选，查看全部配置"
             @click="clearServiceFilter"
-          >查看全部</el-button>
+          >查看全部配置</el-button>
         </div>
       </div>
     </template>
@@ -260,7 +260,7 @@ const emptyAddAriaLabel = computed(() => describeDisabledControlLabel(
     max-width: 100%;
   }
 }
-@media (max-width: 760px) {
+@media (max-width: 769px) {
   .config-empty-actions {
     flex-wrap: wrap;
   }

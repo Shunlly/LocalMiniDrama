@@ -26,8 +26,7 @@
         </el-button>
         <el-button type="info" plain :disabled="configWriteLocked" :title="configWriteLocked ? configWriteLockReason : undefined" :aria-label="configWriteLocked ? configWriteLockReason : '一键配置通义（不推荐）'" @click="openOneKeyTongyi">
           <el-icon><MagicStick /></el-icon>
-          一键配置通义
-          <span class="one-key-not-recommended">不推荐</span>
+          一键配置通义<span class="one-key-not-recommended">（不推荐）</span>
         </el-button>
       </div>
       <div class="actions-right">
@@ -41,7 +40,7 @@
             :aria-label="batchDeleting ? '正在删除选中配置，请稍候' : (configWriteLocked ? configWriteLockReason : `删除选中 ${selectedRows.length} 项配置`)" @click="onBatchDelete"
           >
             <el-icon><Delete /></el-icon>
-            删除选中 ({{ selectedRows.length }})
+            删除选中 {{ selectedRows.length }} 项配置
           </el-button>
         </transition>
       </div>
@@ -207,7 +206,7 @@ function bindImportFileRef(el) {
     max-width: 100%;
   }
 }
-@media (max-width: 760px) {
+@media (max-width: 769px) {
   .content-actions,
   .vendor-lock-bar {
     align-items: stretch;

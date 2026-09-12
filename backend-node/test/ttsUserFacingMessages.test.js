@@ -126,6 +126,36 @@ describe('TTS 用户可见错误为简体中文', () => {
     });
   });
 
+  it('OpenAI 兼容 HTTP 404 Invalid Authorization 走认证失败，不回传状态原文', async () => {
+    await withServer((_request, response) => {
+      response.writeHead(404, { 'content-type': 'application/json' });
+      response.end(JSON.stringify({
+        error: 'Invalid Authorization',
+        code: 'AUTH_DENIED',
+      }));
+    }, async (baseUrl) => {
+      await assert.rejects(
+        synthesizeWithOpenai(
+          'private narration',
+          'alloy',
+          'sk-request-secret',
+          baseUrl,
+          'tts-1',
+          1,
+          2000,
+          undefined,
+          localProviderNetworkOptions(baseUrl)
+        ),
+        (error) => {
+          assertSafeChinese(error.message);
+          assert.match(error.message, /TTS 认证失败/);
+          assert.doesNotMatch(error.message, /HTTP\s*404|Invalid Authorization|Not Found|AUTH_DENIED/i);
+          return true;
+        }
+      );
+    });
+  });
+
   it('MiniMax 业务失败不回传 status_msg 和密钥', async () => {
     await withServer((_request, response) => {
       response.writeHead(200, { 'content-type': 'application/json' });

@@ -282,7 +282,7 @@ test('失败空态只给重试，写锁空态禁用添加并保留查看全部',
     click(retry)
     assert.equal(failed.events.retry, 1)
     assert.equal(buttonByText(failed.root, '添加第一个配置'), undefined)
-    assert.equal(buttonByText(failed.root, '查看全部'), undefined)
+    assert.equal(buttonByText(failed.root, '查看全部配置'), undefined)
   } finally {
     failed.app.unmount()
   }
@@ -304,7 +304,7 @@ test('失败空态只给重试，写锁空态禁用添加并保留查看全部',
     assert.equal(addButton.props.disabled, true)
     assert.equal(addButton.props.title, '配置列表尚未就绪')
     assert.equal(addButton.props['aria-label'], '配置列表尚未就绪')
-    const clearButton = buttonByText(filtered.root, '查看全部')
+    const clearButton = buttonByText(filtered.root, '查看全部配置')
     assert.equal(clearButton.props['aria-label'], '清除当前服务筛选，查看全部配置')
     click(clearButton)
     assert.equal(filtered.events.clear, 1)
@@ -338,7 +338,7 @@ test('读取中的空态是 status 区域，不给添加或查看全部', async 
     assert.equal(emptyState.props['aria-busy'], true)
     assert.match(textContent(pending.root), /正在读取配置列表/)
     assert.equal(buttonByText(pending.root, '添加文本配置'), undefined)
-    assert.equal(buttonByText(pending.root, '查看全部'), undefined)
+    assert.equal(buttonByText(pending.root, '查看全部配置'), undefined)
     assert.equal(buttonByText(pending.root, '重新读取配置列表'), undefined)
   } finally {
     pending.app.unmount()

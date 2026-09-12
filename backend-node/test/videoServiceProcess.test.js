@@ -39,8 +39,10 @@ test('videoService 公开执行入口仍是函数，且不把即梦改成轮询'
   assert.equal(processSource.includes("protocol === 'jimeng_ai_api'"), false);
   assert.equal(processSource.includes('不应进入轮询'), false);
   const clientSource = [
-    fs.readFileSync(path.join(__dirname, '../src/services/videoClient.js'), 'utf8'),
-    fs.readFileSync(path.join(__dirname, '../src/services/videoClientPoll.js'), 'utf8'),
+    fs.readFileSync(path.join(__dirname, '../src/services/videoClient.js'), 'utf8'),
+
+    fs.readFileSync(path.join(__dirname, '../src/services/videoClientPoll.js'), 'utf8'),
+
     fs.readFileSync(path.join(__dirname, '../src/services/videoGateway/pollTask.js'), 'utf8'),
   ].join('\n');
   assert.match(clientSource, /if \(protocol === 'jimeng_ai_api'\)/);
@@ -59,6 +61,18 @@ test('远程视频地址只接受 http(s)，文案失败不当成可下载地址
   );
   assert.equal(processApi.resolveRemoteVideoUrl('not a url', '超时或失败').ok, false);
   assert.equal(processApi.resolveRemoteVideoUrl('FAILURE: model overloaded').ok, false);
+  const empty = processApi.resolveRemoteVideoUrl('');
+  assert.equal(empty.ok, false);
+  assert.match(empty.error, /视频生成失败/);
+  assert.doesNotMatch(empty.error, /超时或失败/);
+});
+
+test('视频取消日志使用 phase cancel，且不把取消收成超时', () => {
+  const source = fs.readFileSync(path.join(__dirname, '../src/services/videoServiceProcess.js'), 'utf8');
+  assert.match(source, /phase: 'cancel'/);
+  assert.match(source, /isTaskCancellation\(err, signal\)/);
+  assert.match(source, /Video generation cancelled; skipping late writes/);
+  assert.doesNotMatch(source, /phase: 'success'/);
 });
 
 test('失败持久化会把英文系统错误收成中文，且只改目标记录', async () => {

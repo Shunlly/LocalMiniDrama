@@ -1,6 +1,6 @@
 const response = require('../response');
 const path = require('path');
-const { logCaughtRouteError } = require('./serviceFailure');
+const { logCaughtRouteError, createClientAbort } = require('./serviceFailure');
 
 function routes(db, log, cfg) {
   function getStoragePath() {
@@ -35,13 +35,19 @@ function routes(db, log, cfg) {
           return response.badRequest(res, '分镜对白为空，无法合成语音');
         }
       }
+      const clientAbort = createClientAbort(req, res, '配音生成已取消');
       try {
         const ttsService = require('../services/ttsService');
         const result = await ttsService.synthesize(db, log, {
           text: ttsText,
           storyboard_id: storyboard_id || null,
           storage_base: getStoragePath(),
+          signal: clientAbort.signal,
         });
+        if (clientAbort.signal.aborted) {
+          const { toUserFacingTtsError } = require('../services/ttsService');
+          throw toUserFacingTtsError(clientAbort.signal.reason, clientAbort.signal);
+        }
         if (storyboard_id && result.local_path) {
           const now = new Date().toISOString();
           try {
@@ -65,15 +71,17 @@ function routes(db, log, cfg) {
         }
         response.success(res, { local_path: result.local_path, url: result.local_path ? '/static/' + result.local_path : '', tts_kind: kind });
       } catch (err) {
-        const { toUserFacingTtsError } = require('../services/ttsService');
-        const mapped = toUserFacingTtsError(err);
+        const { toUserFacingTtsError, isTtsCanceled } = require('../services/ttsService');
+        const mapped = toUserFacingTtsError(err, clientAbort.signal);
         logCaughtRouteError(log, 'audio extract', err, { userError: mapped.message, fallback: mapped.message });
-        if (mapped.code === 'BAD_REQUEST' || err.code === 'BAD_REQUEST') {
+        if (mapped.code === 'BAD_REQUEST' || err.code === 'BAD_REQUEST' || isTtsCanceled(mapped, clientAbort.signal)) {
           return response.badRequest(res, mapped.message);
         }
         const status = Number(mapped.status) === 401 || Number(mapped.status) === 403 ? 401 : 502;
         const code = status === 401 ? 'TTS_AUTH' : 'TTS_FAILED';
         response.error(res, status, code, mapped.message);
+      } finally {
+        clientAbort.dispose();
       }
     },
 
@@ -85,7 +93,13 @@ function routes(db, log, cfg) {
       }
       const results = [];
       const storagePath = getStoragePath();
+      const clientAbort = createClientAbort(req, res, '配音生成已取消');
+      try {
       for (const sbId of storyboard_ids) {
+        if (clientAbort.signal.aborted) {
+          results.push({ storyboard_id: sbId, error: '配音生成已取消' });
+          continue;
+        }
         const row = db.prepare('SELECT id, dialogue FROM storyboards WHERE id = ? AND deleted_at IS NULL').get(Number(sbId));
         if (!row || !row.dialogue?.trim()) {
           results.push({ storyboard_id: sbId, error: '对白为空' });
@@ -97,7 +111,12 @@ function routes(db, log, cfg) {
             text: row.dialogue,
             storyboard_id: row.id,
             storage_base: storagePath,
+            signal: clientAbort.signal,
           });
+          if (clientAbort.signal.aborted) {
+            results.push({ storyboard_id: sbId, error: '配音生成已取消' });
+            continue;
+          }
           if (result.local_path) {
             const now = new Date().toISOString();
             try {
@@ -116,7 +135,7 @@ function routes(db, log, cfg) {
           results.push({ storyboard_id: sbId, local_path: result.local_path });
         } catch (err) {
           const { toUserFacingTtsError } = require('../services/ttsService');
-          const mapped = toUserFacingTtsError(err);
+          const mapped = toUserFacingTtsError(err, clientAbort.signal);
           logCaughtRouteError(log, 'audio extract batch item', err, {
             storyboard_id: sbId,
             userError: mapped.message,
@@ -126,6 +145,9 @@ function routes(db, log, cfg) {
         }
       }
       response.success(res, results);
+      } finally {
+        clientAbort.dispose();
+      }
     },
   };
 }

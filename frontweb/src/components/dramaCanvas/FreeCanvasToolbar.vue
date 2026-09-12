@@ -106,7 +106,7 @@
         </el-dropdown>
       </CanvasActionGate>
 
-      <div v-if="isEmptyCanvas" class="empty-next-steps" aria-label="空画布下一步">
+      <div v-if="isEmptyCanvas" class="empty-next-steps" :aria-label="`空画布下一步：${emptyNextCopy}`">
         <span class="empty-next-copy" role="status">{{ emptyNextCopy }}</span>
         <el-button
           v-if="hideProductionNodes"
@@ -299,8 +299,11 @@ function cycleBackground() {
   min-height: 28px;
   align-items: center;
   gap: 6px;
+  min-width: 0;
+  max-width: 100%;
   padding-left: 8px;
   border-left: 1px solid var(--border-color, #3f3f46);
+  flex-wrap: wrap;
 }
 
 .density-hint {

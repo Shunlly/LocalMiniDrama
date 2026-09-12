@@ -295,6 +295,7 @@ async function retryMedia() {
   min-width: 0;
   gap: 3px;
   font-size: 12px;
+  overflow-wrap: anywhere;
 }
 
 .inspector-media-summary {
@@ -350,6 +351,7 @@ async function retryMedia() {
   margin: 0;
   font-size: 12px;
   line-height: 1.5;
+  overflow-wrap: anywhere;
 }
 
 .media-query-note {

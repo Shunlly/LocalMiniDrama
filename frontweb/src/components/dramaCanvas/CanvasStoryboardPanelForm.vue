@@ -129,8 +129,14 @@ defineProps({
 </script>
 
 <style scoped>
+.compact-form {
+  min-width: 0;
+  max-width: 100%;
+}
 .compact-form :deep(.el-form-item) {
   margin-bottom: 6px;
+  min-width: 0;
+  max-width: 100%;
 }
 .compact-form :deep(.el-form-item__label) {
   color: var(--canvas-text-subtle, #71717a);

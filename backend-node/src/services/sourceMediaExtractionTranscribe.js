@@ -3,7 +3,7 @@
 const fsp = require('node:fs/promises');
 const path = require('node:path');
 const { getFfmpegPath, getFfprobePath } = require('../utils/ffmpegPath');
-const { actionableError } = require('./sourceMediaExtractionErrors');
+const { actionableError, providerCancelledError } = require('./sourceMediaExtractionErrors');
 const { sanitizeFilename } = require('./sourceMediaExtractionDetect');
 const {
   MAX_PROVIDER_RESPONSE_BYTES,
@@ -27,6 +27,7 @@ const {
 const MAX_MEDIA_DURATION_SECONDS = 30 * 60;
 
 async function transcribeAudio(db, audio, options = {}) {
+  if (options.signal?.aborted) throw providerCancelledError('语音转写', options.signal.reason);
   const config = selectActiveConfig(db, 'transcription');
   if (!config) {
     throw actionableError('未配置语音转写服务。请在「AI 配置」中添加并启用兼容的「语音转写」服务。');
@@ -57,6 +58,7 @@ async function transcribeAudio(db, audio, options = {}) {
       fetchImpl: options.fetchImpl,
       trustedOrigins: [config.base_url],
       networkLookup: options.networkLookup,
+      signal: options.signal,
     }
   );
   return {
@@ -77,7 +79,7 @@ async function extractVideoAndTranscribe(db, descriptor, fileBuffer, options) {
     const probe = await runProcess(
       options.ffprobePath || getFfprobePath(),
       ['-v', 'error', ...protocolArgs, '-show_entries', 'format=duration:stream=codec_type,duration', '-of', 'json', inputPath],
-      { timeoutMs: 15000, maxStdoutBytes: 256 * 1024, maxStderrBytes: 64 * 1024, label: 'FFprobe', cwd: temp.dir }
+      { timeoutMs: 15000, maxStdoutBytes: 256 * 1024, maxStderrBytes: 64 * 1024, label: 'FFprobe', cwd: temp.dir, signal: options.signal }
     );
     const media = parseProbeOutput(probe.stdout);
     const durationLimit = clampInteger(options.maxMediaDurationSeconds, MAX_MEDIA_DURATION_SECONDS, 1, MAX_MEDIA_DURATION_SECONDS);
@@ -101,6 +103,7 @@ async function extractVideoAndTranscribe(db, descriptor, fileBuffer, options) {
         maxStderrBytes: 128 * 1024,
         label: 'FFmpeg 音频抽取',
         cwd: temp.dir,
+        signal: options.signal,
       }
     );
     const stat = await fsp.stat(outputPath).catch(() => null);

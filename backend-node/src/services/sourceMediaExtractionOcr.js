@@ -5,6 +5,9 @@ const path = require('node:path');
 const sharp = require('sharp');
 const {
   actionableError,
+  isExtractionAuthFailure,
+  isExtractionCancelled,
+  providerCancelledError,
   throwOcrFallbackError,
 } = require('./sourceMediaExtractionErrors');
 const {
@@ -68,6 +71,7 @@ async function callVisionOcr(config, image, options = {}) {
       fetchImpl: options.fetchImpl,
       trustedOrigins: [config.base_url],
       networkLookup: options.networkLookup,
+      signal: options.signal,
     }
   );
   return extractVisionResponse(result.body);
@@ -88,6 +92,7 @@ async function tryTesseract(image, options, settings) {
         maxStderrBytes: 128 * 1024,
         label: '本机 Tesseract 识别',
         cwd: temp.dir,
+        signal: options.signal,
       }
     );
     return { ok: true, text: ensureTextResult(Buffer.from(result.stdout || '').toString('utf8'), '本机 Tesseract 未返回可读文本。请更换更清晰的图片，或在「AI 配置」中添加图片识别服务。') };
@@ -99,6 +104,7 @@ async function tryTesseract(image, options, settings) {
 }
 
 async function ocrImageWithFallback(db, image, options = {}, existingConfig) {
+  if (options.signal?.aborted) throw providerCancelledError('图片识别', options.signal.reason);
   const config = existingConfig === undefined ? selectActiveConfig(db, 'ocr') : existingConfig;
   let providerError = null;
   if (config) {
@@ -109,10 +115,15 @@ async function ocrImageWithFallback(db, image, options = {}, existingConfig) {
         config_id: Number(config.id),
       };
     } catch (err) {
+      if (isExtractionCancelled(err) || options.signal?.aborted) {
+        throw isExtractionCancelled(err) ? err : providerCancelledError('图片识别', err);
+      }
+      if (isExtractionAuthFailure(err)) throw err;
       providerError = err;
     }
   }
 
+  if (options.signal?.aborted) throw providerCancelledError('图片识别', options.signal.reason);
   const tesseract = await tryTesseract(image, options, config?.settings_object || {});
   if (tesseract.ok) return { text: tesseract.text, method: 'tesseract_cli' };
   throwOcrFallbackError(config, tesseract, providerError);

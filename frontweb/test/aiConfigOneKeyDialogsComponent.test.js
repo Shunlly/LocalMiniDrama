@@ -152,6 +152,9 @@ test('空密钥禁用一键创建并提示请先填写密钥，有密钥后可�
     const enabled = submitButton(harness.root, '一键配置通义千问 / 万象（不推荐）')
     assert.notEqual(enabled.props.disabled, true)
     assert.equal(enabled.props.title, undefined)
+    assert.equal(textContent(enabled).replace(/\s+/g, ' ').trim(), '确定，一键创建配置')
+    assert.equal(enabled.props['aria-label'], '确定，一键创建配置（通义）')
+    assert.equal(enabled.props['aria-label'].includes('确定，一键创建配置'), true)
     click(enabled)
     assert.deepEqual(harness.events, [['submit', 'tongyi']])
   } finally {

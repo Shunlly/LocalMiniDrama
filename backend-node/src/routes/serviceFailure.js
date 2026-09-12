@@ -63,6 +63,31 @@ function publicErrorMessage(err, fallback = '操作失败，请稍后重试') {
   return isTrustedChineseUserError(raw) ? raw : fallback;
 }
 
+function createClientAbort(req, res, cancelMessage = '操作已取消') {
+  const controller = new AbortController();
+  const abort = () => {
+    if (controller.signal.aborted) return;
+    const error = new Error(cancelMessage);
+    error.code = 'ERR_CANCELED';
+    error.name = 'AbortError';
+    controller.abort(error);
+  };
+  const onClose = () => {
+    if (!res?.headersSent && !res?.writableEnded) abort();
+  };
+  if (typeof res?.on === 'function') res.on('close', onClose);
+  if (typeof req?.on === 'function') req.on('aborted', abort);
+  return {
+    signal: controller.signal,
+    dispose() {
+      if (typeof res?.off === 'function') res.off('close', onClose);
+      else if (typeof res?.removeListener === 'function') res.removeListener('close', onClose);
+      if (typeof req?.off === 'function') req.off('aborted', abort);
+      else if (typeof req?.removeListener === 'function') req.removeListener('aborted', abort);
+    },
+  };
+}
+
 const UPLOAD_FORM_ERROR_MESSAGES = Object.freeze({
   LIMIT_UNEXPECTED_FILE: '不支持的上传字段，请按页面提示选择文件',
   LIMIT_FILE_COUNT: '一次只能上传一个文件',
@@ -144,4 +169,5 @@ module.exports = {
   logCaughtRouteError,
   publicErrorMessage,
   uploadFormErrorMessage,
+  createClientAbort,
 };

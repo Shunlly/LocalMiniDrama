@@ -48,6 +48,7 @@ test('页面仍消费标签函数，不把 loadList/openTest 抽走', () => {
 
 test('保存成功给出中文下一步，批量换密钥不回传英文或密钥', () => {
   assert.equal(describeAiConfigSaveSuccess(true, 'text'), '已保存「文本」配置，可在列表中测试连接。')
+  assert.equal(describeAiConfigSaveSuccess(false, 'text'), '已添加「文本」配置，可在列表中测试连接。')
   assert.equal(describeAiConfigSaveSuccess(false, 'ocr'), '已添加「图片识别 OCR」配置，可在列表中测试连接。')
   assert.match(describeAiConfigSaveSuccess(true, 'jimeng2_character_auth'), /角色面板验证认证资产/)
   assert.match(describeAiConfigSaveSuccess(false, 'model_ark_asset'), /认证资产管理标签页/)

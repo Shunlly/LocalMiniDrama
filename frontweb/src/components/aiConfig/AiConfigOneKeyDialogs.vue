@@ -45,10 +45,12 @@
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button aria-label="取消一键配置通义" @click="requestOneKeyTongyiClose">取消</el-button>
-        <el-button type="success" :loading="oneKeyTongyiSaving" :disabled="configWriteLocked || !oneKeyTongyiKey.trim()" :title="configWriteLocked ? configWriteLockReason : (!oneKeyTongyiKey.trim() ? '请先填写密钥' : undefined)" :aria-label="oneKeyTongyiSaving ? '正在创建通义配置' : (configWriteLocked ? configWriteLockReason : (!oneKeyTongyiKey.trim() ? '请先填写密钥' : '确定，一键创建通义配置'))" @click="submitOneKeyTongyi">
-          确定，一键创建配置
-        </el-button>
+        <div class="one-key-footer">
+          <el-button aria-label="取消一键配置通义" @click="requestOneKeyTongyiClose">取消</el-button>
+          <el-button type="success" :loading="oneKeyTongyiSaving" :disabled="configWriteLocked || !oneKeyTongyiKey.trim()" :title="configWriteLocked ? configWriteLockReason : (!oneKeyTongyiKey.trim() ? '请先填写密钥' : undefined)" :aria-label="oneKeyTongyiSaving ? '正在创建通义配置' : (configWriteLocked ? configWriteLockReason : (!oneKeyTongyiKey.trim() ? '请先填写密钥' : '确定，一键创建配置（通义）'))" @click="submitOneKeyTongyi">
+            确定，一键创建配置
+          </el-button>
+        </div>
       </template>
     </AccessibleDialog>
 
@@ -97,10 +99,12 @@
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button aria-label="取消一键配置火山" @click="requestOneKeyVolcClose">取消</el-button>
-        <el-button type="success" :loading="oneKeyVolcSaving" :disabled="configWriteLocked || !oneKeyVolcKey.trim()" :title="configWriteLocked ? configWriteLockReason : (!oneKeyVolcKey.trim() ? '请先填写密钥' : undefined)" :aria-label="oneKeyVolcSaving ? '正在创建火山配置' : (configWriteLocked ? configWriteLockReason : (!oneKeyVolcKey.trim() ? '请先填写密钥' : '确定，一键创建火山配置'))" @click="submitOneKeyVolc">
-          确定，一键创建配置
-        </el-button>
+        <div class="one-key-footer">
+          <el-button aria-label="取消一键配置火山" @click="requestOneKeyVolcClose">取消</el-button>
+          <el-button type="success" :loading="oneKeyVolcSaving" :disabled="configWriteLocked || !oneKeyVolcKey.trim()" :title="configWriteLocked ? configWriteLockReason : (!oneKeyVolcKey.trim() ? '请先填写密钥' : undefined)" :aria-label="oneKeyVolcSaving ? '正在创建火山配置' : (configWriteLocked ? configWriteLockReason : (!oneKeyVolcKey.trim() ? '请先填写密钥' : '确定，一键创建配置（火山）'))" @click="submitOneKeyVolc">
+            确定，一键创建配置
+          </el-button>
+        </div>
       </template>
     </AccessibleDialog>
 
@@ -148,10 +152,12 @@
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button aria-label="取消一键配置 Agnes" @click="requestOneKeyAgnesClose">取消</el-button>
-        <el-button type="success" :loading="oneKeyAgnesSaving" :disabled="configWriteLocked || !oneKeyAgnesKey.trim()" :title="configWriteLocked ? configWriteLockReason : (!oneKeyAgnesKey.trim() ? '请先填写密钥' : undefined)" :aria-label="oneKeyAgnesSaving ? '正在创建 Agnes 配置' : (configWriteLocked ? configWriteLockReason : (!oneKeyAgnesKey.trim() ? '请先填写密钥' : '确定，一键创建 Agnes 配置'))" @click="submitOneKeyAgnes">
-          确定，一键创建配置
-        </el-button>
+        <div class="one-key-footer">
+          <el-button aria-label="取消一键配置 Agnes" @click="requestOneKeyAgnesClose">取消</el-button>
+          <el-button type="success" :loading="oneKeyAgnesSaving" :disabled="configWriteLocked || !oneKeyAgnesKey.trim()" :title="configWriteLocked ? configWriteLockReason : (!oneKeyAgnesKey.trim() ? '请先填写密钥' : undefined)" :aria-label="oneKeyAgnesSaving ? '正在创建 Agnes 配置' : (configWriteLocked ? configWriteLockReason : (!oneKeyAgnesKey.trim() ? '请先填写密钥' : '确定，一键创建配置（Agnes）'))" @click="submitOneKeyAgnes">
+            确定，一键创建配置
+          </el-button>
+        </div>
       </template>
     </AccessibleDialog>
   </div>
@@ -190,6 +196,13 @@ const oneKeyAgnesKey = defineModel('oneKeyAgnesKey', { type: String, default: ''
 </script>
 
 <style scoped>
+.one-key-help,
+.one-key-section,
+.one-key-list,
+.one-key-note {
+  min-width: 0;
+  max-width: 100%;
+}
 .one-key-help {
   display: flex;
   flex-direction: column;
@@ -201,10 +214,12 @@ const oneKeyAgnesKey = defineModel('oneKeyAgnesKey', { type: String, default: ''
   padding: 12px 14px;
 }
 .one-key-section-title {
+  min-width: 0;
   font-size: 13px;
   font-weight: 600;
   color: var(--el-text-color-primary, #303133);
   margin-bottom: 8px;
+  overflow-wrap: anywhere;
 }
 .one-key-list {
   margin: 0;
@@ -212,13 +227,16 @@ const oneKeyAgnesKey = defineModel('oneKeyAgnesKey', { type: String, default: ''
   font-size: 13px;
   color: var(--el-text-color-regular, #606266);
   line-height: 1.8;
+  overflow-wrap: anywhere;
 }
 .one-key-list li {
   margin-bottom: 2px;
+  overflow-wrap: anywhere;
 }
 .one-key-link {
   color: var(--el-color-primary, #409eff);
   text-decoration: none;
+  overflow-wrap: anywhere;
 }
 .one-key-link:hover {
   text-decoration: underline;
@@ -228,6 +246,38 @@ const oneKeyAgnesKey = defineModel('oneKeyAgnesKey', { type: String, default: ''
   font-size: 12px;
   color: var(--el-text-color-secondary, #909399);
   line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.one-key-footer {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+}
+.one-key-footer :deep(.el-button + .el-button) {
+  margin-left: 0;
+}
+@media (max-width: 1024px) {
+  .one-key-help,
+  .one-key-section,
+  .one-key-list,
+  .one-key-footer {
+    min-width: 0;
+    max-width: 100%;
+  }
+}
+@media (max-width: 769px) {
+  .one-key-help,
+  .one-key-section,
+  .one-key-list,
+  .one-key-note,
+  .one-key-footer {
+    min-width: 0;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+  }
 }
 .one-key-note + .one-key-note {
   margin-top: 4px;

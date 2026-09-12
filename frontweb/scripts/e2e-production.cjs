@@ -64,7 +64,7 @@ const UI = Object.freeze({
   startProduction: '\u4ee5\u5f53\u524d\u6a21\u5f0f\u542f\u52a8',
   refresh: '\u5237\u65b0\u7d20\u6750\u5904\u7406',
   timelineStep: '\u5267\u96c6 / \u65f6\u95f4\u7ebf',
-  continueImport: '\u53bb\u5bfc\u5165\u7d20\u6750',
+  continueImport: '\u7ee7\u7eed\u5bfc\u5165\u6545\u4e8b\u7d20\u6750',
   workflowHistory: /^(?:\u5c55\u5f00|\u6536\u8d77)\u6d41\u7a0b\u8bb0\u5f55$/,
   enterProduction: '\u8fdb\u5165\u5236\u4f5c',
   returnToDrama: '\u8fd4\u56de\u5267\u96c6',

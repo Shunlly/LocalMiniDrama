@@ -537,6 +537,7 @@ test('FilmCreate AI config dialog fixes its header and tabs around one content s
   const tabContent = cssRule(themeSource, `${aiDialogHostSelector} .tab-content`)
   assert.match(tabContent, /height:\s*100%/)
   assert.match(tabContent, /max-height:\s*100%/)
+  assert.match(tabContent, /overflow-x:\s*hidden/)
   assert.match(tabContent, /overflow-y:\s*auto/)
 
   const workspaceScrollRules = [...themeSource.matchAll(

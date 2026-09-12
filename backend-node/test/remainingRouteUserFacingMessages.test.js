@@ -338,7 +338,16 @@ describe('剩余服务对用户返回中文错误', () => {
       (error) => {
         assertUserFacingChinese(error.message);
         assert.match(error.message, /不支持的资产库操作/);
-        assert.doesNotMatch(error.message, /\baction\b/);
+        assert.doesNotMatch(error.message, /\baction\b|ListAssetGroups|Nope/i);
+        return true;
+      },
+    );
+    await assert.rejects(
+      () => callModelArkAsset({ base_url: 'https://ark.example/api/v3', action: 'ListAssetGroupsX', api_key: 'k' }),
+      (error) => {
+        assertUserFacingChinese(error.message);
+        assert.match(error.message, /不支持的资产库操作/);
+        assert.doesNotMatch(error.message, /ListAssetGroups/i);
         return true;
       },
     );

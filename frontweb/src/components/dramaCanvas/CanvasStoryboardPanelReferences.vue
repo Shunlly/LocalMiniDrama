@@ -2,7 +2,7 @@
   <div class="reference-row">
     <span class="reference-label">参考图 {{ referenceSlots.length }}/10</span>
     <div class="reference-list">
-      <p v-if="!referenceDisplaySlots.length" class="reference-empty" role="status">
+      <p v-if="!referenceDisplaySlots.length" class="reference-empty" role="status" aria-live="polite">
         尚未加入参考图。绑定带图的场景、角色或道具后会自动出现，也可从素材中心添加或上传自由参考图。
       </p>
       <div
@@ -129,11 +129,14 @@ function openReferenceUpload() {
 }
 .reference-empty {
   flex: 1 1 100%;
+  min-width: 0;
+  max-width: 100%;
   margin: 0;
   padding-top: 10px;
   font-size: 11px;
   line-height: 1.45;
   color: var(--canvas-text-muted, #a1a1aa);
+  overflow-wrap: anywhere;
 }
 .reference-thumb {
   position: relative;
@@ -165,14 +168,18 @@ function openReferenceUpload() {
   left: 2px;
   bottom: 2px;
   min-width: 22px;
+  max-width: calc(100% - 4px);
   height: 16px;
   padding: 0 3px;
+  overflow: hidden;
   border-radius: 4px;
   background: rgba(0, 0, 0, 0.72);
   color: #fff;
   font-size: 9px;
   line-height: 16px;
   text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .reference-remove {
   position: absolute;

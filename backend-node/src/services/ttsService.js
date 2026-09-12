@@ -10,6 +10,7 @@ const { secureHttpFetch } = require('./secureHttpFetch');
 const uploadService = require('./uploadService');
 const {
   isTrustedChineseUserError,
+  looksLikeAuthFailure,
   ttsBusinessFailureMessage,
   ttsHttpFailureMessage,
   toUserFacingTtsMessage,
@@ -121,11 +122,22 @@ function extractHttpStatus(error) {
 
 function ttsHttpError(status, source) {
   const code = Number(status);
-  const error = new Error(ttsHttpFailureMessage(code));
+  const auth = looksLikeAuthFailure(source) || code === 401 || code === 403;
+  const error = new Error(auth ? ttsHttpFailureMessage(401) : ttsHttpFailureMessage(code));
   error.status = code;
   error.retryable = ttsHttpRetryable(code);
   if (source instanceof Error) error.cause = source;
   return markTtsUserError(error);
+}
+
+async function throwIfTtsHttpError(response) {
+  const status = Number(response?.status);
+  if (Number.isInteger(status) && status >= 200 && status < 300) return;
+  let snippet = '';
+  try {
+    snippet = await response.text();
+  } catch (_) {}
+  throw ttsHttpError(status, snippet);
 }
 
 function ttsFailedError(message, options = {}) {
@@ -281,7 +293,7 @@ async function synthesizeWithMinimax(
       : {}),
   }, timeoutMs, 'MiniMax', networkOptions);
 
-  if (response.status !== 200) throw ttsHttpError(response.status);
+  if (response.status !== 200) await throwIfTtsHttpError(response);
   let data;
   try {
     data = await response.json();
@@ -329,7 +341,7 @@ async function synthesizeWithOpenai(
   }, timeoutMs, 'OpenAI', networkOptions);
 
   if (response.status < 200 || response.status >= 300) {
-    throw ttsHttpError(response.status);
+    await throwIfTtsHttpError(response);
   }
   return Buffer.from(await response.arrayBuffer());
 }

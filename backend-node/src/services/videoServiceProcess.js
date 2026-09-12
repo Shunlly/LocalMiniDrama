@@ -23,7 +23,7 @@ function createVideoServiceProcess({ providerMessages, processMessages }) {
     if (videoUrl) {
       return { ok: false, error: (fallbackError || String(videoUrl)).slice(0, 500) };
     }
-    return { ok: false, error: (fallbackError || '超时或失败').slice(0, 500) };
+    return { ok: false, error: (fallbackError || '视频生成失败').slice(0, 500) };
   }
 
   /** 将 video_generations 标为失败；若无 error_msg 列则只更新 status/updated_at */
@@ -416,6 +416,12 @@ function createVideoServiceProcess({ providerMessages, processMessages }) {
       }
       if (isTaskCancellation(err, signal)) {
         log.info('Video generation cancelled; skipping late writes', { id: videoGenId });
+        log.operation?.({
+          operation: 'video_generation',
+          phase: 'cancel',
+          status: 'cancelled',
+          id: videoGenId,
+        });
         return;
       }
       await persistVideoFailure(db, row, err);

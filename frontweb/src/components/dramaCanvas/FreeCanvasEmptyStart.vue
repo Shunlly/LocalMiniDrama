@@ -52,14 +52,18 @@ const emptyDescription = computed(() => (
 
 <style scoped>
 .free-canvas-empty-state {
+  box-sizing: border-box;
   position: absolute;
   inset: 22% 24px auto;
   z-index: 1050;
   display: grid;
   justify-items: center;
   gap: 14px;
+  min-width: 0;
+  max-width: calc(100% - 48px);
   color: var(--canvas-text-primary);
   text-align: center;
+  overflow-wrap: anywhere;
   pointer-events: none;
 }
 
@@ -71,10 +75,11 @@ const emptyDescription = computed(() => (
 
 .free-canvas-empty-state p {
   margin: 0;
-  max-width: 420px;
+  max-width: min(420px, 100%);
   font-size: 13px;
   line-height: 1.6;
   color: var(--canvas-text-muted, #a1a1aa);
+  overflow-wrap: anywhere;
 }
 
 .free-canvas-empty-actions {
@@ -82,7 +87,14 @@ const emptyDescription = computed(() => (
   flex-wrap: wrap;
   justify-content: center;
   gap: 8px;
+  min-width: 0;
+  max-width: 100%;
   pointer-events: auto;
+}
+
+.free-canvas-empty-actions :deep(.el-button) {
+  max-width: 100%;
+  white-space: normal;
 }
 
 .free-canvas-empty-actions :deep(.el-button:focus-visible) {

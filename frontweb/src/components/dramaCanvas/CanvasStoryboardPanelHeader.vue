@@ -46,11 +46,13 @@ defineProps({
   flex-wrap: wrap;
 }
 .busy-tag {
+  max-width: 100%;
   font-size: 10px;
   padding: 2px 8px;
   border-radius: 999px;
   background: rgba(96, 165, 250, 0.18);
   color: var(--canvas-blue-text, #93c5fd);
+  overflow-wrap: anywhere;
   animation: pulse-tag 1.2s ease-in-out infinite;
 }
 @keyframes pulse-tag {

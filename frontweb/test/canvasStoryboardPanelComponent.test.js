@@ -186,6 +186,9 @@ test('参考图条和关联行在窄屏换行，不把上传按钮裁掉', () =>
   assert.match(panelUiSource, /\.reference-list \{[\s\S]*?flex-wrap: wrap;[\s\S]*?min-width: 0;/)
   assert.match(panelUiSource, /\.relation-row \{[\s\S]*?flex-wrap: wrap;/)
   assert.match(panelUiSource, /\.inline-add-row \{[\s\S]*?flex-wrap: wrap;/)
+  assert.match(panelUiSource, /\.reference-empty \{[\s\S]*?overflow-wrap: anywhere;/)
+  assert.match(panelUiSource, /\.sb-panel \{[\s\S]*?max-width: 100%;/)
+  assert.match(panelUiSource, /\.panel-actions \{[\s\S]*?max-width: 100%;/)
   assert.match(referenceRow, /flex-wrap: wrap;/)
   assert.doesNotMatch(referenceRow, /overflow:\s*hidden/)
 })
@@ -242,6 +245,7 @@ test('参考图空态给出中文下一步，满 10 张时禁用上传并说明�
     const emptyNode = findByClass(empty.root, 'reference-empty')[0]
     assert.ok(emptyNode)
     assert.equal(emptyNode.props.role, 'status')
+    assert.equal(emptyNode.props['aria-live'], 'polite')
     assert.match(textContent(emptyNode), /尚未加入参考图/)
     assert.match(textContent(emptyNode), /也可从素材中心添加或上传自由参考图/)
   } finally {
@@ -447,6 +451,12 @@ test('关联选择器使用分镜编号作为无障碍名前缀', () => {
     assert.ok(buttonByAriaLabel(harness.root, '分镜1添加角色'))
     assert.ok(buttonByAriaLabel(harness.root, '分镜1添加场景'))
     assert.ok(buttonByAriaLabel(harness.root, '分镜1添加道具'))
+    assert.match(textContent(harness.root), /添加角色/)
+    assert.match(textContent(harness.root), /添加场景/)
+    assert.match(textContent(harness.root), /添加道具/)
+    assert.doesNotMatch(textContent(harness.root), /\+角色|\+场景|\+道具/)
+    const addCharacter = buttonByAriaLabel(harness.root, '分镜1添加角色')
+    assert.ok(String(addCharacter.props['aria-label']).includes('添加角色'))
   } finally {
     harness.app.unmount()
   }

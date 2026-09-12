@@ -221,7 +221,7 @@ defineProps({
     flex-direction: column;
   }
 }
-@media (max-width: 760px) {
+@media (max-width: 769px) {
   .coverage-summary-strip {
     grid-template-columns: minmax(0, 1fr);
   }

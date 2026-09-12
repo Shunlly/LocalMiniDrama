@@ -1,7 +1,7 @@
 // 从 sourceMediaExtractionService 拆出的 PDF 抽取：文本层解析、栅格页渲染与 OCR 回退。
 
 const { createCanvas } = require('@napi-rs/canvas');
-const { actionableError } = require('./sourceMediaExtractionErrors');
+const { actionableError, providerCancelledError } = require('./sourceMediaExtractionErrors');
 const {
   MAX_EXTRACTED_TEXT_BYTES,
   clampInteger,
@@ -126,6 +126,7 @@ async function extractPdf(db, descriptor, fileBuffer, options) {
   let ocrConfigId = null;
   try {
     for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
+      if (options.signal?.aborted) throw providerCancelledError('素材抽取', options.signal.reason);
       const page = await document.getPage(pageNumber);
       try {
         const content = await page.getTextContent({ disableNormalization: false });

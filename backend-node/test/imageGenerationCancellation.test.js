@@ -13,7 +13,14 @@ const imageClient = require('../src/services/imageClient');
 const imageService = require('../src/services/imageService');
 const taskService = require('../src/services/taskService');
 
-const log = { info() {}, warn() {}, error() {}, errorw() {} };
+const cancelOperations = [];
+const log = {
+  info() {},
+  warn() {},
+  error() {},
+  errorw() {},
+  operation(event) { cancelOperations.push(event); },
+};
 
 function deferred() {
   let resolve;
@@ -80,6 +87,7 @@ function assertOriginalScene(db, fixture) {
 }
 
 test('图片 Provider 返回前取消不得覆盖旧场景，且任务与生成记录都进入 cancelled', async () => {
+  cancelOperations.length = 0;
   const fixture = createFixture('Provider 取消');
   const storageRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'localminidrama-image-provider-cancel-'));
   const restore = installImageStubs(storageRoot);
@@ -116,6 +124,8 @@ test('图片 Provider 返回前取消不得覆盖旧场景，且任务与生成�
     assert.equal(taskService.getTask(fixture.db, created.task_id).status, 'cancelled');
     assert.equal(fixture.db.prepare('SELECT status FROM image_generations WHERE id = ?').get(created.id).status, 'cancelled');
     assertOriginalScene(fixture.db, fixture);
+    assert.ok(cancelOperations.some((event) => event.phase === 'cancel' && event.status === 'cancelled'));
+    assert.equal(cancelOperations.some((event) => event.phase === 'success'), false);
   } finally {
     release.resolve();
     restore();

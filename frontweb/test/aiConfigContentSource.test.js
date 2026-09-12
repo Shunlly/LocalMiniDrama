@@ -792,15 +792,15 @@ test('AI configuration workspace modes expose a visible keyboard focus state', a
   assert.equal(harness.activeServiceFilter.value, 'video')
 })
 
-test('AI 配置在 760px 和 520px 下重排且不会被固定双列撑宽', () => {
-  assert.match(vueSource, /@media \(max-width: 760px\) \{[\s\S]*?\.ai-config-content,[\s\S]*?max-width: 100%;[\s\S]*?min-width: 0;/)
-  assert.match(coverageCardsSource, /@media \(max-width: 760px\) \{[\s\S]*?\.coverage-grid,[\s\S]*?grid-template-columns: minmax\(0, 1fr\);/)
-  assert.match(overlaySource, /@media \(max-width: 760px\) \{[\s\S]*?\.content-actions,[\s\S]*?flex-direction: column;/)
-  assert.match(workspaceSwitchSource, /@media \(max-width: 760px\) \{[\s\S]*?\.config-workspace-mode \{[\s\S]*?min-width: 0;/)
+test('AI 配置在 769px 和 520px 下重排且不会被固定双列撑宽', () => {
+  assert.match(vueSource, /@media \(max-width: 769px\) \{[\s\S]*?\.ai-config-content,[\s\S]*?max-width: 100%;[\s\S]*?min-width: 0;/)
+  assert.match(coverageCardsSource, /@media \(max-width: 769px\) \{[\s\S]*?\.coverage-grid,[\s\S]*?grid-template-columns: minmax\(0, 1fr\);/)
+  assert.match(overlaySource, /@media \(max-width: 769px\) \{[\s\S]*?\.content-actions,[\s\S]*?flex-direction: column;/)
+  assert.match(workspaceSwitchSource, /@media \(max-width: 769px\) \{[\s\S]*?\.config-workspace-mode \{[\s\S]*?min-width: 0;/)
   assert.match(workspaceSwitchSource, /@media \(max-width: 520px\) \{[\s\S]*?\.config-workspace-switch \{[\s\S]*?grid-template-columns: minmax\(0, 1fr\);/)
-  assert.match(overlaySource, /@media \(max-width: 760px\) \{[\s\S]*?:deep\(\.el-form-item__content\),[\s\S]*?max-width: 100%;/)
-  assert.match(pageSource, /@media \(max-width: 760px\) \{[\s\S]*?\.ai-config \{[\s\S]*?overflow-x: clip;/)
-  assert.match(pageSource, /@media \(max-width: 760px\) \{[\s\S]*?\.main \{[\s\S]*?width: calc\(100% - 24px\);[\s\S]*?overflow-x: hidden;/)
+  assert.match(overlaySource, /@media \(max-width: 769px\) \{[\s\S]*?:deep\(\.el-form-item__content\),[\s\S]*?max-width: 100%;/)
+  assert.match(pageSource, /@media \(max-width: 769px\) \{[\s\S]*?\.ai-config \{[\s\S]*?overflow-x: clip;/)
+  assert.match(pageSource, /@media \(max-width: 769px\) \{[\s\S]*?\.main \{[\s\S]*?width: calc\(100% - 24px\);[\s\S]*?overflow-x: hidden;/)
   assert.match(pageSource, /@media \(max-width: 520px\) \{[\s\S]*?\.page-title \{[\s\S]*?position: absolute;[\s\S]*?clip: rect\(0, 0, 0, 0\);/)
 })
 

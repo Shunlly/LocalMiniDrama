@@ -114,7 +114,7 @@
           :disabled="readonly || busy"
           :title="(readonly || busy) ? configActionDisabledReason : undefined"
           :aria-describedby="(readonly || busy) ? 'free-inspector-config-action-reason' : undefined"
-          :aria-label="(readonly || busy) ? configActionDisabledReason : 'AI 配置'" @click="emit('configure', node.id)"
+          :aria-label="(readonly || busy) ? withVisibleAction('AI 配置', configActionDisabledReason) : 'AI 配置'" @click="emit('configure', node.id)"
         >
           <el-icon><Setting /></el-icon>
           AI 配置
@@ -139,7 +139,7 @@
           :disabled="readonly || busy"
           :title="(readonly || busy) ? configActionDisabledReason : undefined"
           :aria-describedby="(readonly || busy) ? 'free-inspector-config-action-reason' : undefined"
-          :aria-label="(readonly || busy) ? configActionDisabledReason : '重试检查'"
+          :aria-label="(readonly || busy) ? withVisibleAction('重试检查', configActionDisabledReason) : '重试检查'"
           data-inspector-primary-action="retry"
           @click="emit('retry-config', node.id)"
         >
@@ -167,7 +167,7 @@
           :disabled="editorDisabled || !conversionTarget"
           :title="(editorDisabled || !conversionTarget) ? convertDisabledReason : undefined"
           :aria-describedby="(editorDisabled || !conversionTarget) ? 'free-inspector-convert-reason' : undefined"
-          :aria-label="(editorDisabled || !conversionTarget) ? convertDisabledReason : '转换引用'" @click="emitConvertReference"
+          :aria-label="(editorDisabled || !conversionTarget) ? withVisibleAction('转换引用', convertDisabledReason) : '转换引用'" @click="emitConvertReference"
         >
           转换引用
         </el-button>
@@ -244,6 +244,12 @@ const emit = defineEmits([
   'generate-config',
 ])
 
+function withVisibleAction(action, reason) {
+  const text = String(reason || '').trim()
+  if (!text || text === action) return action
+  return text.includes(action) ? text : `${action}不可用：${text}`
+}
+
 function describeFreeCanvasInspectorDisabledReason({
   readonly = false,
   busy = false,
@@ -276,11 +282,14 @@ const generateDisabled = computed(() => (
   props.readonly || props.busy || !props.configRuntime?.canGenerate
 ))
 const generateButtonAriaLabel = computed(() => {
-  if (props.readonly || props.busy) return configActionDisabledReason.value
+  if (props.readonly || props.busy) return withVisibleAction('生成', configActionDisabledReason.value)
   if (!props.configRuntime?.canGenerate) {
-    return props.configRuntime?.generateDisabledReason
+    return withVisibleAction(
+      '生成',
+      props.configRuntime?.generateDisabledReason
       || props.configRuntime?.reason
-      || '当前不能生成，请先完成 AI 配置'
+      || '当前不能生成，请先完成 AI 配置',
+    )
   }
   return '生成'
 })
@@ -349,9 +358,13 @@ function emitSaveAsset() {
 <style scoped>
 .free-canvas-inspector {
   box-sizing: border-box;
-  width: 340px;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
   max-height: min(680px, calc(100vh - 286px));
+  overflow-x: hidden;
   overflow-y: auto;
+  overflow-wrap: anywhere;
   padding: 14px;
   border: 1px solid var(--border-color, #3f3f46);
   border-radius: 6px;
@@ -366,13 +379,18 @@ function emitSaveAsset() {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+  flex-wrap: wrap;
 }
 
 .inspector-header h2,
 .conversion-panel h3,
 .config-panel h3 {
+  min-width: 0;
   margin: 0;
   font-size: 14px;
+  overflow-wrap: anywhere;
 }
 
 .conversion-panel {
@@ -396,6 +414,8 @@ function emitSaveAsset() {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+  min-width: 0;
+  flex-wrap: wrap;
 }
 
 .config-details {
@@ -413,10 +433,12 @@ function emitSaveAsset() {
 .config-details dt,
 .config-details dd,
 .config-message {
+  min-width: 0;
   margin: 0;
   color: var(--canvas-text-muted, var(--text-muted, #a1a1aa));
   font-size: 12px;
   line-height: 18px;
+  overflow-wrap: anywhere;
 }
 
 .config-details dd {
@@ -431,15 +453,22 @@ function emitSaveAsset() {
 .config-message.state-mock { color: var(--canvas-amber-text, #fbbf24); }
 
 .asset-save-reason {
+  min-width: 0;
   margin: 0;
   color: var(--canvas-text-muted, var(--text-muted, #a1a1aa));
   font-size: 11px;
   line-height: 16px;
+  overflow-wrap: anywhere;
 }
 
 .inspector-actions {
   flex-wrap: wrap;
   justify-content: flex-end;
+}
+
+.inspector-actions :deep(.el-button) {
+  max-width: 100%;
+  white-space: normal;
 }
 
 .free-canvas-inspector:focus-visible,
