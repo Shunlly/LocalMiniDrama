@@ -278,7 +278,7 @@ test('自由创作、项目列表、提示词和场景映射的用户可见句�
   assert.doesNotMatch(freeCreateSource, /from 'element-plus'/)
   assert.match(freeCreateSource, /aria-label="返回项目首页"/)
   assert.match(freeCreateSource, /aria-label="视频画面比例"/)
-  assert.match(freeCreateSource, /generating \? '生成中\.\.\.' : \(mode === 'image' \? '生成图片' : '生成视频'\)/)
+  assert.match(freeCreateSource, /generating \? '生成中…' : \(mode === 'image' \? '生成图片' : '生成视频'\)/)
 
   assert.match(filmListSource, /<el-option label="标题升序" value="title-asc" \/>/)
   assert.doesNotMatch(filmListSource, /标题 A-Z/)
@@ -364,7 +364,8 @@ test('AI 配置页按钮、占位、表单标签和错误提示改为简体中�
   assert.match(aiConfigOverlaySource, /私有密钥（SecretKey）/)
   assert.match(aiConfigOverlaySource, /组 ID（GroupId）/)
   assert.match(aiConfigBulkKeyDialogSource, /placeholder="粘贴新的 API 密钥"/)
-  assert.match(aiConfigRowMutationsSource, /ElMessage\.success\(res\?\.message \|\| '所有配置的 API 密钥已更新'\)/)
+  assert.match(aiConfigRowMutationsSource, /ElMessage\.success\(describeAiConfigBulkKeySuccess\(res\)\)/)
+  assert.match(read('../src/utils/aiConfigLabels.js'), /所有配置的 API 密钥已更新/)
   assert.match(aiConfigJimeng2AssetsDialogSource, /jimeng2AssetStatusLabel\(row\.status\)/)
   assert.match(aiConfigJimeng2AssetsDialogSource, /jimeng2AssetTypeLabel\(row\.asset_type\)/)
   assert.match(aiConfigFormSettingsSource, /throw new Error\('工作流 JSON 格式无效'\)/)
