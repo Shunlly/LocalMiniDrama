@@ -59,4 +59,5 @@ test('项目列表新建编辑、就绪度和画布空态保持中文操作名',
   assert.match(read('../src/components/dramaCanvas/FreeCanvasEmptyStart.vue'), /aria-label="新建文本节点"/)
   assert.match(read('../src/components/dramaCanvas/CanvasLoadFailureCard.vue'), /aria-label="返回项目列表"/)
   assert.match(read('../src/components/aiConfig/AiConfigFormDialog.vue'), /:aria-label="editingId \? '取消编辑配置' : '取消添加配置'"/)
+  assert.match(read('../src/components/aiConfig/AiConfigConnectionTestDialog.vue'), /aria-label="关闭连接测试"/)
 })

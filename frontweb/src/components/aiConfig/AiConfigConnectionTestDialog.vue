@@ -52,7 +52,7 @@
         :loading="testingConfigId !== null"
         :aria-label="testingConfigId !== null ? '正在重试连接' : '重试连接测试'" @click="retryConnectionTest"
       >重试</el-button>
-      <el-button aria-label="关闭" @click="testVisible = false">关闭</el-button>
+      <el-button aria-label="关闭连接测试" @click="testVisible = false">关闭</el-button>
     </template>
   </AccessibleDialog>
 </template>

@@ -920,6 +920,28 @@ test('production upgrade waits briefly for and reopens compact workflow history 
   ])
 })
 
+test('生产 E2E 素材输入框 placeholder 必须和页面完全一致', () => {
+  const panelSource = normalizeNewlines(readFileSync(new URL('../src/components/sourceIntake/SourceIntakeSourceTextPanel.vue', import.meta.url), 'utf8'))
+  const vuePlaceholder = panelSource.match(/placeholder="([^"]+)"/)?.[1]
+  assert.ok(vuePlaceholder, '素材输入框 placeholder 缺失')
+
+  const sourcePlaceholderMatch = productionSource.match(/sourcePlaceholder:\s*'((?:\\u[0-9a-fA-F]{4}|[^'\\])+)'/)
+  assert.ok(sourcePlaceholderMatch, 'UI.sourcePlaceholder 缺失')
+  assert.equal(JSON.parse(`"${sourcePlaceholderMatch[1]}"`), vuePlaceholder)
+
+  assert.match(productionSource, /getByPlaceholder\(UI\.sourcePlaceholder, \{ exact: true \}\)\.fill\(text\)/)
+  assert.match(productionSource, /getByPlaceholder\(UI\.sourcePlaceholder, \{ exact: true \}\)\.waitFor/)
+})
+
+test('生产 E2E 连接测试关闭按钮必须用关闭连接测试这个读屏名', () => {
+  const closeMatch = productionSource.match(/closeConnectionTest:\s*'((?:\\u[0-9a-fA-F]{4})+)'/)
+  assert.ok(closeMatch, 'UI.closeConnectionTest 缺失')
+  assert.equal(JSON.parse(`"${closeMatch[1]}"`), '关闭连接测试')
+  const connectionDialog = normalizeNewlines(readFileSync(new URL('../src/components/aiConfig/AiConfigConnectionTestDialog.vue', import.meta.url), 'utf8'))
+  assert.match(connectionDialog, /aria-label="关闭连接测试"/)
+  assert.match(productionSource, /getByRole\('button', \{ name: UI\.closeConnectionTest, exact: true \}\)/)
+})
+
 test('生产 E2E 草稿启动必须点得了「以当前模式启动」，空 run 不能当成 running', () => {
   const startDraftMatch = productionSource.match(/startDraft:\s*'((?:\\u[0-9a-fA-F]{4}| )+)'/)
   assert.ok(startDraftMatch, 'UI.startDraft 文案缺失')
