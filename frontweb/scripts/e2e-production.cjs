@@ -2507,7 +2507,7 @@ async function createMissingServiceFromUi(page, fixture) {
   await configFormItem(configDialog, '\u5382\u5546').locator('.el-select').click()
   await page.getByRole('option', { name: '\u004f\u0070\u0065\u006e\u0041\u0049 \u517c\u5bb9\u7f51\u5173', exact: true }).click()
   await configFormItem(configDialog, '\u540d\u79f0').locator('input').fill(fixture.exactName)
-  await configFormItem(configDialog, '\u0041\u0050\u0049 \u004b\u0065\u0079').locator('input').fill(PROVIDER_TOKEN)
+  await configFormItem(configDialog, '\u0041\u0050\u0049 \u5bc6\u94a5').locator('input').fill(PROVIDER_TOKEN)
   await configFormItem(configDialog, '\u6a21\u578b\u5217\u8868').locator('textarea').fill(expectedMutation.default_model)
   await configFormItem(configDialog, '\u9ed8\u8ba4\u6a21\u578b').locator('.el-select').click()
   await page.getByRole('option', { name: expectedMutation.default_model, exact: true }).click()
@@ -2544,7 +2544,7 @@ async function createMissingServiceFromUi(page, fixture) {
 
   assert.equal(fixture.routes.requestCounts.ui_config_posts, 1, 'focused acceptance must create exactly one UI config')
   assert.equal(responseBody.data.is_active, true)
-  await page.getByText('\u6dfb\u52a0\u6210\u529f', { exact: true }).waitFor({ state: 'visible', timeout: 10000 })
+  await page.getByText('\u5df2\u6dfb\u52a0\u300c\u6587\u672c\u300d\u914d\u7f6e\uff0c\u53ef\u5728\u5217\u8868\u4e2d\u6d4b\u8bd5\u8fde\u63a5\u3002', { exact: true }).waitFor({ state: 'visible', timeout: 10000 })
   await configDialog.waitFor({ state: 'hidden', timeout: 10000 })
   return {
     method: 'POST',

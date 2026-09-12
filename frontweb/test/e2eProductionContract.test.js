@@ -1054,6 +1054,16 @@ test('focused AI setup clicks the visible switch control instead of its hidden i
   )
 })
 
+test('focused AI setup 用 API 密钥填写，并等待已添加文本配置的中文提示', () => {
+  const createConfig = sourceFunction('createMissingServiceFromUi')
+  assertSourceOrder(createConfig, [
+    "configFormItem(configDialog, '\\u0041\\u0050\\u0049 \\u5bc6\\u94a5').locator('input').fill(PROVIDER_TOKEN)",
+    "page.getByText('\\u5df2\\u6dfb\\u52a0\\u300c\\u6587\\u672c\\u300d\\u914d\\u7f6e\\uff0c\\u53ef\\u5728\\u5217\\u8868\\u4e2d\\u6d4b\\u8bd5\\u8fde\\u63a5\\u3002', { exact: true })",
+  ])
+  assert.doesNotMatch(createConfig, /API Key/)
+  assert.doesNotMatch(createConfig, /\\u6dfb\\u52a0\\u6210\\u529f/)
+})
+
 test('focused AI setup restores its exact name after applying the provider preset', () => {
   const createConfig = sourceFunction('createMissingServiceFromUi')
   assertSourceOrder(createConfig, [
