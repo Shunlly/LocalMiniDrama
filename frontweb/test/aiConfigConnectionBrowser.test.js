@@ -66,8 +66,9 @@ test('AI 配置连接测试失败会展示错误并留下 error 操作日志', {
   })
 
   await page.goto(`${baseUrl}ai-config`, { waitUntil: 'domcontentloaded' })
-  await page.getByRole('heading', { name: 'AI 服务配置与验证', exact: true }).waitFor({ timeout: 30000 })
-  await page.getByTestId('ai-config-mode-configs').click()
+  const configsTab = page.getByTestId('ai-config-mode-configs')
+  await configsTab.waitFor({ state: 'visible', timeout: 30000 })
+  await configsTab.click()
   await page.locator('.config-list-section').waitFor({ state: 'visible', timeout: 30000 })
   const row = page.locator('.el-table__row').filter({ hasText: '本地文本' }).first()
   await row.waitFor({ state: 'visible', timeout: 30000 })

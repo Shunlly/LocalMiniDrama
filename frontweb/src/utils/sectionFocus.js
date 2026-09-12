@@ -13,3 +13,29 @@ export function scrollAndFocusSection(id, {
   if (focus) windowRef.setTimeout(() => target.focus?.({ preventScroll: true }), focusDelay)
   return true
 }
+
+/** 滚动到区块后，把焦点落到区块内的具体输入控件 */
+export function focusSectionField(id, selector, {
+  documentRef = document,
+  windowRef = window,
+  delay = 0,
+} = {}) {
+  const run = () => {
+    const section = documentRef.getElementById(id)
+    if (!section?.querySelector) return false
+    const field = section.querySelector(selector)
+    if (!field) return false
+    const native = typeof field.matches === 'function' && field.matches('input,textarea,select')
+      ? field
+      : field.querySelector?.('input,textarea,select')
+    const target = native || field
+    if (typeof target.focus !== 'function') return false
+    target.focus({ preventScroll: true })
+    return true
+  }
+  if (delay > 0 && typeof windowRef?.setTimeout === 'function') {
+    windowRef.setTimeout(run, delay)
+    return true
+  }
+  return run()
+}

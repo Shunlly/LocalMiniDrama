@@ -6,7 +6,7 @@ import { nextTick } from 'vue'
 
 import { backfillDramaStylePromptMetadataIfNeeded } from '@/constants/styleOptions'
 import { requestCoreJson as requestCoreDrama } from '@/utils/coreJsonRequest'
-import { scrollAndFocusSection } from '@/utils/sectionFocus.js'
+import { focusSectionField, scrollAndFocusSection } from '@/utils/sectionFocus.js'
 
 export function createDramaDetailLoadAndNav({
   dramaId,
@@ -140,6 +140,7 @@ export function createDramaDetailLoadAndNav({
 
   function scrollToSourceIntake() {
     scrollToSection('source-intake-workflow')
+    focusSectionField('source-intake-workflow', '[aria-label="网页 URL"]', { delay: 250 })
   }
 
   function handleReadinessAction(action) {

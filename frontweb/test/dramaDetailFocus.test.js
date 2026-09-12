@@ -164,3 +164,21 @@ test('编辑弹窗无图缩略图禁用时给出中文原因', () => {
   assert.match(dramaDetailDialogsSource, /<DramaDetailResourceImageEditor\s+:form="editDramaCharForm"/)
   assert.match(dramaDetailDialogsSource, /<DramaDetailResourceImageEditor\s+:form="editPropForm"/)
 })
+
+test('focusSectionField puts keyboard focus on the source URL input', async () => {
+  const { focusSectionField } = await import('../src/utils/sectionFocus.js')
+  const focusCalls = []
+  const input = {
+    matches: (selector) => selector === 'input,textarea,select',
+    focus: (options) => focusCalls.push(options),
+  }
+  const section = {
+    querySelector: (selector) => selector === '[aria-label="网页 URL"]' ? input : null,
+  }
+  const documentRef = {
+    getElementById: (id) => id === 'source-intake-workflow' ? section : null,
+  }
+  const windowRef = { setTimeout() {} }
+  assert.equal(focusSectionField('source-intake-workflow', '[aria-label="网页 URL"]', { documentRef, windowRef }), true)
+  assert.deepEqual(focusCalls, [{ preventScroll: true }])
+})
