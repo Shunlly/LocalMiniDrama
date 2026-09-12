@@ -47,7 +47,9 @@ const emit = defineEmits(['retry', 'action'])
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 12px;
+  min-width: 0;
   padding: 12px 14px;
   border: 1px solid rgba(96, 165, 250, 0.28);
   border-radius: 8px;

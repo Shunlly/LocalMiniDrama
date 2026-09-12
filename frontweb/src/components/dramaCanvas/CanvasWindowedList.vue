@@ -124,6 +124,8 @@ onMounted(() => {
 
 <style scoped>
 .canvas-windowed-list {
+  min-width: 0;
+  max-width: 100%;
   overflow-x: hidden;
   overflow-y: auto;
   scrollbar-gutter: stable;

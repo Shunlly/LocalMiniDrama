@@ -159,6 +159,7 @@ watch(
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 24px;
   margin-bottom: 18px;
   padding: 16px 18px;
@@ -235,6 +236,13 @@ html.light .data-load-state__detail { color: #b91c1c; }
 }
 .tooltip-trigger { display: inline-flex; }
 .tooltip-trigger:focus-visible { outline: 2px solid #fbbf24; outline-offset: 2px; }
+@media (max-width: 620px) {
+  .data-load-state,
+  .export-failure-state {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
 .visually-hidden {
   position: absolute;
   width: 1px;

@@ -146,9 +146,6 @@ onBeforeUnmount(() => {
 })
 
 onBeforeRouteLeave(async () => {
-  if (refImageUploadStatus.value === 'uploading') {
-    return confirmFreeCreateLeave()
-  }
   return confirmFreeCreateLeave()
 })
 
@@ -160,17 +157,28 @@ onBeforeRouteLeave(async () => {
   background: var(--bg-page);
   color: var(--text-primary);
   padding: 20px;
+  box-sizing: border-box;
+  max-width: 100%;
+  overflow-x: clip;
 }
 
 .create-layout {
   display: flex;
   gap: 20px;
   align-items: flex-start;
+  min-width: 0;
+  width: 100%;
 }
 
 @media (max-width: 900px) {
   .create-layout {
     flex-direction: column;
+  }
+}
+
+@media (max-width: 520px) {
+  .free-create-page {
+    padding: 12px;
   }
 }
 </style>

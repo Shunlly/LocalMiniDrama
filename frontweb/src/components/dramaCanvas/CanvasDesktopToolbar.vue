@@ -117,7 +117,7 @@
         </CanvasActionGate>
       </CanvasToolbarGroup>
 
-      <div class="toolbar-utilities" aria-label="画布工具">
+      <div class="toolbar-utilities" role="group" aria-label="画布工具">
         <div class="mode-switch" role="group" aria-label="画布模式">
           <el-button
             size="small"
@@ -288,6 +288,7 @@ const alignTooltip = computed(() => (
 }
 
 .toolbar-main-row > * {
+  min-width: 0;
   max-width: 100%;
   border-right: 1px solid var(--border-color, #3f3f46);
 }
@@ -297,7 +298,8 @@ const alignTooltip = computed(() => (
 }
 
 .workflow-group {
-  min-width: 240px;
+  min-width: 0;
+  max-width: 100%;
   flex: 1 1 260px;
 }
 
@@ -311,9 +313,11 @@ const alignTooltip = computed(() => (
   align-items: center;
   justify-content: center;
   gap: 6px;
+  min-width: 0;
   min-height: 0;
-  flex: 0 0 auto;
-  flex-wrap: nowrap;
+  max-width: 100%;
+  flex: 0 1 auto;
+  flex-wrap: wrap;
   padding: 8px 10px;
   background: color-mix(in srgb, var(--bg-page, #0f0f12) 48%, transparent);
 }
@@ -357,6 +361,9 @@ const alignTooltip = computed(() => (
   }
 
   .toolbar-main-row > * {
+    flex: 1 1 100%;
+    min-width: 0;
+    max-width: 100%;
     border-right: 0;
     border-bottom: 1px solid var(--border-color, #3f3f46);
   }
@@ -366,7 +373,18 @@ const alignTooltip = computed(() => (
   }
 
   .toolbar-utilities {
-    margin-left: auto;
+    margin-left: 0;
+  }
+}
+
+@media (max-width: 769px) {
+  .canvas-desktop-toolbar {
+    padding: 0 12px 8px;
+  }
+
+  .toolbar-main-row,
+  .toolbar-utilities {
+    flex-wrap: wrap;
   }
 }
 

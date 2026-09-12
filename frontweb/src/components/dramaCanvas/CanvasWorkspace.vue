@@ -221,6 +221,8 @@ defineExpose({ canvasMainRef })
 .canvas-shell {
   flex: 1;
   display: flex;
+  min-width: 0;
+  max-width: 100%;
   min-height: 0;
 }
 
@@ -234,19 +236,21 @@ defineExpose({ canvasMainRef })
 }
 
 .free-canvas-bottom-toolbar {
+  box-sizing: border-box;
   position: absolute;
   left: 50%;
   bottom: 16px;
   z-index: 1100;
-  max-width: min(720px, calc(100% - 160px));
+  max-width: min(720px, calc(100% - 24px));
   transform: translateX(-50%);
-  overflow-x: auto;
+  overflow-x: visible;
   box-shadow: var(--canvas-raised-shadow, 0 12px 32px rgba(0, 0, 0, 0.45));
 }
 
-@media (max-width: 760px) {
+@media (max-width: 769px) {
   .free-canvas-bottom-toolbar {
     max-width: calc(100% - 24px);
+    overflow-x: visible;
   }
 }
 </style>

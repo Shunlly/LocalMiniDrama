@@ -291,7 +291,7 @@ html.dark .el-message-box__content { color: var(--text-primary) !important; }
 :is(.el-dialog.ai-config-workspace-dialog, .el-dialog:has(> .el-dialog__body > .ai-config-content)) > .el-dialog__header {
   flex: 0 0 auto;
   margin-right: 0;
-  padding: 16px 20px 14px;
+  padding: 16px 48px 14px 20px;
   border-bottom: 1px solid var(--border-color);
 }
 

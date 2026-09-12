@@ -56,6 +56,7 @@ test('列表未就绪时表头不把五类服务标成已确认', async () => {
   assert.doesNotMatch(headerSource, /async function loadList\(/)
   assert.doesNotMatch(headerSource, /useAiConfigList/)
   assert.match(headerSource, /aria-label="重新读取配置列表"[\s\S]*?>\s*重新读取配置列表\s*<\/el-button>/)
+  assert.match(headerSource, /@media \(max-width: 1024px\) \{[\s\S]*?\.coverage-header \{[\s\S]*?flex-direction: column;/)
 
   const pending = mountHeader({ configListPendingEmpty: true })
   try {

@@ -19,12 +19,12 @@
         </div>
         <el-form :model="infoForm" label-width="110px" label-position="left" class="info-form">
           <el-row :gutter="24">
-            <el-col :span="12">
+            <el-col :xs="24" :span="12">
               <el-form-item label="标题">
                 <el-input v-model="infoForm.title" placeholder="剧集标题" aria-label="剧集标题" @blur="emit('save')" />
               </el-form-item>
             </el-col>
-            <el-col :span="12">
+            <el-col :xs="24" :span="12">
               <el-form-item label="图片/视频风格">
                 <el-select v-model="infoForm.style" placeholder="选择全剧统一风格" aria-label="图片/视频风格" clearable style="width: 100%" @change="emit('save')">
                   <el-option-group label="写实 / 影视">
@@ -71,7 +71,7 @@
                 </el-select>
               </el-form-item>
             </el-col>
-            <el-col :span="12">
+            <el-col :xs="24" :span="12">
               <el-form-item label="画面比例">
                 <el-select v-model="infoForm.aspect_ratio" aria-label="画面比例" style="width: 100%" @change="emit('save')">
                   <el-option label="16:9 横屏（默认）" value="16:9" />
@@ -145,7 +145,7 @@ html.light .info-save-status.is-error { color: #b91c1c; border-color: rgba(239, 
 .section-header { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
 .section-header .section-title { margin-bottom: 0; }
 .section-header--info { justify-content: space-between; align-items: flex-start; }
-.info-form { max-width: 100%; }
+.info-form { max-width: 100%; min-width: 0; }
 .info-save-status {
   display: inline-flex;
   align-items: center;
@@ -179,6 +179,9 @@ html.light .info-save-status.is-error { color: #b91c1c; border-color: rgba(239, 
   .section-header {
     align-items: flex-start;
     flex-wrap: wrap;
+  }
+  .info-form {
+    overflow-x: hidden;
   }
 }
 </style>

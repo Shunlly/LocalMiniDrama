@@ -78,7 +78,7 @@ function inferSignRegion(host, explicit) {
  * 转发 ModelArk / 方舟「私有资产库」请求。
  *
  * - open_api_query：POST {base}?Action=…&Version=…，JSON body。
- *   控制面接口须使用 **auth_mode: volc_sign**（Access Key 签名），推理用的 ARK API Key + Bearer 会报 Invalid Authorization。
+ *   控制面接口须使用 **auth_mode: volc_sign**（访问密钥签名）；推理用的 ARK API Key + Bearer 会被拒绝。
  * - asset_subpath / flat：部分中转仍可用 Bearer。
  */
 function buildRequestUrl(base, pathMode, act, apiVersion, projectName) {
@@ -100,18 +100,6 @@ function buildRequestUrl(base, pathMode, act, apiVersion, projectName) {
   const pn = (projectName || '').toString().trim();
   if (pn) u.searchParams.set('ProjectName', pn);
   return u.toString();
-}
-
-function extractUpstreamMessage(data, text) {
-  const m =
-    data &&
-    data.ResponseMetadata &&
-    data.ResponseMetadata.Error &&
-    data.ResponseMetadata.Error.Message;
-  if (m) return String(m);
-  if (data && data.message) return String(data.message);
-  if (data && data.Message) return String(data.Message);
-  return `HTTP 错误: ${text ? text.slice(0, 500) : ''}`;
 }
 
 function parseSignedOpenApiUrl(base) {

@@ -53,7 +53,7 @@ test('未搜索空态说明会附带来源和许可信息', async () => {
     const [empty] = findByClass(harness.root, 'network-empty')
     assert.equal(empty.props.role, 'status')
     assert.equal(empty.props['aria-live'], 'polite')
-    assert.equal(buttonByAriaLabel(harness.root, '重新搜索网络素材'), undefined)
+    assert.equal(buttonByAriaLabel(harness.root, '重新搜索'), undefined)
   } finally {
     harness.app.unmount()
   }
@@ -69,8 +69,12 @@ test('没有结果时可以重新搜索或清除搜索，不漏英文', async ()
     const [empty] = findByClass(harness.root, 'network-empty')
     assert.equal(empty.props.role, 'status')
     assert.equal(empty.props['aria-live'], 'polite')
-    click(buttonByAriaLabel(harness.root, '重新搜索网络素材'))
-    click(buttonByAriaLabel(harness.root, '清除网络素材搜索'))
+    const retry = buttonByAriaLabel(harness.root, '重新搜索')
+    const clear = buttonByAriaLabel(harness.root, '清除搜索')
+    assert.equal(retry.props['data-variant'], 'default')
+    assert.equal(clear.props['data-variant'], 'default')
+    click(retry)
+    click(clear)
     assert.deepEqual(harness.events, [['search'], ['clear']])
   } finally {
     harness.app.unmount()

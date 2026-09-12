@@ -77,6 +77,11 @@ defineProps({
   justify-content: space-between;
   gap: 24px;
   margin-bottom: 14px;
+  min-width: 0;
+}
+.coverage-header > :first-child {
+  min-width: 0;
+  flex: 1 1 auto;
 }
 .coverage-title-row {
   display: flex;
@@ -98,17 +103,22 @@ defineProps({
   line-height: 1.5;
 }
 .coverage-test-note {
+  min-width: 0;
   max-width: 260px;
+  flex: 0 1 260px;
   color: var(--el-text-color-secondary, #909399);
   font-size: 12px;
   line-height: 1.5;
   text-align: right;
+  overflow-wrap: anywhere;
 }
 .coverage-unresolved-state {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  min-width: 0;
   min-height: 88px;
   padding: 12px 14px;
   border: 1px solid var(--el-border-color-light, #e4e7ed);
@@ -134,6 +144,11 @@ defineProps({
 }
 .coverage-unresolved-copy span {
   overflow-wrap: anywhere;
+}
+.coverage-unresolved-state :deep(.el-button) {
+  min-width: 32px;
+  min-height: 32px;
+  flex: 0 0 auto;
 }
 .coverage-summary-strip {
   display: grid;
@@ -186,6 +201,22 @@ defineProps({
 @media (max-width: 1440px) {
   .coverage-summary-strip {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 1024px) {
+  .coverage-header {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .coverage-test-note {
+    max-width: none;
+    flex: 1 1 auto;
+    text-align: left;
+  }
+  .coverage-unresolved-state {
+    align-items: stretch;
+    flex-direction: column;
   }
 }
 @media (max-width: 760px) {

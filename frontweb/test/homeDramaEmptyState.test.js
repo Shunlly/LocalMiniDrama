@@ -60,11 +60,18 @@ test('首页空项目和下一步入口是中文，且空态按钮可点', () =>
   assert.match(filmListSource, /class="action-btn-material" aria-label="前往素材中心"/)
   assert.match(filmListSource, /查看回收站/)
   assert.match(filmListSource, /class="action-btn-trash" aria-label="查看回收站"/)
+  assert.match(filmListSource, /\.action-card--empty \{[\s\S]*?min-width: 0;[\s\S]*?max-width: 100%;/)
+  assert.match(filmListSource, /\.action-btn \{[\s\S]*?min-width: min\(150px, 100%\);/)
   assert.match(filmListSource, /没有匹配的项目/)
   assert.match(filmListSource, /换一个关键词或状态，或清除筛选后查看全部项目。/)
   assert.match(filmListSource, /@click="clearProjectFilters"/)
   assert.match(filmListSource, /class="workspace-clear-filters"/)
   assert.match(filmListSource, /aria-label="清除筛选并查看全部项目"/)
+  const emptyCards = [...filmListSource.matchAll(/<section\b[^>]*action-card--empty[\s\S]*?<\/section>/g)].map((match) => match[0])
+  assert.equal(emptyCards.length, 2)
+  for (const card of emptyCards) {
+    assert.equal((card.match(/type="primary"/g) || []).length, 1)
+  }
   assert.match(filmListSource, /回收站中没有项目/)
   assert.equal((filmListLibrarySource.match(/class="library-empty" role="status"/g) || []).length, 3)
   assert.match(filmListLibrarySource, /aria-label="清除角色素材搜索"/)
@@ -144,7 +151,7 @@ test('无剧集时资源空状态会新增一集，而不是点页头或只滚�
   )
   assert.match(
     dramaDetailDialogsSource,
-    /@click="goCreateOrAddEpisode">\s*\{\{ currentEpisodeId \? '前往制作页新增并入库' : '先去新增一集' \}\}/,
+    /@click="goCreateOrAddEpisode">\s*\{\{ currentEpisodeId \? '前往制作页新增并入库' : '新增一集后再去制作页提取素材' \}\}/,
   )
   assert.doesNotMatch(
     dramaDetailSource,

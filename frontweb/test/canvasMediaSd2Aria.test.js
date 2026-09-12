@@ -34,7 +34,7 @@ test('素材中心加载失败、搜索和预览关闭有中文名称', () => {
   assert.match(grid, /aria-label="取消选择"/)
   assert.match(network, /'搜索网络素材'/)
   assert.match(preview, /aria-label="关闭预览"/)
-  assert.match(empty, /aria-label="清除素材筛选"/)
+  assert.match(empty, /aria-label="清除筛选"/)
 })
 
 test('一键配置弹窗取消与提交区分厂商', () => {

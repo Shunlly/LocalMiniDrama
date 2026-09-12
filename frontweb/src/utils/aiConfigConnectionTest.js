@@ -4,7 +4,7 @@
 import { toUserFacingError, isUserFacingAbort } from '@/utils/userFacingError.js'
 import { isRequestTimeout, isSafeUserFacingMessage } from '@/utils/requestError.js'
 
-export const CONNECTION_TEST_ENGLISH_RE = /network error|timeout of \d+ms|request failed with status code|failed to fetch|fetch failed|load failed|internal server error|err_network|econnaborted|etimedout|econnrefused|enotfound|econnreset|eai_again|socket hang up|getaddrinfo|und_err_|incorrect api key|invalid api key|unauthorized|forbidden|too many requests|the operation was aborted|this operation was aborted/i
+export const CONNECTION_TEST_ENGLISH_RE = /network error|timeout of \d+ms|request failed with status code|failed to fetch|fetch failed|load failed|internal server error|err_network|econnaborted|etimedout|econnrefused|enotfound|econnreset|eai_again|socket hang up|getaddrinfo|und_err_|incorrect api key|invalid api key|invalid authorization|unauthorized|forbidden|too many requests|the operation was aborted|this operation was aborted|\blistassetgroups\b/i
 
 export function stripConnectionTestDecorations(message) {
   return String(message || '')

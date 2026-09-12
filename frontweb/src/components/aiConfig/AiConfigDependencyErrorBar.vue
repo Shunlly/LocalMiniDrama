@@ -30,9 +30,11 @@ defineProps({
 <style scoped>
 .config-load-state {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  min-width: 0;
   margin-bottom: 16px;
   padding: 10px 12px;
   border: 1px solid var(--ai-config-info-border, #c6e2ff);
@@ -59,5 +61,16 @@ defineProps({
   font-size: 12px;
   line-height: 1.45;
   overflow-wrap: anywhere;
+}
+.config-load-state :deep(.el-button) {
+  min-width: 32px;
+  min-height: 32px;
+  flex: 0 0 auto;
+}
+@media (max-width: 1024px) {
+  .config-load-state {
+    align-items: stretch;
+    flex-direction: column;
+  }
 }
 </style>

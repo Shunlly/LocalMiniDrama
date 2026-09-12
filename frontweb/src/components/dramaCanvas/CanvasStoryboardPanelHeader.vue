@@ -29,15 +29,21 @@ defineProps({
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
   margin-bottom: 8px;
+  min-width: 0;
+  max-width: 100%;
   font-size: 12px;
   font-weight: 700;
   color: var(--canvas-indigo-text, #c7d2fe);
+  flex-wrap: wrap;
 }
 .head-actions {
   display: flex;
   align-items: center;
   gap: 6px;
+  min-width: 0;
+  flex-wrap: wrap;
 }
 .busy-tag {
   font-size: 10px;

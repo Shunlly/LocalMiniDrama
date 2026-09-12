@@ -102,7 +102,13 @@ test('回收站空态、失败重试和恢复入口都是中文', async () => {
     assert.match(textContent(empty.root), /回收站中没有项目/)
     assert.match(textContent(empty.root), /关闭后可回到项目列表新建或导入项目/)
     assert.match(textContent(empty.root), /回收站中共有 0 个项目/)
-    assert.ok(buttonByAriaLabel(empty.root, '关闭回收站') || buttonByText(empty.root, '关闭回收站'))
+    const emptyClose = buttonByAriaLabel(empty.root, '关闭回收站') || buttonByText(empty.root, '关闭回收站')
+    assert.ok(emptyClose)
+    assert.match(textContent(emptyClose), /关闭回收站/)
+    assert.ok(String(emptyClose.props['aria-label'] || '').includes('关闭回收站'))
+    const emptySection = findByClass(empty.root, 'trash-empty')[0]
+    const emptyPrimaries = findAll(emptySection, (node) => node.type === 'button' && node.props?.['data-variant'] === 'primary')
+    assert.equal(emptyPrimaries.length, 0)
     click(buttonByText(empty.root, '关闭'))
     assert.equal(empty.showTrashDialog.value, false)
   } finally {

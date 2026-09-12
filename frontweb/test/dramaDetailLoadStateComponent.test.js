@@ -84,6 +84,8 @@ test('加载中显示中文状态，失败主按钮是返回项目列表', async
     const retry = buttonByText(failed.root, '重试加载')
     assert.ok(home, '缺少返回项目列表')
     assert.ok(retry, '缺少重试加载')
+    assert.equal(retry.props['data-variant'], 'primary')
+    assert.equal(home.props['data-variant'], '')
     click(home)
     click(retry)
     assert.deepEqual(failed.events, ['go-list', 'retry'])
@@ -101,7 +103,9 @@ test('项目不存在时只保留返回项目列表', async () => {
   try {
     await nextTick()
     assert.match(textContent(harness.root), /项目不存在/)
-    assert.ok(buttonByText(harness.root, '返回项目列表'))
+    const home = buttonByText(harness.root, '返回项目列表')
+    assert.ok(home)
+    assert.equal(home.props['data-variant'], 'primary')
     assert.equal(buttonByText(harness.root, '重试加载'), undefined)
   } finally {
     harness.app.unmount()

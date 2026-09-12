@@ -63,9 +63,26 @@ button.library-item-cover { cursor: zoom-in; }
 .library-item-name { font-weight: 500; margin-bottom: 4px; color: #fafafa; }
 .library-item-desc { font-size: 0.85rem; color: #a1a1aa; margin-bottom: 8px; }
 .library-item-actions { display: flex; gap: 8px; }
-.library-empty { text-align: center; color: #71717a; padding: 40px 20px; }
-.library-empty p { margin: 0; }
-.library-empty .el-button { margin-top: 12px; }
+.library-empty {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  text-align: center;
+  color: #71717a;
+  padding: 40px 20px;
+}
+.library-empty p {
+  margin: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+.library-empty .el-button {
+  margin-top: 12px;
+  white-space: normal;
+  height: auto;
+  max-width: 100%;
+}
 .library-pagination { margin-top: 12px; display: flex; justify-content: center; }
 html.light .library-item {
   background: #faf9ff;

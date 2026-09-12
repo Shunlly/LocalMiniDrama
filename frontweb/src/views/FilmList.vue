@@ -162,7 +162,7 @@
             :aria-label="newSubmitDisabledReason ? `确定新建项目不可用：${newSubmitDisabledReason}` : undefined"
             :aria-describedby="newSubmitDisabledReason ? 'project-new-submit-reason' : undefined"
           >
-            <el-button type="primary" :loading="newSaving" :disabled="Boolean(newSubmitDisabledReason)" :title="newSubmitDisabledReason || undefined" :aria-describedby="newSubmitDisabledReason ? 'project-new-submit-reason' : undefined" :aria-label="newSaving ? '正在创建项目' : (newSubmitDisabledReason || '确定新建项目')" @click="submitNew">确定</el-button>
+            <el-button type="primary" :loading="newSaving" :disabled="Boolean(newSubmitDisabledReason)" :title="newSubmitDisabledReason || undefined" :aria-describedby="newSubmitDisabledReason ? 'project-new-submit-reason' : undefined" :aria-label="newSaving ? '正在创建项目' : (newSubmitDisabledReason || '确定新建项目')" @click="submitNew">确定新建项目</el-button>
           </span>
         </el-tooltip>
       </template>
@@ -215,7 +215,7 @@
             :aria-label="editSubmitDisabledReason ? `保存项目不可用：${editSubmitDisabledReason}` : undefined"
             :aria-describedby="editSubmitDisabledReason ? 'project-edit-submit-reason' : undefined"
           >
-            <el-button type="primary" :loading="editSaving" :disabled="Boolean(editSubmitDisabledReason)" :title="editSubmitDisabledReason || undefined" :aria-describedby="editSubmitDisabledReason ? 'project-edit-submit-reason' : undefined" :aria-label="editSaving ? '正在保存项目' : (editSubmitDisabledReason || '保存项目')" @click="submitEdit">保存</el-button>
+            <el-button type="primary" :loading="editSaving" :disabled="Boolean(editSubmitDisabledReason)" :title="editSubmitDisabledReason || undefined" :aria-describedby="editSubmitDisabledReason ? 'project-edit-submit-reason' : undefined" :aria-label="editSaving ? '正在保存项目' : (editSubmitDisabledReason || '保存项目')" @click="submitEdit">保存项目</el-button>
           </span>
         </el-tooltip>
       </template>

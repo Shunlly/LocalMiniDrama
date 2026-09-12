@@ -103,6 +103,9 @@ function openReferenceUpload() {
   align-items: flex-start;
   gap: 8px;
   margin: 0 0 8px 36px;
+  min-width: 0;
+  max-width: 100%;
+  flex-wrap: wrap;
 }
 .reference-label {
   flex: 0 0 auto;
@@ -112,9 +115,11 @@ function openReferenceUpload() {
 }
 .reference-list {
   display: flex;
+  flex: 1 1 160px;
   flex-wrap: wrap;
   gap: 6px;
   min-width: 0;
+  max-width: 100%;
 }
 .reference-thumb,
 .reference-upload {

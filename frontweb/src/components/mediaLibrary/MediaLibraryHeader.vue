@@ -69,6 +69,8 @@ defineExpose({ uploadInput })
   padding-bottom: 18px;
   border-bottom: 1px solid var(--border-color);
   gap: 20px;
+  min-width: 0;
+  overflow-x: clip;
 }
 
 .header-left {

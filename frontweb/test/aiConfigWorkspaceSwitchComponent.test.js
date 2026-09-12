@@ -57,6 +57,7 @@ function mountSwitch(view = 'coverage') {
 
 test('工作区切换按选中态暴露 tab 语义和焦点环', async () => {
   assert.match(switchSource, /role="tablist" aria-label="AI 配置工作区"/)
+  assert.match(switchSource, /@media \(max-width: 1024px\) \{[\s\S]*?grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/)
   assert.match(switchSource, /\.config-workspace-mode:focus-visible/)
   assert.doesNotMatch(switchSource, /async function loadList\(/)
   assert.doesNotMatch(switchSource, /async function openTest\(/)
@@ -71,6 +72,10 @@ test('工作区切换按选中态暴露 tab 语义和焦点环', async () => {
     assert.ok(configs)
     assert.match(textContent(coverage), /服务状态/)
     assert.match(textContent(configs), /配置管理/)
+    assert.equal(coverage.props['aria-label'], '服务状态')
+    assert.equal(configs.props['aria-label'], '配置管理')
+    assert.equal(textContent(coverage).replace(/\s+/g, ' ').trim(), coverage.props['aria-label'])
+    assert.equal(textContent(configs).replace(/\s+/g, ' ').trim(), configs.props['aria-label'])
     assert.equal(coverage.props.role, 'tab')
     assert.equal(coverage.props['aria-selected'], true)
     assert.equal(coverage.props.tabindex, 0)

@@ -114,12 +114,20 @@ function bindImportFileRef(el) {
   justify-content: space-between;
   gap: 8px;
   margin-bottom: 16px;
+  min-width: 0;
+  max-width: 100%;
 }
 .actions-left {
   display: flex;
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+  min-width: 0;
+}
+.actions-left :deep(.el-button + .el-button),
+.actions-right :deep(.el-button + .el-button),
+.vendor-lock-bar :deep(.el-button + .el-button) {
+  margin-left: 0;
 }
 .actions-right {
   display: flex;
@@ -167,9 +175,11 @@ function bindImportFileRef(el) {
 }
 .vendor-lock-bar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 12px;
   margin-bottom: 16px;
+  min-width: 0;
 }
 .vendor-lock-bar .vendor-lock-tip {
   flex: 1;
@@ -182,6 +192,20 @@ function bindImportFileRef(el) {
 }
 .vendor-lock-tip {
   margin-bottom: 16px;
+}
+@media (max-width: 1024px) {
+  .content-actions,
+  .vendor-lock-bar,
+  .config-filter-bar {
+    min-width: 0;
+    max-width: 100%;
+    flex-wrap: wrap;
+  }
+  .actions-right {
+    flex-wrap: wrap;
+    flex-shrink: 1;
+    max-width: 100%;
+  }
 }
 @media (max-width: 760px) {
   .content-actions,

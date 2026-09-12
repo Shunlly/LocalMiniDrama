@@ -128,6 +128,10 @@ export function sanitizeImportFailureReason(message) {
     .replace(/file:\/\/\/\S+/gi, '本地文件')
     .replace(/[A-Za-z]:\\(?:[^\\/:*?"<>|\r\n]+\\)*[^\\/:*?"<>|\r\n]*/g, '本地文件')
     .replace(/\/(?:[^/\s]+\/)+[^/\s]*/g, '服务器文件')
+    .replace(/\bHTTP\s*\d{3}\b/gi, '')
+    .replace(/request failed with status code \d+/gi, '')
+    .replace(/\b(?:ECONNABORTED|ERR_NETWORK|ERR_CANCELED|ERR_FAILED|ETIMEDOUT|ECONNREFUSED)\b/gi, '')
+    .replace(/\s+/g, ' ')
     .trim()
 
   if (/(traceback|stack|sqlite|sqlstate|sql\b|errno|exception|node_modules|backend-node|frontweb| at [A-Za-z_$][\w$]*\s*\()/i.test(redacted)) {
@@ -189,6 +193,10 @@ export function describeProjectFormSubmitDisabledReason({ writeLocked, writeLock
   if (!String(title || '').trim()) return '请先填写项目标题'
   return ''
 }
+
+export const FILM_LIST_LEAVE_CONFIRM_TITLE = '确认离开？'
+export const FILM_LIST_LEAVE_CONFIRM_BUTTON_TEXT = '离开'
+export const FILM_LIST_LEAVE_STAY_BUTTON_TEXT = '继续留在本页'
 
 export function describePendingProjectPackageWork({ importing, importingExample, exportingId }) {
   if (importing || importingExample) return '项目包正在导入，请完成后再离开。'

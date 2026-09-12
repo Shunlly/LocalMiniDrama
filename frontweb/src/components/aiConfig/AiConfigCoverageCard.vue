@@ -18,7 +18,7 @@
       type="button"
       class="coverage-select"
       :aria-pressed="selected"
-      :aria-label="`${item.label}，${coverageStateLabel(item)}`"
+      :aria-label="`${item.label}，${coverageStateLabel(item)}，${coverageTestLabel(item.test)}`"
       @click="$emit('select', item)"
     >
       <span :class="['coverage-icon', `coverage-icon-${item.type}`]">
@@ -107,11 +107,14 @@ function coverageActionTitle(action, disabled) {
 
 <style scoped>
 .coverage-item {
+  box-sizing: border-box;
   min-width: 0;
+  max-width: 100%;
   min-height: 132px;
   display: grid;
   grid-template-rows: 1fr auto;
   align-items: start;
+  align-content: start;
   gap: 8px 10px;
   padding: 10px;
   border: 1px solid var(--el-border-color-light, #e4e7ed);
@@ -184,9 +187,11 @@ function coverageActionTitle(action, disabled) {
   flex-wrap: wrap;
 }
 .coverage-item-heading strong {
+  min-width: 0;
   color: var(--el-text-color-primary, #303133);
   font-size: 13px;
   line-height: 20px;
+  overflow-wrap: anywhere;
 }
 .coverage-description,
 .coverage-config-count,
@@ -195,6 +200,12 @@ function coverageActionTitle(action, disabled) {
   display: block;
   font-size: 12px;
   line-height: 1.45;
+}
+.coverage-description,
+.coverage-config-count,
+.coverage-test-status {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .coverage-description {
   color: var(--el-text-color-regular, #606266);
@@ -225,17 +236,27 @@ function coverageActionTitle(action, disabled) {
 .coverage-test-status.test-failed { color: var(--ai-config-danger-text, #b91c1c); }
 .coverage-test-status.test-failed .coverage-status-dot { background: #ef4444; }
 .coverage-actions {
+  position: relative;
+  z-index: 1;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 6px 10px;
   margin-top: 2px;
+  min-width: 0;
+  max-width: 100%;
+}
+.coverage-actions :deep(.el-button + .el-button) {
+  margin-left: 0;
 }
 .coverage-action-link {
+  min-width: 32px;
   min-height: 32px;
+  max-width: 100%;
   padding: 4px 8px;
 }
 .coverage-action-test {
+  min-width: 32px;
   min-height: 32px;
   padding: 4px 10px;
   font-weight: 600;

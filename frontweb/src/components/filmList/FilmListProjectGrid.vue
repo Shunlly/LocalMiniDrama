@@ -415,15 +415,18 @@ defineProps({
 }
 .project-card-assets {
   position: absolute;
-  left: 28px;
-  bottom: 24px;
+  left: 24px;
+  bottom: 22px;
   z-index: 3;
   display: inline-flex;
-  width: 88px;
+  width: auto;
+  max-width: 96px;
   min-height: 30px;
   align-items: center;
   justify-content: center;
   gap: 5px;
+  padding: 0 8px;
+  box-sizing: border-box;
   border: 1px solid rgba(199, 210, 254, 0.45);
   border-radius: 6px;
   background: rgba(9, 9, 14, 0.82);
@@ -547,6 +550,12 @@ html.light .badge-status--draft {
   }
   .project-card-cover {
     min-height: 168px;
+  }
+  .project-card-assets {
+    left: 16px;
+    bottom: 16px;
+    max-width: 80px;
+    font-size: 0.7rem;
   }
 }
 </style>

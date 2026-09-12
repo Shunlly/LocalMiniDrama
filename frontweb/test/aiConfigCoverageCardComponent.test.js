@@ -91,6 +91,12 @@ test('未配置服务不渲染操作按钮，选择入口仍可用', () => {
     assert.match(textContent(harness.root), /文本生成/)
     assert.match(textContent(harness.root), /未配置/)
     assert.match(textContent(harness.root), /尚无测试记录/)
+    const card = findByClass(harness.root, 'coverage-item')[0]
+    const select = findByClass(harness.root, 'coverage-select')[0]
+    assert.equal(card.props['aria-label'], select.props['aria-label'])
+    assert.match(card.props['aria-label'], /文本生成/)
+    assert.match(card.props['aria-label'], /未配置/)
+    assert.match(card.props['aria-label'], /尚无测试记录/)
     assert.equal(findByClass(harness.root, 'coverage-actions')[0].children.filter((node) => node.type === 'button').length, 0)
     click(findByClass(harness.root, 'coverage-select')[0])
     assert.equal(harness.events.select.length, 1)

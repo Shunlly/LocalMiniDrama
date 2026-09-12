@@ -84,8 +84,8 @@
       </CanvasWindowedList>
       <div v-if="!filteredCharacters.length" class="asset-empty" role="status">
         <p>{{ assetEmptyText('角色') }}</p>
-        <button v-if="hasActiveAssetFilters" type="button" class="asset-empty-action" aria-label="清除素材筛选" @click="clearAssetFilters">清除筛选</button>
-        <button v-else type="button" class="asset-empty-action" aria-label="去制作页添加角色" @click="emit('go-production')">去制作页添加</button>
+        <button v-if="hasActiveAssetFilters" type="button" class="asset-empty-action" aria-label="清除素材筛选" @click="clearAssetFilters">清除素材筛选</button>
+        <button v-else type="button" class="asset-empty-action" aria-label="去制作页添加角色" @click="emit('go-production')">去制作页添加角色</button>
       </div>
     </details>
 
@@ -108,8 +108,8 @@
       </CanvasWindowedList>
       <div v-if="!filteredScenes.length" class="asset-empty" role="status">
         <p>{{ assetEmptyText('场景') }}</p>
-        <button v-if="hasActiveAssetFilters" type="button" class="asset-empty-action" aria-label="清除素材筛选" @click="clearAssetFilters">清除筛选</button>
-        <button v-else type="button" class="asset-empty-action" aria-label="去制作页添加场景" @click="emit('go-production')">去制作页添加</button>
+        <button v-if="hasActiveAssetFilters" type="button" class="asset-empty-action" aria-label="清除素材筛选" @click="clearAssetFilters">清除素材筛选</button>
+        <button v-else type="button" class="asset-empty-action" aria-label="去制作页添加场景" @click="emit('go-production')">去制作页添加场景</button>
       </div>
     </details>
 
@@ -132,8 +132,8 @@
       </CanvasWindowedList>
       <div v-if="!filteredProps.length" class="asset-empty" role="status">
         <p>{{ assetEmptyText('道具') }}</p>
-        <button v-if="hasActiveAssetFilters" type="button" class="asset-empty-action" aria-label="清除素材筛选" @click="clearAssetFilters">清除筛选</button>
-        <button v-else type="button" class="asset-empty-action" aria-label="去制作页添加道具" @click="emit('go-production')">去制作页添加</button>
+        <button v-if="hasActiveAssetFilters" type="button" class="asset-empty-action" aria-label="清除素材筛选" @click="clearAssetFilters">清除素材筛选</button>
+        <button v-else type="button" class="asset-empty-action" aria-label="去制作页添加道具" @click="emit('go-production')">去制作页添加道具</button>
       </div>
     </details>
 
@@ -161,7 +161,7 @@
       </CanvasWindowedList>
       <div v-if="!filteredStoryboardMedia.length" class="asset-empty" role="status">
         <p>{{ assetEmptyText('分镜媒体') }}</p>
-        <button v-if="hasActiveAssetFilters" type="button" class="asset-empty-action" aria-label="清除素材筛选" @click="clearAssetFilters">清除筛选</button>
+        <button v-if="hasActiveAssetFilters" type="button" class="asset-empty-action" aria-label="清除素材筛选" @click="clearAssetFilters">清除素材筛选</button>
         <template v-else>
           <button type="button" class="asset-empty-action" aria-label="上传素材" @click="fileInputRef?.click()">上传素材</button>
           <button type="button" class="asset-empty-action" aria-label="从素材中心选择" @click="emit('open-picker')">从素材中心选择</button>
@@ -193,7 +193,7 @@
       </CanvasWindowedList>
       <div v-if="!filteredAssets.length" class="asset-empty" role="status">
         <p>{{ assetEmptyText('项目素材') }}</p>
-        <button v-if="hasActiveAssetFilters" type="button" class="asset-empty-action" aria-label="清除素材筛选" @click="clearAssetFilters">清除筛选</button>
+        <button v-if="hasActiveAssetFilters" type="button" class="asset-empty-action" aria-label="清除素材筛选" @click="clearAssetFilters">清除素材筛选</button>
         <template v-else>
           <button type="button" class="asset-empty-action" aria-label="上传素材" @click="fileInputRef?.click()">上传素材</button>
           <button type="button" class="asset-empty-action" aria-label="从素材中心选择" @click="emit('open-picker')">从素材中心选择</button>
@@ -299,6 +299,9 @@ async function revealProjectAssets() {
   box-sizing: border-box;
   width: 240px;
   flex: 0 0 240px;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: hidden;
   overflow-y: auto;
   padding: 12px;
   border-right: 1px solid var(--border-color, #27272a);
@@ -312,10 +315,14 @@ async function revealProjectAssets() {
   align-items: center;
   justify-content: space-between;
   gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+  flex-wrap: wrap;
 }
 
 .asset-sidebar-header h2 {
   margin: 0;
+  min-width: 0;
   font-size: 14px;
 }
 

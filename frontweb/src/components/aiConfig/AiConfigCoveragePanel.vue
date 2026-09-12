@@ -65,6 +65,9 @@ defineEmits(['select', 'action'])
   min-width: 0;
 }
 .coverage-panel {
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: 100%;
   margin-bottom: 16px;
   padding: 16px;
   border: 1px solid var(--el-border-color-light, #e4e7ed);
@@ -74,6 +77,15 @@ defineEmits(['select', 'action'])
 .config-workspace-panel:focus-visible {
   outline: 2px solid var(--accent-text, var(--el-color-primary, #409eff));
   outline-offset: 2px;
+}
+@media (max-width: 1024px) {
+  .config-workspace-panel,
+  .coverage-panel {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+  }
 }
 @media (max-width: 760px) {
   .config-workspace-panel {

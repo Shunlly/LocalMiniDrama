@@ -54,9 +54,13 @@ defineEmits(['select', 'action'])
 
 <style scoped>
 .coverage-grid {
+  box-sizing: border-box;
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 8px;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
 }
 .extraction-coverage {
   margin-top: 14px;
@@ -81,6 +85,14 @@ defineEmits(['select', 'action'])
 @media (max-width: 1120px) {
   .coverage-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 1024px) {
+  .coverage-grid,
+  .coverage-grid-extraction {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
   }
 }
 @media (max-width: 760px) {

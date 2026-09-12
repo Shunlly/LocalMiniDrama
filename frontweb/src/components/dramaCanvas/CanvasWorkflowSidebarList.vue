@@ -222,6 +222,8 @@ function moveByKeyboard(groupId, index, delta, total) {
 <style scoped>
 .sidebar-section {
   margin-bottom: 14px;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .sec-label {
@@ -232,6 +234,8 @@ function moveByKeyboard(groupId, index, delta, total) {
 
 .sidebar-item {
   margin-bottom: 6px;
+  min-width: 0;
+  max-width: 100%;
   overflow: hidden;
   border-radius: 6px;
   color: var(--text-primary, #e4e4e7);

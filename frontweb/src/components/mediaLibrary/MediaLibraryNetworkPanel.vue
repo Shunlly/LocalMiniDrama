@@ -27,6 +27,7 @@
             <el-radio-button value="video">视频</el-radio-button>
           </el-radio-group>
           <el-input
+            ref="networkKeywordInputRef"
             v-model="networkKeyword"
             class="network-search-input"
             clearable
@@ -106,6 +107,7 @@
           :network-items="networkItems"
           :search-network-media="searchNetworkMedia"
           :clear-network-search="clearNetworkSearch"
+          :focus-network-search="focusNetworkSearch"
         />
       </div>
 </template>
@@ -113,9 +115,18 @@
 <script setup>
 
 // 仅展示网络素材搜索区；卡片和空态拆到子组件，搜索、导入和预览仍由素材中心页处理。
+import { ref } from 'vue'
 import { Refresh, Search } from '@element-plus/icons-vue'
 import MediaLibraryNetworkCard from './MediaLibraryNetworkCard.vue'
 import MediaLibraryNetworkEmpty from './MediaLibraryNetworkEmpty.vue'
+
+const networkKeywordInputRef = ref(null)
+
+function focusNetworkSearch() {
+  const target = networkKeywordInputRef.value
+  if (typeof target?.focus === 'function') target.focus()
+  else target?.input?.focus?.()
+}
 
 const networkSource = defineModel('networkSource', { type: String, required: true })
 const networkMediaType = defineModel('networkMediaType', { type: String, required: true })
@@ -158,6 +169,8 @@ defineProps({
   margin-bottom: 18px;
   padding-bottom: 18px;
   border-bottom: 1px solid var(--border-color);
+  min-width: 0;
+  max-width: 100%;
 }
 
 .section-title {
@@ -222,8 +235,10 @@ defineProps({
 
 .network-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(220px, 100%), 1fr));
   gap: 14px;
+  min-width: 0;
+  max-width: 100%;
   min-height: 260px;
 }
 
@@ -250,6 +265,12 @@ defineProps({
   .network-search-controls {
     justify-content: flex-start;
     flex-wrap: wrap;
+    max-width: 100%;
+  }
+  .network-search-controls :deep(.el-radio-group),
+  .network-search-controls :deep(.el-radio-button__inner) {
+    max-width: 100%;
+    white-space: normal;
   }
 
   .network-search-input {

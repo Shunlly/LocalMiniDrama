@@ -673,6 +673,8 @@ const {
 <style scoped>
 .drama-detail {
   min-height: 100vh;
+  box-sizing: border-box;
+  overflow-x: clip;
   background: #0f0f12;
   background-image:
     radial-gradient(ellipse 80% 50% at 20% -20%, rgba(120, 60, 220, 0.18) 0%, transparent 60%),
@@ -685,7 +687,17 @@ html.light .drama-detail {
     radial-gradient(ellipse 80% 50% at 20% -20%, rgba(139, 92, 246, 0.12) 0%, transparent 60%),
     radial-gradient(ellipse 60% 40% at 80% 110%, rgba(99, 102, 241, 0.08) 0%, transparent 60%);
 }
-.main { max-width: min(1200px, 96vw); margin: 0 auto; padding: 24px 16px 48px; display: flex; flex-direction: column; gap: 20px; }
+.main {
+  max-width: min(1200px, 100%);
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  margin: 0 auto;
+  padding: 24px 16px 48px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
 .section.card {
   background: rgba(24, 24, 27, 0.75);
   backdrop-filter: blur(12px);
@@ -749,11 +761,13 @@ html.light .dependency-status--error {
 
 @media (max-width: 760px) {
   .drama-detail {
-    overflow-x: hidden;
+    overflow-x: clip;
   }
   .main {
     max-width: 100%;
+    width: calc(100% - 24px);
     padding: 16px 12px 40px;
+    overflow-x: hidden;
   }
   .section.card {
     padding: 16px;

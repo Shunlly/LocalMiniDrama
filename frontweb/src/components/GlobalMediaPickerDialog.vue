@@ -397,8 +397,10 @@ onBeforeUnmount(() => {
 
 .picker-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(180px, 100%), 1fr));
   gap: 12px;
+  min-width: 0;
+  max-width: 100%;
   min-height: 240px;
 }
 

@@ -61,11 +61,14 @@ watch(() => route.fullPath, (fullPath, previousFullPath) => {
   padding: 32px;
   background: var(--bg-page);
   color: var(--text-primary);
+  overflow-x: clip;
 }
 
 .not-found-content {
   width: min(100%, 460px);
+  min-width: 0;
   text-align: center;
+  overflow-wrap: anywhere;
 }
 
 .product-name {
@@ -114,6 +117,7 @@ h1:focus-visible {
   margin: 0;
   color: var(--text-muted);
   line-height: 1.7;
+  overflow-wrap: anywhere;
 }
 
 .next-step {
@@ -121,6 +125,7 @@ h1:focus-visible {
   color: var(--text-primary);
   line-height: 1.7;
   font-weight: 600;
+  overflow-wrap: anywhere;
 }
 
 .actions {

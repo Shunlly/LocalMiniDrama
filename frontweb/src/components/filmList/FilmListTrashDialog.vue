@@ -207,6 +207,12 @@ defineProps({
 }
 .tooltip-trigger { display: inline-flex; }
 .tooltip-trigger:focus-visible { outline: 2px solid #818cf8; outline-offset: 2px; }
+.trash-empty :deep(.el-button:focus-visible),
+.trash-error :deep(.el-button:focus-visible),
+.trash-restore-button:focus-visible {
+  outline: 2px solid #818cf8;
+  outline-offset: 2px;
+}
 .visually-hidden {
   position: absolute;
   width: 1px;
@@ -222,6 +228,7 @@ defineProps({
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 12px;
   padding: 12px;
   border-left: 3px solid #f87171;

@@ -62,11 +62,14 @@ function emitAction(action) {
   left: calc((100vw - 380px) / 2);
   bottom: 88px;
   z-index: 1300;
+  box-sizing: border-box;
   display: inline-flex;
   max-width: min(720px, calc(100vw - 420px));
+  min-width: 0;
   min-height: 40px;
   align-items: center;
   gap: 6px;
+  flex-wrap: wrap;
   padding: 6px 8px;
   border: 1px solid var(--border-color, #3f3f46);
   border-radius: 6px;
@@ -96,7 +99,7 @@ function emitAction(action) {
   }
 }
 
-@media (max-width: 760px) {
+@media (max-width: 769px) {
   .free-canvas-context-bar {
     bottom: 72px;
     max-width: calc(100vw - 32px);

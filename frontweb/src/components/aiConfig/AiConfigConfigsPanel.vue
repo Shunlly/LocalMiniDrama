@@ -110,9 +110,13 @@ function bindConfigListSectionRef(el) {
   min-width: 0;
 }
 .config-list-section {
+  min-width: 0;
+  max-width: 100%;
   scroll-margin-top: 88px;
 }
 .default-tip {
+  min-width: 0;
+  overflow-wrap: anywhere;
   margin: 0 0 16px;
   padding: 10px 12px;
   border: 1px solid var(--ai-config-info-border, #bae6fd);
@@ -125,6 +129,16 @@ function bindConfigListSectionRef(el) {
 .config-workspace-panel:focus-visible {
   outline: 2px solid var(--accent-text, var(--el-color-primary, #409eff));
   outline-offset: 2px;
+}
+@media (max-width: 1024px) {
+  .config-workspace-panel,
+  .config-list-section,
+  .default-tip {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+  }
 }
 @media (max-width: 760px) {
   .config-workspace-panel {

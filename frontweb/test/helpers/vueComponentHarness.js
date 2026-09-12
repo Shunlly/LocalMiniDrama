@@ -234,8 +234,9 @@ export function createElementPlusStubs() {
 
   const ElIconStub = defineComponent({
     name: 'ElIconStub',
-    setup(_props, { slots }) {
-      return () => h('span', { 'data-element-icon': 'true' }, slots.default?.())
+    inheritAttrs: false,
+    setup(_props, { attrs, slots }) {
+      return () => h('span', { ...attrs, 'data-element-icon': 'true' }, slots.default?.())
     },
   })
 

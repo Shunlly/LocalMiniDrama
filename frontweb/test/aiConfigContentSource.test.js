@@ -556,7 +556,7 @@ test('coverage grid stays readable on desktop and identity columns retain toolti
   assert.match(coverageCardsSource, /\.coverage-grid\s*\{[\s\S]*?grid-template-columns:\s*repeat\(auto-fit, minmax\(220px, 1fr\)\);/)
   assert.match(coverageCardSource, /\.coverage-item\s*\{[\s\S]*?min-height:\s*132px;[\s\S]*?padding:\s*10px;/)
   assert.match(coverageCardSource, /\.coverage-select\s*\{[\s\S]*?min-height:\s*32px;/)
-  assert.match(coverageCardSource, /\.coverage-action-link\s*\{[\s\S]*?min-height:\s*32px;/)
+  assert.match(coverageCardSource, /\.coverage-action-link\s*\{[\s\S]*?min-width:\s*32px;[\s\S]*?min-height:\s*32px;/)
   assert.match(coverageCardSource, /\.coverage-config-detail\s*\{[\s\S]*?overflow-wrap:\s*anywhere;/)
   assert.match(coverageCardsSource, /@media \(max-width: 1120px\) \{[\s\S]*?\.coverage-grid\s*\{[\s\S]*?repeat\(2, minmax\(0, 1fr\)\)/)
   assert.match(listTableSource, /<el-table-column prop="name"[^>]*min-width="220"[^>]*show-overflow-tooltip/)
@@ -802,6 +802,30 @@ test('AI 配置在 760px 和 520px 下重排且不会被固定双列撑宽', () 
   assert.match(pageSource, /@media \(max-width: 760px\) \{[\s\S]*?\.ai-config \{[\s\S]*?overflow-x: clip;/)
   assert.match(pageSource, /@media \(max-width: 760px\) \{[\s\S]*?\.main \{[\s\S]*?width: calc\(100% - 24px\);[\s\S]*?overflow-x: hidden;/)
   assert.match(pageSource, /@media \(max-width: 520px\) \{[\s\S]*?\.page-title \{[\s\S]*?position: absolute;[\s\S]*?clip: rect\(0, 0, 0, 0\);/)
+})
+
+test('AI 配置工作台在 1024px 桌面重排覆盖矩阵，连接测试关闭名和 API 密钥标签保持不变', () => {
+  assert.match(coverageHeaderSource, /@media \(max-width: 1024px\) \{[\s\S]*?\.coverage-header \{[\s\S]*?flex-direction: column;/)
+  assert.match(coverageHeaderSource, /@media \(max-width: 1024px\) \{[\s\S]*?\.coverage-unresolved-state \{[\s\S]*?flex-direction: column;/)
+  assert.match(coverageCardsSource, /@media \(max-width: 1024px\) \{[\s\S]*?\.coverage-grid,[\s\S]*?min-width: 0;/)
+  assert.match(workspaceSwitchSource, /@media \(max-width: 1024px\) \{[\s\S]*?\.config-workspace-switch \{[\s\S]*?repeat\(2, minmax\(0, 1fr\)\)/)
+  assert.match(workspaceSwitchSource, /aria-label="服务状态"/)
+  assert.match(workspaceSwitchSource, />\s*服务状态\s*<\/button>/)
+  assert.match(workspaceSwitchSource, /aria-label="配置管理"/)
+  assert.match(workspaceSwitchSource, />\s*配置管理\s*<\/button>/)
+  assert.match(listToolbarSource, /@media \(max-width: 1024px\) \{[\s\S]*?\.content-actions,[\s\S]*?flex-wrap: wrap;/)
+  assert.match(vueSource, /@media \(max-width: 1024px\) \{[\s\S]*?\.ai-config-content,[\s\S]*?max-width: 100%;[\s\S]*?min-width: 0;/)
+  assert.match(coverageCardSource, /\.coverage-actions :deep\(\.el-button \+ \.el-button\) \{[\s\S]*?margin-left: 0;/)
+  assert.equal(
+    (coverageCardSource.match(/:aria-label="`\$\{item\.label\}，\$\{coverageStateLabel\(item\)\}，\$\{coverageTestLabel\(item\.test\)\}`"/g) || []).length,
+    2,
+  )
+  assert.match(connectionDialogSource, /aria-label="关闭连接测试"/)
+  assert.match(connectionDialogSource, />关闭<\/el-button>/)
+  assert.match(formDialogSource, /<span class="form-label-tip">API 密钥<\/span>/)
+  assert.match(formDialogSource, /const apiKeyLabel = configFieldDisplayLabel\('API Key'\)/)
+  assert.doesNotMatch(formDialogSource, />API Key</)
+  assert.doesNotMatch(connectionDialogSource, /aria-label="关闭"/)
 })
 
 test('zero saved configs hide prompt, scene-map and SD2 tabs and fall back to the config list', () => {

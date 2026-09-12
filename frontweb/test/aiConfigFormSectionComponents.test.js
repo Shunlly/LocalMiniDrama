@@ -317,6 +317,8 @@ test('厂商区按服务类型切换即梦2、可灵和 TTS 字段', async () =>
 
     form.service_type = 'tts'
     await nextTick()
+    assert.match(textContent(harness.root), /API 密钥/)
+    assert.doesNotMatch(textContent(harness.root), /\bAPI Key\b/)
     assert.ok(findAll(harness.root, (node) => node.props?.['aria-label'] === '声音 ID')[0])
     assert.ok(findAll(harness.root, (node) => node.props?.placeholder === 'MiniMax GroupId，如 1234567890')[0])
     assert.equal(findAll(harness.root, (node) => node.type === 'button' && textContent(node).includes('列出素材')).length, 0)
@@ -516,6 +518,8 @@ test('锁定分区只保留密钥和默认模型，不出现完整表单分区�
     const text = textContent(harness.root)
     assert.match(text, /锁定文本配置/)
     assert.match(text, /锁定模式下不能新增模型列表/)
+    assert.match(text, /API 密钥/)
+    assert.doesNotMatch(text, /\bAPI Key\b/)
     assert.ok(fieldByName(harness.root, 'api_key'))
     assert.ok(fieldByName(harness.root, 'default_model'))
     assert.equal(fieldByName(harness.root, 'service_type'), undefined)

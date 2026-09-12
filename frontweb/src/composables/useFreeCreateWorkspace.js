@@ -22,6 +22,8 @@ import { getServiceConfigReadiness } from '@/utils/aiServiceReadiness'
 import {
   buildFreeCreateGenerationPayload,
   createFreeCreateTaskOwner,
+  FREE_CREATE_DRAFT_RESTORE_ERROR,
+  FREE_CREATE_DRAFT_SAVE_ERROR,
   FREE_CREATE_LEAVE_CONFIRM_BUTTON_TEXT,
   FREE_CREATE_LEAVE_CONFIRM_MESSAGE,
   FREE_CREATE_LEAVE_CONFIRM_TITLE,
@@ -37,8 +39,10 @@ import {
   normalizeFreeCreateAspectRatio,
   parseFreeCreateTaskResult,
   pollFreeCreateTask,
+  readFreeCreateDraft,
   shouldBlockFreeCreateUnload,
   toFreeCreateUserError,
+  writeFreeCreateDraft,
 } from '@/utils/freeCreate'
 
 function defaultFreeCreateStorage() {
@@ -109,6 +113,8 @@ export function useFreeCreateWorkspace({
   let unregisterLeaveProtection = null
   let leaveConfirmPending = null
   let restoringResults = false
+  let restoringDraft = false
+  let draftPersistFailed = false
   const assetSaveTargetDramaId = computed(() => resolveFreeCreateAssetDramaId(route))
   const assetSaveTargetLabel = computed(() => (
     assetSaveTargetDramaId.value ? '当前项目素材中心' : '全局素材中心'
@@ -117,6 +123,42 @@ export function useFreeCreateWorkspace({
   function persistResults() {
     if (restoringResults) return
     writeFreeCreateHistory(resultStorage, results.value)
+  }
+
+  function persistDraft() {
+    if (restoringDraft) return
+    try {
+      const wrote = writeFreeCreateDraft(resultStorage, {
+        mode: mode.value,
+        prompt: prompt.value,
+        style: style.value,
+        aspectRatio: aspectRatio.value,
+        duration: duration.value,
+      })
+      if (wrote) draftPersistFailed = false
+    } catch (error) {
+      if (draftPersistFailed) return
+      draftPersistFailed = true
+      ElMessage.error(toFreeCreateUserError(error, FREE_CREATE_DRAFT_SAVE_ERROR))
+    }
+  }
+
+  async function restoreDraft() {
+    restoringDraft = true
+    try {
+      const draft = readFreeCreateDraft(resultStorage)
+      if (!draft) return
+      mode.value = draft.mode
+      prompt.value = draft.prompt
+      style.value = draft.style
+      aspectRatio.value = draft.aspectRatio
+      duration.value = draft.duration
+    } catch (error) {
+      ElMessage.error(toFreeCreateUserError(error, FREE_CREATE_DRAFT_RESTORE_ERROR))
+    } finally {
+      await nextTick()
+      restoringDraft = false
+    }
   }
 
   const activeServiceType = computed(() => mode.value === 'video' ? 'video' : 'image')
@@ -242,6 +284,7 @@ export function useFreeCreateWorkspace({
   }, { immediate: true })
 
   watch(results, persistResults, { deep: true })
+  watch([mode, prompt, style, aspectRatio, duration], persistDraft)
 
   function goBack() {
     router.push({ name: 'list' })
@@ -320,6 +363,11 @@ export function useFreeCreateWorkspace({
     }
   }
 
+  function applyRequestedMode() {
+    const requestedMode = Array.isArray(route.query.mode) ? route.query.mode[0] : route.query.mode
+    if (requestedMode === 'image' || requestedMode === 'video') mode.value = requestedMode
+  }
+
   function mount(leaveProtection) {
     unregisterLeaveProtection = leaveProtection?.register?.('free-create', {
       shouldBlockUnload: () => shouldBlockFreeCreateUnload({
@@ -328,9 +376,12 @@ export function useFreeCreateWorkspace({
       }),
       confirmLeave: () => confirmFreeCreateLeave(),
     }) || null
-    const requestedMode = Array.isArray(route.query.mode) ? route.query.mode[0] : route.query.mode
-    if (requestedMode === 'image' || requestedMode === 'video') mode.value = requestedMode
-    return Promise.all([loadGenerationSettings(), loadServiceConfigs(), restorePersistedResults()])
+    return Promise.all([
+      loadGenerationSettings(),
+      loadServiceConfigs(),
+      restorePersistedResults(),
+      restoreDraft().then(() => applyRequestedMode()),
+    ])
   }
 
   async function restorePersistedResults() {

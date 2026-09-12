@@ -125,6 +125,54 @@ export function normalizeFreeCreateAspectRatio(mode = 'image', aspectRatio = '')
   return supported.includes(normalized) ? normalized : supported[0]
 }
 
+export const FREE_CREATE_DRAFT_STORAGE_KEY = 'localminidrama.free-create.draft.v1'
+export const FREE_CREATE_DRAFT_SAVE_ERROR = '提示词未能保存到本地，请稍后重试'
+export const FREE_CREATE_DRAFT_RESTORE_ERROR = '无法恢复上次填写的提示词，请重新填写'
+const FREE_CREATE_DRAFT_DURATIONS = Object.freeze([3, 5, 8, 10])
+
+/** 只保留可安全回填的提示词草稿字段 */
+export function normalizeFreeCreateDraft(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
+  const mode = raw.mode === 'video' ? 'video' : 'image'
+  const duration = Number(raw.duration)
+  return {
+    mode,
+    prompt: typeof raw.prompt === 'string' ? raw.prompt : '',
+    style: typeof raw.style === 'string' ? raw.style : '',
+    aspectRatio: normalizeFreeCreateAspectRatio(mode, raw.aspectRatio),
+    duration: FREE_CREATE_DRAFT_DURATIONS.includes(duration) ? duration : 5,
+  }
+}
+
+export function readFreeCreateDraft(storage) {
+  if (!storage || typeof storage.getItem !== 'function') return null
+  let raw
+  try {
+    raw = storage.getItem(FREE_CREATE_DRAFT_STORAGE_KEY)
+  } catch (error) {
+    throw new Error(toFreeCreateUserError(error, FREE_CREATE_DRAFT_RESTORE_ERROR))
+  }
+  if (raw == null || raw === '') return null
+  try {
+    const draft = normalizeFreeCreateDraft(JSON.parse(raw))
+    if (!draft) throw new Error(FREE_CREATE_DRAFT_RESTORE_ERROR)
+    return draft
+  } catch (error) {
+    throw new Error(toFreeCreateUserError(error, FREE_CREATE_DRAFT_RESTORE_ERROR))
+  }
+}
+
+export function writeFreeCreateDraft(storage, draft) {
+  if (!storage || typeof storage.setItem !== 'function') return false
+  try {
+    const normalized = normalizeFreeCreateDraft(draft) || normalizeFreeCreateDraft({})
+    storage.setItem(FREE_CREATE_DRAFT_STORAGE_KEY, JSON.stringify(normalized))
+    return true
+  } catch (error) {
+    throw new Error(toFreeCreateUserError(error, FREE_CREATE_DRAFT_SAVE_ERROR))
+  }
+}
+
 export function parseFreeCreateTaskResult(value) {
   if (value == null || (typeof value === 'string' && value.trim() === '')) return {}
 

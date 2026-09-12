@@ -518,6 +518,7 @@ test('FilmCreate AI config dialog fixes its header and tabs around one content s
 
   const header = cssRule(themeSource, `${aiDialogHostSelector} > .el-dialog__header`)
   assert.match(header, /flex:\s*0 0 auto/)
+  assert.match(header, /padding:\s*16px 48px 14px 20px/)
 
   const body = cssRule(themeSource, `${aiDialogHostSelector} > .el-dialog__body`)
   assert.match(body, /flex:\s*1 1 auto/)

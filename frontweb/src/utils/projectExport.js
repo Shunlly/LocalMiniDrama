@@ -1,3 +1,5 @@
+import { toUserFacingError } from '@/utils/userFacingError.js'
+
 export function sanitizeExportFilename(title) {
   let stem = String(title || 'drama')
     .replace(/\.zip$/i, '')
@@ -42,14 +44,11 @@ export async function validateExportBlob(blob) {
 }
 
 export async function resolveExportFailureMessage(error) {
+  const fallback = '项目包导出失败，请重试'
   const responseBody = error?.response?.data
   if (typeof Blob !== 'undefined' && responseBody instanceof Blob && responseBody.size > 0) {
     const blobMessage = await inspectExportJsonBlob(responseBody)
-    if (blobMessage) return blobMessage
+    if (blobMessage) return toUserFacingError({ message: blobMessage }, fallback)
   }
-  if (responseBody && typeof responseBody === 'object') {
-    const responseMessage = responseBody?.error?.message || responseBody?.message
-    if (responseMessage) return responseMessage
-  }
-  return error?.message || '项目包导出失败，请重试'
+  return toUserFacingError(error, fallback, { serviceLabel: '项目导出服务' })
 }

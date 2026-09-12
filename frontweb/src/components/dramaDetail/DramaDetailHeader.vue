@@ -13,16 +13,16 @@
         <el-button class="btn-back-list" aria-label="返回项目列表" @click="emit('go-list')">
           <el-icon aria-hidden="true"><ArrowLeft /></el-icon>返回项目列表
         </el-button>
+        <p
+          v-if="isDramaReady && !currentEpisodeId"
+          id="drama-header-episode-reason"
+          class="visually-hidden"
+        >请先新增一集</p>
         <div class="header-actions">
           <el-button class="btn-theme" :title="isDark ? '切换到浅色模式' : '切换到暗色模式'" :aria-label="isDark ? '切换到浅色模式' : '切换到暗色模式'" @click="emit('toggle-theme')">
             <el-icon><Sunny v-if="isDark" /><Moon v-else /></el-icon>
             {{ isDark ? '浅色' : '暗色' }}
           </el-button>
-          <p
-            v-if="isDramaReady && !currentEpisodeId"
-            id="drama-header-episode-reason"
-            class="visually-hidden"
-          >请先新增一集</p>
           <el-tooltip
             v-if="isDramaReady"
             content="请先新增一集，再进入制作"
@@ -100,6 +100,8 @@ const emit = defineEmits(['go-list', 'toggle-theme', 'go-create', 'go-canvas-mod
   position: sticky;
   top: 0;
   z-index: 100;
+  box-sizing: border-box;
+  overflow-x: clip;
   box-shadow: 0 2px 20px rgba(0, 0, 0, 0.4);
 }
 html.light .drama-detail .header {
@@ -148,7 +150,17 @@ html.light .drama-detail .logo-sub {
   color: #9ca3af;
   -webkit-text-fill-color: #9ca3af;
 }
-.header-inner { max-width: min(1200px, 96vw); margin: 0 auto; display: flex; align-items: center; gap: 16px; }
+.header-inner {
+  max-width: min(1200px, 100%);
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
 .breadcrumb-sep {
   color: #3f3f46;
   font-size: 1rem;
@@ -225,21 +237,13 @@ html.light .btn-theme {
   --el-button-hover-border-color: rgba(99, 102, 241, 0.5);
   --el-button-hover-text-color: #4f46e5;
 }
-@media (max-width: 760px) {
+@media (max-width: 1100px) {
   .header {
-    padding: 10px 12px;
+    padding: 10px 16px;
   }
   .header-inner {
     max-width: 100%;
     gap: 8px;
-    flex-wrap: wrap;
-  }
-  .breadcrumb-sep,
-  .header-context {
-    display: none;
-  }
-  .btn-back-list {
-    margin-left: auto;
   }
   .header-actions {
     width: 100%;
@@ -250,6 +254,18 @@ html.light .btn-theme {
   .header-actions :deep(.el-button) {
     min-width: 0;
     margin-left: 0;
+  }
+}
+@media (max-width: 760px) {
+  .header {
+    padding: 10px 12px;
+  }
+  .breadcrumb-sep,
+  .header-context {
+    display: none;
+  }
+  .btn-back-list {
+    margin-left: auto;
   }
 }
 </style>

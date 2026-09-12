@@ -53,8 +53,17 @@
 }
 .data-load-state__content,
 .backup-item-copy,
-.empty-state {
+.empty-state,
+.selected-file,
+.maintenance-status {
   min-width: 0;
+}
+.backup-item-copy strong,
+.selected-file p,
+.maintenance-status strong,
+.page-title,
+.page-subtitle {
+  overflow-wrap: anywhere;
 }
 .data-load-state h2,
 .empty-state strong,
@@ -113,9 +122,18 @@
   .header-left,
   .header-actions,
   .data-load-state,
-  .import-failure-actions {
+  .import-failure-actions,
+  .backup-item,
+  .selected-file,
+  .maintenance-status {
     flex-direction: column;
     align-items: stretch;
+  }
+  .header-actions :deep(.el-button),
+  .import-failure-actions :deep(.el-button),
+  .backup-item :deep(.el-button),
+  .selected-file :deep(.el-button) {
+    margin-left: 0;
   }
 }
 

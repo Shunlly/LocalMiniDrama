@@ -17,6 +17,6 @@ defineProps({
 </script>
 
 <style scoped>
-.library-list { min-height: 120px; display: flex; flex-direction: column; gap: 10px; max-height: 400px; overflow-y: auto; }
-.library-item { display: flex; gap: 12px; padding: 10px; background: #1c1c1e; border: 1px solid #27272a; border-radius: 8px; }
+.library-list { min-height: 120px; min-width: 0; display: flex; flex-direction: column; gap: 10px; max-height: 400px; overflow-x: hidden; overflow-y: auto; }
+.library-item { display: flex; gap: 12px; min-width: 0; padding: 10px; background: #1c1c1e; border: 1px solid #27272a; border-radius: 8px; }
 </style>

@@ -277,6 +277,11 @@ test('结果区在生成或取消中禁用操作，并给出中文原因', async
     assert.ok(retry)
     assert.equal(retry.props.disabled, true)
     assert.equal(retry.props.title, '正在取消生成，请稍候')
+    const [tip] = findByClass(harness.root, 'generating-tip')
+    assert.ok(tip)
+    assert.equal(tip.props.role, 'status')
+    assert.equal(tip.props['aria-live'], 'polite')
+    assert.equal(tip.props['aria-atomic'], 'true')
   } finally {
     harness.app.unmount()
   }
@@ -298,6 +303,10 @@ test('结果空态展示中文说明，失败时可重新检查服务', () => {
     assert.ok(empty)
     assert.equal(empty.props.role, 'status')
     assert.equal(empty.props['aria-live'], 'polite')
+    assert.equal(empty.props['aria-atomic'], 'true')
+    const [icon] = findByClass(harness.root, 'empty-icon')
+    assert.ok(icon)
+    assert.equal(icon.props['aria-hidden'], 'true')
     const [actions] = findByClass(harness.root, 'empty-result-actions')
     assert.equal(actions.props.role, 'group')
     assert.equal(actions.props['aria-label'], '空结果下一步')

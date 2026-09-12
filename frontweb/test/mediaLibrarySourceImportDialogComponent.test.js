@@ -169,7 +169,7 @@ test('搜索无结果与空项目列表分开，清除搜索是中文', async ()
     assert.match(copy, /请更换关键词后再试/)
     assert.doesNotMatch(copy, /还没有可导入的项目/)
     assert.doesNotMatch(copy, /No data|No projects|Network Error/i)
-    click(buttonByAriaLabel(harness.root, '清除项目搜索'))
+    click(buttonByAriaLabel(harness.root, '清除搜索'))
     assert.equal(harness.keyword.value, '')
     assert.ok(harness.events.some((event) => event[0] === 'search'))
   } finally {

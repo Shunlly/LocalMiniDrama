@@ -109,12 +109,12 @@
             </div>
           </div>
         </div>
-        <div v-if="!importLoading && !importError && importList.length === 0" class="library-empty resource-empty-state" role="status" aria-live="polite">
+        <div v-if="!importLoading && !importError && importList.length === 0" class="library-empty resource-empty-state" role="status" aria-live="polite" aria-label="空资源下一步">
           <div class="empty-state-title">{{ importKw.trim() ? '没有匹配的素材' : '素材库暂无内容' }}</div>
           <div class="empty-state-copy">{{ importKw.trim() ? '试试其他关键词，或清除搜索后重新查看。' : (currentEpisodeId ? '可前往制作页新增素材并加入素材库。' : '请先新增一集，再去制作页提取素材。') }}</div>
-          <el-button v-if="importKw.trim()" size="small" aria-label="清除导入搜索" @click="importKw = ''; loadImportList()">清除搜索</el-button>
+          <el-button v-if="importKw.trim()" size="small" aria-label="清除导入搜索" @click="importKw = ''; loadImportList()">清除导入搜索</el-button>
           <el-button v-else size="small" type="primary" :loading="!currentEpisodeId && addingEpisode" :aria-label="currentEpisodeId ? '前往制作页新增并入库' : '新增一集后再去制作页提取素材'" @click="goCreateOrAddEpisode">
-            {{ currentEpisodeId ? '前往制作页新增并入库' : '先去新增一集' }}
+            {{ currentEpisodeId ? '前往制作页新增并入库' : '新增一集后再去制作页提取素材' }}
           </el-button>
         </div>
       </div>
@@ -227,11 +227,11 @@ const previewUrl = defineModel('previewUrl', { default: null })
 </script>
 
 <style scoped>
-.library-toolbar { margin-bottom: 12px; display: flex; align-items: center; gap: 10px; }
+.library-toolbar { margin-bottom: 12px; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; min-width: 0; }
 .import-tip { font-size: 0.8rem; color: #71717a; }
 .import-list { max-height: 480px; }
 .library-list { min-height: 120px; display: flex; flex-direction: column; gap: 10px; max-height: 400px; overflow-y: auto; }
-.library-item { display: flex; gap: 12px; padding: 10px; background: #1c1c1e; border: 1px solid #27272a; border-radius: 8px; }
+.library-item { display: flex; gap: 12px; min-width: 0; padding: 10px; background: #1c1c1e; border: 1px solid #27272a; border-radius: 8px; }
 .library-item-cover { width: 72px; height: 72px; flex-shrink: 0; padding: 0; border: 0; border-radius: 6px; overflow: hidden; background: #27272a; color: inherit; font: inherit; display: flex; align-items: center; justify-content: center; cursor: pointer; }
 .library-item-cover img { width: 100%; height: 100%; object-fit: cover; }
 .library-item-cover--empty { cursor: default; }
@@ -252,7 +252,9 @@ const previewUrl = defineModel('previewUrl', { default: null })
   background: rgba(239, 68, 68, 0.08);
   color: #fca5a5;
 }
-.resource-empty-state { display: grid; justify-items: center; gap: 12px; width: 100%; }
+.empty-state-title { color: var(--text-primary, #fafafa); font-size: 15px; font-weight: 600; }
+.empty-state-copy { max-width: 620px; color: var(--text-subtle, #a1a1aa); font-size: 12px; line-height: 1.6; }
+.resource-empty-state { display: grid; justify-items: center; gap: 12px; width: 100%; max-width: 100%; box-sizing: border-box; }
 .library-pagination { margin-top: 12px; display: flex; justify-content: center; }
 .library-item-cover:focus-visible { outline: 2px solid #818cf8; outline-offset: 2px; }
 .library-item-cover:disabled,

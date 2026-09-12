@@ -1132,6 +1132,7 @@ html.dark :is(.ai-config-content, .ai-config-overlay) :is(
 .tab-content {
   padding-top: 16px;
   min-width: 0;
+  max-width: 100%;
 }
 .config-workspace-panel {
   min-width: 0;
@@ -1148,6 +1149,16 @@ code {
   border-radius: 3px;
   font-size: 12px;
   font-family: monospace;
+}
+@media (max-width: 1024px) {
+  .ai-config-content,
+  .tab-content,
+  .config-workspace-panel {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+  }
 }
 @media (max-width: 760px) {
   .ai-config-content,

@@ -9,6 +9,7 @@ import {
   compileIconStub,
   createHostRenderer,
   findByClass,
+  findByType,
   loadCompiledSfc,
   mountHarness,
   textContent,
@@ -35,6 +36,31 @@ const FilmListFailureBanners = await loadCompiledSfc(bannersUrl, 'film-list-empt
 const FilmListWorkspaceToolbar = await loadCompiledSfc(toolbarUrl, 'film-list-empty-toolbar', replacements)
 const renderer = createHostRenderer()
 const WRITE_LOCK_REASON = '项目数据加载失败，成功重试前不能新增或导入'
+
+function visibleButtonText(node) {
+  return textContent(node).replace(/\s+/g, ' ').trim()
+}
+
+function assertEmptyStateButtons(root, sectionClass, { primaryText = '', allowZeroPrimary = false } = {}) {
+  const section = findByClass(root, sectionClass)[0]
+  assert.ok(section, `missing ${sectionClass}`)
+  const buttons = findByType(section, 'button')
+  assert.ok(buttons.length > 0, `${sectionClass} should have buttons`)
+  const primaries = buttons.filter((node) => node.props['data-variant'] === 'primary')
+  if (allowZeroPrimary) assert.ok(primaries.length <= 1, `${sectionClass} can have at most one primary`)
+  else assert.equal(primaries.length, 1, `${sectionClass} should have exactly one primary`)
+  if (primaryText) {
+    assert.match(visibleButtonText(primaries[0]), new RegExp(primaryText))
+    assert.ok(String(primaries[0].props['aria-label'] || '').includes(primaryText))
+  }
+  for (const button of buttons) {
+    const visible = visibleButtonText(button)
+    const label = String(button.props['aria-label'] || '')
+    assert.ok(visible, 'empty-state button needs visible text')
+    assert.ok(label.includes(visible), `${visible} should be inside aria-label "${label}"`)
+  }
+}
+
 
 function noop() {}
 
@@ -98,12 +124,26 @@ test('空列表起步路径可以新建、导入，不出现筛选空态', async
     assert.doesNotMatch(textContent(harness.root), /没有匹配的项目/)
     const created = buttonByAriaLabel(harness.root, '新建项目')
     const imported = buttonByAriaLabel(harness.root, '导入项目包')
+    const material = buttonByAriaLabel(harness.root, '前往素材中心')
+    const trash = buttonByAriaLabel(harness.root, '查看回收站')
     assert.ok(created)
     assert.ok(imported)
+    assert.ok(material)
+    assert.ok(trash)
+    assert.equal(created.props['data-variant'], 'primary')
+    assert.notEqual(imported.props['data-variant'], 'primary')
+    assert.notEqual(material.props['data-variant'], 'primary')
+    assert.notEqual(trash.props['data-variant'], 'primary')
+    assert.match(textContent(material), /前往素材中心/)
+    assert.match(textContent(trash), /查看回收站/)
+    assert.equal(material.props['aria-label'], '前往素材中心')
+    assert.equal(trash.props['aria-label'], '查看回收站')
     assert.notEqual(created.props.disabled, true)
     click(created)
     click(imported)
-    assert.deepEqual(harness.events, ['new', 'import'])
+    click(material)
+    click(trash)
+    assert.deepEqual(harness.events, ['new', 'import', 'material', 'trash'])
   } finally {
     harness.app.unmount()
   }
@@ -189,6 +229,41 @@ test('加载失败时工具条不冒充空项目起步路径', async () => {
     assert.equal(buttonByAriaLabel(harness.root, '新建项目'), undefined)
     assert.doesNotMatch(textContent(harness.root), /还没有短剧项目/)
     assert.doesNotMatch(textContent(harness.root), /没有匹配的项目/)
+  } finally {
+    harness.app.unmount()
+  }
+})
+
+test('\u7a7a\u9879\u76ee\u8d77\u6b65\u8def\u5f84\u53ea\u6709\u4e00\u4e2a\u4e3b\u6309\u94ae\uff0c\u4e14\u8bfb\u5c4f\u540d\u5305\u542b\u53ef\u89c1\u6587\u6848', async () => {
+  const harness = mountToolbar({
+    dramas: [],
+    filteredDramas: [],
+    hasProjectFilters: false,
+    exampleList: [{ filename: 'demo.zip', name: '\u96e8\u5df7\u793a\u4f8b' }],
+  })
+  try {
+    await nextTick()
+    assertEmptyStateButtons(harness.root, 'action-card--empty', { primaryText: '\u65b0\u5efa\u9879\u76ee' })
+    assert.equal(findByClass(harness.root, 'action-card--search-empty').length, 0)
+  } finally {
+    harness.app.unmount()
+  }
+})
+
+test('\u7b5b\u9009\u7a7a\u6001\u53ea\u6709\u4e00\u4e2a\u4e3b\u6309\u94ae\uff0c\u6e05\u9664\u7b5b\u9009\u7684\u8bfb\u5c4f\u540d\u5305\u542b\u53ef\u89c1\u6587\u6848', async () => {
+  const harness = mountToolbar({
+    projectSearch: 'moon',
+    dramas: [{ id: 1, title: '\u96e8\u5df7' }],
+    filteredDramas: [],
+    hasProjectFilters: true,
+    projectListCountLabel: '0 \u4e2a\u9879\u76ee',
+  })
+  try {
+    await nextTick()
+    assertEmptyStateButtons(harness.root, 'action-card--search-empty', { primaryText: '\u65b0\u5efa\u9879\u76ee' })
+    const clear = buttonByAriaLabel(harness.root, '\u6e05\u9664\u7b5b\u9009\u5e76\u67e5\u770b\u5168\u90e8\u9879\u76ee')
+    assert.ok(clear)
+    assert.match(visibleButtonText(clear), /\u6e05\u9664\u7b5b\u9009/)
   } finally {
     harness.app.unmount()
   }

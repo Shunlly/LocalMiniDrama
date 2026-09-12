@@ -279,6 +279,9 @@ async function retryMedia() {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  min-width: 0;
+  max-width: 100%;
+  flex-wrap: wrap;
   padding: 8px 10px;
   border: 1px solid var(--canvas-divider-strong);
   border-bottom: 0;
@@ -371,7 +374,7 @@ async function retryMedia() {
   opacity: 0.7;
 }
 
-@media (max-width: 760px) {
+@media (max-width: 769px) {
   .canvas-inspector-dock {
     top: 104px;
     right: 16px;

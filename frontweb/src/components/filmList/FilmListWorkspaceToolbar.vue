@@ -136,7 +136,7 @@
         <p class="action-card-desc">换一个关键词或状态，或清除筛选后查看全部项目。</p>
         <div class="action-card-buttons">
           <el-button class="action-btn action-btn-clear-filters" aria-label="清除筛选并查看全部项目" @click="clearProjectFilters">
-            清除筛选
+            清除筛选并查看全部项目
           </el-button>
           <el-tooltip :content="listWriteLockReason" :disabled="!listWriteLocked" placement="top">
             <span
@@ -254,6 +254,8 @@ html.dark .workspace-search :deep(.el-input__inner::placeholder) {
 }
 .action-card-inner {
   width: min(680px, 100%);
+  max-width: 100%;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -262,6 +264,8 @@ html.dark .workspace-search :deep(.el-input__inner::placeholder) {
 .action-card--empty {
   grid-column: 1 / -1;
   min-height: 260px;
+  min-width: 0;
+  max-width: 100%;
   padding: 44px 12px;
 }
 .action-card--search-empty {
@@ -277,6 +281,11 @@ html.dark .workspace-search :deep(.el-input__inner::placeholder) {
 }
 .action-card--search-empty .action-card-buttons {
   justify-content: center;
+}
+.action-card-title,
+.action-card-desc {
+  max-width: 100%;
+  overflow-wrap: anywhere;
 }
 .action-card-title {
   font-size: 1.35rem;
@@ -297,7 +306,8 @@ html.dark .workspace-search :deep(.el-input__inner::placeholder) {
   justify-content: flex-start;
 }
 .action-btn {
-  min-width: 150px;
+  min-width: min(150px, 100%);
+  max-width: 100%;
 }
 .action-btn-new {
   --el-button-bg-color: var(--el-color-primary);
@@ -378,7 +388,9 @@ html.dark .workspace-search :deep(.el-input__inner::placeholder) {
 .tooltip-trigger { display: inline-flex; }
 .tooltip-trigger:focus-visible { outline: 2px solid #818cf8; outline-offset: 2px; }
 .action-card-buttons :deep(.el-button:focus-visible),
-.example-list :deep(.el-button:focus-visible) {
+.action-card-secondary :deep(.el-button:focus-visible),
+.example-list :deep(.el-button:focus-visible),
+.workspace-controls :deep(.el-button:focus-visible) {
   outline: 2px solid #818cf8;
   outline-offset: 2px;
 }
@@ -452,6 +464,18 @@ html.light .example-hint-text { color: #6b7280; }
   .workspace-sort,
   .workspace-clear-filters {
     width: 100%;
+  }
+  .action-card-buttons,
+  .action-card-secondary,
+  .example-list {
+    width: 100%;
+  }
+  .action-card-buttons :deep(.el-button),
+  .action-card-secondary :deep(.el-button),
+  .example-list :deep(.el-button) {
+    white-space: normal;
+    height: auto;
+    max-width: 100%;
   }
 }
 </style>

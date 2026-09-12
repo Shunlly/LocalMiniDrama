@@ -24,6 +24,8 @@ function goBack() {
 <style scoped>
 .page-header {
   margin-bottom: 20px;
+  min-width: 0;
+  overflow-x: clip;
 }
 
 .header-left {
@@ -31,6 +33,8 @@ function goBack() {
   align-items: center;
   gap: 12px;
   margin-bottom: 6px;
+  min-width: 0;
+  flex-wrap: wrap;
 }
 
 .page-title {
@@ -38,12 +42,16 @@ function goBack() {
   font-weight: 600;
   color: var(--text-bright);
   margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .page-desc {
   color: var(--text-muted);
   font-size: 14px;
   margin: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
 }
 .back-link {
   padding-left: 0;
@@ -52,5 +60,12 @@ function goBack() {
 .back-link:focus-visible {
   outline: 2px solid var(--el-color-primary, #818cf8);
   outline-offset: 2px;
+}
+
+@media (max-width: 520px) {
+  .header-left {
+    flex-direction: column;
+    align-items: flex-start;
+  }
 }
 </style>

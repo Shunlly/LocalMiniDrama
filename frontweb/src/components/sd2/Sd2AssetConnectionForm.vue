@@ -50,7 +50,7 @@
       />
       <p class="field-hint">
         会写入查询参数和请求体里的工程名 <code>ProjectName</code>（与动作名一并签名）。
-        若仍报 403 且文案里是 <code>project/*</code>，多为 IAM 未授权该动作；请确认策略里资源是否包含你的工程（或 <code>project/*</code>），错误提示不一定替换为具体工程名。
+        若仍提示没有权限，且文案里是 <code>project/*</code>，多为 IAM 未授权该动作；请确认策略里资源是否包含你的工程（或 <code>project/*</code>），错误提示不一定替换为具体工程名。
       </p>
     </el-form-item>
     <el-form-item label="模型（可选）">

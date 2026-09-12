@@ -129,7 +129,7 @@ defineProps({
   scrollbar-gutter: stable;
 }
 
-@media (max-width: 760px) {
+@media (max-width: 769px) {
   .free-canvas-inspector-dock {
     top: 104px;
     right: 16px;

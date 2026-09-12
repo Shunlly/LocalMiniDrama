@@ -83,13 +83,13 @@
         </template>
         <div v-if="filteredGroups.length === 0" class="spd-empty">
           <p>没有匹配的风格</p>
-          <el-button size="small" aria-label="清除风格搜索" @click="search = ''">清除搜索</el-button>
+          <el-button size="small" aria-label="清除风格搜索" @click="search = ''">清除风格搜索</el-button>
         </div>
       </div>
 
       <template #footer>
-        <el-button aria-label="清除风格选择" @click="clearAndClose">清除选择</el-button>
-        <el-button type="primary" aria-label="完成风格选择" @click="visible = false">完成</el-button>
+        <el-button aria-label="清除风格选择" @click="clearAndClose">清除风格选择</el-button>
+        <el-button type="primary" aria-label="完成风格选择" @click="visible = false">完成风格选择</el-button>
       </template>
     </AccessibleDialog>
   </div>

@@ -43,9 +43,11 @@
     </el-table-column>
     <el-table-column label="操作" width="180" fixed="right">
       <template #default="{ row }">
-        <el-button link type="primary" size="small" :aria-label="configActionLabel('测试', row)" @click="openTest(row)">测试</el-button>
-        <el-button link type="primary" size="small" :disabled="configWriteLocked" :title="configWriteLocked ? configWriteLockReason : undefined" :aria-label="configActionLabel(vendorLock.enabled ? '修改密钥' : '编辑', row)" @click="onRowEdit(row)">{{ vendorLock.enabled ? '修改密钥' : '编辑' }}</el-button>
-        <el-button v-if="!vendorLock.enabled" link type="danger" size="small" :disabled="configWriteLocked" :title="configWriteLocked ? configWriteLockReason : undefined" :aria-label="configActionLabel('删除', row)" @click="onDelete(row)">删除</el-button>
+        <div class="config-row-actions">
+          <el-button link type="primary" size="small" :aria-label="configActionLabel('测试', row)" @click="openTest(row)">测试</el-button>
+          <el-button link type="primary" size="small" :disabled="configWriteLocked" :title="configWriteLocked ? configWriteLockReason : undefined" :aria-label="configActionLabel(vendorLock.enabled ? '修改密钥' : '编辑', row)" @click="onRowEdit(row)">{{ vendorLock.enabled ? '修改密钥' : '编辑' }}</el-button>
+          <el-button v-if="!vendorLock.enabled" link type="danger" size="small" :disabled="configWriteLocked" :title="configWriteLocked ? configWriteLockReason : undefined" :aria-label="configActionLabel('删除', row)" @click="onDelete(row)">删除</el-button>
+        </div>
       </template>
     </el-table-column>
     <template #empty>
@@ -162,8 +164,25 @@ const emptyAddAriaLabel = computed(() => describeDisabledControlLabel(
   color: var(--el-color-primary, #409eff);
   font-size: 28px;
 }
+.config-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  min-width: 0;
+  max-width: 100%;
+}
+.config-row-actions :deep(.el-button) {
+  min-width: 32px;
+  min-height: 32px;
+  margin-left: 0;
+}
+.config-row-actions :deep(.el-button + .el-button) {
+  margin-left: 0;
+}
 .config-empty-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   margin-top: 6px;
 }
@@ -234,6 +253,12 @@ const emptyAddAriaLabel = computed(() => describeDisabledControlLabel(
 .no-default {
   color: var(--el-text-color-secondary, #9ca3af);
   font-size: 13px;
+}
+@media (max-width: 1024px) {
+  .config-row-actions,
+  .config-empty-actions {
+    max-width: 100%;
+  }
 }
 @media (max-width: 760px) {
   .config-empty-actions {

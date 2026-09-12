@@ -116,6 +116,7 @@ html.light .ai-config {
   position: sticky;
   top: 0;
   z-index: 100;
+  overflow-x: clip;
 }
 html.light .header {
   background: rgba(255, 255, 255, 0.85);
@@ -124,11 +125,13 @@ html.light .header {
 }
 .header-inner {
   max-width: 1200px;
+  min-width: 0;
   margin: 0 auto;
   padding: 12px 24px;
   display: flex;
   align-items: center;
   gap: 16px;
+  flex-wrap: wrap;
 }
 .logo {
   margin: 0;

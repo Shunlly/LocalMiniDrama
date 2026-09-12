@@ -55,7 +55,7 @@ const CRITICAL_UI = Object.freeze({
   networkMediaTab: '网络素材',
   mediaLibraryEmpty: '素材中心还是空的',
   mediaLibraryEmptyHint: '上传图片或视频，后续项目可以直接复用。',
-  uploadMediaAria: '上传图片或视频到素材中心',
+  uploadMediaAria: '上传素材',
   backToHome: '返回项目首页',
   freeCreateTitle: '自由创作',
   close: '关闭角色库',

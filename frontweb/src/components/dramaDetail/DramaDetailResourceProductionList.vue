@@ -19,8 +19,8 @@ defineProps({
 </script>
 
 <style scoped>
-.drama-res-list { display: flex; flex-wrap: wrap; gap: 12px; padding: 4px 0 8px; }
-.drama-res-item { display: flex; gap: 12px; width: calc(50% - 6px); background: var(--bg-inner, #1c1c1e); border: 1px solid var(--border-color, #27272a); border-radius: 8px; padding: 10px; box-sizing: border-box; }
+.drama-res-list { display: flex; flex-wrap: wrap; gap: 12px; padding: 4px 0 8px; min-width: 0; }
+.drama-res-item { display: flex; gap: 12px; width: calc(50% - 6px); min-width: 0; background: var(--bg-inner, #1c1c1e); border: 1px solid var(--border-color, #27272a); border-radius: 8px; padding: 10px; box-sizing: border-box; }
 @media (max-width: 760px) {
   .drama-res-item {
     width: 100%;

@@ -151,11 +151,15 @@ const propForceIndex = computed(() => forceIndexByPrefix(props.drama?.props, 'pr
 
 <style scoped>
 .canvas-sidebar {
+  box-sizing: border-box;
   width: 220px;
-  flex-shrink: 0;
+  flex: 0 0 220px;
+  min-width: 0;
+  max-width: 100%;
   border-right: 1px solid var(--border-color, #27272a);
   background: var(--bg-card, #18181b);
   padding: 14px 12px;
+  overflow-x: hidden;
   overflow-y: auto;
 }
 
@@ -186,11 +190,16 @@ const propForceIndex = computed(() => forceIndexByPrefix(props.drama?.props, 'pr
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .sidebar-item {
   box-sizing: border-box;
   width: 100%;
+  min-width: 0;
+  max-width: 100%;
   height: 32px;
   border: 0;
   background: transparent;
@@ -210,5 +219,15 @@ const propForceIndex = computed(() => forceIndexByPrefix(props.drama?.props, 'pr
 .sidebar-item:hover { background: rgba(129, 140, 248, 0.12); }
 .sidebar-item:focus-visible { outline: 2px solid var(--canvas-indigo-strong); outline-offset: 1px; }
 .sidebar-item.active { background: rgba(52, 211, 153, 0.16); color: var(--canvas-emerald-text); }
-.sidebar-empty { font-size: 11px; color: var(--text-faint, #52525b); padding: 4px 0; }
+.sidebar-empty {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  max-width: 100%;
+  font-size: 11px;
+  color: var(--text-faint, #52525b);
+  padding: 4px 0;
+}
 </style>

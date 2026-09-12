@@ -238,8 +238,10 @@ onBeforeUnmount(() => {
 <style scoped>
 .backup-page {
   max-width: 960px;
+  min-width: 0;
   margin: 0 auto;
   padding: 24px 20px 48px;
   color: var(--text-primary);
+  overflow-x: clip;
 }
 </style>

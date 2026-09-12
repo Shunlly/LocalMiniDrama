@@ -7,8 +7,8 @@
     <p class="empty-description">{{ hasActiveFilters ? '调整关键词或素材类型后再试。' : '上传图片或视频，后续项目可以直接复用。' }}</p>
     <div class="empty-actions">
       <template v-if="hasActiveFilters">
-        <el-button aria-label="清除素材筛选" @click="clearFilters">清除筛选</el-button>
-        <el-button type="primary" :disabled="mediaWriteLocked || uploading" :title="mediaUploadDisableReason || undefined" :aria-describedby="mediaUploadDisableReason ? 'media-empty-upload-reason' : undefined" aria-label="上传图片或视频到素材中心" @click="triggerUpload">
+        <el-button type="default" aria-label="清除筛选" @click="clearFilters">清除筛选</el-button>
+        <el-button type="primary" :disabled="mediaWriteLocked || uploading" :title="mediaUploadDisableReason || undefined" :aria-describedby="mediaUploadDisableReason ? 'media-empty-upload-reason' : undefined" aria-label="上传素材" @click="triggerUpload">
           <el-icon><Upload /></el-icon>上传素材
         </el-button>
       </template>
@@ -18,19 +18,18 @@
           :disabled="mediaWriteLocked || uploading"
           :title="mediaUploadDisableReason || undefined"
           :aria-describedby="mediaUploadDisableReason ? 'media-empty-upload-reason' : undefined"
-          aria-label="上传图片或视频到素材中心"
+          aria-label="上传素材"
           @click="triggerUpload"
         >
           <el-icon><Upload /></el-icon>上传素材
         </el-button>
-        <el-button aria-label="去搜网络素材" @click="goSearchNetwork">去搜网络素材</el-button>
+        <el-button type="default" aria-label="去搜网络素材" @click="goSearchNetwork">去搜网络素材</el-button>
       </template>
     </div>
     <template v-if="!hasActiveFilters">
       <p class="empty-note">需要把角色、场景或道具沉淀到分类素材时，请先在项目内点“加入素材库”。</p>
       <el-button
-        type="primary"
-        plain
+        type="default"
         class="empty-secondary-action"
         :disabled="mediaWriteLocked || mediaAccessState.navigationLocked"
         :title="mediaSourceImportDisableReason || undefined"
@@ -67,13 +66,26 @@ defineProps({
   flex-direction: column;
   align-items: center;
   justify-content: center;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
   min-height: 340px;
+  padding: 16px 12px;
   color: var(--text-subtle);
   gap: 10px;
 }
 
 .empty-icon {
   font-size: 48px;
+}
+
+.empty-title,
+.empty-description,
+.empty-note {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  text-align: center;
 }
 
 .empty-title {
@@ -94,15 +106,24 @@ defineProps({
   align-items: center;
   justify-content: center;
   gap: 10px;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
 }
 
 .empty-note {
-  max-width: 560px;
+  max-width: min(560px, 100%);
   margin: 0;
   font-size: 13px;
   line-height: 1.6;
   color: var(--text-subtle);
-  text-align: center;
+}
+
+.empty-actions :deep(.el-button),
+.empty-secondary-action {
+  white-space: normal;
+  height: auto;
+  max-width: 100%;
 }
 
 .empty-secondary-action {

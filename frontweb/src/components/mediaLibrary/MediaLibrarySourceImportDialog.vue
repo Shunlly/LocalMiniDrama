@@ -50,7 +50,7 @@
         <p>{{ keyword.trim() ? '请更换关键词后再试。' : '请先新建项目，再回到素材中心选择目标项目。' }}</p>
         <el-button
           v-if="keyword.trim()"
-          aria-label="清除项目搜索"
+          aria-label="清除搜索"
           @click="keyword = ''; scheduleSearch()"
         >清除搜索</el-button>
         <el-button v-else type="primary" :disabled="navigationLocked" :title="navigationLocked ? pickerBusyReason : undefined" :aria-describedby="navigationLocked ? 'source-import-picker-reason' : undefined" :aria-label="navigationLocked ? `新建项目后导入网页 URL不可用：${pickerBusyReason}` : '新建项目后导入网页 URL'" @click="createProjectFromPicker">
@@ -149,6 +149,19 @@ const pickerBusyReason = computed(() => {
   justify-items: start;
   gap: 8px;
   padding: 12px 0;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+.source-import-state h2,
+.source-import-state p {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+.source-import-state :deep(.el-button) {
+  white-space: normal;
+  height: auto;
+  max-width: 100%;
 }
 
 .source-import-state h2 {

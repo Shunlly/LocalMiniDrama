@@ -123,6 +123,7 @@ test('角色库空态展示暂无记录，导入入口交给页面', async () =>
     const empty = findByClass(harness.root, 'resource-empty-state')[0]
     assert.ok(empty)
     assert.equal(empty.props.role, 'status')
+    assert.equal(empty.props['aria-label'], '空资源下一步')
     assert.match(textContent(empty), /暂无本剧角色库记录/)
     assert.match(textContent(empty), /可以从公共素材库导入角色/)
     click(buttonByText(harness.root, '从素材库导入角色'))

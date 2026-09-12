@@ -95,6 +95,9 @@ defineProps({
   display: flex;
   gap: 8px;
   align-items: flex-start;
+  min-width: 0;
+  max-width: 100%;
+  flex-wrap: wrap;
 }
 .rel-item {
   flex: 1;
@@ -105,5 +108,8 @@ defineProps({
   display: flex;
   gap: 10px;
   margin: 0 0 8px 36px;
+  min-width: 0;
+  max-width: 100%;
+  flex-wrap: wrap;
 }
 </style>

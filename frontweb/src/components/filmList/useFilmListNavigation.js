@@ -1,9 +1,44 @@
 /** 项目列表工作区导航、离开保护和备份入口。 */
-import { ElMessage } from '@/utils/elementPlusFeedback.js'
-import { describePendingProjectPackageWork } from '@/components/filmList/filmListFormatters.js'
+import { ElMessageBox } from '@/utils/elementPlusFeedback.js'
+import {
+  describePendingProjectPackageWork,
+  FILM_LIST_LEAVE_CONFIRM_BUTTON_TEXT,
+  FILM_LIST_LEAVE_CONFIRM_TITLE,
+  FILM_LIST_LEAVE_STAY_BUTTON_TEXT,
+} from '@/components/filmList/filmListFormatters.js'
 import { LIBRARY_IMAGE_LEAVE_MESSAGE } from '@/components/filmList/filmListLibraryImage.js'
 import { normalizeBackupReturnTo } from '@/composables/useBackupSettings.js'
 import { listWorkspaceNavItems, openWorkspaceNavItem } from '@/layouts/AppWorkspaceNav.js'
+
+let pendingFilmListLeaveConfirm = null
+
+/** 忙碌时弹出中文离开确认；取消则留在本页。 */
+export async function confirmFilmListLeave(busy, message) {
+  if (!busy) return true
+  if (pendingFilmListLeaveConfirm) return pendingFilmListLeaveConfirm
+  pendingFilmListLeaveConfirm = (async () => {
+    try {
+      await ElMessageBox.confirm(
+        message,
+        FILM_LIST_LEAVE_CONFIRM_TITLE,
+        {
+          type: 'warning',
+          confirmButtonText: FILM_LIST_LEAVE_CONFIRM_BUTTON_TEXT,
+          cancelButtonText: FILM_LIST_LEAVE_STAY_BUTTON_TEXT,
+          distinguishCancelAndClose: true,
+        },
+      )
+      return true
+    } catch (_) {
+      return false
+    }
+  })()
+  try {
+    return await pendingFilmListLeaveConfirm
+  } finally {
+    pendingFilmListLeaveConfirm = null
+  }
+}
 
 export function useFilmListNavigation(deps = {}) {
   const {
@@ -59,8 +94,8 @@ export function useFilmListNavigation(deps = {}) {
 
   async function requestFilmListNavigation() {
     if (hasPendingProjectPackageWork() || pendingLibraryImageWork()) {
-      ElMessage.warning(pendingProjectPackageWorkMessage())
-      return false
+      const allowed = await confirmFilmListLeave(true, pendingProjectPackageWorkMessage())
+      if (!allowed) return false
     }
     if (!showAiConfigDialog.value) return true
     return (await aiConfigContentRef.value?.requestClose?.()) !== false

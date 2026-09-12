@@ -24,6 +24,8 @@ function toUserFacingWorkflowError(error) {
     && !/https?:\/\//i.test(raw)
     && !/\bsk-[A-Za-z0-9._-]{6,}\b/i.test(raw)
     && !/\bHTTP\s*[:=]?\s*\d{3}\b/i.test(raw)
+    && !/invalid\s*authorization|invalidauthorization|invalid\s+token|invalid\s+api\s+key/i.test(raw)
+    && !/\b[A-Z]{3,}(?:_[A-Z0-9]+){1,}\b/.test(raw)
     && !/\b(SQLITE_[A-Z0-9]+|no such table|database is locked|fetch failed|AbortError|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|ECONNRESET|ENETUNREACH|ETIMEDOUT|ENOENT|unauthorized|forbidden|not found|bad request|internal server error|too many requests|service unavailable|gateway timeout|timed?\s*out)\b/i.test(raw)
   ) {
     return raw;

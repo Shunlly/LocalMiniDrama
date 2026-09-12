@@ -96,6 +96,18 @@ function bindConfigsWorkspaceModeRef(el) {
   outline: 2px solid var(--accent-text);
   outline-offset: 2px;
 }
+@media (max-width: 1024px) {
+  .config-workspace-switch {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+  .config-workspace-mode {
+    min-width: 0;
+  }
+}
 @media (max-width: 760px) {
   .config-workspace-switch {
     display: grid;

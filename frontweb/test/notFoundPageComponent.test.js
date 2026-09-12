@@ -9,6 +9,8 @@ import {
   click,
   compileIconStub,
   createHostRenderer,
+  findAll,
+  hasClass,
   loadCompiledSfc,
   mountHarness,
   textContent,
@@ -149,6 +151,30 @@ test('未知路径进入命名 404 后说明地址不在应用里', async () => 
     assert.ok(home)
     click(home)
     assert.deepEqual(harness.router.calls, [['replace', { name: 'list' }]])
+  } finally {
+    harness.app.unmount()
+    resetVueRouterHarness()
+  }
+})
+
+test('装饰 404 数字对读屏隐藏，主标题仍是页面不存在', async () => {
+  const harness = mountNotFound({
+    name: 'not-found-catchall',
+    fullPath: '/this-page-does-not-exist',
+  })
+  try {
+    await nextTick()
+    const status = findAll(harness.root, (node) => hasClass(node, 'status-code'))[0]
+    assert.ok(status)
+    assert.equal(status.props['aria-hidden'], 'true')
+    assert.equal(textContent(status).trim(), '404')
+    const title = findAll(harness.root, (node) => node.props?.id === 'not-found-title')[0]
+    assert.ok(title)
+    assert.match(textContent(title), /页面不存在/)
+    assert.doesNotMatch(textContent(title), /HTTP\s*\d{3}/)
+    const home = buttonByAriaLabel(harness.root, '返回项目列表')
+    assert.ok(home)
+    assert.equal(textContent(home).replace(/\s+/g, ' ').trim(), '返回项目列表')
   } finally {
     harness.app.unmount()
     resetVueRouterHarness()

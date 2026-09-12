@@ -6,6 +6,9 @@ import {
   describeListWriteLockReason,
   describePendingProjectPackageWork,
   describeProjectFormSubmitDisabledReason,
+  FILM_LIST_LEAVE_CONFIRM_BUTTON_TEXT,
+  FILM_LIST_LEAVE_CONFIRM_TITLE,
+  FILM_LIST_LEAVE_STAY_BUTTON_TEXT,
   describeTrashLiveStatus,
   describeTrashRestoreAnnouncement,
   describeTrashRestoreBusyReason,
@@ -207,6 +210,18 @@ test('导入失败消息优先清洗响应体，再回退到 error.message', () 
     resolveImportFailureMessage({ message: 'Network Error' }),
     '项目包导入失败，请重新选择项目包后重试',
   )
+  assert.equal(
+    resolveImportFailureMessage({ message: 'Request failed with status code 500' }),
+    '项目包导入失败，请重新选择项目包后重试',
+  )
+  assert.equal(
+    resolveImportFailureMessage({ message: '导入失败 HTTP 503' }),
+    '导入失败',
+  )
+  assert.doesNotMatch(
+    resolveImportFailureMessage({ message: '导入失败 ECONNABORTED' }),
+    /HTTP|ECONNABORTED|status code|503|500/i,
+  )
 })
 
 test('combined source 仍能匹配导入失败清洗函数体', () => {
@@ -271,6 +286,15 @@ test('写锁、表单提交和离开提示给出中文原因', () => {
   assert.equal(describePendingProjectPackageWork({ importing: false, importingExample: null, exportingId: DRAMA_ID }), '项目包正在导出，请完成后再离开。')
   assert.equal(describePendingProjectPackageWork({ importing: false, importingExample: null, exportingId: OTHER_DRAMA_ID }), '项目包正在导出，请完成后再离开。')
   assert.equal(describePendingProjectPackageWork({ importing: false, importingExample: null, exportingId: null }), '')
+  assert.equal(FILM_LIST_LEAVE_CONFIRM_TITLE, '确认离开？')
+  assert.equal(FILM_LIST_LEAVE_CONFIRM_BUTTON_TEXT, '离开')
+  assert.equal(FILM_LIST_LEAVE_STAY_BUTTON_TEXT, '继续留在本页')
+  assert.match(FILM_LIST_LEAVE_CONFIRM_TITLE, /[\u4e00-\u9fff]/)
+  assert.match(FILM_LIST_LEAVE_CONFIRM_BUTTON_TEXT, /[\u4e00-\u9fff]/)
+  assert.match(FILM_LIST_LEAVE_STAY_BUTTON_TEXT, /[\u4e00-\u9fff]/)
+  assert.doesNotMatch(FILM_LIST_LEAVE_CONFIRM_TITLE, /leave|unload|busy|confirm|ok|cancel/i)
+  assert.doesNotMatch(FILM_LIST_LEAVE_CONFIRM_BUTTON_TEXT, /leave|ok|yes|confirm/i)
+  assert.doesNotMatch(FILM_LIST_LEAVE_STAY_BUTTON_TEXT, /stay|cancel|continue/i)
 })
 
 test('回收站状态文案按项目标题区分，恢复忙时只禁用其他项', () => {

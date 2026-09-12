@@ -17,7 +17,6 @@
         placeholder="全部集数"
         clearable
         size="small"
-        style="width: 150px"
       >
         <el-option
           v-for="ep in episodes"
@@ -81,7 +80,9 @@
           link
           size="small"
           :loading="mediaLoading"
-          :aria-label="mediaLoading ? '正在重试媒体查询' : '重试媒体查询'" @click="retryUnknownStoryboardMedia"
+          :aria-label="mediaLoading ? '正在重试媒体查询' : '重试媒体查询'"
+          :title="mediaLoading ? '正在重试媒体查询' : '重试媒体查询'"
+          @click="retryUnknownStoryboardMedia"
         >
           重试媒体查询
         </el-button>
@@ -123,9 +124,13 @@ const displayLayoutSaveError = computed(() => (
 
 <style scoped>
 .header {
+  box-sizing: border-box;
   flex-shrink: 0;
+  min-width: 0;
+  max-width: 100%;
   border-bottom: 1px solid var(--border-color, #27272a);
   background: var(--bg-card, #18181b);
+  overflow-x: clip;
 }
 
 .header-inner {
@@ -133,7 +138,15 @@ const displayLayoutSaveError = computed(() => (
   align-items: center;
   gap: 12px;
   padding: 10px 20px 6px;
+  min-width: 0;
+  max-width: 100%;
   flex-wrap: wrap;
+}
+
+.episode-select {
+  width: min(150px, 100%);
+  min-width: 0;
+  max-width: 100%;
 }
 
 .canvas-warning-bar {
@@ -146,13 +159,25 @@ const displayLayoutSaveError = computed(() => (
   color: var(--canvas-amber-text, #fcd34d);
   font-size: 12px;
   background: rgba(251, 191, 36, 0.06);
+  min-width: 0;
+  flex-wrap: wrap;
+  max-width: 100%;
 }
 
 .canvas-warning-actions {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
   flex-shrink: 0;
+}
+
+@media (max-width: 769px) {
+  .header-inner,
+  .canvas-warning-bar {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
 }
 
 .logo {

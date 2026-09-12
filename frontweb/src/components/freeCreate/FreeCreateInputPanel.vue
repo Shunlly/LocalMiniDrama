@@ -303,7 +303,9 @@ defineExpose({ refImageInput, refImageUploadStatusRef, focusPrompt })
 .input-panel {
   width: 380px;
   max-width: 100%;
+  min-width: 0;
   flex-shrink: 0;
+  box-sizing: border-box;
   background: var(--bg-card);
   border-radius: 12px;
   padding: 20px;
@@ -486,6 +488,7 @@ defineExpose({ refImageInput, refImageUploadStatusRef, focusPrompt })
   border: 1px solid var(--border-color);
   border-radius: 6px;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
   color: var(--text-muted);
@@ -518,6 +521,7 @@ defineExpose({ refImageInput, refImageUploadStatusRef, focusPrompt })
 .ref-actions {
   flex: 0 0 auto;
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
 }
 
@@ -557,6 +561,12 @@ defineExpose({ refImageInput, refImageUploadStatusRef, focusPrompt })
 @media (max-width: 900px) {
   .input-panel {
     width: 100%;
+  }
+}
+
+@media (max-width: 520px) {
+  .input-panel {
+    padding: 16px;
   }
 }
 </style>

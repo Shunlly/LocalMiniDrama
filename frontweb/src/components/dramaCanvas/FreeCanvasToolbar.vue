@@ -239,15 +239,18 @@ function cycleBackground() {
 
 <style scoped>
 .free-canvas-toolbar {
+  box-sizing: border-box;
   display: flex;
   align-items: center;
   gap: 6px;
   min-width: 0;
+  max-width: 100%;
   min-height: 40px;
   padding: 6px 8px;
   border: 1px solid var(--border-color, #3f3f46);
   border-radius: 6px;
   background: var(--canvas-panel-surface, var(--bg-card, #18181b));
+  flex-wrap: wrap;
 }
 
 .mode-switch {
@@ -279,9 +282,11 @@ function cycleBackground() {
 .selection-summary,
 .empty-next-copy,
 .density-hint {
+  min-width: 0;
+  max-width: 100%;
   color: var(--canvas-text-secondary, #d4d4d8);
   font-size: 12px;
-  white-space: nowrap;
+  white-space: normal;
 }
 
 .selection-summary {

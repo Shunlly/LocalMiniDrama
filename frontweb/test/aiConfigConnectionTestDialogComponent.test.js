@@ -65,7 +65,10 @@ test('测试中展示正在测试，关闭会关掉对话框', async () => {
     assert.match(textContent(harness.root), /正在测试…/)
     assert.match(textContent(harness.root), /正在测试文本生成连接/)
     assert.equal(buttonByText(harness.root, '重试'), undefined)
-    click(buttonByText(harness.root, '关闭'))
+    const close = buttonByText(harness.root, '关闭')
+    assert.ok(close)
+    assert.equal(close.props['aria-label'], '关闭连接测试')
+    click(close)
     await nextTick()
     assert.equal(harness.testVisible.value, false)
   } finally {

@@ -16,8 +16,8 @@
           </el-button>
         </div>
 
-        <div v-if="results.length === 0 && !generating" class="empty-result" role="status" aria-live="polite">
-          <el-icon class="empty-icon">
+        <div v-if="results.length === 0 && !generating" class="empty-result" role="status" aria-live="polite" aria-atomic="true">
+          <el-icon class="empty-icon" aria-hidden="true">
             <Picture v-if="mode === 'image'" />
             <VideoCamera v-else />
           </el-icon>
@@ -58,8 +58,8 @@
           </div>
         </div>
 
-        <div v-if="generating" class="generating-tip">
-          <el-icon class="is-loading"><Loading /></el-icon>
+        <div v-if="generating" class="generating-tip" role="status" aria-live="polite" aria-atomic="true">
+          <el-icon class="is-loading" aria-hidden="true"><Loading /></el-icon>
           <span>{{ cancelling ? '正在取消生成…' : '正在生成，请稍候…' }}</span>
           <el-button
             type="danger"
@@ -261,6 +261,8 @@ function focusPrompt() {
 .result-panel {
   flex: 1;
   min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
   background: var(--bg-card);
   border-radius: 12px;
   padding: 20px;
@@ -270,9 +272,12 @@ function focusPrompt() {
 
 .result-header {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
   margin-bottom: 16px;
+  min-width: 0;
 }
 
 .result-title {
@@ -297,16 +302,23 @@ function focusPrompt() {
 
 .generating-tip {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
   color: var(--el-color-primary);
   font-size: 14px;
   margin-bottom: 12px;
+  min-width: 0;
+}
+
+.generating-tip span {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .result-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(200px, 100%), 1fr));
   gap: 16px;
 }
 
@@ -405,5 +417,11 @@ function focusPrompt() {
   color: #ef4444;
   font-size: 12px;
   overflow-wrap: anywhere;
+}
+
+@media (max-width: 520px) {
+  .result-panel {
+    padding: 16px;
+  }
 }
 </style>

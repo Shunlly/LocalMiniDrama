@@ -4,9 +4,10 @@
         class="project-load-state"
         role="status"
         aria-live="polite"
+        aria-labelledby="drama-load-loading-title"
       >
         <el-icon class="project-load-state-icon is-loading"><Loading /></el-icon>
-        <h2>正在加载项目</h2>
+        <h2 id="drama-load-loading-title">正在加载项目</h2>
         <p>正在读取剧集、分集和制作资源。</p>
       </section>
 
@@ -27,7 +28,7 @@
           <el-button v-if="!notFound" type="primary" :loading="pending" aria-label="重试加载" :title="pending ? '正在重新加载项目，请稍候' : undefined" @click="emit('retry')">
             <el-icon><Refresh /></el-icon>重试加载
           </el-button>
-          <el-button aria-label="返回项目列表" @click="emit('go-list')">
+          <el-button :type="notFound ? 'primary' : undefined" aria-label="返回项目列表" @click="emit('go-list')">
             <el-icon><ArrowLeft /></el-icon>返回项目列表
           </el-button>
         </div>
@@ -77,7 +78,7 @@ defineExpose({
 .project-load-state h2 { margin: 4px 0 0; font-size: 1.25rem; color: #f4f4f5; }
 .project-load-state p { max-width: 620px; margin: 0; color: #a1a1aa; line-height: 1.65; }
 .project-load-state .project-load-state-assurance { color: #d4d4d8; }
-.project-load-state-actions { display: flex; gap: 10px; margin-top: 12px; }
+.project-load-state-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin-top: 12px; }
 html.light .project-load-state { background: #fff; border-color: #d4d4d8; }
 html.light .project-load-state--error { border-color: #fca5a5; }
 html.light .project-load-state h2 { color: #18181b; }

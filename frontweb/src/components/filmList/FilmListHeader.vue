@@ -136,9 +136,11 @@ defineExpose({ importTriggerButton })
   top: 0;
   z-index: 100;
   box-shadow: 0 1px 0 rgba(99, 102, 241, 0.08), 0 4px 24px rgba(0, 0, 0, 0.3);
+  overflow-x: clip;
 }
 .header-inner {
-  max-width: min(1400px, 96vw);
+  max-width: min(1400px, 100%);
+  min-width: 0;
   margin: 0 auto;
   display: flex;
   align-items: center;
@@ -172,6 +174,8 @@ defineExpose({ importTriggerButton })
   align-items: center;
   gap: 6px;
   margin-left: 20px;
+  min-width: 0;
+  flex-wrap: wrap;
 }
 .btn-material-center {
   font-weight: 600;
@@ -188,6 +192,22 @@ defineExpose({ importTriggerButton })
   display: flex;
   align-items: center;
   gap: 6px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+@media (max-width: 960px) {
+  .header {
+    padding: 10px 12px;
+  }
+  .header-library,
+  .header-actions {
+    width: 100%;
+    margin-left: 0;
+  }
+  .header-library :deep(.el-button),
+  .header-actions :deep(.el-button) {
+    margin-left: 0;
+  }
 }
 .utility-icon-button {
   width: 34px;

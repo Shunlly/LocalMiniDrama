@@ -11,11 +11,11 @@
             style="margin-left: auto"
             @import="onBatchImportEpisodes"
           />
-          <el-button size="small" type="primary" :loading="addingEpisode" aria-label="新增一集" @click="onAddEpisode">
+          <el-button v-if="episodes.length > 0" size="small" type="primary" :loading="addingEpisode" aria-label="新增一集" @click="onAddEpisode">
             <el-icon><Plus /></el-icon>新增一集
           </el-button>
         </div>
-        <div v-if="episodes.length === 0" class="empty-state" role="status" aria-live="polite">
+        <div v-if="episodes.length === 0" class="empty-state" role="status" aria-live="polite" aria-label="空剧集下一步">
           <div class="empty-state-title">{{ episodeEmptyState.title }}</div>
           <div class="empty-state-copy">{{ episodeEmptyState.description }}</div>
           <div class="empty-state-actions">
@@ -156,7 +156,7 @@ html.light .section.card:hover {
 }
 .section-title { font-size: 1rem; font-weight: 600; color: #fafafa; margin-bottom: 16px; }
 html.light .section-title { color: #18181b; }
-.section-header { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+.section-header { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; min-width: 0; flex-wrap: wrap; }
 .section-header .section-title { margin-bottom: 0; }
 
 .section-count { color: #71717a; font-size: 0.85rem; }
@@ -164,6 +164,9 @@ html.light .section-title { color: #18181b; }
   display: grid;
   justify-items: center;
   gap: 8px;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
   padding: 34px 24px;
   border: 1px dashed var(--border-muted);
   background: var(--bg-inner);

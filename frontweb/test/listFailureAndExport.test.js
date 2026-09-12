@@ -197,6 +197,15 @@ test('project export waits for a validated blob and keeps failures retryable', a
     await resolveExportFailureMessage({ response: { data: { error: { message: '磁盘已满' } } } }),
     '磁盘已满',
   )
+  const httpExport = await resolveExportFailureMessage({
+    message: 'Request failed with status code 502',
+    response: { status: 502 },
+  })
+  assert.match(httpExport, /项目导出服务/)
+  assert.doesNotMatch(httpExport, /HTTP|502|status code|Request failed/i)
+  const englishExport = await resolveExportFailureMessage({ message: 'Network Error' })
+  assert.match(englishExport, /[一-鿿]/)
+  assert.doesNotMatch(englishExport, /Network Error|ERR_NETWORK|HTTP/i)
 })
 
 test('分类素材加载失败不会被伪装成空库，且 AI 配置在列表失败时仍可打开', () => {
