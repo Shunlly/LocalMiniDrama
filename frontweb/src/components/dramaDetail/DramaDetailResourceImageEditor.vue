@@ -5,9 +5,18 @@
         <img v-if="hasStoredImage" :src="imageUrl" :alt="imageAlt" />
         <span v-else class="lib-img-empty"><el-icon aria-hidden="true"><PictureFilled /></el-icon></span>
       </button>
-      <button v-else type="button" v-bind="previewThumbBindings" class="lib-img-thumb lib-img-thumb--empty" :aria-label="previewLabel" @click="emit('preview', imageUrl)">
-        <span class="lib-img-empty"><el-icon aria-hidden="true"><PictureFilled /></el-icon></span>
-      </button>
+      <span
+        v-else
+        class="tooltip-trigger"
+        tabindex="0"
+        :aria-label="`${previewLabel}不可用：${previewTitle || '暂无图片'}`"
+        :aria-describedby="previewReasonId"
+      >
+        <p :id="previewReasonId" class="visually-hidden">{{ previewTitle || '暂无图片' }}</p>
+        <button type="button" v-bind="previewThumbBindings" class="lib-img-thumb lib-img-thumb--empty" :aria-label="previewLabel" @click="emit('preview', imageUrl)">
+          <span class="lib-img-empty"><el-icon aria-hidden="true"><PictureFilled /></el-icon></span>
+        </button>
+      </span>
       <div class="lib-img-btns">
         <el-tooltip :content="uploadDisabledReason" :disabled="!uploadDisabledReason" placement="top">
           <span
@@ -91,6 +100,7 @@ const uploadDisabledReason = computed(() => (props.form?.imgGenerating ? '正在
 const generateDisabledReason = computed(() => (props.form?.imgUploading ? '正在上传图片，请稍候' : ''))
 const uploadReasonId = computed(() => `resource-image-upload-reason-${props.form?.id || 'new'}`)
 const generateReasonId = computed(() => `resource-image-generate-reason-${props.form?.id || 'new'}`)
+const previewReasonId = computed(() => `resource-image-preview-reason-${props.form?.id || 'new'}`)
 
 function pickFile() {
   fileInput.value?.click?.()

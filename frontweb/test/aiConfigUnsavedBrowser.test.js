@@ -149,7 +149,7 @@ test('PromptEditor keeps dirty state after cancelled navigation and only leaves 
 
   await page.locator('.ai-config .btn-back').click()
   await discardChanges(page)
-  await page.waitForURL((url) => new URL(url).pathname === '/', { waitUntil: 'commit', timeout: 20000 })
+  await page.waitForFunction(() => window.location.pathname === '/', null, { timeout: 20000 })
   assert.equal(new URL(page.url()).pathname, '/')
 })
 

@@ -13,6 +13,7 @@ import {
   compileIconStub,
   compileSfc,
   createHostRenderer,
+  findAll,
   loadCompiledSfc,
   mountHarness,
   textContent,
@@ -109,6 +110,8 @@ test('图片操作条无图时禁用预览并给出暂无图片', async () => {
     assert.ok(thumb)
     assert.equal(thumb.props.disabled, true)
     assert.equal(thumb.props.title, '暂无图片')
+    const wrap = findAll(mounted.root, (node) => ['0', 0].includes(node.props?.tabindex) && String(node.props?.['aria-label'] || '').includes('暂无图片'))[0]
+    assert.ok(wrap, '缺少可焦点的暂无图片读屏包裹')
     click(thumb)
     assert.deepEqual(events, [['preview', '']])
     const generate = buttonByText(mounted.root, 'AI 生成')

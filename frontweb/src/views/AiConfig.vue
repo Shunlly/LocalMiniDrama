@@ -65,7 +65,7 @@ async function goBack() {
   if (!await requestAiConfigPageClose()) return
   skipNextRouteGuard = true
   try {
-    await router.replace(returnTo.value || '/')
+    await router.replace(returnTo.value || { name: 'list' })
   } finally {
     skipNextRouteGuard = false
   }
@@ -88,7 +88,7 @@ function handleBeforeUnload(event) {
 }
 
 onBeforeRouteLeave(() => {
-  if (skipNextRouteGuard) return true
+  if (skipNextRouteGuard || leaveConfirmed) return true
   return requestAiConfigPageClose()
 })
 
