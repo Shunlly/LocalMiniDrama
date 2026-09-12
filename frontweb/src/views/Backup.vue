@@ -217,9 +217,7 @@ const restoreDialogBindings = computed(() => ({
   onConfirmRestore,
 }))
 
-onBeforeRouteLeave(async (_to, _from, next) => {
-  next(confirmBackupLeave(backupBusyNow()))
-})
+onBeforeRouteLeave(() => confirmBackupLeave(backupBusyNow()))
 
 onMounted(() => {
   unregisterLeaveProtection = leaveProtection?.register?.('backup', {

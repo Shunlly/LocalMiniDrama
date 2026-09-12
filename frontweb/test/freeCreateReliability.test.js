@@ -3,9 +3,19 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { compileScript, parse } from '@vue/compiler-sfc'
 
+import { effectScope } from 'vue'
+
+import { ElMessage, ElMessageBox } from '../src/utils/elementPlusFeedback.js'
+import { useFreeCreateWorkspace } from '../src/composables/useFreeCreateWorkspace.js'
+import { ensureWindowShim } from './helpers/vueRouterHarness.js'
 import {
   buildFreeCreateGenerationPayload,
   createFreeCreateTaskOwner,
+  FREE_CREATE_LEAVE_STAY_BUTTON_TEXT,
+  FREE_CREATE_LEAVE_CONFIRM_MESSAGE,
+  FREE_CREATE_LEAVE_CONFIRM_BUTTON_TEXT,
+  FREE_CREATE_LEAVE_CONFIRM_TITLE,
+  FREE_CREATE_UPLOAD_LEAVE_MESSAGE,
   getFreeCreateAspectRatioOptions,
   getFreeCreateBusyDisabledReason,
   getFreeCreateCapabilityNotice,
@@ -328,10 +338,20 @@ test('离开保护会确认取消生成，并登记到应用级卸载拦截', ()
     freeCreateSource,
     /FREE_CREATE_LEAVE_CONFIRM_MESSAGE = '正在生成，离开将取消当前任务。仍要离开吗？'/
   )
+  assert.match(freeCreateSource, /FREE_CREATE_LEAVE_CONFIRM_TITLE = '离开自由创作'/)
+  assert.match(freeCreateSource, /FREE_CREATE_LEAVE_CONFIRM_BUTTON_TEXT = '离开并取消'/)
+  assert.match(freeCreateSource, /FREE_CREATE_LEAVE_STAY_BUTTON_TEXT = '继续生成'/)
+  assert.match(
+    freeCreateWorkspaceSource,
+    /import \{ ElMessage, ElMessageBox \} from '@\/utils\/elementPlusFeedback\.js'/,
+  )
   assert.match(
     freeCreateSource,
-    /window\.confirm\(FREE_CREATE_LEAVE_CONFIRM_MESSAGE\)/,
+    /ElMessageBox\.confirm\(\s*FREE_CREATE_LEAVE_CONFIRM_MESSAGE,\s*FREE_CREATE_LEAVE_CONFIRM_TITLE/,
   )
+  assert.match(freeCreateSource, /confirmButtonText: FREE_CREATE_LEAVE_CONFIRM_BUTTON_TEXT/)
+  assert.match(freeCreateSource, /cancelButtonText: FREE_CREATE_LEAVE_STAY_BUTTON_TEXT/)
+  assert.doesNotMatch(freeCreateWorkspaceSource, /window\.confirm/)
   assert.match(
     freeCreateSource,
     /leaveProtection\?\.register\?\.\('free-create', \{[\s\S]*shouldBlockUnload:[\s\S]*confirmLeave:/,
@@ -342,6 +362,172 @@ test('离开保护会确认取消生成，并登记到应用级卸载拦截', ()
     /onBeforeRouteLeave\(async \(\) =>[\s\S]*return confirmFreeCreateLeave\(\)/,
   )
   assert.match(freeCreateSource, /window\.addEventListener\('beforeunload', handleBeforeUnload\)/)
+})
+
+function ensureFreeCreateTestDom() {
+  ensureWindowShim()
+  if (globalThis.document) return
+  const element = () => ({
+    style: {},
+    classList: { add() {}, remove() {} },
+    setAttribute() {},
+    appendChild() {},
+    removeChild() {},
+    addEventListener() {},
+    removeEventListener() {},
+  })
+  globalThis.document = {
+    body: element(),
+    documentElement: element(),
+    createElement: () => element(),
+    createElementNS: () => element(),
+    querySelector: () => null,
+    getElementById: () => null,
+    addEventListener() {},
+    removeEventListener() {},
+  }
+}
+
+async function waitUntil(predicate, label) {
+  const started = Date.now()
+  while (!predicate()) {
+    if (Date.now() - started > 2000) throw new Error(label)
+    await new Promise((resolve) => setTimeout(resolve, 10))
+  }
+}
+
+function createLeaveWorkspace({ createPromise, cancelCalls }) {
+  return useFreeCreateWorkspace({
+    router: { push() {}, resolve: () => ({ fullPath: '/free-create' }) },
+    route: { query: {} },
+    assetsApi: {
+      async list() { return { items: [] } },
+      async create() { return {} },
+      async get() { return {} },
+    },
+    imagesApi: {
+      async create() { return createPromise },
+      async list() { return { items: [] } },
+    },
+    videosApi: {
+      async list() { return { items: [] } },
+      async get() { return {} },
+      async create() { return {} },
+    },
+    taskApi: {
+      async get() { return { status: 'processing' } },
+      async cancel(taskId, body, options) {
+        cancelCalls.push([taskId, body, options])
+        return {}
+      },
+    },
+    uploadApi: { async uploadImage() { return {} } },
+    aiApi: {
+      async list() {
+        return [{
+          service_type: 'image',
+          is_active: true,
+          is_default: true,
+          name: '测试图片服务',
+          provider: 'openai',
+          api_key_set: true,
+          default_model: 'test-image',
+          model: ['test-image'],
+        }]
+      },
+    },
+    generationSettingsApi: { async get() { return {} } },
+    storage: null,
+  })
+}
+
+test('确认离开会取消任务，点取消不取消', async () => {
+  ensureFreeCreateTestDom()
+  const warnings = []
+  const confirms = []
+  const originals = {
+    warning: ElMessage.warning,
+    error: ElMessage.error,
+    confirm: ElMessageBox.confirm,
+  }
+  ElMessage.warning = (message) => {
+    warnings.push(message)
+    return { close() {} }
+  }
+  ElMessage.error = () => ({ close() {} })
+  let confirmImpl = async () => {}
+  ElMessageBox.confirm = async (message, title, options) => {
+    confirms.push({ message, title, options })
+    return confirmImpl(message, title, options)
+  }
+
+  const cancelCalls = []
+  const submission = deferred()
+  const scope = effectScope()
+  const workspace = scope.run(() => createLeaveWorkspace({
+    createPromise: submission.promise,
+    cancelCalls,
+  }))
+
+  try {
+    workspace.refImageUploadStatus.value = 'uploading'
+    assert.equal(await workspace.confirmFreeCreateLeave(), false)
+    assert.deepEqual(warnings, [FREE_CREATE_UPLOAD_LEAVE_MESSAGE])
+    assert.equal(confirms.length, 0)
+    assert.equal(cancelCalls.length, 0)
+
+    workspace.refImageUploadStatus.value = 'idle'
+    assert.equal(await workspace.confirmFreeCreateLeave(), true)
+    assert.equal(confirms.length, 0)
+
+    await workspace.loadServiceConfigs()
+    assert.equal(workspace.generationCapability.value.ready, true)
+    workspace.prompt.value = '灯塔夜景'
+    const generatePromise = workspace.generate()
+    await waitUntil(() => workspace.generating.value, '生成任务没有开始')
+
+    workspace.refImageUploadStatus.value = 'uploading'
+    assert.equal(await workspace.confirmFreeCreateLeave(), false)
+    assert.equal(warnings.at(-1), FREE_CREATE_UPLOAD_LEAVE_MESSAGE)
+    assert.equal(confirms.length, 0)
+    assert.equal(cancelCalls.length, 0)
+    workspace.refImageUploadStatus.value = 'idle'
+
+    confirmImpl = async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20))
+      throw new Error('cancel')
+    }
+    const stayFirst = workspace.confirmFreeCreateLeave()
+    const staySecond = workspace.confirmFreeCreateLeave()
+    assert.equal(await stayFirst, false)
+    assert.equal(await staySecond, false)
+    assert.equal(cancelCalls.length, 0)
+    assert.equal(workspace.generating.value, true)
+    assert.equal(confirms.length, 1)
+    assert.equal(confirms[0].message, FREE_CREATE_LEAVE_CONFIRM_MESSAGE)
+    assert.equal(confirms[0].title, FREE_CREATE_LEAVE_CONFIRM_TITLE)
+    assert.equal(confirms[0].options.confirmButtonText, FREE_CREATE_LEAVE_CONFIRM_BUTTON_TEXT)
+    assert.equal(confirms[0].options.cancelButtonText, FREE_CREATE_LEAVE_STAY_BUTTON_TEXT)
+    assert.equal(confirms[0].options.type, 'warning')
+
+    confirmImpl = async () => {}
+    const leavePromise = workspace.confirmFreeCreateLeave()
+    await waitUntil(() => workspace.cancelling.value, '离开确认后没有开始取消任务')
+    submission.resolve({ task_id: 'task-leave-1' })
+    assert.equal(await leavePromise, true)
+    assert.equal(cancelCalls.length, 1)
+    assert.equal(cancelCalls[0][0], 'task-leave-1')
+    assert.deepEqual(cancelCalls[0][1], { reason: '用户离开自由创作页面' })
+    assert.deepEqual(cancelCalls[0][2], { suppressErrorToast: true })
+    assert.equal(workspace.generating.value, false)
+    assert.equal(workspace.results.value[0].status, 'cancelled')
+    await generatePromise
+  } finally {
+    scope.stop()
+    ElMessage.warning = originals.warning
+    ElMessage.error = originals.error
+    ElMessageBox.confirm = originals.confirm
+  }
 })
 test('能力说明只用显式中文，就绪详情不泄露密钥和英文异常', () => {
   assert.equal(
@@ -389,7 +575,7 @@ test('能力说明只用显式中文，就绪详情不泄露密钥和英文异�
 })
 
 test('自由创作按需加载消息反馈，不引入 Element Plus 全量入口', () => {
-  assert.match(freeCreateSource, /import \{ ElMessage \} from '@\/utils\/elementPlusFeedback\.js'/)
+  assert.match(freeCreateSource, /import \{ ElMessage, ElMessageBox \} from '@\/utils\/elementPlusFeedback\.js'/)
   assert.doesNotMatch(freeCreateSource, /from 'element-plus'/)
 })
 

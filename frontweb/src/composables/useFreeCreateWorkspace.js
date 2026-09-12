@@ -1,5 +1,5 @@
 import { computed, nextTick, ref, watch } from 'vue'
-import { ElMessage } from '@/utils/elementPlusFeedback.js'
+import { ElMessage, ElMessageBox } from '@/utils/elementPlusFeedback.js'
 import { aiAPI } from '@/api/ai'
 import { assetsAPI } from '@/api/assets'
 import { imagesAPI } from '@/api/images'
@@ -22,7 +22,10 @@ import { getServiceConfigReadiness } from '@/utils/aiServiceReadiness'
 import {
   buildFreeCreateGenerationPayload,
   createFreeCreateTaskOwner,
+  FREE_CREATE_LEAVE_CONFIRM_BUTTON_TEXT,
   FREE_CREATE_LEAVE_CONFIRM_MESSAGE,
+  FREE_CREATE_LEAVE_CONFIRM_TITLE,
+  FREE_CREATE_LEAVE_STAY_BUTTON_TEXT,
   FREE_CREATE_UPLOAD_LEAVE_MESSAGE,
   getFreeCreateAspectRatioOptions,
   getFreeCreateBusyDisabledReason,
@@ -104,6 +107,7 @@ export function useFreeCreateWorkspace({
     taskClient.cancel(taskId, body, { suppressErrorToast: true })
   ))
   let unregisterLeaveProtection = null
+  let leaveConfirmPending = null
   let restoringResults = false
   const assetSaveTargetDramaId = computed(() => resolveFreeCreateAssetDramaId(route))
   const assetSaveTargetLabel = computed(() => (
@@ -291,8 +295,29 @@ export function useFreeCreateWorkspace({
       return false
     }
     if (!freeCreateTaskOwner.hasActive()) return true
-    if (!window.confirm(FREE_CREATE_LEAVE_CONFIRM_MESSAGE)) return false
-    return cancelActiveGeneration('用户离开自由创作页面')
+    if (leaveConfirmPending) return leaveConfirmPending
+    leaveConfirmPending = (async () => {
+      try {
+        await ElMessageBox.confirm(
+          FREE_CREATE_LEAVE_CONFIRM_MESSAGE,
+          FREE_CREATE_LEAVE_CONFIRM_TITLE,
+          {
+            type: 'warning',
+            confirmButtonText: FREE_CREATE_LEAVE_CONFIRM_BUTTON_TEXT,
+            cancelButtonText: FREE_CREATE_LEAVE_STAY_BUTTON_TEXT,
+            distinguishCancelAndClose: true,
+          },
+        )
+      } catch (_) {
+        return false
+      }
+      return cancelActiveGeneration('用户离开自由创作页面')
+    })()
+    try {
+      return await leaveConfirmPending
+    } finally {
+      leaveConfirmPending = null
+    }
   }
 
   function mount(leaveProtection) {

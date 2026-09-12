@@ -3,7 +3,7 @@
   <input ref="addPropRefFileInput" type="file" accept="image/*" style="display:none" tabindex="-1" aria-hidden="true" @change="onRefImageFileChange('prop', $event)" />
 
   <!-- 添加道具弹窗 -->
-  <AccessibleDialog v-model="showAddProp" title="添加道具" width="600px" @close="() => { addPropForm = { name: '', type: '', description: '', prompt: '' }; addPropAddRefImage = null }">
+  <AccessibleDialog v-model="showAddProp" title="添加道具" width="600px" :before-close="handleAddPropDialogBeforeClose" @close="resetAddPropDialog">
     <el-form label-width="90px">
       <el-form-item label="参考图">
         <FilmCreateResourceRefImageField
@@ -32,13 +32,13 @@
       </el-form-item>
     </el-form>
     <template #footer>
-      <el-button aria-label="取消添加道具" @click="showAddProp = false">取消</el-button>
+      <el-button aria-label="取消添加道具" @click="requestCloseAddPropDialog">取消</el-button>
       <el-button type="primary" :loading="addPropSaving" :disabled="!addPropForm.name.trim()" :title="addPropSaving ? '正在保存道具，请稍候' : (addPropForm.name.trim() ? undefined : '请先填写名称')" :aria-label="addPropSaving ? '正在保存道具，请稍候' : (addPropForm.name.trim() ? '确定添加道具' : '请先填写名称')" @click="submitAddProp">确定</el-button>
     </template>
   </AccessibleDialog>
 
   <!-- 编辑道具弹窗 -->
-  <AccessibleDialog v-model="showEditProp" :title="editPropForm?.id ? '编辑道具' : '添加道具'" width="75%" @close="onClosePropDialog">
+  <AccessibleDialog v-model="showEditProp" :title="editPropForm?.id ? '编辑道具' : '添加道具'" width="75%" :before-close="handlePropDialogBeforeClose" @close="onClosePropDialog">
     <el-form v-if="editPropForm" label-width="90px">
       <!-- 参考图上传区（新增/编辑均显示） -->
       <el-form-item label="参考图">
@@ -91,15 +91,21 @@
       </el-form-item>
     </el-form>
     <template #footer>
-      <el-button aria-label="取消编辑道具" @click="showEditProp = false">取消</el-button>
+      <el-button aria-label="取消编辑道具" @click="requestClosePropDialog">取消</el-button>
       <el-button type="primary" :loading="editPropSaving" :disabled="!editPropForm?.name?.trim()" :title="editPropSaving ? '正在保存道具，请稍候' : (editPropForm?.name?.trim() ? undefined : '请先填写名称')" :aria-label="editPropSaving ? '正在保存道具，请稍候' : (editPropForm?.name?.trim() ? (editPropForm?.id ? '保存道具' : '添加道具') : '请先填写名称')" @click="submitEditProp">保存</el-button>
     </template>
   </AccessibleDialog>
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
+import { ElMessageBox } from '@/utils/elementPlusFeedback.js'
 import FilmCreateResourceRefImageField from './FilmCreateResourceRefImageField.vue'
+import {
+  captureResourceEditDraft,
+  createResourceEditUnsavedCloser,
+  PROP_EDIT_UNSAVED_CLOSE_MESSAGE,
+} from './filmCreateResourceEditUnsavedClose.js'
 
 defineOptions({ inheritAttrs: false })
 
@@ -149,4 +155,58 @@ const {
 
 const addPropAddRefFileInput = ref(null)
 const addPropRefFileInput = ref(null)
+
+const addPropDraftBaseline = ref('')
+const propDraftBaseline = ref('')
+const addPropCloser = createResourceEditUnsavedCloser({
+  message: PROP_EDIT_UNSAVED_CLOSE_MESSAGE,
+  confirmBox: (...args) => ElMessageBox.confirm(...args),
+})
+const propCloser = createResourceEditUnsavedCloser({
+  message: PROP_EDIT_UNSAVED_CLOSE_MESSAGE,
+  confirmBox: (...args) => ElMessageBox.confirm(...args),
+})
+
+function resetAddPropDialog() {
+  addPropForm.value = { name: '', type: '', description: '', prompt: '' }
+  addPropAddRefImage.value = null
+}
+
+function hasUnsavedAddPropDraft() {
+  return captureResourceEditDraft(addPropForm.value, addPropAddRefImage.value) !== addPropDraftBaseline.value
+}
+
+function hasUnsavedPropDraft() {
+  return captureResourceEditDraft(props.editPropForm, addPropRefImage.value) !== propDraftBaseline.value
+}
+
+function handleAddPropDialogBeforeClose(done) {
+  return addPropCloser.handleBeforeClose(hasUnsavedAddPropDraft, done)
+}
+
+function requestCloseAddPropDialog() {
+  return addPropCloser.requestClose(hasUnsavedAddPropDraft, () => {
+    showAddProp.value = false
+  })
+}
+
+function handlePropDialogBeforeClose(done) {
+  return propCloser.handleBeforeClose(hasUnsavedPropDraft, done)
+}
+
+function requestClosePropDialog() {
+  return propCloser.requestClose(hasUnsavedPropDraft, () => {
+    showEditProp.value = false
+  })
+}
+
+watch(showAddProp, (open) => {
+  if (!open) return
+  addPropDraftBaseline.value = captureResourceEditDraft(addPropForm.value, addPropAddRefImage.value)
+}, { immediate: true, flush: 'sync' })
+
+watch(showEditProp, (open) => {
+  if (!open) return
+  propDraftBaseline.value = captureResourceEditDraft(props.editPropForm, addPropRefImage.value)
+}, { immediate: true, flush: 'sync' })
 </script>

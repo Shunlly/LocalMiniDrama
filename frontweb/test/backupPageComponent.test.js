@@ -4,8 +4,12 @@ import assert from 'node:assert/strict'
 import { computed, defineComponent, h, nextTick, ref } from 'vue'
 
 import { backupAccessState } from '../src/composables/useBackupSettings.js'
+import { ElMessageBox } from '../src/utils/elementPlusFeedback.js'
 import {
+  BACKUP_LEAVE_CONFIRM_BUTTON_TEXT,
   BACKUP_LEAVE_CONFIRM_MESSAGE,
+  BACKUP_LEAVE_CONFIRM_TITLE,
+  BACKUP_LEAVE_STAY_BUTTON_TEXT,
   BACKUP_READY_NOT_SPA_HINT,
   BACKUP_READY_SPA_HTML_MESSAGE,
   BACKUP_RESTORE_CANCEL_TEXT,
@@ -111,6 +115,26 @@ const AccessibleDialogStub = defineComponent({
 })
 
 function noop() {}
+
+function assertBackupLeaveConfirmArgs(message, title, options) {
+  assert.equal(message, BACKUP_LEAVE_CONFIRM_MESSAGE)
+  assert.equal(title, BACKUP_LEAVE_CONFIRM_TITLE)
+  assert.equal(options?.confirmButtonText, BACKUP_LEAVE_CONFIRM_BUTTON_TEXT)
+  assert.equal(options?.cancelButtonText, BACKUP_LEAVE_STAY_BUTTON_TEXT)
+}
+
+function stubBackupLeaveConfirm(impl) {
+  const originalConfirm = ElMessageBox.confirm
+  const originalWindowConfirm = window.confirm
+  window.confirm = () => {
+    throw new Error('should not use window.confirm')
+  }
+  ElMessageBox.confirm = async (message, title, options) => impl(message, title, options)
+  return () => {
+    ElMessageBox.confirm = originalConfirm
+    window.confirm = originalWindowConfirm
+  }
+}
 
 function createBackupSettings(overrides = {}) {
   const backups = ref(overrides.backups || [])
@@ -548,7 +572,10 @@ test('确认恢复若已取消，不弹出失败横幅或错误提示', async ()
 })
 
 test('创建或恢复进行中离开会弹出中文确认', async () => {
-  const originalConfirm = window.confirm
+  const restoreConfirm = stubBackupLeaveConfirm(async (message, title, options) => {
+    assertBackupLeaveConfirmArgs(message, title, options)
+    throw new Error('cancel')
+  })
   const harness = mountBackup({
     creating: true,
     hasSuccessfulListLoad: true,
@@ -558,25 +585,44 @@ test('创建或恢复进行中离开会弹出中文确认', async () => {
   try {
     await nextTick()
     assert.equal(harness.leaveRegistrations[0]?.id, 'backup')
-    window.confirm = (message) => {
-      assert.equal(message, BACKUP_LEAVE_CONFIRM_MESSAGE)
-      return false
-    }
-    let allowed
-    await harness.router.leaveGuards[0]({}, {}, (value) => { allowed = value })
+    const allowed = await harness.router.leaveGuards[0]()
     assert.equal(allowed, false)
     const registered = await harness.leaveRegistrations[0].handlers.confirmLeave()
     assert.equal(registered, false)
     assert.equal(harness.leaveRegistrations[0].handlers.shouldBlockUnload(), true)
+    assert.equal(harness.settings.creating.value, true)
+    assert.deepEqual(harness.settings.cancelCalls, [])
   } finally {
-    window.confirm = originalConfirm
+    restoreConfirm()
     harness.app.unmount()
     resetVueRouterHarness()
     delete globalThis.__backupPageSettings
   }
 })
 
-test('备份锁定原因区分创建中、列表失败和维护锁定', () => {
+test('离开确认进行中再次确认会复用同一次弹窗，取消不会中断备份', async () => {
+  let calls = 0
+  let finishConfirm
+  const restoreConfirm = stubBackupLeaveConfirm(() => {
+    calls += 1
+    return new Promise((_, reject) => {
+      finishConfirm = () => reject(new Error('cancel'))
+    })
+  })
+  try {
+    const first = confirmBackupLeave(true)
+    const second = confirmBackupLeave(true)
+    assert.equal(calls, 1)
+    finishConfirm()
+    assert.equal(await first, false)
+    assert.equal(await second, false)
+    assert.equal(calls, 1)
+  } finally {
+    restoreConfirm()
+  }
+})
+
+test('备份锁定原因区分创建中、列表失败和维护锁定', async () => {
   assert.equal(getBackupWriteLockReason({ creating: true }), '正在创建备份，请稍候')
   assert.equal(getBackupWriteLockReason({ restoring: true }), '正在恢复备份，请稍候')
   assert.equal(
@@ -587,8 +633,22 @@ test('备份锁定原因区分创建中、列表失败和维护锁定', () => {
     getBackupRestoreLockReason({ listError: '超时', listIsStale: false, hasSuccessfulListLoad: false }),
     '备份列表加载失败，成功重试前不能从列表恢复',
   )
-  assert.equal(confirmBackupLeave(false, () => { throw new Error('should not confirm') }), true)
-  assert.equal(confirmBackupLeave(true, (message) => message === BACKUP_LEAVE_CONFIRM_MESSAGE), true)
+  const restoreIdle = stubBackupLeaveConfirm(async () => {
+    throw new Error('should not confirm')
+  })
+  try {
+    assert.equal(await confirmBackupLeave(false), true)
+  } finally {
+    restoreIdle()
+  }
+  const restoreBusy = stubBackupLeaveConfirm(async (message, title, options) => {
+    assertBackupLeaveConfirmArgs(message, title, options)
+  })
+  try {
+    assert.equal(await confirmBackupLeave(true), true)
+  } finally {
+    restoreBusy()
+  }
 })
 
 test('备份页创建锁定时用 aria-describedby 关联中文原因', async () => {
@@ -614,16 +674,34 @@ test('备份页创建锁定时用 aria-describedby 关联中文原因', async ()
   }
 })
 
-test('取消恢复文案仍是取消恢复备份，离开确认为中文', () => {
+test('取消恢复文案仍是取消恢复备份，离开确认为中文', async () => {
   assert.equal(BACKUP_RESTORE_CANCEL_TEXT, '\u53d6\u6d88\u6062\u590d\u5907\u4efd')
   assert.match(BACKUP_LEAVE_CONFIRM_MESSAGE, /[\u4e00-\u9fff]/)
   assert.match(BACKUP_LEAVE_CONFIRM_MESSAGE, /\u79bb\u5f00/)
   assert.doesNotMatch(BACKUP_LEAVE_CONFIRM_MESSAGE, /leave|unload|busy|confirm/i)
-  assert.equal(confirmBackupLeave(false, () => { throw new Error('should not confirm') }), true)
+  assert.equal(BACKUP_LEAVE_CONFIRM_TITLE, '确认离开？')
+  assert.equal(BACKUP_LEAVE_CONFIRM_BUTTON_TEXT, '离开')
+  assert.equal(BACKUP_LEAVE_STAY_BUTTON_TEXT, '继续留在本页')
+  assert.match(BACKUP_LEAVE_CONFIRM_TITLE, /[\u4e00-\u9fff]/)
+  assert.match(BACKUP_LEAVE_CONFIRM_BUTTON_TEXT, /[\u4e00-\u9fff]/)
+  assert.match(BACKUP_LEAVE_STAY_BUTTON_TEXT, /[\u4e00-\u9fff]/)
+  assert.doesNotMatch(BACKUP_LEAVE_CONFIRM_TITLE, /leave|unload|busy|confirm|ok|cancel/i)
+  assert.doesNotMatch(BACKUP_LEAVE_CONFIRM_BUTTON_TEXT, /leave|ok|yes|confirm/i)
+  assert.doesNotMatch(BACKUP_LEAVE_STAY_BUTTON_TEXT, /stay|cancel|continue/i)
+  const restoreConfirm = stubBackupLeaveConfirm(async () => {
+    throw new Error('should not confirm')
+  })
+  try {
+    assert.equal(await confirmBackupLeave(false), true)
+  } finally {
+    restoreConfirm()
+  }
 })
 
 test('空闲时离开备份页不弹确认', async () => {
-  const originalConfirm = window.confirm
+  const restoreConfirm = stubBackupLeaveConfirm(async () => {
+    throw new Error('should not confirm')
+  })
   const harness = mountBackup({
     hasSuccessfulListLoad: true,
     hasSuccessfulReadinessLoad: true,
@@ -631,14 +709,12 @@ test('空闲时离开备份页不弹确认', async () => {
   })
   try {
     await nextTick()
-    window.confirm = () => { throw new Error('should not confirm') }
-    let allowed
-    await harness.router.leaveGuards[0]({}, {}, (value) => { allowed = value })
+    const allowed = await harness.router.leaveGuards[0]()
     assert.equal(allowed, true)
     assert.equal(harness.leaveRegistrations[0].handlers.shouldBlockUnload(), false)
     assert.equal(await harness.leaveRegistrations[0].handlers.confirmLeave(), true)
   } finally {
-    window.confirm = originalConfirm
+    restoreConfirm()
     harness.app.unmount()
     resetVueRouterHarness()
     delete globalThis.__backupPageSettings
@@ -646,7 +722,10 @@ test('空闲时离开备份页不弹确认', async () => {
 })
 
 test('恢复进行中离开也弹中文确认', async () => {
-  const originalConfirm = window.confirm
+  const restoreConfirm = stubBackupLeaveConfirm(async (message, title, options) => {
+    assertBackupLeaveConfirmArgs(message, title, options)
+    throw new Error('cancel')
+  })
   const harness = mountBackup({
     restoring: true,
     hasSuccessfulListLoad: true,
@@ -655,16 +734,16 @@ test('恢复进行中离开也弹中文确认', async () => {
   })
   try {
     await nextTick()
-    window.confirm = (message) => {
-      assert.equal(message, BACKUP_LEAVE_CONFIRM_MESSAGE)
-      return false
-    }
-    let allowed
-    await harness.router.leaveGuards[0]({}, {}, (value) => { allowed = value })
+    harness.settings.restoreDialogVisible.value = true
+    await nextTick()
+    const allowed = await harness.router.leaveGuards[0]()
     assert.equal(allowed, false)
     assert.equal(harness.leaveRegistrations[0].handlers.shouldBlockUnload(), true)
+    assert.equal(harness.settings.restoring.value, true)
+    assert.equal(harness.settings.restoreDialogVisible.value, true)
+    assert.deepEqual(harness.settings.cancelCalls, [])
   } finally {
-    window.confirm = originalConfirm
+    restoreConfirm()
     harness.app.unmount()
     resetVueRouterHarness()
     delete globalThis.__backupPageSettings

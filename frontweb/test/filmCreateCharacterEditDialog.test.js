@@ -5,8 +5,11 @@ import { readFileSync } from 'node:fs'
 import { compileScript, parse } from '@vue/compiler-sfc'
 import { createRenderer, defineComponent, h, nextTick, ref, watch } from 'vue'
 
+import { ElMessageBox } from '../src/utils/elementPlusFeedback.js'
+
 const vueUrl = import.meta.resolve('vue')
 const characterDialogUrl = new URL('../src/components/filmCreate/FilmCreateCharacterEditDialog.vue', import.meta.url)
+const elementPlusFeedbackUrl = new URL('../src/utils/elementPlusFeedback.js', import.meta.url).href
 const resourceDialogsUrl = new URL('../src/components/filmCreate/FilmCreateResourceDialogs.vue', import.meta.url)
 const filmCreateUrl = new URL('../src/views/FilmCreate.vue', import.meta.url)
 
@@ -223,6 +226,7 @@ const ElOption = stubEl('ElOption', 'option')
 async function mountCharacterDialog(props) {
   const FilmCreateCharacterEditDialog = (await import(compileSfc(characterDialogUrl, 'character-edit-dialog', new Map([
     ['./ActionGate.vue', actionGateStubUrl],
+    ['@/utils/elementPlusFeedback.js', elementPlusFeedbackUrl],
   ])))).default
   const showEditCharacter = ref(props.showEditCharacter)
   const addCharRefImage = ref(props.addCharRefImage)
@@ -285,26 +289,20 @@ const CHARACTER_EDIT_UNSAVED_CLOSE_MESSAGE = '角色编辑还没有保存，关�
 
 function stubConfirm(impl) {
   const calls = []
-  const hadWindow = Object.prototype.hasOwnProperty.call(globalThis, 'window')
-  const previousWindow = hadWindow ? globalThis.window : undefined
-  const hadConfirm = Object.prototype.hasOwnProperty.call(globalThis, 'confirm')
-  const previousConfirm = hadConfirm ? globalThis.confirm : undefined
-  const confirm = (message) => {
+  const previousConfirm = ElMessageBox.confirm
+  ElMessageBox.confirm = async (message, title, options) => {
     calls.push(message)
-    return typeof impl === 'function' ? impl(message) : impl
-  }
-  globalThis.confirm = confirm
-  globalThis.window = {
-    ...(previousWindow && typeof previousWindow === 'object' ? previousWindow : {}),
-    confirm,
+    assert.equal(title, '未保存的修改')
+    assert.equal(options?.confirmButtonText, '放弃修改')
+    assert.equal(options?.cancelButtonText, '继续编辑')
+    const result = typeof impl === 'function' ? impl(message, title, options) : impl
+    if (result === false) throw new Error('cancel')
+    return result
   }
   return {
     calls,
     restore() {
-      if (hadConfirm) globalThis.confirm = previousConfirm
-      else delete globalThis.confirm
-      if (hadWindow) globalThis.window = previousWindow
-      else delete globalThis.window
+      ElMessageBox.confirm = previousConfirm
     },
   }
 }
@@ -324,6 +322,7 @@ async function mountCharacterDialogHarness({
 } = {}) {
   const FilmCreateCharacterEditDialog = (await import(compileSfc(characterDialogUrl, 'character-edit-dialog-harness', new Map([
     ['./ActionGate.vue', actionGateStubUrl],
+    ['@/utils/elementPlusFeedback.js', elementPlusFeedbackUrl],
   ])))).default
   const showEditCharacter = ref(true)
   const addCharRefImage = ref(initialRef)
@@ -405,6 +404,11 @@ test('抽出的角色弹窗保留上传、生成、空态和取消文案', () =>
   assert.match(characterDialogSource, /请先填写角色外貌描述/)
   assert.match(characterDialogSource, /角色编辑还没有保存，关闭会丢失这些修改。/)
   assert.match(characterDialogSource, /:before-close="handleCharDialogBeforeClose"/)
+  assert.match(characterDialogSource, /ElMessageBox.confirm/)
+  assert.match(characterDialogSource, /未保存的修改/)
+  assert.match(characterDialogSource, /放弃修改/)
+  assert.match(characterDialogSource, /继续编辑/)
+  assert.doesNotMatch(characterDialogSource, /window\.confirm/)
   assert.match(characterDialogSource, /@click="requestCloseCharDialog"/)
 })
 
@@ -696,7 +700,7 @@ test('无未保存修改时取消和 before-close 都直接关闭', async () => 
     },
   })
   try {
-    findCancelButton(root).props.onClick()
+    await findCancelButton(root).props.onClick()
     await nextTick()
     assert.equal(showEditCharacter.value, false)
     assert.deepEqual(confirm.calls, [])
@@ -725,7 +729,7 @@ test('无未保存修改时取消和 before-close 都直接关闭', async () => 
   try {
     const dialog = findDialog(opened.root)
     assert.equal(typeof dialog.props.beforeClose, 'function')
-    dialog.props.beforeClose(() => { allowed = true })
+    await dialog.props.beforeClose(() => { allowed = true })
     assert.equal(allowed, true)
     assert.deepEqual(confirmBeforeClose.calls, [])
   } finally {
@@ -754,13 +758,18 @@ test('有未保存修改时关闭需中文确认，取消确认则保持打开',
   })
   try {
     form.name = '李华改'
-    findCancelButton(root).props.onClick()
+    await findCancelButton(root).props.onClick()
     await nextTick()
     assert.deepEqual(confirm.calls, [CHARACTER_EDIT_UNSAVED_CLOSE_MESSAGE])
     assert.equal(showEditCharacter.value, true)
     assert.deepEqual(closeCalls, [])
     assert.ok(findDialog(root), '拒绝确认后弹窗应保持打开')
     assert.equal(form.name, '李华改')
+    await findCancelButton(root).props.onClick()
+    await nextTick()
+    assert.deepEqual(confirm.calls, [CHARACTER_EDIT_UNSAVED_CLOSE_MESSAGE, CHARACTER_EDIT_UNSAVED_CLOSE_MESSAGE])
+    assert.equal(showEditCharacter.value, true)
+    assert.deepEqual(closeCalls, [])
   } finally {
     confirm.restore()
     app.unmount()
@@ -787,7 +796,7 @@ test('有未保存修改时确认关闭会丢掉草稿', async () => {
   })
   try {
     form.appearance = '长发'
-    findCancelButton(root).props.onClick()
+    await findCancelButton(root).props.onClick()
     await nextTick()
     assert.deepEqual(confirm.calls, [CHARACTER_EDIT_UNSAVED_CLOSE_MESSAGE])
     assert.equal(showEditCharacter.value, false)
@@ -820,7 +829,7 @@ test('改回原值后关闭不再确认', async () => {
   try {
     form.name = '李华改'
     form.name = '李华'
-    findCancelButton(root).props.onClick()
+    await findCancelButton(root).props.onClick()
     await nextTick()
     assert.equal(showEditCharacter.value, false)
     assert.deepEqual(confirm.calls, [])
@@ -850,7 +859,7 @@ test('有未保存修改时 before-close 同样要中文确认', async () => {
   try {
     form.polished_prompt = '改过的提示词'
     let allowed = false
-    findDialog(mounted.root).props.beforeClose(() => { allowed = true })
+    await findDialog(mounted.root).props.beforeClose(() => { allowed = true })
     assert.equal(allowed, false)
     assert.deepEqual(declined.calls, [CHARACTER_EDIT_UNSAVED_CLOSE_MESSAGE])
   } finally {
@@ -877,7 +886,7 @@ test('有未保存修改时 before-close 同样要中文确认', async () => {
   try {
     form2.stages = '[{"episode_range":[1,3],"appearance":"白衣"}]'
     let allowed = false
-    findDialog(mounted2.root).props.beforeClose(() => { allowed = true })
+    await findDialog(mounted2.root).props.beforeClose(() => { allowed = true })
     assert.equal(allowed, true)
     assert.deepEqual(accepted.calls, [CHARACTER_EDIT_UNSAVED_CLOSE_MESSAGE])
   } finally {
@@ -896,7 +905,7 @@ test('未保存的角色参考图关闭时也要确认', async () => {
   try {
     harness.addCharRefImage.value = { dataUrl: 'data:image/png;base64,aaa', filename: 'ref.png' }
     await nextTick()
-    findCancelButton(harness.root).props.onClick()
+    await findCancelButton(harness.root).props.onClick()
     await nextTick()
     assert.deepEqual(confirm.calls, [CHARACTER_EDIT_UNSAVED_CLOSE_MESSAGE])
     assert.equal(harness.showEditCharacter.value, true)
@@ -905,5 +914,96 @@ test('未保存的角色参考图关闭时也要确认', async () => {
   } finally {
     confirm.restore()
     harness.app.unmount()
+  }
+})
+
+test('before-close 同步 confirm 取消不关闭，确认才关闭', async () => {
+  const calls = []
+  const previousConfirm = ElMessageBox.confirm
+  const form = {
+    name: '李华',
+    role: 'main',
+    appearance: '短发',
+    description: '',
+  }
+  ElMessageBox.confirm = (message, title, options) => {
+    calls.push(message)
+    assert.equal(title, '未保存的修改')
+    assert.equal(options?.confirmButtonText, '放弃修改')
+    assert.equal(options?.cancelButtonText, '继续编辑')
+    return false
+  }
+  const mounted = await mountCharacterDialog({
+    ...baseHandlers(),
+    showEditCharacter: true,
+    addCharRefImage: null,
+    editCharacterForm: form,
+  })
+  try {
+    form.name = '李华改'
+    let allowed = false
+    await findDialog(mounted.root).props.beforeClose(() => { allowed = true })
+    assert.equal(allowed, false)
+    assert.deepEqual(calls, [CHARACTER_EDIT_UNSAVED_CLOSE_MESSAGE])
+    assert.ok(findDialog(mounted.root), '同步取消后弹窗应保持打开')
+    assert.equal(form.name, '李华改')
+
+    ElMessageBox.confirm = (message, title, options) => {
+      calls.push(message)
+      assert.equal(title, '未保存的修改')
+      assert.equal(options?.confirmButtonText, '放弃修改')
+      assert.equal(options?.cancelButtonText, '继续编辑')
+      return true
+    }
+    await findDialog(mounted.root).props.beforeClose(() => { allowed = true })
+    assert.equal(allowed, true)
+    assert.deepEqual(calls, [CHARACTER_EDIT_UNSAVED_CLOSE_MESSAGE, CHARACTER_EDIT_UNSAVED_CLOSE_MESSAGE])
+  } finally {
+    ElMessageBox.confirm = previousConfirm
+    mounted.app.unmount()
+  }
+})
+
+test('before-close 异步确认必须等用户选择再关闭，取消后脏保护仍在', async () => {
+  const pending = []
+  const confirm = stubConfirm(() => new Promise((resolve, reject) => {
+    pending.push({ resolve, reject })
+  }))
+  const form = {
+    name: '李华',
+    role: 'main',
+    appearance: '短发',
+    description: '',
+  }
+  const mounted = await mountCharacterDialog({
+    ...baseHandlers(),
+    showEditCharacter: true,
+    addCharRefImage: null,
+    editCharacterForm: form,
+  })
+  try {
+    form.appearance = '长发'
+    let allowed = false
+    const first = findDialog(mounted.root).props.beforeClose(() => { allowed = true })
+    assert.equal(pending.length, 1)
+    await Promise.resolve()
+    assert.equal(allowed, false, '用户尚未选择时不能调用 done')
+    pending[0].reject(new Error('cancel'))
+    await first
+    assert.equal(allowed, false)
+    assert.ok(findDialog(mounted.root), '异步取消后弹窗应保持打开')
+    assert.equal(form.appearance, '长发')
+
+    const second = findDialog(mounted.root).props.beforeClose(() => { allowed = true })
+    assert.equal(pending.length, 2)
+    await Promise.resolve()
+    assert.equal(allowed, false, '第二次确认未完成前也不能调用 done')
+    pending[1].resolve('confirm')
+    await second
+    assert.equal(allowed, true)
+    assert.deepEqual(confirm.calls, [CHARACTER_EDIT_UNSAVED_CLOSE_MESSAGE, CHARACTER_EDIT_UNSAVED_CLOSE_MESSAGE])
+  } finally {
+    confirm.restore()
+    mounted.app.unmount()
   }
 })

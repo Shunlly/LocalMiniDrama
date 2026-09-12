@@ -2,7 +2,7 @@
   <input ref="addSceneRefFileInput" type="file" accept="image/*" style="display:none" tabindex="-1" aria-hidden="true" @change="onRefImageFileChange('scene', $event)" />
 
   <!-- 添加/编辑场景弹窗 -->
-  <AccessibleDialog v-model="showEditScene" :title="editSceneForm?.id ? '编辑场景' : '添加场景'" width="75%" @close="onCloseSceneDialog">
+  <AccessibleDialog v-model="showEditScene" :title="editSceneForm?.id ? '编辑场景' : '添加场景'" width="75%" :before-close="handleSceneDialogBeforeClose" @close="onCloseSceneDialog">
     <el-form v-if="editSceneForm" label-width="90px">
       <!-- 参考图上传区（新增/编辑均显示） -->
       <el-form-item label="参考图">
@@ -78,15 +78,21 @@
       </el-form-item>
     </el-form>
     <template #footer>
-      <el-button aria-label="取消编辑场景" @click="showEditScene = false">取消</el-button>
+      <el-button aria-label="取消编辑场景" @click="requestCloseSceneDialog">取消</el-button>
       <el-button type="primary" :loading="editSceneSaving" :disabled="!editSceneForm?.location?.trim()" :title="editSceneSaving ? '正在保存场景，请稍候' : (editSceneForm?.location?.trim() ? undefined : '请先填写地点')" :aria-label="editSceneSaving ? '正在保存场景，请稍候' : (editSceneForm?.location?.trim() ? (editSceneForm?.id ? '保存场景' : '添加场景') : '请先填写地点')" @click="submitEditScene">{{ editSceneForm?.id ? '保存' : '添加' }}</el-button>
     </template>
   </AccessibleDialog>
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
+import { ElMessageBox } from '@/utils/elementPlusFeedback.js'
 import FilmCreateResourceRefImageField from './FilmCreateResourceRefImageField.vue'
+import {
+  captureResourceEditDraft,
+  createResourceEditUnsavedCloser,
+  SCENE_EDIT_UNSAVED_CLOSE_MESSAGE,
+} from './filmCreateResourceEditUnsavedClose.js'
 
 defineOptions({ inheritAttrs: false })
 
@@ -124,4 +130,29 @@ const {
 } = props
 
 const addSceneRefFileInput = ref(null)
+
+const sceneDraftBaseline = ref('')
+const sceneCloser = createResourceEditUnsavedCloser({
+  message: SCENE_EDIT_UNSAVED_CLOSE_MESSAGE,
+  confirmBox: (...args) => ElMessageBox.confirm(...args),
+})
+
+function hasUnsavedSceneDraft() {
+  return captureResourceEditDraft(props.editSceneForm, addSceneRefImage.value) !== sceneDraftBaseline.value
+}
+
+function handleSceneDialogBeforeClose(done) {
+  return sceneCloser.handleBeforeClose(hasUnsavedSceneDraft, done)
+}
+
+function requestCloseSceneDialog() {
+  return sceneCloser.requestClose(hasUnsavedSceneDraft, () => {
+    showEditScene.value = false
+  })
+}
+
+watch(showEditScene, (open) => {
+  if (!open) return
+  sceneDraftBaseline.value = captureResourceEditDraft(props.editSceneForm, addSceneRefImage.value)
+}, { immediate: true, flush: 'sync' })
 </script>

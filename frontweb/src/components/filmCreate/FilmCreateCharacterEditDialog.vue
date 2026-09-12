@@ -160,6 +160,7 @@
 
 <script setup>
 import { computed, ref, watch } from 'vue'
+import { ElMessageBox } from '@/utils/elementPlusFeedback.js'
 import ActionGate from './ActionGate.vue'
 
 defineOptions({ inheritAttrs: false })
@@ -215,18 +216,47 @@ function hasUnsavedCharacterDraft() {
   return captureCharacterDraft(props.editCharacterForm, addCharRefImage.value) !== characterDraftBaseline.value
 }
 
-function confirmCloseCharacterDialog() {
+const CHARACTER_EDIT_UNSAVED_CLOSE_TITLE = '未保存的修改'
+const CHARACTER_EDIT_DISCARD_TEXT = '放弃修改'
+const CHARACTER_EDIT_CONTINUE_TEXT = '继续编辑'
+
+let confirmingCharacterClose = false
+
+function allowsCharacterClose(result) {
+  return result !== false && result !== 'cancel' && result !== 'close'
+}
+
+async function confirmCloseCharacterDialog() {
   if (!hasUnsavedCharacterDraft()) return true
-  return window.confirm(CHARACTER_EDIT_UNSAVED_CLOSE_MESSAGE)
+  if (confirmingCharacterClose) return false
+  confirmingCharacterClose = true
+  try {
+    const result = await ElMessageBox.confirm(
+      CHARACTER_EDIT_UNSAVED_CLOSE_MESSAGE,
+      CHARACTER_EDIT_UNSAVED_CLOSE_TITLE,
+      {
+        type: 'warning',
+        confirmButtonText: CHARACTER_EDIT_DISCARD_TEXT,
+        cancelButtonText: CHARACTER_EDIT_CONTINUE_TEXT,
+        distinguishCancelAndClose: true,
+      },
+    )
+    return allowsCharacterClose(result)
+  } catch {
+    return false
+  } finally {
+    confirmingCharacterClose = false
+  }
 }
 
-function handleCharDialogBeforeClose(done) {
+async function handleCharDialogBeforeClose(done) {
   if (typeof done !== 'function') return
-  if (confirmCloseCharacterDialog()) done()
+  // 确认框可能同步返回或返回 Promise，必须等用户选择后再 done()。
+  if (await confirmCloseCharacterDialog()) done()
 }
 
-function requestCloseCharDialog() {
-  if (!confirmCloseCharacterDialog()) return
+async function requestCloseCharDialog() {
+  if (!await confirmCloseCharacterDialog()) return
   showEditCharacter.value = false
 }
 

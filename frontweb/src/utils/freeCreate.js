@@ -284,6 +284,10 @@ export function buildFreeCreateGenerationPayload({
 }
 
 export const FREE_CREATE_LEAVE_CONFIRM_MESSAGE = '正在生成，离开将取消当前任务。仍要离开吗？'
+/** 工作区警告走 import { ElMessage } from '@/utils/elementPlusFeedback.js'，离开确认用同模块 ElMessageBox */
+export const FREE_CREATE_LEAVE_CONFIRM_TITLE = '离开自由创作'
+export const FREE_CREATE_LEAVE_CONFIRM_BUTTON_TEXT = '离开并取消'
+export const FREE_CREATE_LEAVE_STAY_BUTTON_TEXT = '继续生成'
 export const FREE_CREATE_UPLOAD_LEAVE_MESSAGE = '参考图正在上传，请完成后再离开。'
 
 export function getFreeCreateEmptyResultCopy({ status = '', ready = false, serviceLabel = '图片' } = {}) {
