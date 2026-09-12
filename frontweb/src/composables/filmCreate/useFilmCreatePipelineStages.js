@@ -154,6 +154,7 @@ export function useFilmCreatePipelineStages(deps = {}) {
         return
       }
 
+      if (lastPipelineMode) lastPipelineMode.value = 'production'
       pipelineErrorLog.value = []
       pipelineCurrentStep.value = ''
       pipelineActiveTasks.clear()

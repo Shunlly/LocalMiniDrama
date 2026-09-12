@@ -399,6 +399,30 @@ test('缺文本模型时草稿预演先提示配置，不启动提取', async ()
   }
 })
 
+
+test('修复缺失流水线启动后重试按正式成片处理', async () => {
+  assertDistinctIds(DRAMA_ID, EPISODE_ID)
+  const lastPipelineMode = refOf('draft')
+  const executeCalls = []
+  const api = useFilmCreatePipelineStages(createPipelineStageDeps({
+    store: { scriptContent: '李华走进办公室。' },
+    lastPipelineMode,
+    pipelineErrorLog: refOf([]),
+    pipelineCurrentStep: refOf(''),
+    pipelineActiveTasks: new Set(),
+    pipelineOwnedTaskIds: new Set(),
+    refreshProductionReadiness: async () => ({ ready: true, reason: '' }),
+    confirmProductionPipelineCost: async () => true,
+    executeOwnedPipelineRun: async () => {
+      executeCalls.push('repair')
+    },
+    trackFilmCreateAction() {},
+  }))
+  await api.startRepairPipeline()
+  assert.equal(lastPipelineMode.value, 'production')
+  assert.equal(executeCalls.length, 1)
+})
+
 function createRunnablePipelineStages(overrides = {}) {
   const errors = []
   const pipelineErrorLog = overrides.pipelineErrorLog || refOf([])
