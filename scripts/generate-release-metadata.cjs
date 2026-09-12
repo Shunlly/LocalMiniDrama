@@ -105,9 +105,21 @@ function assertCleanSourceTree(environment = process.env) {
     windowsHide: true,
   })
   assert.equal(result.status, 0, 'release metadata requires a readable Git worktree')
-  const dirty = Boolean(String(result.stdout || '').trim())
+  const ignoredOutput = /^(?:desktop\/release(?:-|\/)|desktop\/security-evidence\/|desktop\/node_modules\/)/
+  const dirtyEntries = String(result.stdout || '')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .filter((line) => {
+      const file = line.replace(/^..\s+/, '').replace(/^"|"$/g, '')
+      return !ignoredOutput.test(file)
+    })
+  const dirty = dirtyEntries.length > 0
   if (dirty && environment.ALLOW_DIRTY_RELEASE !== '1') {
-    assert.fail('release metadata refuses a dirty Git worktree; commit the exact source before packaging')
+    assert.fail(
+      'release metadata refuses a dirty Git worktree; commit the exact source before packaging\n'
+      + dirtyEntries.join('\n'),
+    )
   }
   return dirty
 }

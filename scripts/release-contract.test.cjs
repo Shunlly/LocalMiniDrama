@@ -12640,6 +12640,10 @@ test('source secret scanning covers every tracked path and isolates worktree out
     '933546c8816aa997b6f40478b58e7be08f624ae9:backend-node/test/aiConfigOcrTranscription.test.js:generic-api-key:265',
     'f285d312216d495f34f5d6748fce81347ec3aea2:backend-node/test/imageVideoGatewayAssemblyContract.test.js:generic-api-key:75',
     'f285d312216d495f34f5d6748fce81347ec3aea2:backend-node/test/routeObservability.test.js:generic-api-key:71',
+    '8c9c313716b9db8e93e88e06dc71e7f4cd48c415:backend-node/test/cancelTimeoutLogSanitization.test.js:generic-api-key:82',
+    '8c9c313716b9db8e93e88e06dc71e7f4cd48c415:backend-node/test/cancelTimeoutLogSanitization.test.js:generic-api-key:115',
+    '8c9c313716b9db8e93e88e06dc71e7f4cd48c415:backend-node/test/cancelTimeoutLogSanitization.test.js:generic-api-key:143',
+    '8c9c313716b9db8e93e88e06dc71e7f4cd48c415:backend-node/test/cancelTimeoutLogSanitization.test.js:generic-api-key:158',
   ])
 
   const currentSyntheticSources = {
@@ -12649,6 +12653,7 @@ test('source secret scanning covers every tracked path and isolates worktree out
     'backend-node/test/aiConfigOcrTranscription.test.js': /\[String\(serviceType\), '-secret-key-123456'\]\.join\(''\)/,
     'backend-node/test/imageVideoGatewayAssemblyContract.test.js': /\['sk-', 'assembly-secret-123456'\]\.join\(''\)/,
     'backend-node/test/routeObservability.test.js': /\['sk-', 'route-obs-secret-123456'\]\.join\(''\)/,
+    'backend-node/test/cancelTimeoutLogSanitization.test.js': /\['sk-', 'timeout-route-secret-123456'\]\.join\(''\)/,
   }
   for (const [relativePath, fragmentPattern] of Object.entries(currentSyntheticSources)) {
     const source = fs.readFileSync(path.join(root, relativePath), 'utf8')
