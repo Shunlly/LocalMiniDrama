@@ -111,6 +111,47 @@ test('project-owned API requests suppress the shared transport error toast at di
   lifecycle.dispose()
 })
 
+test('owned in-flight request does not suppress an overlapping unmarked request toast', async () => {
+  let releaseOwned
+  const owned = new Promise((resolve) => { releaseOwned = resolve })
+  const lifecycle = createProjectInstanceLifecycle()
+  const api = lifecycle.guardApi({
+    hang() {
+      return request.get('/owned-hang', {
+        adapter: async (config) => {
+          await owned
+          return {
+            config,
+            data: { success: true, data: config.suppressErrorToast === true },
+            headers: {},
+            status: 200,
+            statusText: 'OK',
+          }
+        },
+      })
+    },
+  })
+
+  const pending = api.hang()
+  let unmarkedSuppressed = true
+  await request.get('/unmarked-probe', {
+    adapter: async (config) => {
+      unmarkedSuppressed = config.suppressErrorToast === true
+      return {
+        config,
+        data: { success: true, data: true },
+        headers: {},
+        status: 200,
+        statusText: 'OK',
+      }
+    },
+  })
+  assert.equal(unmarkedSuppressed, false)
+  releaseOwned()
+  assert.equal(await pending, true)
+  lifecycle.dispose()
+})
+
 test('DramaDetail routes episode mutation continuations through the project lifecycle', () => {
   assert.match(dramaDetailSource, /createProjectInstanceLifecycle/)
   assert.match(

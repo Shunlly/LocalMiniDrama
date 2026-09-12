@@ -24,21 +24,13 @@ function releaseOwnedRequestErrorToast() {
   if (requestErrorToastOwnerDepth > 0) requestErrorToastOwnerDepth -= 1
 }
 
-function retainOwnedRequestErrorToast(result) {
-  if (result && typeof result.then === 'function') {
-    return Promise.resolve(result).finally(releaseOwnedRequestErrorToast)
-  }
-  releaseOwnedRequestErrorToast()
-  return result
-}
-
 export function runWithOwnedRequestErrorToast(operation) {
+  // 请求拦截器是同步的，当前请求打上 suppress 后立刻放掉标志，避免并发未属于该项目的请求也被压掉 toast。
   requestErrorToastOwnerDepth += 1
   try {
-    return retainOwnedRequestErrorToast(operation())
-  } catch (error) {
+    return operation()
+  } finally {
     releaseOwnedRequestErrorToast()
-    throw error
   }
 }
 
