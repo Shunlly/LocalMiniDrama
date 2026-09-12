@@ -40,7 +40,7 @@
     <div class="delivery-actions">
       <ActionGate :reason="visibleComposeDisabledReason" label="合成成片">
         <el-button
-          type="primary"
+          :type="visibleComposeDisabledReason ? undefined : 'primary'"
           :loading="videoStatus === 'generating'"
           :disabled="Boolean(visibleComposeDisabledReason)"
           :title="panelState.composeButtonTitle"

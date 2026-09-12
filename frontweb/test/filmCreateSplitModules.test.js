@@ -404,7 +404,7 @@ test('制作页把侧栏、加载面、依赖警告和弹窗层显式 props 交�
   assert.match(shellBindingsSource, /export function createFilmCreateShellBindingSources/)
   assert.match(shellBindingsSource, /quickNav: \{[\s\S]*storyboardMenuExpanded[\s\S]*onToggleNav: toggleNav/)
   assert.match(shellBindingsSource, /projectLoadState: \{[\s\S]*onRetry: retryFilmProjectLoad[\s\S]*onGoList: goList/)
-  assert.match(shellBindingsSource, /projectDependencyWarning: \{[\s\S]*mediaError: storyboardMediaLoadError[\s\S]*onRetry: retryProjectDependencies/)
+  assert.match(shellBindingsSource, /projectDependencyWarning: \{[\s\S]*mediaError: storyboardMediaLoadError[\s\S]*onRetry: retryProjectDependencies[\s\S]*onScrollToAnchor: scrollToAnchor/)
   assert.match(shellBindingsSource, /workspaceDialogsLayer: \{[\s\S]*maxChapters: novelMaxChapters[\s\S]*modelValue: showAiConfigDialog/)
   assert.match(shellBindingsSource, /previewImageUrl: computed\(\(\) => unref\(previewImageUrl\) \|\| ''\)/)
   assert.doesNotMatch(shellBindingsSource, /const currentEpisodeId = ref/)

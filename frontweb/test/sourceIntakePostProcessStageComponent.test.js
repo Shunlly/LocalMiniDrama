@@ -322,7 +322,9 @@ test('交付卡片展示剧集、轨道、时长和占位，并回到导入步�
     assert.match(text, /含占位/)
     assert.deepEqual(tagTypes(harness.root), ['warning'])
     assert.doesNotMatch(text, /Invalid Date/)
-    buttonByText(harness.root, '继续导入故事素材').props.onClick()
+    const continueImport = buttonByText(harness.root, '继续导入故事素材')
+    assert.equal(continueImport.props['data-variant'], 'primary')
+    continueImport.props.onClick()
     assert.deepEqual(harness.events, [['select-step', 'intake']])
   } finally {
     harness.app.unmount()
@@ -411,7 +413,13 @@ test('交付卡片区分占位、缺轨、仅有剧集和完全空态', () => {
   })
   try {
     assert.match(textContent(empty.root), /完成素材处理后，这里会显示剧集与时间线摘要/)
-    buttonByText(empty.root, '去启动处理').props.onClick()
+    const goProcess = buttonByText(empty.root, '去启动处理')
+    const continueImport = buttonByText(empty.root, '继续导入故事素材')
+    assert.ok(goProcess)
+    assert.ok(continueImport)
+    assert.equal(goProcess.props['data-variant'], 'primary')
+    assert.notEqual(continueImport.props['data-variant'], 'primary')
+    goProcess.props.onClick()
     assert.deepEqual(empty.events, [['select-step', 'process']])
   } finally {
     empty.app.unmount()

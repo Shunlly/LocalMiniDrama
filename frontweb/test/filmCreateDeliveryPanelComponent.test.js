@@ -142,6 +142,7 @@ test('就绪后下载和导出走真实按钮入口；失败态收成中文并�
     deliverySubtitleAvailable: true,
   })
   try {
+    assert.equal(requireButton(harness.root, '重新合成').props['data-variant'], 'primary')
     requireButton(harness.root, '重新合成').props.onClick()
     requireButton(harness.root, '下载成片').props.onClick()
     requireButton(harness.root, '下载字幕').props.onClick()
@@ -193,6 +194,7 @@ test('未选剧集的空态不会误导去生成分镜视频，合成入口保�
     assert.match(textContent(guidance), /请先创建或选择剧集/)
     assert.doesNotMatch(textContent(guidance), /去分镜面板生成视频/)
     assert.equal(requireButton(harness.root, '合成成片').props.disabled, true)
+    assert.notEqual(requireButton(harness.root, '合成成片').props['data-variant'], 'primary')
     assert.equal(requireButton(harness.root, '合成成片').props['aria-label'], '合成成片不可用：请先创建或选择剧集')
   } finally {
     harness.app.unmount()

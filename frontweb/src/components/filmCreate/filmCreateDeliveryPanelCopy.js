@@ -20,7 +20,6 @@ export function describeDeliveryPanelState(input = {}) {
 
   let guidanceKind = ''
   let guidanceText = ''
-  let guidanceHref = ''
   let guidanceAnchor = ''
   let guidanceActionLabel = ''
   if (/请先创建或选择剧集|请先打开制作项目/.test(composeDisabledReason)) {
@@ -30,12 +29,10 @@ export function describeDeliveryPanelState(input = {}) {
     guidanceKind = 'empty'
     if (total > 0) {
       guidanceText = `还没有可播放的分镜视频（已完成 0/${total}）。请先到「分镜」面板为每个镜头生成视频，全部完成后再回来合成成片。`
-      guidanceHref = '#anchor-storyboard-images'
       guidanceAnchor = 'anchor-storyboard-images'
       guidanceActionLabel = '去分镜面板生成视频'
     } else {
       guidanceText = '还没有可播放的分镜视频。请先到「分镜」面板生成或添加分镜，再为每个镜头生成视频。'
-      guidanceHref = '#anchor-storyboard'
       guidanceAnchor = 'anchor-storyboard'
       guidanceActionLabel = '去分镜面板添加分镜'
     }
@@ -56,7 +53,6 @@ export function describeDeliveryPanelState(input = {}) {
     exportProjectDisabledReason,
     guidanceKind,
     guidanceText,
-    guidanceHref,
     guidanceAnchor,
     guidanceActionLabel,
     composeActionLabel,

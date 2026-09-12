@@ -25,7 +25,12 @@
       <el-button type="primary" plain aria-label="去启动处理" @click="$emit('select-step', 'process')">去启动处理</el-button>
     </div>
     <div class="stage-action-row delivery-actions">
-      <el-button type="primary" plain aria-label="继续导入故事素材" @click="$emit('select-step', 'intake')">继续导入故事素材</el-button>
+      <el-button
+        :type="timelineSummary.episodeCount || dramaEpisodeCount ? 'primary' : undefined"
+        plain
+        aria-label="继续导入故事素材"
+        @click="$emit('select-step', 'intake')"
+      >继续导入故事素材</el-button>
     </div>
   </div>
 </template>

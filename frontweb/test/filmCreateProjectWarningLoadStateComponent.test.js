@@ -60,6 +60,7 @@ test('依赖警告只有一个 primary，读屏名包含可见重试加载素材
     click(retry)
     const viewStoryboard = buttonByText(harness.root, '查看分镜')
     assert.ok(viewStoryboard)
+    assert.equal(viewStoryboard.props['aria-label'], '查看分镜')
     assert.equal(viewStoryboard.props['data-variant'], undefined)
     click(viewStoryboard)
     assert.deepEqual(events, ['retry', ['scroll-to-anchor', 'anchor-storyboard-images', 'anchor-storyboard-images']])

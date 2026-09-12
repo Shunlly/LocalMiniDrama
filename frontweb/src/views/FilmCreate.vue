@@ -42,7 +42,6 @@
       <!-- 分镜生成 -->
       <FilmCreateStoryboardPanel
         class="section card"
-        id="anchor-storyboard"
         v-bind="storyboardPanelBindings"
       />
       <FilmCreateOutputSection

@@ -141,6 +141,7 @@ test('制作页把批量停止和单条生视频接到离开保护', () => {
   assert.match(call, /generatingPanoramaIds/)
   assert.match(call, /getRunningGenerationTasks/)
   assert.match(filmCreateSource, /onBeforeRouteLeave\(allowNavigationAfterDraftFlush\)/)
+  assert.match(filmCreateSource, /onBeforeRouteUpdate\(allowNavigationAfterDraftFlush\)/)
   assert.match(filmCreateSource, /handleBeforeUnload/)
   assert.match(filmCreateSource, /confirmResourceEditorLeave/)
   const guardsSource = readFileSync(
@@ -370,4 +371,30 @@ test('同页只改 hash 不走离开保护，切集 query 仍要保存剧本', a
   assert.equal(flushCount, 0)
   assert.equal(await guards.allowNavigationAfterDraftFlush(episodeSwitch, from), true)
   assert.equal(flushCount, 1)
+})
+
+test('全流程运行时同页 hash 放行，切集仍要确认停止', async () => {
+  const feedback = stubElementPlusFeedback()
+  try {
+    setActivePinia(createPinia())
+    const from = {
+      name: 'film',
+      path: '/film/11',
+      params: { id: '11' },
+      query: { episode: '22' },
+      hash: '',
+    }
+    const { guards, cancelCalls } = createGuards({
+      pipelineRunning: refOf(true),
+      getRunningGenerationTasks: () => [],
+    })
+    feedback.setConfirm(async () => { throw 'cancel' })
+    assert.equal(await guards.allowNavigationAfterDraftFlush({ ...from, hash: '#anchor-storyboard' }, from), true)
+    assert.deepEqual(cancelCalls, [])
+    assert.equal(await guards.allowNavigationAfterDraftFlush({ ...from, query: { episode: '33' } }, from), false)
+    assert.equal(feedback.last('confirm').title, '全流程仍在执行')
+    assert.deepEqual(cancelCalls, [])
+  } finally {
+    feedback.restore()
+  }
 })

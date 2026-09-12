@@ -125,6 +125,7 @@ test('film create navigation and resource disclosure controls use native buttons
   const storyboardScriptAnchors = storyboardPanelSource.match(/id="anchor-storyboard"/g) || []
   const storyboardImageAnchors = storyboardConfigBarSource.match(/id="anchor-storyboard-images"/g) || []
   assert.equal(storyboardScriptAnchors.length, 1)
+  assert.doesNotMatch(filmCreateSource, /id="anchor-storyboard"/)
   assert.equal(storyboardImageAnchors.length, 1)
   assert.match(storyboardPanelSource, /<FilmCreateStoryboardConfigBar/)
   assert.ok(

@@ -25,6 +25,7 @@
         v-if="mediaError"
         type="button"
         class="project-dependency-warning-link"
+        aria-label="查看分镜"
         @click="onViewStoryboard"
       >查看分镜</button>
     </div>
