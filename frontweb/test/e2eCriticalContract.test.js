@@ -171,7 +171,7 @@ function createCriticalPageMock(options = {}) {
     if (name === critical.CRITICAL_UI.saveAndLeave) {
       return
     }
-    if (name === critical.CRITICAL_UI.backToList) {
+    if (name === critical.CRITICAL_UI.backToList || name === critical.CRITICAL_UI.logoBackToList) {
       const pathName = parsed().pathname
       if (pathName === `/film/${dramaId}` && dirty) {
         openDialog(critical.CRITICAL_UI.unsavedScriptTitle, ['自动保存失败。可先重试保存，或仍然离开并丢弃本次剧本修改。'])
@@ -304,6 +304,7 @@ test('共享合同覆盖工作区入口、素材库空态、项目列表-制作�
     "pathname === `/film/${fixture.dramaId}/canvas`",
     'page.goto(deepLink',
     'CRITICAL_UI.listModeAria, exact: true }).first()',
+    'CRITICAL_UI.logoBackToList, exact: true }).first()',
     'async function verifyLeaveProtectionWhenAutosavePending',
     'E2E_AUTOSAVE_FAILED',
     "press('Escape')",
@@ -325,8 +326,10 @@ test('共享合同覆盖工作区入口、素材库空态、项目列表-制作�
     'CRITICAL_UI.missingCanvasTitle, exact: true })',
     "goto(`${fixture.frontendUrl}/film/abc`",
     'CRITICAL_UI.notFoundTitle, exact: true })',
+    'getByText(/制作页深链接已失效，项目编号不正确/)',
     'returnToProjectListFromNotFound(page)',
     "goto(`${fixture.frontendUrl}/e2e-missing-route`",
+    'getByText(/这个地址不在应用里/)',
     'CRITICAL_UI.mediaLoadFailedDetail, { exact: true }',
     'async function verifyWorkspaceEntries',
     'CRITICAL_UI.openMediaLibrary, exact: true }).click()',

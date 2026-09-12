@@ -224,10 +224,10 @@ async function main({
     registerCleanup(cleanupActions, 'browser', () => browser.close())
     const page = await browser.newPage({ viewport: { width: 1366, height: 900 } })
     await page.goto(`${FRONTEND_URL.replace(/\/$/, '')}/drama/${drama.id}`, { waitUntil: 'networkidle' })
-    await page.getByText('项目就绪度').waitFor({ timeout: 15000 })
+    await page.getByText('成片交付就绪度').waitFor({ timeout: 15000 })
     await page.getByText('故事素材流程').waitFor({ timeout: 15000 })
     const stepper = page.getByRole('navigation', { name: '素材处理步骤' })
-    for (const label of ['导入素材', '启动处理', 'QA', '修复', '剧集 / 时间线']) {
+    for (const label of ['导入素材', '启动处理', '质量检查', '修复', '剧集 / 时间线']) {
       await stepper.getByText(label, { exact: true }).waitFor({ timeout: 15000 })
     }
     await stepper.getByText('1 份素材已导入', { exact: true }).waitFor({ timeout: 15000 })

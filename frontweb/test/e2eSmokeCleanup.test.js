@@ -206,12 +206,12 @@ test('cleanup failure fails an otherwise successful smoke run while preserving U
   assert.deepEqual(cleanupEvents, ['api delete', 'hard purge'])
 
   for (const label of [
-    '项目就绪度',
+    '成片交付就绪度',
     '故事素材流程',
     '素材处理步骤',
     '导入素材',
     '启动处理',
-    'QA',
+    '质量检查',
     '修复',
     '剧集 / 时间线',
     '1 份素材已导入',
@@ -375,7 +375,7 @@ test('production E2E 必须接上 smoke 的剧集页文案，避免烟测脚本�
   assert.match(productionSource, /UI\.workflowTitle/)
   assert.match(productionSource, /UI\.intakeStepper/)
   assert.match(productionSource, /UI\.startDraft/)
-  assert.match(scriptSource, /getByText\('项目就绪度'\)/)
+  assert.match(scriptSource, /getByText\('成片交付就绪度'\)/)
   assert.match(scriptSource, /getByText\('故事素材流程'\)/)
   assert.match(scriptSource, /getByRole\('navigation', \{ name: '素材处理步骤' \}\)/)
   assert.match(scriptSource, /getByRole\('button', \{ name: '以草稿预演启动', exact: true \}\)/)

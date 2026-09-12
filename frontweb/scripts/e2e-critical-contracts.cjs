@@ -13,6 +13,7 @@ const CRITICAL_UI = Object.freeze({
   listMode: '列表模式',
   listModeAria: '返回列表模式',
   backToList: '返回项目列表',
+  logoBackToList: '本地短剧助手，返回项目列表',
   projectList: '项目列表',
   canvasModeGroup: '画布模式',
   productionMode: '剧集画布',
@@ -322,7 +323,7 @@ async function verifyProjectListFilmCanvasRoundTrip(page, options = {}) {
   await page.locator('.film-create').waitFor({ state: 'visible', timeout: 30000 })
   assert.equal(currentUrl(page).searchParams.get('episode'), episodeId)
 
-  const backToList = page.getByRole('button', { name: CRITICAL_UI.backToList, exact: true }).first()
+  const backToList = page.getByRole('button', { name: CRITICAL_UI.logoBackToList, exact: true }).first()
   await Promise.all([
     waitForPath(page, (url) => url.pathname === '/'),
     backToList.click(),
@@ -362,7 +363,7 @@ async function verifyLeaveProtectionWhenAutosavePending(page, options = {}) {
     await scriptBox.waitFor({ state: 'visible', timeout: 30000 })
     await scriptBox.fill(`E2E 离开保护未完成自动保存 ${Date.now()}`)
 
-    const backToList = page.getByRole('button', { name: CRITICAL_UI.backToList, exact: true }).first()
+    const backToList = page.getByRole('button', { name: CRITICAL_UI.logoBackToList, exact: true }).first()
     await backToList.click()
     const dialog = page.getByRole('dialog', { name: CRITICAL_UI.unsavedScriptTitle, exact: true })
     await dialog.waitFor({ state: 'visible', timeout: 15000 })
@@ -526,12 +527,12 @@ async function verifyMissingProjectChineseFailurePages(page, options = {}) {
 
   await page.goto(`${fixture.frontendUrl}/film/abc`, { waitUntil: 'domcontentloaded' })
   await page.getByRole('heading', { name: CRITICAL_UI.notFoundTitle, exact: true }).waitFor({ timeout: 30000 })
-  await page.getByText(/地址可能已失效，或项目编号不正确/).waitFor({ timeout: 10000 })
+  await page.getByText(/制作页深链接已失效，项目编号不正确/).waitFor({ timeout: 10000 })
   await returnToProjectListFromNotFound(page)
 
   await page.goto(`${fixture.frontendUrl}/e2e-missing-route`, { waitUntil: 'domcontentloaded' })
   await page.getByRole('heading', { name: CRITICAL_UI.notFoundTitle, exact: true }).waitFor({ timeout: 30000 })
-  await page.getByText(/地址可能已失效，或项目编号不正确/).waitFor({ timeout: 10000 })
+  await page.getByText(/这个地址不在应用里/).waitFor({ timeout: 10000 })
   await returnToProjectListFromNotFound(page)
 
   const assetsRoute = '**/api/v1/assets**'
