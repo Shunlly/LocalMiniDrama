@@ -1,10 +1,15 @@
 'use strict';
 
-// 图生请求运行时：超时、取消、Idempotency、错误包装与协议推断。
+// 图生请求运行时：超时、取消、Idempotency 与错误包装。协议推断已拆到 protocol.js。
 
 const { AsyncLocalStorage } = require('async_hooks');
 const { secureHttpFetch, validateHttpRequestTarget } = require('../secureHttpFetch');
 const { toUserFacingGatewayError } = require('../providerErrorSanitizer');
+const {
+  ANTI_SPLIT_NEGATIVE_PROMPT,
+  mergeNegativePromptFragments,
+  inferProtocol,
+} = require('./protocol');
 const {
   classifyHttpFailure,
   createTimeoutController,
@@ -196,34 +201,6 @@ function imageProviderCaughtError(error, provider, operation, signal) {
   const result = { error: userFacingGatewayError(classified, { provider, operation }) };
   if (classified.retryable === true) result.retryable = true;
   return result;
-}
-
-// 多参考图时注入到所有支持 negative_prompt 的模型，防止生成分割/拼贴布局；同时加入安全词以减少敏感拦截
-const ANTI_SPLIT_NEGATIVE_PROMPT = 'nsfw, nudity, naked, violence, blood, gore, sensitive content, split panels, side-by-side layout, collage, diptych, triptych, grid layout, multiple panels, comparison view, composite image, two images in one frame';
-
-function mergeNegativePromptFragments(auto, user) {
-  const a = (auto || '').trim();
-  const u = (user || '').trim();
-  if (a && u) return `${a}, ${u}`;
-  return a || u || '';
-}
-
-/**
- * 根据 provider 名推断接口规范（api_protocol 未设置时的兜底逻辑）
- * 已明确设置 api_protocol 的配置不会走此函数。
- */
-function inferProtocol(provider, model) {
-  const p = String(provider || '').toLowerCase();
-  if (p === 'comfyui' || p === 'comfy_ui') return 'comfyui';
-  if (p === 'dashscope' || p === 'qwen_image') return 'dashscope';
-  if (p === 'nano_banana') return 'nano_banana';
-  if (p === 'gemini' || p === 'google') return 'gemini';
-  if (p === 'volces' || p === 'volcengine' || p === 'volc') return 'volcengine';
-  if (/seedream|doubao/i.test(model || '')) return 'volcengine';
-  if (p === 'kling' || p === 'klingai') return 'kling';
-  if (/^kling-/i.test(model || '')) return 'kling';
-  if (p === 'agnes' || /agnes-image|apihub\.agnes-ai\.com/i.test(String(model || ''))) return 'agnes';
-  return 'openai';
 }
 
 module.exports = {

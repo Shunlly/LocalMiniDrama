@@ -566,8 +566,10 @@ test('\u5269\u4f59\u7528\u6237\u9519\u8bef\u6e90\u7801\u4e0d\u518d\u5305\u542b\u
     'services/imageGateway/nanoBananaImageAdapter.js',
     'services/imageGateway/openAiCompatibleImageApi.js',
     'services/imageGateway/protocolDispatch.js',
+    'services/imageGateway/protocol.js',
     'services/imageGateway/proxyCache.js',
     'services/imageGateway/imageApiAssembly.js',
+    'services/imageGateway/imageApiCall.js',
     'services/imageGateway/requestAssembly.js',
     'services/imageGateway/requestError.js',
     'services/imageGateway/runtime.js',
@@ -581,9 +583,11 @@ test('\u5269\u4f59\u7528\u6237\u9519\u8bef\u6e90\u7801\u4e0d\u518d\u5305\u542b\u
     'services/videoGateway/pollControl.js',
     'services/videoGateway/pollDispatch.js',
     'services/videoGateway/pollParse.js',
+    'services/videoGateway/pollTask.js',
     'services/videoGateway/requestAssembly.js',
     'services/videoGateway/staticPath.js',
     'services/videoGateway/videoApiAssembly.js',
+    'services/videoGateway/videoApiCall.js',
     'services/videoGateway/providerRuntime.js',
     'services/videoGateway/requestError.js',
     'services/videoGateway/seedanceCertifiedAssets.js',
@@ -966,8 +970,12 @@ test('videoClient 用户错误不再是问号乱码', () => {
   const source = [
     fs.readFileSync(path.join(__dirname, '../src/services/videoClient.js'), 'utf8'),
     fs.readFileSync(path.join(__dirname, '../src/services/videoGateway/videoApiAssembly.js'), 'utf8'),
+    fs.readFileSync(path.join(__dirname, '../src/services/videoGateway/videoApiCall.js'), 'utf8'),
   ].join('\n');
-  const pollClientSource = fs.readFileSync(path.join(__dirname, '../src/services/videoClientPoll.js'), 'utf8');
+  const pollClientSource = [
+    fs.readFileSync(path.join(__dirname, '../src/services/videoClientPoll.js'), 'utf8'),
+    fs.readFileSync(path.join(__dirname, '../src/services/videoGateway/pollTask.js'), 'utf8'),
+  ].join('\n');
   const pollSource = fs.readFileSync(path.join(__dirname, '../src/services/videoGateway/pollDispatch.js'), 'utf8');
   const pollControlSource = fs.readFileSync(path.join(__dirname, '../src/services/videoGateway/pollControl.js'), 'utf8');
   const userFacing = [source, pollClientSource, pollSource, pollControlSource].join('\n')
@@ -1274,6 +1282,7 @@ test('非备份剩余用户错误去掉英文字段名、协议名和模型代�
   const imageClientSource = [
     fs.readFileSync(path.join(__dirname, '../src/services/imageClient.js'), 'utf8'),
     fs.readFileSync(path.join(__dirname, '../src/services/imageGateway/imageApiAssembly.js'), 'utf8'),
+    fs.readFileSync(path.join(__dirname, '../src/services/imageGateway/imageApiCall.js'), 'utf8'),
   ].join('\n');
   assert.match(imageClientSource, /未配置图片模型，请在「AI 配置」中添加图片类型且已启用的配置/);
   assert.equal(imageClientSource.includes('image 类型'), false);
@@ -1294,6 +1303,7 @@ test('非备份剩余用户错误去掉英文字段名、协议名和模型代�
   const videoClientSource = [
     fs.readFileSync(path.join(__dirname, '../src/services/videoClient.js'), 'utf8'),
     fs.readFileSync(path.join(__dirname, '../src/services/videoClientPoll.js'), 'utf8'),
+    fs.readFileSync(path.join(__dirname, '../src/services/videoGateway/pollTask.js'), 'utf8'),
   ].join('\n');
   assert.match(videoClientSource, /即梦视频为同步返回视频地址，不应进入轮询/);
   assert.equal(videoClientSource.includes('Jimeng AI API'), false);

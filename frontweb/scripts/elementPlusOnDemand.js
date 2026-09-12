@@ -153,6 +153,10 @@ function isAppSourceId(id) {
   return normalized.includes('/src/') && /\.(?:js|mjs|cjs|ts|vue)(?:\?|$)/.test(normalized)
 }
 
+function sideEffectFreeVirtual(id) {
+  return { id, moduleSideEffects: false }
+}
+
 export function createElementPlusIconsPlugin(iconsIndexPath) {
   const iconModules = parseElementPlusIconModules(fs.readFileSync(iconsIndexPath, 'utf8'))
   const entryCode = [...iconModules.keys()]
@@ -164,11 +168,11 @@ export function createElementPlusIconsPlugin(iconsIndexPath) {
     name: 'element-plus-icons-ondemand',
     enforce: 'pre',
     resolveId(source) {
-      if (isIconsPackageEntry(source)) return `\0${ELEMENT_PLUS_ICONS_ENTRY}`
+      if (isIconsPackageEntry(source)) return sideEffectFreeVirtual(`\0${ELEMENT_PLUS_ICONS_ENTRY}`)
       const normalized = normalizeId(source)
       if (normalized === ELEMENT_PLUS_ICON_PREFIX || normalized === `\0${ELEMENT_PLUS_ICON_PREFIX}`) return null
-      if (normalized.startsWith(ELEMENT_PLUS_ICON_PREFIX)) return `\0${normalized}`
-      if (normalized.startsWith(`\0${ELEMENT_PLUS_ICON_PREFIX}`)) return normalized
+      if (normalized.startsWith(ELEMENT_PLUS_ICON_PREFIX)) return sideEffectFreeVirtual(`\0${normalized}`)
+      if (normalized.startsWith(`\0${ELEMENT_PLUS_ICON_PREFIX}`)) return sideEffectFreeVirtual(normalized)
       return null
     },
     load(id) {

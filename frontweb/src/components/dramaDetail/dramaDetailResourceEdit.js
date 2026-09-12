@@ -27,5 +27,5 @@ export function propTypeLabel(type) {
   const key = String(type || '').trim()
   if (!key) return ''
   if (map[key]) return map[key]
-  return hasChinese(key) ? key : key
+  return hasChinese(key) ? key : '其他'
 }

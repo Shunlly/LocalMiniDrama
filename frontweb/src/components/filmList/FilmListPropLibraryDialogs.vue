@@ -25,12 +25,12 @@
             <div class="library-item-desc">{{ (item.description || item.prompt || '').slice(0, 60) }}{{ (item.description || item.prompt || '').length > 60 ? '…' : '' }}</div>
             <div class="library-item-actions">
               <el-tooltip :content="listWriteLockReason" :disabled="!listWriteLocked" placement="top">
-                <span class="tooltip-trigger" :tabindex="listWriteLocked ? 0 : undefined" :aria-describedby="listWriteLocked && listWriteLockReason ? 'prop-library-write-lock-reason' : undefined">
+                <span class="tooltip-trigger" :tabindex="listWriteLocked ? 0 : undefined" :aria-label="listWriteLocked ? `编辑公共道具${item.name || '未命名道具'}不可用：${listWriteLockReason}` : undefined" :aria-describedby="listWriteLocked && listWriteLockReason ? 'prop-library-write-lock-reason' : undefined">
                   <el-button size="small" :disabled="listWriteLocked" :title="listWriteLocked ? listWriteLockReason : undefined" :aria-describedby="listWriteLocked && listWriteLockReason ? 'prop-library-write-lock-reason' : undefined" :aria-label="listWriteLocked ? `编辑公共道具${item.name || '未命名道具'}不可用：${listWriteLockReason}` : `编辑公共道具${item.name || '未命名道具'}`" @click="openEditPropLibrary(item)">编辑</el-button>
                 </span>
               </el-tooltip>
               <el-tooltip :content="listWriteLockReason" :disabled="!listWriteLocked" placement="top">
-                <span class="tooltip-trigger" :tabindex="listWriteLocked ? 0 : undefined" :aria-describedby="listWriteLocked && listWriteLockReason ? 'prop-library-write-lock-reason' : undefined">
+                <span class="tooltip-trigger" :tabindex="listWriteLocked ? 0 : undefined" :aria-label="listWriteLocked ? `删除公共道具${item.name || '未命名道具'}不可用：${listWriteLockReason}` : undefined" :aria-describedby="listWriteLocked && listWriteLockReason ? 'prop-library-write-lock-reason' : undefined">
                   <el-button size="small" type="danger" plain :disabled="listWriteLocked" :title="listWriteLocked ? listWriteLockReason : undefined" :aria-describedby="listWriteLocked && listWriteLockReason ? 'prop-library-write-lock-reason' : undefined" :aria-label="listWriteLocked ? `删除公共道具${item.name || '未命名道具'}不可用：${listWriteLockReason}` : `删除公共道具${item.name || '未命名道具'}`" @click="onDeletePropLibrary(item)">删除</el-button>
                 </span>
               </el-tooltip>
@@ -69,8 +69,28 @@
               <div class="lib-img-empty"><el-icon aria-hidden="true"><PictureFilled /></el-icon></div>
             </div>
             <div class="lib-img-btns">
-              <el-button size="small" :loading="editPropLibraryForm.imgUploading" :disabled="Boolean(libraryUploadDisabledReason(editPropLibraryForm))" :title="libraryUploadDisabledReason(editPropLibraryForm) || undefined" :aria-label="editPropLibraryForm.imgUploading ? '正在上传图片，请稍候' : (libraryUploadDisabledReason(editPropLibraryForm) || '上传道具图片')" @click="propLibFileRef.click()">上传图片</el-button>
-              <el-button size="small" type="primary" :loading="editPropLibraryForm.imgGenerating" :disabled="Boolean(libraryGenerateDisabledReason(editPropLibraryForm))" :title="libraryGenerateDisabledReason(editPropLibraryForm) || undefined" :aria-label="editPropLibraryForm.imgGenerating ? '正在生成道具图，请稍候' : (libraryGenerateDisabledReason(editPropLibraryForm) || 'AI 生成道具图')" @click="doGenerateLibImg(editPropLibraryForm, (editPropLibraryForm.name + (editPropLibraryForm.description ? ', ' + editPropLibraryForm.description : '')), propLibraryAPI, loadPropLibraryList)">AI 生成</el-button>
+              <el-tooltip :content="libraryUploadDisabledReason(editPropLibraryForm)" :disabled="!libraryUploadDisabledReason(editPropLibraryForm)" placement="top">
+                <span
+                  class="tooltip-trigger"
+                  :tabindex="libraryUploadDisabledReason(editPropLibraryForm) ? 0 : undefined"
+                  :aria-label="libraryUploadDisabledReason(editPropLibraryForm) ? `上传道具图片不可用：${libraryUploadDisabledReason(editPropLibraryForm)}` : undefined"
+                  :aria-describedby="libraryUploadDisabledReason(editPropLibraryForm) ? 'prop-library-upload-reason' : undefined"
+                >
+                  <p v-if="libraryUploadDisabledReason(editPropLibraryForm)" id="prop-library-upload-reason" class="visually-hidden">{{ libraryUploadDisabledReason(editPropLibraryForm) }}</p>
+                  <el-button size="small" :loading="editPropLibraryForm.imgUploading" :disabled="Boolean(libraryUploadDisabledReason(editPropLibraryForm))" :title="libraryUploadDisabledReason(editPropLibraryForm) || undefined" :aria-describedby="libraryUploadDisabledReason(editPropLibraryForm) ? 'prop-library-upload-reason' : undefined" :aria-label="editPropLibraryForm.imgUploading ? '正在上传图片，请稍候' : (libraryUploadDisabledReason(editPropLibraryForm) || '上传道具图片')" @click="propLibFileRef.click()">上传图片</el-button>
+                </span>
+              </el-tooltip>
+              <el-tooltip :content="libraryGenerateDisabledReason(editPropLibraryForm)" :disabled="!libraryGenerateDisabledReason(editPropLibraryForm)" placement="top">
+                <span
+                  class="tooltip-trigger"
+                  :tabindex="libraryGenerateDisabledReason(editPropLibraryForm) ? 0 : undefined"
+                  :aria-label="libraryGenerateDisabledReason(editPropLibraryForm) ? `AI 生成道具图不可用：${libraryGenerateDisabledReason(editPropLibraryForm)}` : undefined"
+                  :aria-describedby="libraryGenerateDisabledReason(editPropLibraryForm) ? 'prop-library-generate-reason' : undefined"
+                >
+                  <p v-if="libraryGenerateDisabledReason(editPropLibraryForm)" id="prop-library-generate-reason" class="visually-hidden">{{ libraryGenerateDisabledReason(editPropLibraryForm) }}</p>
+                  <el-button size="small" type="primary" :loading="editPropLibraryForm.imgGenerating" :disabled="Boolean(libraryGenerateDisabledReason(editPropLibraryForm))" :title="libraryGenerateDisabledReason(editPropLibraryForm) || undefined" :aria-describedby="libraryGenerateDisabledReason(editPropLibraryForm) ? 'prop-library-generate-reason' : undefined" :aria-label="editPropLibraryForm.imgGenerating ? '正在生成道具图，请稍候' : (libraryGenerateDisabledReason(editPropLibraryForm) || 'AI 生成道具图')" @click="doGenerateLibImg(editPropLibraryForm, (editPropLibraryForm.name + (editPropLibraryForm.description ? ', ' + editPropLibraryForm.description : '')), propLibraryAPI, loadPropLibraryList)">AI 生成</el-button>
+                </span>
+              </el-tooltip>
             </div>
           </div>
           <input ref="propLibFileRef" type="file" accept="image/*" style="display:none" @change="e => doUploadLibImg(e, editPropLibraryForm, propLibraryAPI, loadPropLibraryList)" />
@@ -83,7 +103,7 @@
       <template #footer>
         <el-button aria-label="取消编辑公共道具" @click="showEditPropLibrary = false">取消</el-button>
         <el-tooltip :content="listWriteLockReason" :disabled="!listWriteLocked" placement="top">
-          <span class="tooltip-trigger" :tabindex="listWriteLocked ? 0 : undefined" :aria-describedby="listWriteLocked && listWriteLockReason ? 'prop-library-write-lock-reason' : undefined">
+          <span class="tooltip-trigger" :tabindex="listWriteLocked ? 0 : undefined" :aria-label="listWriteLocked ? `保存公共道具不可用：${listWriteLockReason}` : undefined" :aria-describedby="listWriteLocked && listWriteLockReason ? 'prop-library-write-lock-reason' : undefined">
             <el-button type="primary" :loading="editPropLibrarySaving" :disabled="listWriteLocked" :title="listWriteLocked ? listWriteLockReason : undefined" :aria-describedby="listWriteLocked && listWriteLockReason ? 'prop-library-write-lock-reason' : undefined" :aria-label="editPropLibrarySaving ? '正在保存公共道具，请稍候' : (listWriteLocked ? `保存公共道具不可用：${listWriteLockReason}` : '保存公共道具')" @click="submitEditPropLibrary">保存</el-button>
           </span>
         </el-tooltip>

@@ -1,26 +1,58 @@
 <template>
   <el-form-item label="图片">
     <div class="lib-img-editor">
-      <button type="button" class="lib-img-thumb" :disabled="!imageUrl" :title="previewTitle" :aria-label="previewLabel" @click="emit('preview', imageUrl)">
+      <button v-if="imageUrl" type="button" class="lib-img-thumb" :aria-label="previewLabel" @click="emit('preview', imageUrl)">
         <img v-if="hasStoredImage" :src="imageUrl" :alt="imageAlt" />
-        <span v-else class="lib-img-empty"><el-icon><PictureFilled /></el-icon></span>
+        <span v-else class="lib-img-empty"><el-icon aria-hidden="true"><PictureFilled /></el-icon></span>
       </button>
+      <div
+        v-else
+        class="lib-img-thumb lib-img-thumb--empty"
+        role="img"
+        :aria-label="previewTitle || '暂无图片'"
+      >
+        <span class="lib-img-empty"><el-icon aria-hidden="true"><PictureFilled /></el-icon></span>
+      </div>
       <div class="lib-img-btns">
-        <el-button
-          size="small"
-          :loading="Boolean(form?.imgUploading)"
-          :disabled="Boolean(uploadDisabledReason)"
-          :title="uploadDisabledReason || undefined"
-          :aria-label="form?.imgUploading ? '正在上传图片' : (uploadDisabledReason || '上传图片')" @click="pickFile"
-        >上传图片</el-button>
-        <el-button
-          size="small"
-          type="primary"
-          :loading="Boolean(form?.imgGenerating)"
-          :disabled="Boolean(generateDisabledReason)"
-          :title="generateDisabledReason || undefined"
-          :aria-label="form?.imgGenerating ? '正在生成图片' : (generateDisabledReason || 'AI 生成图片')" @click="emit('generate')"
-        >AI 生成</el-button>
+        <el-tooltip :content="uploadDisabledReason" :disabled="!uploadDisabledReason" placement="top">
+          <span
+            class="tooltip-trigger"
+            :tabindex="uploadDisabledReason ? 0 : undefined"
+            :aria-label="uploadDisabledReason ? `上传图片不可用：${uploadDisabledReason}` : undefined"
+            :aria-describedby="uploadDisabledReason ? uploadReasonId : undefined"
+          >
+            <p v-if="uploadDisabledReason" :id="uploadReasonId" class="visually-hidden">{{ uploadDisabledReason }}</p>
+            <el-button
+              size="small"
+              :loading="Boolean(form?.imgUploading)"
+              :disabled="Boolean(uploadDisabledReason)"
+              :title="uploadDisabledReason || undefined"
+              :aria-describedby="uploadDisabledReason ? uploadReasonId : undefined"
+              :aria-label="form?.imgUploading ? '正在上传图片' : (uploadDisabledReason || '上传图片')"
+              @click="pickFile"
+            >上传图片</el-button>
+          </span>
+        </el-tooltip>
+        <el-tooltip :content="generateDisabledReason" :disabled="!generateDisabledReason" placement="top">
+          <span
+            class="tooltip-trigger"
+            :tabindex="generateDisabledReason ? 0 : undefined"
+            :aria-label="generateDisabledReason ? `AI 生成图片不可用：${generateDisabledReason}` : undefined"
+            :aria-describedby="generateDisabledReason ? generateReasonId : undefined"
+          >
+            <p v-if="generateDisabledReason" :id="generateReasonId" class="visually-hidden">{{ generateDisabledReason }}</p>
+            <el-button
+              size="small"
+              type="primary"
+              :loading="Boolean(form?.imgGenerating)"
+              :disabled="Boolean(generateDisabledReason)"
+              :title="generateDisabledReason || undefined"
+              :aria-describedby="generateDisabledReason ? generateReasonId : undefined"
+              :aria-label="form?.imgGenerating ? '正在生成图片' : (generateDisabledReason || 'AI 生成图片')"
+              @click="emit('generate')"
+            >AI 生成</el-button>
+          </span>
+        </el-tooltip>
       </div>
     </div>
     <input
@@ -56,6 +88,8 @@ const imageAlt = computed(() => props.form?.[props.altKey] || props.fallbackAlt)
 const previewTitle = computed(() => (imageUrl.value ? undefined : '暂无图片'))
 const uploadDisabledReason = computed(() => (props.form?.imgGenerating ? '正在生成图片，请稍候' : ''))
 const generateDisabledReason = computed(() => (props.form?.imgUploading ? '正在上传图片，请稍候' : ''))
+const uploadReasonId = computed(() => `resource-image-upload-reason-${props.form?.id || 'new'}`)
+const generateReasonId = computed(() => `resource-image-generate-reason-${props.form?.id || 'new'}`)
 
 function pickFile() {
   fileInput.value?.click?.()
@@ -69,5 +103,18 @@ function pickFile() {
 .lib-img-empty { color: var(--text-faint, #52525b); font-size: 26px; }
 .lib-img-btns { display: flex; flex-direction: column; gap: 8px; }
 .lib-img-thumb:focus-visible { outline: 2px solid #818cf8; outline-offset: 2px; }
-.lib-img-thumb:disabled { cursor: default; }
+.lib-img-thumb--empty { cursor: default; }
+.tooltip-trigger { display: inline-flex; }
+.tooltip-trigger:focus-visible { outline: 2px solid #818cf8; outline-offset: 2px; }
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
 </style>

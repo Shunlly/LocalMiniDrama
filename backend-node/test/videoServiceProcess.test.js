@@ -39,8 +39,9 @@ test('videoService 公开执行入口仍是函数，且不把即梦改成轮询'
   assert.equal(processSource.includes("protocol === 'jimeng_ai_api'"), false);
   assert.equal(processSource.includes('不应进入轮询'), false);
   const clientSource = [
-    fs.readFileSync(path.join(__dirname, '../src/services/videoClient.js'), 'utf8'),
-    fs.readFileSync(path.join(__dirname, '../src/services/videoClientPoll.js'), 'utf8'),
+    fs.readFileSync(path.join(__dirname, '../src/services/videoClient.js'), 'utf8'),
+    fs.readFileSync(path.join(__dirname, '../src/services/videoClientPoll.js'), 'utf8'),
+    fs.readFileSync(path.join(__dirname, '../src/services/videoGateway/pollTask.js'), 'utf8'),
   ].join('\n');
   assert.match(clientSource, /if \(protocol === 'jimeng_ai_api'\)/);
   assert.match(clientSource, /即梦视频为同步返回视频地址，不应进入轮询/);

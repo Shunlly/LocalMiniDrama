@@ -9,6 +9,7 @@ import {
   buildWorkflowLaunchPayload,
   isValidHttpSourceUrl,
   launchSourceWorkflow,
+  normalizeProductionReadiness,
 } from '../src/utils/sourceWorkflowLaunch.js'
 
 function readyDto() {
@@ -232,4 +233,62 @@ test('非法剧集 id 不会写进 AI 配置返回地址', () => {
     buildAiConfigLocation({ dramaId: 0, serviceType: 'video' }),
     { name: 'ai-config', query: { service_type: 'video' } },
   )
+})
+
+test('ocr/transcription 不计入成片五类就绪', async () => {
+  const ocrOnly = normalizeProductionReadiness({
+    qa_mode: 'production',
+    ready: false,
+    capabilities: [
+      { key: 'text', label: 'text', service_type: 'text', required: true, ready: true },
+      { key: 'ocr', label: 'ocr', service_type: 'ocr', required: true, ready: false },
+    ],
+    missing_capabilities: [
+      { key: 'ocr', label: 'ocr', service_type: 'ocr' },
+    ],
+  })
+  assert.equal(ocrOnly.ready, true)
+  assert.deepEqual(ocrOnly.missing_capabilities, [])
+
+  const mixed = normalizeProductionReadiness({
+    qa_mode: 'production',
+    ready: false,
+    capabilities: [
+      { key: 'video', label: 'video', service_type: 'video', required: true, ready: false },
+      { key: 'transcription', label: 'transcription', service_type: 'transcription', required: true, ready: false },
+    ],
+    missing_capabilities: [
+      { key: 'transcription', label: 'transcription', service_type: 'transcription' },
+      { key: 'video', label: 'video', service_type: 'video' },
+    ],
+  })
+  assert.equal(mixed.ready, false)
+  assert.deepEqual(
+    mixed.missing_capabilities.map((item) => item.service_type),
+    ['video'],
+  )
+
+  const calls = []
+  const result = await launchSourceWorkflow({
+    mode: 'production',
+    payload: { drama_id: 9 },
+    checkReadiness: async () => ({
+      qa_mode: 'production',
+      ready: false,
+      capabilities: [
+        { key: 'text', label: 'text', service_type: 'text', required: true, ready: true },
+      ],
+      missing_capabilities: [
+        { key: 'ocr', label: 'ocr', service_type: 'ocr' },
+        { key: 'transcription', label: 'transcription', service_type: 'transcription' },
+      ],
+    }),
+    start: async (payload) => {
+      calls.push(payload)
+      return { id: 'run-extraction-not-blocking' }
+    },
+  })
+  assert.equal(result.run.id, 'run-extraction-not-blocking')
+  assert.equal(result.readiness.ready, true)
+  assert.equal(calls.length, 1)
 })

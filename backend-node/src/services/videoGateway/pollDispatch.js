@@ -2,7 +2,7 @@
 
 /**
  * 视频轮询的协议请求与响应解释。
- * 即梦同步短路仍留在 videoClient，这里不发真实厂商请求。
+ * 即梦同步短路仍留在 pollTask，这里不发真实厂商请求。
  */
 
 const { summarizeProviderResponse } = require('../providerErrorSanitizer');

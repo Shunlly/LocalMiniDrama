@@ -45,6 +45,7 @@
             <span
               class="tooltip-trigger"
               :tabindex="describeTrashRestoreBusyReason(restoringId, item.id) ? 0 : undefined"
+              :aria-label="describeTrashRestoreBusyReason(restoringId, item.id) ? `恢复项目「${item.title || '未命名项目'}」不可用：${describeTrashRestoreBusyReason(restoringId, item.id)}` : undefined"
               :aria-describedby="describeTrashRestoreBusyReason(restoringId, item.id) ? `trash-restore-reason-${item.id}` : undefined"
             >
               <span

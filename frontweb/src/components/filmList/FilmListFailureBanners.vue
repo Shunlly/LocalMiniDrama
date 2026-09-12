@@ -37,6 +37,7 @@
       <span
         class="tooltip-trigger"
         :tabindex="exportingId !== null && exportingId !== exportFailure.drama.id ? 0 : undefined"
+        :aria-label="exportingId !== null && exportingId !== exportFailure.drama.id ? '重试导出不可用：正在导出其他项目，请稍候' : undefined"
         :aria-describedby="exportingId !== null && exportingId !== exportFailure.drama.id ? 'project-export-busy-reason' : undefined"
       >
         <p v-if="exportingId !== null && exportingId !== exportFailure.drama.id" id="project-export-busy-reason" class="visually-hidden">正在导出其他项目，请稍候</p>
@@ -74,6 +75,7 @@
         <span
           class="tooltip-trigger"
           :tabindex="listWriteLocked ? 0 : undefined"
+          :aria-label="listWriteLocked ? `重新选择项目包不可用：${listWriteLockReason}` : undefined"
           :aria-describedby="listWriteLocked && listWriteLockReason ? 'project-list-write-lock-reason' : undefined"
         >
       <el-button
@@ -89,9 +91,17 @@
       </el-button>
         </span>
       </el-tooltip>
-      <el-button plain :disabled="importing" :title="importing ? '正在导入项目包，请稍候' : undefined" :aria-label="importing ? '正在导入项目包，请稍候' : '关闭导入失败提示'" @click="dismissImportFailure">
-        关闭
-      </el-button>
+      <el-tooltip :content="importing ? '正在导入项目包，请稍候' : ''" :disabled="!importing" placement="top">
+        <span
+          class="tooltip-trigger"
+          :tabindex="importing ? 0 : undefined"
+          :aria-label="importing ? '关闭导入失败提示不可用：正在导入项目包，请稍候' : undefined"
+        >
+          <el-button plain :disabled="importing" :title="importing ? '正在导入项目包，请稍候' : undefined" :aria-label="importing ? '正在导入项目包，请稍候' : '关闭导入失败提示'" @click="dismissImportFailure">
+            关闭
+          </el-button>
+        </span>
+      </el-tooltip>
     </div>
   </section>
   </template>

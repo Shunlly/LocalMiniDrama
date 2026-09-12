@@ -83,6 +83,8 @@ test('无分集时进入制作和画布模式保留中文禁用原因', async ()
     assert.equal(canvas.props.disabled, true)
     assert.equal(create.props['aria-label'], '进入制作不可用：请先新增一集')
     assert.equal(canvas.props['aria-label'], '画布模式不可用：请先新增一集')
+    assert.equal(create.props['aria-describedby'], 'drama-header-episode-reason')
+    assert.equal(canvas.props['aria-describedby'], 'drama-header-episode-reason')
   } finally {
     harness.app.unmount()
   }

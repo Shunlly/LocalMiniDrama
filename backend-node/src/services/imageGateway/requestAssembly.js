@@ -7,7 +7,7 @@ const {
   ANTI_SPLIT_NEGATIVE_PROMPT,
   mergeNegativePromptFragments,
   inferProtocol,
-} = require('./runtime');
+} = require('./protocol');
 
 function resolveImageProtocol(config, model) {
   const provider = (config?.provider || '').toLowerCase();

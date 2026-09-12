@@ -38,7 +38,7 @@ test('characterRoleLabel 映射已知角色，未知英文归其他，中文自�
   assert.equal(characterRoleLabel('NPC'), '其他')
 })
 
-test('propTypeLabel 映射已知类型，未知英文原样返回，中文自定义原样返回', () => {
+test('propTypeLabel 映射已知类型，未知英文归其他，中文自定义原样返回', () => {
   assert.equal(propTypeLabel('key'), '关键道具')
   assert.equal(propTypeLabel('background'), '背景物件')
   assert.equal(propTypeLabel('handheld'), '手持道具')
@@ -47,7 +47,7 @@ test('propTypeLabel 映射已知类型，未知英文原样返回，中文自定
   assert.equal(propTypeLabel(''), '')
   assert.equal(propTypeLabel(null), '')
   assert.equal(propTypeLabel('信物'), '信物')
-  assert.equal(propTypeLabel('gadget'), 'gadget')
+  assert.equal(propTypeLabel('gadget'), '其他')
 })
 
 test('dramaDetailUserError 走统一中文转义并带上服务名', () => {

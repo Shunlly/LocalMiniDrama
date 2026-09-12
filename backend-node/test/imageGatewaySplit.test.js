@@ -14,6 +14,7 @@ const { callGeminiImageApi } = require('../src/services/imageGateway/geminiImage
 const { dispatchImageProtocol } = require('../src/services/imageGateway/protocolDispatch');
 const { assembleImageProtocolRequest } = require('../src/services/imageGateway/requestAssembly');
 const { parseOpenAiCompatibleImageUrl } = require('../src/services/imageGateway/openAiCompatibleImageApi');
+const { callImageApi } = require('../src/services/imageGateway/imageApiCall');
 
 const PUBLIC_API = [
   'getDefaultImageConfig',
@@ -38,6 +39,7 @@ const PUBLIC_API = [
 describe('imageGateway 客户端拆分', () => {
   it('imageClient 公开 API 不变', () => {
     assert.deepEqual(Object.keys(imageClient).sort(), [...PUBLIC_API].sort());
+    assert.equal(imageClient.callImageApi, callImageApi);
   });
 
   it('size / 参考图 / 图床缓存由 imageClient 原样再导出', () => {
@@ -75,13 +77,16 @@ describe('imageGateway 客户端拆分', () => {
       'function getDefaultImageConfig',
       'function resolveAssetUserNegativeForApi',
       'function buildImageUrl',
+      'async function callImageApiInternal',
+      'async function callImageApi',
     ]) {
       assert.equal(src.includes(name), false, name);
     }
     assert.equal(src.includes("require('./imageGateway/download')"), true);
     assert.equal(src.includes("require('./imageGateway/config')"), true);
-    assert.equal(src.includes("require('./imageGateway/protocolDispatch')"), true);
-    assert.equal(src.includes("require('./imageGateway/imageApiAssembly')"), true);
+    assert.equal(src.includes("require('./imageGateway/imageApiCall')"), true);
+    assert.equal(src.includes("require('./imageGateway/protocolDispatch')"), false);
+    assert.equal(src.includes("require('./imageGateway/imageApiAssembly')"), false);
     assert.equal(src.includes('FOR REFERENCE ONLY'), false);
     assert.equal(src.includes('ANTI_SPLIT_NEGATIVE_PROMPT'), false);
     assert.equal(src.includes('inferProtocol'), false);

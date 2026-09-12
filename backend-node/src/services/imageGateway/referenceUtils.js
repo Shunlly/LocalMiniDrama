@@ -5,7 +5,7 @@
 const fs = require('fs');
 const path = require('path');
 const uploadService = require('../uploadService');
-const { inferProtocol } = require('./runtime');
+const { inferProtocol } = require('./protocol');
 
 const IMAGE_REFERENCE_TIMEOUT_MS = 30000;
 const IMAGE_REFERENCE_MAX_BYTES = 10 * 1024 * 1024;

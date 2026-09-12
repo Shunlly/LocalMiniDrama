@@ -4,6 +4,11 @@ import assert from 'node:assert/strict'
 import { h } from 'vue'
 
 import {
+  SOURCE_TRANSCRIPTION_CONFIG_GUIDANCE,
+  SOURCE_TRANSCRIPTION_NEXT_STEP_LABEL,
+} from '../src/utils/sourceWorkflowState.js'
+
+import {
   actionGateReasons,
   buttonByText,
   compileSfc,
@@ -155,6 +160,27 @@ test('处理阶段禁用闸门把可见原因挂到 aria-describedby', () => {
     assert.ok(describedBy)
     const [reason] = findAll(harness.root, (node) => node.props.id === describedBy)
     assert.equal(textContent(reason).trim(), '仅运行中的处理可以暂停。')
+  } finally {
+    harness.app.unmount()
+  }
+})
+
+test('处理阶段失败条可把语音转写下一步交给父级', () => {
+  const harness = mountProcess({
+    displayedRunError: SOURCE_TRANSCRIPTION_CONFIG_GUIDANCE,
+    extractionNextStep: {
+      kind: 'transcription',
+      serviceType: 'transcription',
+      actionLabel: SOURCE_TRANSCRIPTION_NEXT_STEP_LABEL,
+      extraHint: '',
+    },
+    runState: { failedStep: { error: SOURCE_TRANSCRIPTION_CONFIG_GUIDANCE } },
+  })
+  try {
+    assert.match(textContent(harness.root), /下一步/)
+    assert.doesNotMatch(textContent(harness.root), /Tesseract/)
+    buttonByText(harness.root, SOURCE_TRANSCRIPTION_NEXT_STEP_LABEL).props.onClick()
+    assert.deepEqual(harness.events, [['open-extraction-ai-config', 'transcription']])
   } finally {
     harness.app.unmount()
   }

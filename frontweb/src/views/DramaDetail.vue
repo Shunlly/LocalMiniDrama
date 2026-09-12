@@ -438,8 +438,11 @@ function handleReadinessActionOrAdd(action) {
 }
 
 function epStatusLabel(status) {
-  const map = { draft: '草稿', processing: '生成中', completed: '剧本已就绪', failed: '失败' }
-  return map[status] || status
+  const map = { draft: '草稿', processing: '生成中', generating: '生成中', completed: '剧本已就绪', failed: '失败', published: '已发布' }
+  const key = String(status || '').trim()
+  if (!key) return ''
+  if (map[key]) return map[key]
+  return /[\u4e00-\u9fff]/.test(key) ? key : '未知状态'
 }
 
 function goCreateOrAddEpisode() {

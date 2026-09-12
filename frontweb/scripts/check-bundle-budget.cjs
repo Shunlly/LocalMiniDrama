@@ -24,13 +24,27 @@ const UNUSED_ELEMENT_PLUS_CSS = Object.freeze([
   'el-calendar',
   'el-cascader',
   'el-color-picker',
+  'el-date-picker',
+  'el-notification',
+  'el-rate',
+  'el-slider',
   'el-transfer',
+  'el-tree',
   'el-tour',
 ])
 
 function findLeakedUnusedElementPlusCss(cssText) {
   const source = String(cssText || '')
   return UNUSED_ELEMENT_PLUS_CSS.filter((name) => source.includes(`.${name}`))
+}
+
+function findLeakedUnusedElementPlusIcons(jsText) {
+  const source = String(jsText || '')
+  return UNUSED_ICON_ASSETS.filter((name) => new RegExp(`name:\\s*["']${name}["']`).test(source))
+}
+
+function readAssetText(fileName) {
+  return fs.readFileSync(path.join(DIST_ROOT, 'assets', fileName), 'utf8')
 }
 
 function gzipSize(relativePath) {
@@ -86,9 +100,18 @@ function verifyBundleBudget(manifest) {
     failures.push(`${item.file} is ${formatBytes(item.gzip)} (async budget ${formatBytes(BUDGETS.asyncChunkGzip)})`)
   }
   const assetNames = fs.readdirSync(path.join(DIST_ROOT, 'assets'))
-  const leakedUnusedIcons = UNUSED_ICON_ASSETS.filter((name) => (
-    assetNames.some((file) => file.startsWith(`${name}-`) || file.startsWith(`${name}.`))
-  ))
+  const jsText = assetNames
+    .filter((name) => name.endsWith('.js'))
+    .map((name) => readAssetText(name))
+    .join('\n')
+  const leakedUnusedIcons = [
+    ...new Set([
+      ...UNUSED_ICON_ASSETS.filter((name) => (
+        assetNames.some((file) => file.startsWith(`${name}-`) || file.startsWith(`${name}.`))
+      )),
+      ...findLeakedUnusedElementPlusIcons(jsText),
+    ]),
+  ]
   if (leakedUnusedIcons.length) {
     failures.push(`unused Element Plus icons were still emitted: ${leakedUnusedIcons.join(', ')}`)
   }
@@ -99,9 +122,25 @@ function verifyBundleBudget(manifest) {
   if (leakedInitialIconChunks.length) {
     failures.push(`initial JavaScript still includes on-demand icon chunks: ${leakedInitialIconChunks.join(', ')}`)
   }
+  const leakedInitialDialogJs = [...initialJsFiles].filter((file) => (
+    path.basename(file).startsWith('AccessibleDialog-')
+  ))
+  if (leakedInitialDialogJs.length) {
+    failures.push(`initial JavaScript still includes AccessibleDialog: ${leakedInitialDialogJs.join(', ')}`)
+  }
+  const leakedInitialDialogCss = [...initialCssFiles].filter((file) => (
+    path.basename(file).startsWith('AccessibleDialog-')
+  ))
+  if (leakedInitialDialogCss.length) {
+    failures.push(`initial CSS still includes AccessibleDialog: ${leakedInitialDialogCss.join(', ')}`)
+  }
+  const indexHtml = fs.readFileSync(path.join(DIST_ROOT, 'index.html'), 'utf8')
+  if (/AccessibleDialog-/.test(indexHtml)) {
+    failures.push('index.html still preloads AccessibleDialog on first paint')
+  }
   const cssText = assetNames
     .filter((name) => name.endsWith('.css'))
-    .map((name) => fs.readFileSync(path.join(DIST_ROOT, 'assets', name), 'utf8'))
+    .map((name) => readAssetText(name))
     .join('\n')
   const leakedUnusedCss = findLeakedUnusedElementPlusCss(cssText)
   if (leakedUnusedCss.length) {
@@ -129,6 +168,14 @@ function main() {
   console.log(JSON.stringify({ bundle_budget: 'passed', ...result }))
 }
 
-module.exports = { BUDGETS, collectInitialEntries, verifyBundleBudget, findLeakedUnusedElementPlusCss, UNUSED_ELEMENT_PLUS_CSS }
+module.exports = {
+  BUDGETS,
+  collectInitialEntries,
+  verifyBundleBudget,
+  findLeakedUnusedElementPlusCss,
+  findLeakedUnusedElementPlusIcons,
+  UNUSED_ELEMENT_PLUS_CSS,
+  UNUSED_ICON_ASSETS,
+}
 
 if (require.main === module) main()

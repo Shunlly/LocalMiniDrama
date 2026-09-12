@@ -16,6 +16,7 @@ const {
 const VIDEO_CLIENT_SRC = fs.readFileSync(path.join(__dirname, '../src/services/videoClient.js'), 'utf8');
 const VIDEO_CLIENT_POLL_SRC = fs.readFileSync(path.join(__dirname, '../src/services/videoClientPoll.js'), 'utf8');
 const POLL_CONTROL_SRC = fs.readFileSync(path.join(__dirname, '../src/services/videoGateway/pollControl.js'), 'utf8');
+const VIDEO_POLL_TASK_SRC = fs.readFileSync(path.join(__dirname, '../src/services/videoGateway/pollTask.js'), 'utf8');
 const JIMENG_SYNC_SENTENCE = '即梦视频为同步返回视频地址，不应进入轮询';
 const providerDnsLookup = async () => [{ address: '93.184.216.34', family: 4 }];
 
@@ -45,18 +46,19 @@ function assertDistinctScopeIds(dramaId, videoGenId, taskId) {
 }
 
 describe('videoGateway 轮询取消控制', () => {
-  it('取消/延迟辅助函数已从 videoClient 拆到 pollControl，即梦同步短路仍留在 pollVideoTaskInternal', () => {
+  it('取消/延迟辅助函数已从 videoClient 拆到 pollControl，即梦同步短路留在 pollTask', () => {
     assert.ok(VIDEO_CLIENT_POLL_SRC.includes("require('./videoGateway/pollControl')"));
     assert.doesNotMatch(VIDEO_CLIENT_SRC, /function isVideoPollCancelled\s*\(/);
     assert.doesNotMatch(VIDEO_CLIENT_SRC, /function throwVideoTaskCancelled\s*\(/);
     assert.doesNotMatch(VIDEO_CLIENT_SRC, /function throwIfVideoPollAborted\s*\(/);
     assert.doesNotMatch(VIDEO_CLIENT_SRC, /function delayVideoPoll\s*\(/);
     assert.ok(VIDEO_CLIENT_SRC.includes("require('./videoClientPoll')"));
+    assert.ok(VIDEO_CLIENT_POLL_SRC.includes("require('./videoGateway/pollTask')"));
 
     const marker = 'async function pollVideoTaskInternal';
-    const start = VIDEO_CLIENT_POLL_SRC.indexOf(marker);
+    const start = VIDEO_POLL_TASK_SRC.indexOf(marker);
     assert.notEqual(start, -1);
-    const pollSrc = VIDEO_CLIENT_POLL_SRC.slice(start);
+    const pollSrc = VIDEO_POLL_TASK_SRC.slice(start);
     assert.ok(pollSrc.includes(JIMENG_SYNC_SENTENCE));
     assert.ok(pollSrc.includes("if (protocol === 'jimeng_ai_api')"));
     assert.match(pollSrc, /pollSoraVideo|pollMinimaxVideo/);

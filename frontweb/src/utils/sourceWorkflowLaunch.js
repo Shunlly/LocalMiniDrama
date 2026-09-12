@@ -2,8 +2,9 @@ export const DEFAULT_WORKFLOW_MODE = 'draft'
 
 const WORKFLOW_MODES = new Set(['draft', 'production'])
 const PRODUCTION_AI_CONFIG_SERVICE_TYPES = new Set(['text', 'image', 'storyboard_image', 'video', 'tts'])
+const EXTRACTION_AI_CONFIG_SERVICE_TYPES = new Set(['ocr', 'transcription'])
 // 图片识别/语音转写只用于素材抽取深链，不计入成片五类就绪条件。
-const AI_CONFIG_SERVICE_TYPES = new Set([...PRODUCTION_AI_CONFIG_SERVICE_TYPES, 'ocr', 'transcription'])
+const AI_CONFIG_SERVICE_TYPES = new Set([...PRODUCTION_AI_CONFIG_SERVICE_TYPES, ...EXTRACTION_AI_CONFIG_SERVICE_TYPES])
 
 export function isValidHttpSourceUrl(value) {
   const text = String(value || '').trim()
@@ -36,13 +37,18 @@ export function normalizeProductionReadiness(value) {
     throw new Error('正式制作能力响应无效，请刷新后重试。')
   }
   const capabilities = Array.isArray(value.capabilities) ? value.capabilities : []
-  const missing = Array.isArray(value.missing_capabilities)
+  const rawMissing = Array.isArray(value.missing_capabilities)
     ? value.missing_capabilities
     : capabilities.filter((item) => item?.required && !item?.ready)
+  const missing = rawMissing.filter((item) => {
+    const serviceType = String(item?.service_type || '').trim()
+    return !EXTRACTION_AI_CONFIG_SERVICE_TYPES.has(serviceType)
+  })
+  const extractionOnlyGap = missing.length === 0 && rawMissing.length > 0
   return {
     ...value,
     qa_mode: normalizeWorkflowMode(value.qa_mode || 'production'),
-    ready: value.ready === true && missing.length === 0,
+    ready: missing.length === 0 && (value.ready === true || extractionOnlyGap),
     capabilities,
     missing_capabilities: missing,
   }

@@ -26,9 +26,23 @@ export function formatDate(val) {
   return d.toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
 }
 
+function resolveChineseLabel(value, map, emptyFallback, unknownFallback) {
+  const key = String(value || '').trim()
+  if (!key) return emptyFallback
+  if (map[key]) return map[key]
+  return /[\u4e00-\u9fff]/.test(key) ? key : unknownFallback
+}
+
 export function formatStatus(status) {
-  const map = { draft: '草稿', published: '已发布', archived: '已归档', generating: '生成中' }
-  return map[status] || status || '草稿'
+  return resolveChineseLabel(status, {
+    draft: '草稿',
+    published: '已发布',
+    archived: '已归档',
+    generating: '生成中',
+    processing: '生成中',
+    completed: '已完成',
+    failed: '失败',
+  }, '草稿', '未知状态')
 }
 
 export function formatStyle(style) {
@@ -71,12 +85,12 @@ export function formatStyle(style) {
     minimalist: '极简',
     dreamy: '唯美梦幻',
   }
-  return map[style] || style
+  return resolveChineseLabel(style, map, '', '未知风格')
 }
 
 export function formatGenre(genre) {
   const map = { drama: '剧情', comedy: '喜剧', adventure: '冒险', romance: '爱情', thriller: '悬疑', action: '动作', horror: '恐怖' }
-  return map[genre] || genre
+  return resolveChineseLabel(genre, map, '', '未知类型')
 }
 
 export function totalStoryboards(d) {

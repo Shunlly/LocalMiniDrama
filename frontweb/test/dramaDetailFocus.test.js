@@ -151,6 +151,10 @@ test('DramaDetail 禁用按钮外包可焦点且空封面不再是 disabled butt
   assert.match(dramaDetailSource, /class="drama-res-cover drama-res-cover--empty"/)
   assert.equal(dramaDetailSource.includes('class="library-item-cover" :disabled'), false)
   assert.equal(dramaDetailSource.includes('class="drama-res-cover" :disabled'), false)
+  assert.match(dramaDetailHeaderSource, /id="drama-header-episode-reason"/)
+  assert.match(dramaDetailHeaderSource, /:aria-describedby="currentEpisodeId \? undefined : 'drama-header-episode-reason'"/)
+  assert.doesNotMatch(dramaDetailDialogsSource, /class="lib-img-thumb"[^>]*:disabled/)
+  assert.match(dramaDetailDialogsSource, /class="lib-img-thumb lib-img-thumb--empty"/)
 })
 
 

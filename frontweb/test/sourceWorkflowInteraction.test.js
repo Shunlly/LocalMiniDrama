@@ -914,3 +914,14 @@ test('素材导入失败会给出前往 AI 配置的抽取下一步', () => {
   assert.match(steps, /function openAiConfigForExtraction\(serviceType\)/)
   assert.match(steps, /function openAiConfigForReadiness\(\)/)
 })
+
+test('处理失败会给出前往 AI 配置的抽取下一步', () => {
+  const bindings = readFileSync(new URL('../src/components/sourceIntake/sourceIntakeWorkspaceBindings.js', import.meta.url), 'utf8')
+  assert.match(bindings, /displayedRunError,\s*extractionNextStep,\s*productionLaunchReason,/)
+  assert.match(bindings, /displayedRunError,\s*extractionNextStep,\s*controlActionReasons,/)
+  const records = readFileSync(new URL('../src/components/sourceIntake/SourceIntakeRunRecordsPanel.vue', import.meta.url), 'utf8')
+  assert.match(records, /process-extraction-next-step/)
+  assert.match(records, /open-extraction-ai-config/)
+  const panel = readFileSync(new URL('../src/components/SourceIntakeWorkflowPanel.vue', import.meta.url), 'utf8')
+  assert.match(panel, /<SourceIntakeProcessStageCard[\s\S]*@open-extraction-ai-config="openAiConfigForExtraction"/)
+})

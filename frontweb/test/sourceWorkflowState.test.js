@@ -467,6 +467,8 @@ test('PDF/图片/音视频失败会给出可点击的中文下一步，且不把
   )
   assert.equal(resolveSourceIntakeExtractionNextStep('导入失败', { filename: 'scan.pdf' }).serviceType, 'ocr')
   assert.equal(resolveSourceIntakeExtractionNextStep('启动失败', { filename: 'clip.mp4' }).serviceType, 'transcription')
+  assert.equal(resolveSourceIntakeExtractionNextStep(SOURCE_WORKFLOW_FAILURE_FALLBACK, { filename: 'scan.png' }).serviceType, 'ocr')
+  assert.equal(resolveSourceIntakeExtractionNextStep(SOURCE_WORKFLOW_FAILURE_FALLBACK, { filename: 'talk.mp3' }).serviceType, 'transcription')
   assert.equal(resolveSourceIntakeExtractionNextStep(SOURCE_FILE_FORMAT_UNSUPPORTED_MESSAGE, { filename: 'scan.png' }), null)
   assert.equal(resolveSourceIntakeExtractionNextStep('暂时无法检查正式制作能力，请稍后重试。', { filename: 'scan.png' }), null)
   assert.equal(resolveSourceIntakeExtractionNextStep('素材已导入，但处理流程未启动。启动失败', { filename: 'scan.png' }), null)

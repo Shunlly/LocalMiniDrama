@@ -36,13 +36,17 @@ test('entry loads Element Plus config provider and dialogs on demand', () => {
   assert.equal(typeof ElMessage.error, 'function')
   assert.equal(typeof ElMessageBox.confirm, 'function')
   assert.match(mainSource, /from '\.\/elementPlus\/register\.js'/)
-  assert.match(mainSource, /import AccessibleDialog from '\.\/components\/AccessibleDialog\.vue'/)
+  assert.match(mainSource, /defineAsyncComponent\(\(\)\s*=>\s*import\(['"]\.\/components\/AccessibleDialog\.vue['"]\)\)/)
+  assert.doesNotMatch(mainSource, /import AccessibleDialog from ['"]\.\/components\/AccessibleDialog\.vue['"]/)
+  assert.match(mainSource, /app\.component\(\s*['"]AccessibleDialog['"]\s*,\s*AccessibleDialog\s*\)/)
   assert.match(
     registerSource,
     /import \{ ElConfigProvider \} from 'element-plus\/es\/components\/config-provider\/index\.mjs'/,
   )
   assert.match(registerSource, /element-plus\/es\/locale\/lang\/zh-cn\.mjs/)
   assert.match(registerSource, /element-plus\/es\/components\/config-provider\/style\/css/)
+  assert.doesNotMatch(registerSource, /element-plus\/es\/components\/dialog/)
+  assert.doesNotMatch(registerSource, /element-plus\/es\/components\/message/)
   assert.match(feedbackSource, /element-plus\/es\/components\/message\/index\.mjs/)
   assert.match(feedbackSource, /element-plus\/es\/components\/message-box\/index\.mjs/)
   assert.doesNotMatch(mainSource, /from ['"]element-plus['"]/)

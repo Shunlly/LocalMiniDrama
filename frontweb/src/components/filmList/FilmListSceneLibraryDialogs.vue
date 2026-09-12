@@ -25,12 +25,12 @@
             <div class="library-item-desc">{{ (item.description || item.prompt || '').slice(0, 60) }}{{ (item.description || item.prompt || '').length > 60 ? '…' : '' }}</div>
             <div class="library-item-actions">
               <el-tooltip :content="listWriteLockReason" :disabled="!listWriteLocked" placement="top">
-                <span class="tooltip-trigger" :tabindex="listWriteLocked ? 0 : undefined" :aria-describedby="listWriteLocked && listWriteLockReason ? 'scene-library-write-lock-reason' : undefined">
+                <span class="tooltip-trigger" :tabindex="listWriteLocked ? 0 : undefined" :aria-label="listWriteLocked ? `编辑公共场景${item.location || '未命名场景'}不可用：${listWriteLockReason}` : undefined" :aria-describedby="listWriteLocked && listWriteLockReason ? 'scene-library-write-lock-reason' : undefined">
                   <el-button size="small" :disabled="listWriteLocked" :title="listWriteLocked ? listWriteLockReason : undefined" :aria-describedby="listWriteLocked && listWriteLockReason ? 'scene-library-write-lock-reason' : undefined" :aria-label="listWriteLocked ? `编辑公共场景${item.location || '未命名场景'}不可用：${listWriteLockReason}` : `编辑公共场景${item.location || '未命名场景'}`" @click="openEditSceneLibrary(item)">编辑</el-button>
                 </span>
               </el-tooltip>
               <el-tooltip :content="listWriteLockReason" :disabled="!listWriteLocked" placement="top">
-                <span class="tooltip-trigger" :tabindex="listWriteLocked ? 0 : undefined" :aria-describedby="listWriteLocked && listWriteLockReason ? 'scene-library-write-lock-reason' : undefined">
+                <span class="tooltip-trigger" :tabindex="listWriteLocked ? 0 : undefined" :aria-label="listWriteLocked ? `删除公共场景${item.location || '未命名场景'}不可用：${listWriteLockReason}` : undefined" :aria-describedby="listWriteLocked && listWriteLockReason ? 'scene-library-write-lock-reason' : undefined">
                   <el-button size="small" type="danger" plain :disabled="listWriteLocked" :title="listWriteLocked ? listWriteLockReason : undefined" :aria-describedby="listWriteLocked && listWriteLockReason ? 'scene-library-write-lock-reason' : undefined" :aria-label="listWriteLocked ? `删除公共场景${item.location || '未命名场景'}不可用：${listWriteLockReason}` : `删除公共场景${item.location || '未命名场景'}`" @click="onDeleteSceneLibrary(item)">删除</el-button>
                 </span>
               </el-tooltip>
@@ -69,8 +69,28 @@
               <div class="lib-img-empty"><el-icon aria-hidden="true"><PictureFilled /></el-icon></div>
             </div>
             <div class="lib-img-btns">
-              <el-button size="small" :loading="editSceneLibraryForm.imgUploading" :disabled="Boolean(libraryUploadDisabledReason(editSceneLibraryForm))" :title="libraryUploadDisabledReason(editSceneLibraryForm) || undefined" :aria-label="editSceneLibraryForm.imgUploading ? '正在上传图片，请稍候' : (libraryUploadDisabledReason(editSceneLibraryForm) || '上传场景图片')" @click="sceneLibFileRef.click()">上传图片</el-button>
-              <el-button size="small" type="primary" :loading="editSceneLibraryForm.imgGenerating" :disabled="Boolean(libraryGenerateDisabledReason(editSceneLibraryForm))" :title="libraryGenerateDisabledReason(editSceneLibraryForm) || undefined" :aria-label="editSceneLibraryForm.imgGenerating ? '正在生成场景图，请稍候' : (libraryGenerateDisabledReason(editSceneLibraryForm) || 'AI 生成场景图')" @click="doGenerateLibImg(editSceneLibraryForm, ([editSceneLibraryForm.location, editSceneLibraryForm.time, editSceneLibraryForm.description].filter(Boolean).join(', ')), sceneLibraryAPI, loadSceneLibraryList)">AI 生成</el-button>
+              <el-tooltip :content="libraryUploadDisabledReason(editSceneLibraryForm)" :disabled="!libraryUploadDisabledReason(editSceneLibraryForm)" placement="top">
+                <span
+                  class="tooltip-trigger"
+                  :tabindex="libraryUploadDisabledReason(editSceneLibraryForm) ? 0 : undefined"
+                  :aria-label="libraryUploadDisabledReason(editSceneLibraryForm) ? `上传场景图片不可用：${libraryUploadDisabledReason(editSceneLibraryForm)}` : undefined"
+                  :aria-describedby="libraryUploadDisabledReason(editSceneLibraryForm) ? 'scene-library-upload-reason' : undefined"
+                >
+                  <p v-if="libraryUploadDisabledReason(editSceneLibraryForm)" id="scene-library-upload-reason" class="visually-hidden">{{ libraryUploadDisabledReason(editSceneLibraryForm) }}</p>
+                  <el-button size="small" :loading="editSceneLibraryForm.imgUploading" :disabled="Boolean(libraryUploadDisabledReason(editSceneLibraryForm))" :title="libraryUploadDisabledReason(editSceneLibraryForm) || undefined" :aria-describedby="libraryUploadDisabledReason(editSceneLibraryForm) ? 'scene-library-upload-reason' : undefined" :aria-label="editSceneLibraryForm.imgUploading ? '正在上传图片，请稍候' : (libraryUploadDisabledReason(editSceneLibraryForm) || '上传场景图片')" @click="sceneLibFileRef.click()">上传图片</el-button>
+                </span>
+              </el-tooltip>
+              <el-tooltip :content="libraryGenerateDisabledReason(editSceneLibraryForm)" :disabled="!libraryGenerateDisabledReason(editSceneLibraryForm)" placement="top">
+                <span
+                  class="tooltip-trigger"
+                  :tabindex="libraryGenerateDisabledReason(editSceneLibraryForm) ? 0 : undefined"
+                  :aria-label="libraryGenerateDisabledReason(editSceneLibraryForm) ? `AI 生成场景图不可用：${libraryGenerateDisabledReason(editSceneLibraryForm)}` : undefined"
+                  :aria-describedby="libraryGenerateDisabledReason(editSceneLibraryForm) ? 'scene-library-generate-reason' : undefined"
+                >
+                  <p v-if="libraryGenerateDisabledReason(editSceneLibraryForm)" id="scene-library-generate-reason" class="visually-hidden">{{ libraryGenerateDisabledReason(editSceneLibraryForm) }}</p>
+                  <el-button size="small" type="primary" :loading="editSceneLibraryForm.imgGenerating" :disabled="Boolean(libraryGenerateDisabledReason(editSceneLibraryForm))" :title="libraryGenerateDisabledReason(editSceneLibraryForm) || undefined" :aria-describedby="libraryGenerateDisabledReason(editSceneLibraryForm) ? 'scene-library-generate-reason' : undefined" :aria-label="editSceneLibraryForm.imgGenerating ? '正在生成场景图，请稍候' : (libraryGenerateDisabledReason(editSceneLibraryForm) || 'AI 生成场景图')" @click="doGenerateLibImg(editSceneLibraryForm, ([editSceneLibraryForm.location, editSceneLibraryForm.time, editSceneLibraryForm.description].filter(Boolean).join(', ')), sceneLibraryAPI, loadSceneLibraryList)">AI 生成</el-button>
+                </span>
+              </el-tooltip>
             </div>
           </div>
           <input ref="sceneLibFileRef" type="file" accept="image/*" style="display:none" @change="e => doUploadLibImg(e, editSceneLibraryForm, sceneLibraryAPI, loadSceneLibraryList)" />
@@ -84,7 +104,7 @@
       <template #footer>
         <el-button aria-label="取消编辑公共场景" @click="showEditSceneLibrary = false">取消</el-button>
         <el-tooltip :content="listWriteLockReason" :disabled="!listWriteLocked" placement="top">
-          <span class="tooltip-trigger" :tabindex="listWriteLocked ? 0 : undefined" :aria-describedby="listWriteLocked && listWriteLockReason ? 'scene-library-write-lock-reason' : undefined">
+          <span class="tooltip-trigger" :tabindex="listWriteLocked ? 0 : undefined" :aria-label="listWriteLocked ? `保存公共场景不可用：${listWriteLockReason}` : undefined" :aria-describedby="listWriteLocked && listWriteLockReason ? 'scene-library-write-lock-reason' : undefined">
             <el-button type="primary" :loading="editSceneLibrarySaving" :disabled="listWriteLocked" :title="listWriteLocked ? listWriteLockReason : undefined" :aria-describedby="listWriteLocked && listWriteLockReason ? 'scene-library-write-lock-reason' : undefined" :aria-label="editSceneLibrarySaving ? '正在保存公共场景，请稍候' : (listWriteLocked ? `保存公共场景不可用：${listWriteLockReason}` : '保存公共场景')" @click="submitEditSceneLibrary">保存</el-button>
           </span>
         </el-tooltip>

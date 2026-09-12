@@ -105,6 +105,7 @@
               <span
                 class="tooltip-trigger"
                 :tabindex="listWriteLocked ? 0 : undefined"
+                :aria-label="listWriteLocked ? `导入示例项目${ex.name}不可用：${listWriteLockReason}` : undefined"
                 :aria-describedby="listWriteLocked && listWriteLockReason ? 'project-list-write-lock-reason' : undefined"
               >
             <el-button

@@ -240,6 +240,50 @@ test('production workflow readiness is ready only when every required capability
   assert.equal(result.capabilities.every((item) => item.required && item.ready), true);
 });
 
+
+test('图片识别和语音转写不计入成片五类就绪', (t) => {
+  const db = createWorkflowDb(t);
+  for (const serviceType of ['text', 'image', 'storyboard_image', 'video', 'tts']) addConfig(db, serviceType);
+  addConfig(db, 'ocr');
+  addConfig(db, 'transcription');
+
+  const withExtraction = checkNovel2AnimeReadiness(db, {
+    drama_id: 1,
+    qa_mode: 'production',
+  }, {
+    validateMediaTools: () => ({
+      ok: true,
+      ffmpeg: { ok: true, path: 'ffmpeg' },
+      ffprobe: { ok: true, path: 'ffprobe' },
+    }),
+  });
+  assert.equal(withExtraction.ready, true);
+  assert.equal(withExtraction.capabilities.length, 6);
+  assert.equal(withExtraction.capabilities.some((item) => item.service_type === 'ocr'), false);
+  assert.equal(withExtraction.capabilities.some((item) => item.service_type === 'transcription'), false);
+  assert.deepEqual(
+    withExtraction.capabilities.map((item) => item.key),
+    ['text', 'asset_image', 'image', 'video', 'tts', 'ffmpeg']
+  );
+
+  db.prepare("DELETE FROM ai_service_configs WHERE service_type IN ('text', 'image', 'storyboard_image', 'video', 'tts')").run();
+  const onlyExtraction = checkNovel2AnimeReadiness(db, {
+    drama_id: 1,
+    qa_mode: 'production',
+  }, {
+    validateMediaTools: () => ({
+      ok: true,
+      ffmpeg: { ok: true, path: 'ffmpeg' },
+      ffprobe: { ok: true, path: 'ffprobe' },
+    }),
+  });
+  assert.equal(onlyExtraction.ready, false);
+  assert.equal(onlyExtraction.missing_capabilities.some((item) => item.service_type === 'ocr'), false);
+  assert.equal(onlyExtraction.missing_capabilities.some((item) => item.service_type === 'transcription'), false);
+  assert.equal(onlyExtraction.missing_capabilities.some((item) => item.service_type === 'text'), true);
+  assert.equal(db.prepare("SELECT COUNT(*) AS count FROM ai_service_configs WHERE service_type IN ('ocr', 'transcription')").get().count, 2);
+});
+
 test('production readiness rejects an enabled default with no usable model', (t) => {
   const db = createWorkflowDb(t);
   addConfig(db, 'text');

@@ -86,12 +86,12 @@
         </el-button>
         <template #dropdown>
           <el-dropdown-menu>
-            <el-dropdown-item command="export" :disabled="exportingId === d.id" :title="exportingId === d.id ? '正在导出该项目，请稍候' : undefined">
+            <el-dropdown-item command="export" :disabled="exportingId === d.id" :title="exportingId === d.id ? '正在导出该项目，请稍候' : undefined" :aria-label="exportingId === d.id ? '导出项目不可用：正在导出该项目，请稍候' : undefined">
               <el-icon><Download /></el-icon>导出项目
               <span v-if="exportingId === d.id" class="visually-hidden">正在导出该项目，请稍候</span>
             </el-dropdown-item>
-            <el-dropdown-item command="edit" :disabled="listWriteLocked" :title="listWriteLocked ? listWriteLockReason : undefined"><el-icon><Edit /></el-icon>编辑项目<span v-if="listWriteLocked" class="visually-hidden">{{ listWriteLockReason }}</span></el-dropdown-item>
-            <el-dropdown-item command="trash" :disabled="listWriteLocked" :title="listWriteLocked ? listWriteLockReason : undefined" divided>
+            <el-dropdown-item command="edit" :disabled="listWriteLocked" :title="listWriteLocked ? listWriteLockReason : undefined" :aria-label="listWriteLocked ? `编辑项目不可用：${listWriteLockReason}` : undefined"><el-icon><Edit /></el-icon>编辑项目<span v-if="listWriteLocked" class="visually-hidden">{{ listWriteLockReason }}</span></el-dropdown-item>
+            <el-dropdown-item command="trash" :disabled="listWriteLocked" :title="listWriteLocked ? listWriteLockReason : undefined" :aria-label="listWriteLocked ? `移入回收站不可用：${listWriteLockReason}` : undefined" divided>
               <el-icon><Delete /></el-icon>移入回收站
               <span v-if="listWriteLocked" class="visually-hidden">{{ listWriteLockReason }}</span>
             </el-dropdown-item>

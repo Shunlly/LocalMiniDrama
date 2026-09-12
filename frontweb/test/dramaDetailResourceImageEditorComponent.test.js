@@ -9,6 +9,7 @@ import {
   click,
   compileIconStub,
   createHostRenderer,
+  findAll,
   loadCompiledSfc,
   mountHarness,
   textContent,
@@ -64,14 +65,15 @@ function mountEditor(initial = {}) {
   return { ...mounted, events, form }
 }
 
-test('没有图片时预览禁用，AI 生成仍交给页面', async () => {
+test('没有图片时预览改为空态占位，AI 生成仍交给页面', async () => {
   const harness = mountEditor()
   try {
     await nextTick()
-    const preview = buttonByAriaLabel(harness.root, '预览角色图片')
-    assert.ok(preview)
-    assert.equal(preview.props.disabled, true)
-    assert.equal(preview.props.title, '暂无图片')
+    assert.equal(buttonByAriaLabel(harness.root, '预览角色图片'), undefined)
+    const empty = findAll(harness.root, (node) => node.props?.['aria-label'] === '暂无图片')[0]
+    assert.ok(empty, '缺少暂无图片占位')
+    assert.equal(empty.props.role, 'img')
+    assert.equal(empty.props.disabled, undefined)
     click(buttonByText(harness.root, 'AI 生成'))
     assert.deepEqual(harness.events, [['generate']])
   } finally {
@@ -97,6 +99,10 @@ test('已有图片可预览；上传中禁用生成，生成中禁用上传', as
     const generate = buttonByText(uploading.root, 'AI 生成')
     assert.equal(generate.props.disabled, true)
     assert.equal(generate.props.title, '正在上传图片，请稍候')
+    assert.equal(generate.props['aria-describedby'], 'resource-image-generate-reason-101')
+    const generateWrap = findAll(uploading.root, (node) => node.props?.['aria-label'] === 'AI 生成图片不可用：正在上传图片，请稍候')[0]
+    assert.ok(generateWrap, '缺少生成禁用原因读屏')
+    assert.equal(generateWrap.props.tabindex, 0)
     assert.deepEqual(uploading.events, [])
   } finally {
     uploading.app.unmount()
@@ -108,6 +114,10 @@ test('已有图片可预览；上传中禁用生成，生成中禁用上传', as
     const upload = buttonByText(generating.root, '上传图片')
     assert.equal(upload.props.disabled, true)
     assert.equal(upload.props.title, '正在生成图片，请稍候')
+    assert.equal(upload.props['aria-describedby'], 'resource-image-upload-reason-101')
+    const uploadWrap = findAll(generating.root, (node) => node.props?.['aria-label'] === '上传图片不可用：正在生成图片，请稍候')[0]
+    assert.ok(uploadWrap, '缺少上传禁用原因读屏')
+    assert.equal(uploadWrap.props.tabindex, 0)
   } finally {
     generating.app.unmount()
   }

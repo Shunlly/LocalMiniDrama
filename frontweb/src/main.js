@@ -1,12 +1,14 @@
-import { createApp, h } from 'vue'
+import { createApp, defineAsyncComponent, h } from 'vue'
 import './styles/theme.css'
 // 初始化主题（必须在挂载前执行）
 import './composables/useTheme.js'
 import { createPinia } from 'pinia'
 import { ElConfigProvider, createElementPlusProviderProps } from './elementPlus/register.js'
 import App from './App.vue'
-import AccessibleDialog from './components/AccessibleDialog.vue'
 import router from './router'
+
+// 弹窗壳子跟路由页一起按需加载，避免把 ElDialog 打进首屏。
+const AccessibleDialog = defineAsyncComponent(() => import('./components/AccessibleDialog.vue'))
 
 const app = createApp({
   name: 'RootProvider',

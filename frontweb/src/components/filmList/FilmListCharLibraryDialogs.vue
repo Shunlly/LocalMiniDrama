@@ -25,12 +25,12 @@
             <div class="library-item-desc">{{ (item.description || '').slice(0, 60) }}{{ (item.description || '').length > 60 ? '…' : '' }}</div>
             <div class="library-item-actions">
               <el-tooltip :content="listWriteLockReason" :disabled="!listWriteLocked" placement="top">
-                <span class="tooltip-trigger" :tabindex="listWriteLocked ? 0 : undefined" :aria-describedby="listWriteLocked && listWriteLockReason ? 'char-library-write-lock-reason' : undefined">
+                <span class="tooltip-trigger" :tabindex="listWriteLocked ? 0 : undefined" :aria-label="listWriteLocked ? `编辑公共角色${item.name || '未命名角色'}不可用：${listWriteLockReason}` : undefined" :aria-describedby="listWriteLocked && listWriteLockReason ? 'char-library-write-lock-reason' : undefined">
                   <el-button size="small" :disabled="listWriteLocked" :title="listWriteLocked ? listWriteLockReason : undefined" :aria-describedby="listWriteLocked && listWriteLockReason ? 'char-library-write-lock-reason' : undefined" :aria-label="listWriteLocked ? `编辑公共角色${item.name || '未命名角色'}不可用：${listWriteLockReason}` : `编辑公共角色${item.name || '未命名角色'}`" @click="openEditCharLibrary(item)">编辑</el-button>
                 </span>
               </el-tooltip>
               <el-tooltip :content="listWriteLockReason" :disabled="!listWriteLocked" placement="top">
-                <span class="tooltip-trigger" :tabindex="listWriteLocked ? 0 : undefined" :aria-describedby="listWriteLocked && listWriteLockReason ? 'char-library-write-lock-reason' : undefined">
+                <span class="tooltip-trigger" :tabindex="listWriteLocked ? 0 : undefined" :aria-label="listWriteLocked ? `删除公共角色${item.name || '未命名角色'}不可用：${listWriteLockReason}` : undefined" :aria-describedby="listWriteLocked && listWriteLockReason ? 'char-library-write-lock-reason' : undefined">
                   <el-button size="small" type="danger" plain :disabled="listWriteLocked" :title="listWriteLocked ? listWriteLockReason : undefined" :aria-describedby="listWriteLocked && listWriteLockReason ? 'char-library-write-lock-reason' : undefined" :aria-label="listWriteLocked ? `删除公共角色${item.name || '未命名角色'}不可用：${listWriteLockReason}` : `删除公共角色${item.name || '未命名角色'}`" @click="onDeleteCharLibrary(item)">删除</el-button>
                 </span>
               </el-tooltip>
@@ -69,8 +69,28 @@
               <div class="lib-img-empty"><el-icon aria-hidden="true"><PictureFilled /></el-icon></div>
             </div>
             <div class="lib-img-btns">
-              <el-button size="small" :loading="editCharLibraryForm.imgUploading" :disabled="Boolean(libraryUploadDisabledReason(editCharLibraryForm))" :title="libraryUploadDisabledReason(editCharLibraryForm) || undefined" :aria-label="editCharLibraryForm.imgUploading ? '正在上传图片，请稍候' : (libraryUploadDisabledReason(editCharLibraryForm) || '上传角色图片')" @click="charLibFileRef.click()">上传图片</el-button>
-              <el-button size="small" type="primary" :loading="editCharLibraryForm.imgGenerating" :disabled="Boolean(libraryGenerateDisabledReason(editCharLibraryForm))" :title="libraryGenerateDisabledReason(editCharLibraryForm) || undefined" :aria-label="editCharLibraryForm.imgGenerating ? '正在生成角色图，请稍候' : (libraryGenerateDisabledReason(editCharLibraryForm) || 'AI 生成角色图')" @click="doGenerateLibImg(editCharLibraryForm, (editCharLibraryForm.name + (editCharLibraryForm.description ? ', ' + editCharLibraryForm.description : '')), characterLibraryAPI, loadCharLibraryList)">AI 生成</el-button>
+              <el-tooltip :content="libraryUploadDisabledReason(editCharLibraryForm)" :disabled="!libraryUploadDisabledReason(editCharLibraryForm)" placement="top">
+                <span
+                  class="tooltip-trigger"
+                  :tabindex="libraryUploadDisabledReason(editCharLibraryForm) ? 0 : undefined"
+                  :aria-label="libraryUploadDisabledReason(editCharLibraryForm) ? `上传角色图片不可用：${libraryUploadDisabledReason(editCharLibraryForm)}` : undefined"
+                  :aria-describedby="libraryUploadDisabledReason(editCharLibraryForm) ? 'char-library-upload-reason' : undefined"
+                >
+                  <p v-if="libraryUploadDisabledReason(editCharLibraryForm)" id="char-library-upload-reason" class="visually-hidden">{{ libraryUploadDisabledReason(editCharLibraryForm) }}</p>
+                  <el-button size="small" :loading="editCharLibraryForm.imgUploading" :disabled="Boolean(libraryUploadDisabledReason(editCharLibraryForm))" :title="libraryUploadDisabledReason(editCharLibraryForm) || undefined" :aria-describedby="libraryUploadDisabledReason(editCharLibraryForm) ? 'char-library-upload-reason' : undefined" :aria-label="editCharLibraryForm.imgUploading ? '正在上传图片，请稍候' : (libraryUploadDisabledReason(editCharLibraryForm) || '上传角色图片')" @click="charLibFileRef.click()">上传图片</el-button>
+                </span>
+              </el-tooltip>
+              <el-tooltip :content="libraryGenerateDisabledReason(editCharLibraryForm)" :disabled="!libraryGenerateDisabledReason(editCharLibraryForm)" placement="top">
+                <span
+                  class="tooltip-trigger"
+                  :tabindex="libraryGenerateDisabledReason(editCharLibraryForm) ? 0 : undefined"
+                  :aria-label="libraryGenerateDisabledReason(editCharLibraryForm) ? `AI 生成角色图不可用：${libraryGenerateDisabledReason(editCharLibraryForm)}` : undefined"
+                  :aria-describedby="libraryGenerateDisabledReason(editCharLibraryForm) ? 'char-library-generate-reason' : undefined"
+                >
+                  <p v-if="libraryGenerateDisabledReason(editCharLibraryForm)" id="char-library-generate-reason" class="visually-hidden">{{ libraryGenerateDisabledReason(editCharLibraryForm) }}</p>
+                  <el-button size="small" type="primary" :loading="editCharLibraryForm.imgGenerating" :disabled="Boolean(libraryGenerateDisabledReason(editCharLibraryForm))" :title="libraryGenerateDisabledReason(editCharLibraryForm) || undefined" :aria-describedby="libraryGenerateDisabledReason(editCharLibraryForm) ? 'char-library-generate-reason' : undefined" :aria-label="editCharLibraryForm.imgGenerating ? '正在生成角色图，请稍候' : (libraryGenerateDisabledReason(editCharLibraryForm) || 'AI 生成角色图')" @click="doGenerateLibImg(editCharLibraryForm, (editCharLibraryForm.name + (editCharLibraryForm.description ? ', ' + editCharLibraryForm.description : '')), characterLibraryAPI, loadCharLibraryList)">AI 生成</el-button>
+                </span>
+              </el-tooltip>
             </div>
           </div>
           <input ref="charLibFileRef" type="file" accept="image/*" style="display:none" @change="e => doUploadLibImg(e, editCharLibraryForm, characterLibraryAPI, loadCharLibraryList)" />
@@ -83,7 +103,7 @@
       <template #footer>
         <el-button aria-label="取消编辑公共角色" @click="showEditCharLibrary = false">取消</el-button>
         <el-tooltip :content="listWriteLockReason" :disabled="!listWriteLocked" placement="top">
-          <span class="tooltip-trigger" :tabindex="listWriteLocked ? 0 : undefined" :aria-describedby="listWriteLocked && listWriteLockReason ? 'char-library-write-lock-reason' : undefined">
+          <span class="tooltip-trigger" :tabindex="listWriteLocked ? 0 : undefined" :aria-label="listWriteLocked ? `保存公共角色不可用：${listWriteLockReason}` : undefined" :aria-describedby="listWriteLocked && listWriteLockReason ? 'char-library-write-lock-reason' : undefined">
             <el-button type="primary" :loading="editCharLibrarySaving" :disabled="listWriteLocked" :title="listWriteLocked ? listWriteLockReason : undefined" :aria-describedby="listWriteLocked && listWriteLockReason ? 'char-library-write-lock-reason' : undefined" :aria-label="editCharLibrarySaving ? '正在保存公共角色，请稍候' : (listWriteLocked ? `保存公共角色不可用：${listWriteLockReason}` : '保存公共角色')" @click="submitEditCharLibrary">保存</el-button>
           </span>
         </el-tooltip>
