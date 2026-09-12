@@ -197,7 +197,7 @@ test('source workflow panel exposes mode, readiness remediation, and a throwing 
   assert.match(source, /start: sourceUrlValidationMessage\.value \|\| baseActionReasons\.value\.start \|\| productionLaunchReason\.value/)
   assert.match(source, /:disabled="isWorkflowLaunchBusy"/)
   assert.doesNotMatch(source, /:disabled="isWorkflowLaunchBusy \|\| Boolean\(newWorkflowRunReason\)"/)
-  assert.match(source, /onBeforeRouteLeave\(\(\) => confirmSourceInputLeave\(\)\)/)
+  assert.match(source, /onBeforeRouteLeave\(\(to\) => confirmSourceInputLeave\(to\)\)/)
   assert.match(source, /window\.addEventListener\('beforeunload', handleBeforeUnload\)/)
   const launcher = remainingExtractNamedFunction(source, 'startWorkflowFromSource')
   assert.match(launcher, /throw new Error\('素材记录无效/)

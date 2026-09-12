@@ -162,7 +162,7 @@ test('source workflow navigation names the actual action and moves focus to its 
 test('source intake protects drafts, validates URLs early, and keeps mode recovery operable', () => {
   assert.match(sourceIntakeSource, /:error="sourceUrlValidationMessage"/)
   assert.match(sourceIntakeSource, /isValidHttpSourceUrl\(rawSourceUrl\.value\)/)
-  assert.match(sourceIntakeSource, /onBeforeRouteLeave\(\(\) => confirmSourceInputLeave\(\)\)/)
+  assert.match(sourceIntakeSource, /onBeforeRouteLeave\(\(to\) => confirmSourceInputLeave\(to\)\)/)
   assert.match(sourceIntakeSource, /window\.addEventListener\('beforeunload', handleBeforeUnload\)/)
   assert.match(sourceIntakeSource, /:disabled="isWorkflowLaunchBusy"/)
   assert.doesNotMatch(sourceIntakeSource, /class="workflow-mode-control"[\s\S]{0,180}:disabled="isWorkflowLaunchBusy \|\| Boolean\(newWorkflowRunReason\)"/)

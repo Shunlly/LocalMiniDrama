@@ -196,6 +196,7 @@ import { createSourceIntakeFlowStepController } from '@/components/sourceIntake/
 import { createSourceIntakeImportActions } from '@/components/sourceIntake/sourceIntakeImportActions.js'
 import { createSourceIntakeLaunchController } from '@/components/sourceIntake/sourceIntakeLaunchActions.js'
 import { createSourceIntakeLeaveController } from '@/components/sourceIntake/sourceIntakeLeaveGuard.js'
+import { restoreSourceIntakeDraft, saveSourceIntakeDraft, clearSourceIntakeDraft } from '@/components/sourceIntake/sourceIntakeDraft.js'
 import { buildSourceIntakeEmptyRecordsView } from '@/components/sourceIntake/sourceIntakeEmptyState.js'
 import { createSourceIntakeMessageHelpers } from '@/components/sourceIntake/sourceIntakeMessages.js'
 import { createSourceIntakePollSession } from '@/components/sourceIntake/sourceIntakePoll.js'
@@ -258,6 +259,7 @@ const form = reactive({
   source_url: '',
   text: '',
 })
+restoreSourceIntakeDraft(props.dramaId, form)
 
 const intakeStageFormRef = ref(null)
 const sourceUrlInput = computed(() => intakeStageFormRef.value?.sourceUrlInput ?? null)
@@ -659,9 +661,19 @@ const { runQaAudit, remediateQa } = createSourceIntakeQaActions({
   toUserFacingError,
 })
 
+function persistDraftForRoundTrip() {
+  saveSourceIntakeDraft(props.dramaId, form)
+}
+
+function clearPersistedDraft() {
+  clearSourceIntakeDraft(props.dramaId)
+}
+
 const { confirmSourceInputLeave, confirmCancelProcessing, handleBeforeUnload } = createSourceIntakeLeaveController({
   sourceOperationActive,
   hasUnsavedSourceInput,
+  persistDraftForRoundTrip,
+  clearDraft: clearPersistedDraft,
   showWorkflowMessage,
 })
 
@@ -681,10 +693,10 @@ bindSourceIntakeWorkspaceWatches({
   openSourceImportIntent,
 })
 
-onBeforeRouteLeave(() => confirmSourceInputLeave())
+onBeforeRouteLeave((to) => confirmSourceInputLeave(to))
 onBeforeRouteUpdate((to, from) => {
   if (projectRouteInstanceKey(to) === projectRouteInstanceKey(from)) return true
-  return confirmSourceInputLeave()
+  return confirmSourceInputLeave(to)
 })
 
 onMounted(async () => {

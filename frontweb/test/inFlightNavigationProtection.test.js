@@ -67,7 +67,7 @@ test('existing-source workflow launch is checked before unsaved source input', (
   )
   assert.match(
     sourceWorkflowSource,
-    /async function confirmSourceInputLeave\(\) \{[\s\S]*if \(sourceOperationActive\.value\) \{[\s\S]*showWorkflowMessage\('warning',[\s\S]*return false[\s\S]*if \(!hasUnsavedSourceInput\.value\) return true/,
+    /async function confirmSourceInputLeave\(to\) \{[\s\S]*if \(sourceOperationActive\.value\) \{[\s\S]*showWorkflowMessage\('warning',[\s\S]*return false[\s\S]*if \(isAiConfigRoundTrip\(to\)\) \{[\s\S]*if \(!hasUnsavedSourceInput\.value\) return true/,
   )
   const activeIndex = sourceWorkflowSource.indexOf('if (sourceOperationActive.value)')
   const unsavedIndex = sourceWorkflowSource.indexOf('if (!hasUnsavedSourceInput.value)')

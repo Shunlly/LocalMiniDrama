@@ -1,4 +1,5 @@
 import { ElMessageBox } from '@/utils/elementPlusFeedback.js'
+import { isAiConfigRoundTrip } from './sourceIntakeDraft.js'
 
 export const SOURCE_INTAKE_LEAVE_COPY = Object.freeze({
   busyMessage: '素材正在保存、解析或启动工作流，请完成后再离开。',
@@ -74,16 +75,22 @@ export function createSourceIntakeLeaveController({
   sourceOperationActive,
   hasUnsavedSourceInput,
   showWorkflowMessage,
+  persistDraftForRoundTrip,
+  clearDraft,
 } = {}) {
   let leaveConfirmationOpen = false
 
-  async function confirmSourceInputLeave() {
+  async function confirmSourceInputLeave(to) {
     if (sourceOperationActive.value) {
       showWorkflowMessage('warning', SOURCE_INTAKE_LEAVE_COPY.busyMessage)
       return false
     }
+    if (isAiConfigRoundTrip(to)) {
+      persistDraftForRoundTrip?.()
+      return true
+    }
     if (!hasUnsavedSourceInput.value) return true
-    return confirmUnsavedSourceIntakeLeave({
+    const allowed = await confirmUnsavedSourceIntakeLeave({
       isConfirmationOpen: () => leaveConfirmationOpen,
       setConfirmationOpen: (value) => { leaveConfirmationOpen = value },
       confirmLeave: ({ message, title, confirmButtonText, cancelButtonText, type, distinguishCancelAndClose }) => (
@@ -95,6 +102,8 @@ export function createSourceIntakeLeaveController({
         })
       ),
     })
+    if (allowed) clearDraft?.()
+    return allowed
   }
 
   async function confirmCancelProcessing() {
