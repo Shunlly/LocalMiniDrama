@@ -92,23 +92,48 @@ function summarizeExternalUrl(value) {
 const { app, BrowserWindow, Menu, dialog, screen, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
-const { migrateLegacyUserData } = require('./scripts/user-data-migration');
+const IMPORT_IMAGE_VALIDATOR_FLAG = '--localminidrama-import-image-validator';
+const importImageValidatorIndex = process.argv.indexOf(IMPORT_IMAGE_VALIDATOR_FLAG);
 
-// 显式固定 userData 目录，使开发模式与打包 exe 路径完全一致，防止 productName 变更导致路径漂移
+if (importImageValidatorIndex >= 0) {
+  const backendRoot = app.isPackaged
+    ? path.join(__dirname, 'backend-app')
+    : path.join(__dirname, '..', 'backend-node');
+  const { runImportImageValidatorCli } = require(
+    path.join(backendRoot, 'src', 'services', 'importImageValidator.js')
+  );
+  runImportImageValidatorCli(process.argv.slice(importImageValidatorIndex + 1)).then(
+    (exitCode) => app.exit(exitCode),
+    (error) => {
+      process.stderr.write(`${sanitizeMainLogString(error && error.stack ? error.stack : error)}\n`);
+      app.exit(1);
+    }
+  );
+} else {
+const {
+  migrateLegacyUserData,
+  resolveDesktopUserDataDir,
+} = require('./scripts/user-data-migration');
+
+// Keep development data separate from installed application data.
 const APP_DATA_DIR = app.getPath('appData');
-const USERDATA_DIR = process.env.LOCALMINIDRAMA_USER_DATA_DIR
-  ? path.resolve(process.env.LOCALMINIDRAMA_USER_DATA_DIR)
-  : path.join(APP_DATA_DIR, 'localminidrama-desktop');
+const USERDATA_DIR = resolveDesktopUserDataDir({
+  appDataDir: APP_DATA_DIR,
+  isPackaged: app.isPackaged,
+  environment: process.env,
+});
 const LEGACY_USERDATA_DIR = process.env.LOCALMINIDRAMA_USER_DATA_DIR &&
   process.env.LOCALMINIDRAMA_LEGACY_USER_DATA_DIR
   ? path.resolve(process.env.LOCALMINIDRAMA_LEGACY_USER_DATA_DIR)
   : undefined;
+const SHOULD_MIGRATE_LEGACY_USER_DATA = app.isPackaged || Boolean(LEGACY_USERDATA_DIR);
 
 // This must run before any logger or Electron API can create the new userData directory.
 const legacyUserDataMigration = migrateLegacyUserData({
   appDataDir: APP_DATA_DIR,
   userDataDir: USERDATA_DIR,
   legacyUserDataDir: LEGACY_USERDATA_DIR,
+  enabled: SHOULD_MIGRATE_LEGACY_USER_DATA,
 });
 app.setPath('userData', USERDATA_DIR);
 
@@ -157,8 +182,12 @@ const {
 } = require('./scripts/url-security');
 const { createShutdownController } = require('./scripts/shutdown-controller');
 const {
+  WINDOW_STATE_FILE_NAME,
+  buildStartupFailureDialogMessage,
   createRendererRecoveryController,
-  getInitialWindowBounds,
+  createStartupFailureController,
+  createWindowStateController,
+  describeRendererFailure,
 } = require('./scripts/window-shell');
 
 const shutdownController = hasSingleInstanceLock
@@ -167,6 +196,18 @@ const shutdownController = hasSingleInstanceLock
 if (shutdownController) {
   app.on('before-quit', (event) => shutdownController.handleBeforeQuit(event));
 }
+
+const startupFailureController = hasSingleInstanceLock
+  ? createStartupFailureController({
+      dialog,
+      log: writeMainLog,
+      relaunchApp: () => {
+        if (typeof app.relaunch === 'function') app.relaunch();
+        return shutdownController.requestShutdown('startup-failure-relaunch', 1);
+      },
+      requestQuit: () => shutdownController.requestShutdown('startup-failure', 1),
+    })
+  : null;
 
 const BACKEND_APP_PATH = path.join(__dirname, 'backend-app');
 const BACKEND_NODE_PATH = path.join(__dirname, '..', 'backend-node');
@@ -185,10 +226,7 @@ function getBackendModulePath() {
 }
 
 function getBackendCwd() {
-  if (app.isPackaged) {
-    return path.join(app.getPath('userData'), 'backend');
-  }
-  return getBackendModulePath();
+  return path.join(app.getPath('userData'), 'backend');
 }
 
 function ensureBackendCwd(backendCwd) {
@@ -302,7 +340,23 @@ function findFreePort(preferredPort) {
 
 function createWindow(port) {
   Menu.setApplicationMenu(null);
-  const initialBounds = getInitialWindowBounds(screen.getPrimaryDisplay());
+  const windowState = createWindowStateController({
+    filePath: path.join(app.getPath('userData'), WINDOW_STATE_FILE_NAME),
+    getDisplays: () => (
+      typeof screen.getAllDisplays === 'function'
+        ? screen.getAllDisplays()
+        : [screen.getPrimaryDisplay()]
+    ),
+    getWindow: () => (mainWindow && !mainWindow.isDestroyed() ? mainWindow : null),
+    log: writeMainLog,
+  });
+  const restored = windowState.restoreBounds();
+  const initialBounds = {
+    x: restored.x,
+    y: restored.y,
+    width: restored.width,
+    height: restored.height,
+  };
   const win = new BrowserWindow({
     ...initialBounds,
     minWidth: Math.min(1024, initialBounds.width),
@@ -318,6 +372,18 @@ function createWindow(port) {
     show: false,
   });
   mainWindow = win;
+  if (restored.isMaximized && typeof win.maximize === 'function') {
+    win.maximize();
+  }
+  const persistWindowState = () => windowState.persist();
+  win.on('moved', () => windowState.persistSoon());
+  win.on('resized', () => windowState.persistSoon());
+  win.on('maximize', persistWindowState);
+  win.on('unmaximize', persistWindowState);
+  const onDisplayChange = () => windowState.handleDisplayChange();
+  if (screen && typeof screen.on === 'function') {
+    screen.on('display-metrics-changed', onDisplayChange);
+  }
   const recoveryController = createRendererRecoveryController({
     dialog,
     getWindow: () => mainWindow === win ? mainWindow : null,
@@ -397,7 +463,10 @@ function createWindow(port) {
     const mainFrame = isMainFrame !== false;
     writeMainLog(`did-fail-load code=${code} mainFrame=${mainFrame}`);
     if (!mainFrame || code === -3) return;
-    recoveryController.handleFailure('did-fail-load', `加载失败（${code}）：${description || 'unknown'}`);
+    recoveryController.handleFailure(
+      'did-fail-load',
+      describeRendererFailure('did-fail-load', { code, description })
+    );
   });
   win.webContents.on('render-process-gone', (_event, details) => {
     const reason = details && details.reason ? details.reason : 'unknown';
@@ -405,7 +474,7 @@ function createWindow(port) {
     writeMainLog(`renderer error render-process-gone reason=${reason} exitCode=${exitCode}`);
     recoveryController.handleFailure(
       'render-process-gone',
-      `渲染进程已退出（${reason}，exitCode=${exitCode}）。`
+      describeRendererFailure('render-process-gone', details)
     );
   });
   win.webContents.on('console-message', (_event, detailsOrLevel) => {
@@ -416,7 +485,10 @@ function createWindow(port) {
   });
   win.on('unresponsive', () => {
     writeMainLog('renderer error unresponsive');
-    recoveryController.handleFailure('unresponsive', '页面长时间无响应。');
+    recoveryController.handleFailure(
+      'unresponsive',
+      describeRendererFailure('unresponsive')
+    );
   });
 
   win.once('ready-to-show', () => {
@@ -434,8 +506,14 @@ function createWindow(port) {
   }, 8000);
   writeMainLog(`createWindow loadURL http://127.0.0.1:${port}`);
   win.loadURL(`http://127.0.0.1:${port}`);
-  win.on('close', (event) => shutdownController.handleWindowClose(event));
+  win.on('close', (event) => {
+    persistWindowState();
+    shutdownController.handleWindowClose(event);
+  });
   win.on('closed', () => {
+    if (screen && typeof screen.removeListener === 'function') {
+      screen.removeListener('display-metrics-changed', onDisplayChange);
+    }
     if (mainWindow === win) mainWindow = null;
   });
   if (process.env.LOCALMINIDRAMA_DEVTOOLS === '1') {
@@ -513,14 +591,12 @@ if (hasSingleInstanceLock) app.whenReady().then(async () => {
     const stack = err && err.stack ? err.stack : String(err);
     writeMainLog(`Failed to start backend\n${stack}`);
     console.error('Failed to start backend', sanitizeMainLogString(stack));
-    const { dialog } = require('electron');
-    dialog.showErrorBox(
-      '本地短剧助手启动失败',
-      `后端服务未能启动，请查看日志：\n${MAIN_STARTUP_LOG}\n\n${stack}`
-    );
-    await shutdownController.requestShutdown('startup-failure', 1);
+    await startupFailureController.handleFailure({
+      message: buildStartupFailureDialogMessage(MAIN_STARTUP_LOG, err, sanitizeMainLogString),
+    });
     return;
   }
   // startBackend 的 Promise 在 listen 回调中 resolve，服务器此时已就绪，直接建窗口
   createWindow(port);
 });
+}

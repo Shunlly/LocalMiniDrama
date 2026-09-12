@@ -1,3 +1,10 @@
+# 生产 Compose：不挂载应用源码。后端/前端生产镜像基于 Node.js 20。
+# 改完代码必须重建：docker compose up -d --build --wait
+# 默认宿主机端口映射 127.0.0.1:3013:3013 与 127.0.0.1:5679:5679，可用 LOCALMINIDRAMA_FRONTEND_HOST_PORT / LOCALMINIDRAMA_BACKEND_HOST_PORT 覆盖。23013/25679 只属于旧 candidate 覆盖，不是本文件默认值。
+# 后端 healthcheck 探测 /ready（可接业务）；不要改成存活探针 /health。
+# 前端 /healthz 由 Nginx 代理到 backend /ready。
+# 生产 Nginx 必须另有 location = /ready 精确代理 backend /ready，写在 SPA location / 之前；只代理 /healthz 不够。
+# 备份/恢复相关环境变量：LOCALMINIDRAMA_DATA_DIR、LOCALMINIDRAMA_CONFIG_DIR、LOCALMINIDRAMA_CONFIG_SOURCE、LOCALMINIDRAMA_CONFIG_PATH、LOCALMINIDRAMA_MAINTENANCE_SCOPE。
 name: localminidrama
 
 services:
@@ -6,19 +13,53 @@ services:
     build:
       context: .
       dockerfile: backend-node/Dockerfile
+      args:
+        LOCALMINIDRAMA_BUILD_REVISION: ${LOCALMINIDRAMA_BUILD_REVISION:-unknown}
     container_name: localminidrama-backend
-    restart: "on-failure:10"
+    restart: unless-stopped
+    init: true
+    pids_limit: 512
+    cpus: "4.0"
+    mem_limit: 8g
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     stop_grace_period: 60s
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_READ_SEARCH
+      - KILL
+      - SETGID
+      - SETUID
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=1g,mode=1777
     environment:
       NODE_ENV: production
       PORT: "5679"
       HOST: "0.0.0.0"
+      LOCALMINIDRAMA_CORS_ORIGINS: "http://localhost:${LOCALMINIDRAMA_FRONTEND_HOST_PORT:-3013},http://127.0.0.1:${LOCALMINIDRAMA_FRONTEND_HOST_PORT:-3013}"
       LOCALMINIDRAMA_MAINTENANCE_SCOPE: localminidrama-docker-backend
+      LOCALMINIDRAMA_CONFIG_SOURCE: /app/config-source/config.yaml
+      LOCALMINIDRAMA_CONFIG_PATH: /tmp/localminidrama-config/config.yaml
     ports:
-      - "127.0.0.1:5679:5679"
+      - "127.0.0.1:${LOCALMINIDRAMA_BACKEND_HOST_PORT:-5679}:5679"
+    # 本机 npm run dev 若占用同一 data 目录，容器会因维护锁无法启动。验收请设独立 LOCALMINIDRAMA_DATA_DIR。
     volumes:
-      - ./backend-node/data:/app/data
-      - ./backend-node/configs:/app/configs:ro
+      - type: bind
+        source: ${LOCALMINIDRAMA_DATA_DIR:-./backend-node/data}
+        target: /app/data
+      - type: bind
+        source: ${LOCALMINIDRAMA_CONFIG_DIR:-./backend-node/configs}
+        target: /app/config-source
+        read_only: true
+    # Compose --wait 以 /ready 为准；/health 只表示进程存活。
     healthcheck:
       test:
         [
@@ -35,12 +76,33 @@ services:
     build:
       context: .
       dockerfile: frontweb/Dockerfile.prod
+      args:
+        LOCALMINIDRAMA_BUILD_REVISION: ${LOCALMINIDRAMA_BUILD_REVISION:-unknown}
     container_name: localminidrama-frontend
+    restart: unless-stopped
+    init: true
+    pids_limit: 128
+    cpus: "1.0"
+    mem_limit: 512m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=1g,mode=1777
     ports:
-      - "127.0.0.1:3013:3013"
+      - "127.0.0.1:${LOCALMINIDRAMA_FRONTEND_HOST_PORT:-3013}:3013"
     depends_on:
       backend:
         condition: service_healthy
+    # /healthz 代理 backend /ready，因此前端 healthy 也要求后端就绪。
+    # /ready 不走本探针，必须由 nginx location = /ready 单独精确代理；静态合同会锁住。
     healthcheck:
       test:
         [
@@ -67,6 +129,8 @@ services:
       context: .
       dockerfile: backend-node/Dockerfile
       target: verification
+      args:
+        LOCALMINIDRAMA_BUILD_REVISION: ${LOCALMINIDRAMA_BUILD_REVISION:-unknown}
     environment:
       NODE_ENV: test
 
@@ -76,6 +140,25 @@ services:
     build:
       context: .
       dockerfile: backend-node/Dockerfile
+      args:
+        LOCALMINIDRAMA_BUILD_REVISION: ${LOCALMINIDRAMA_BUILD_REVISION:-unknown}
+    user: node
+    init: true
+    pids_limit: 128
+    cpus: "1.0"
+    mem_limit: 512m
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "2"
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=256m,mode=1777
     environment:
       NODE_ENV: test
       LOCALMINIDRAMA_E2E_PROVIDER: "1"
@@ -85,6 +168,7 @@ services:
     ports:
       - "127.0.0.1:5688:5688"
     command: ["node", "scripts/e2e-provider.js"]
+    # E2E Provider 自身的 /healthz，不是前端 Nginx 的 /healthz。
     healthcheck:
       test:
         [

@@ -31,4 +31,13 @@ test('uses default active config models when no config is selected', () => {
 
 test('uses selected config models when config is selected', () => {
   assert.deepEqual(getSelectableModels(configs, 'text', 2), ['qwen-plus'])
+  assert.deepEqual(getSelectableModels(configs, 'text', '2'), ['qwen-plus'])
+})
+
+test('does not fall back to another config when an explicit id is stale or crosses service type', () => {
+  assert.deepEqual(getSelectableModels(configs, 'text', 'missing'), [])
+  assert.deepEqual(getSelectableModels(configs, 'image', 1), [])
+  assert.deepEqual(getSelectableModels([
+    { ...configs[0], is_active: false },
+  ], 'text', 1), [])
 })

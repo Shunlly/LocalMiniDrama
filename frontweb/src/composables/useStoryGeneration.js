@@ -1,4 +1,5 @@
-import { ElMessage } from 'element-plus'
+import { ElMessage } from '@/utils/elementPlusFeedback.js'
+import { toUserFacingError, isUserFacingAbort } from '@/utils/userFacingError'
 import { dramaAPI } from '@/api/drama'
 import { generationAPI } from '@/api/generation'
 import { stylePromptMetadataForSave } from '@/constants/styleOptions'
@@ -44,12 +45,13 @@ export async function runGenerateStoryFromPremise({
     if (!dramaId) {
       const drama = await dramaAPI.create({
         title: scriptTitle || '新故事',
-        description: text,
+        description: '',
         genre: storyType || undefined,
         style: generationStyle || undefined,
         metadata: {
           ...stylePromptMetadataForSave(generationStyle),
           story_style: storyStyle || undefined,
+          story_generation_draft: text,
           aspect_ratio: projectAspectRatio || '16:9',
         },
       })
@@ -80,12 +82,12 @@ export async function runGenerateStoryFromPremise({
         type: storyType || undefined,
         episode_count: storyEpisodeCount || 1,
         title: scriptTitle || undefined,
-        summary: text,
         genre: storyType || undefined,
         drama_style: generationStyle || undefined,
         metadata: {
           ...stylePromptMetadataForSave(generationStyle),
           story_style: storyStyle || undefined,
+          story_generation_draft: text,
           aspect_ratio: projectAspectRatio || '16:9',
         },
       })
@@ -127,14 +129,16 @@ export async function runGenerateStoryFromPremise({
       }
       return { ok: true, dramaId, episodeCount: n }
     } catch (e) {
-      ElMessage.error(e.message || '剧本生成失败')
-      return { ok: false, error: e.message }
+      if (isUserFacingAbort(e)) return
+      ElMessage.error(toUserFacingError(e, '剧本生成失败'))
+      return { ok: false, error: toUserFacingError(e, '操作失败') }
     } finally {
       scriptGenerating.value = false
     }
   } catch (e) {
-    ElMessage.error(e.message || '故事生成失败')
-    return { ok: false, error: e.message }
+    if (isUserFacingAbort(e)) return
+    ElMessage.error(toUserFacingError(e, '故事生成失败'))
+    return { ok: false, error: toUserFacingError(e, '操作失败') }
   } finally {
     storyGenerating.value = false
   }

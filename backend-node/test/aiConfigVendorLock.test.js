@@ -189,4 +189,56 @@ describe('aiConfigService vendor lock synchronization', () => {
       first.id
     );
   });
+
+  it('leaves the database unchanged when a vendor JSON entry has an invalid default model', (t) => {
+    const db = createDb(t);
+    createConfig(db, { name: 'Original config' });
+    const secret = 'LMD_SYNTHETIC_VENDOR_IMPORT_CREDENTIAL';
+    const errors = [];
+    const captureLog = {
+      ...log,
+      error(message, metadata) {
+        errors.push(JSON.stringify({ message, metadata }));
+      },
+    };
+    const configFile = writeVendorFile(t, [
+      {
+        service_type: 'text',
+        provider: 'provider-a',
+        name: 'Changed before invalid entry',
+        base_url: 'https://provider.invalid/v1',
+        model: [' model-new ', '', 'model-new'],
+        default_model: 'model-new',
+      },
+      {
+        service_type: 'video',
+        provider: 'provider-invalid',
+        name: 'Invalid imported config',
+        base_url: 'https://video.invalid/v1',
+        api_key: secret,
+        model: ['current-video-model'],
+        default_model: 'retired-video-model',
+      },
+    ]);
+
+    const result = aiConfigService.applyVendorLock(db, captureLog, {
+      vendor_lock: { enabled: true, config_file: configFile },
+    });
+
+    assert.equal(result, undefined);
+    assert.deepEqual(
+      aiConfigService.listConfigs(db).map((config) => ({
+        name: config.name,
+        model: config.model,
+        default_model: config.default_model,
+      })),
+      [{
+        name: 'Original config',
+        model: ['model-old'],
+        default_model: 'model-old',
+      }]
+    );
+    assert.equal(errors.length, 1);
+    assert.equal(errors.join('\n').includes(secret), false);
+  });
 });

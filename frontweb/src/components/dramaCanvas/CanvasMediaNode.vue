@@ -8,20 +8,23 @@
           highlighted: data.highlighted,
           dimmed: data.dimmed,
           focused: showPanel,
-          processing: isNodeBusy,
+          processing: isNodeBusy || isPreviewLoading,
           unknown: showMediaQueryWarning,
+          pending: Boolean(pendingFrameCaption),
         },
       ]"
       role="button"
       tabindex="0"
       :aria-label="accessibleLabel"
       :aria-expanded="showPanel"
+      :aria-busy="isNodeBusy || isPreviewLoading"
+      :title="accessibleLabel"
       @keydown.enter.stop.prevent="openPanel"
       @keydown.space.stop.prevent="openPanel"
     >
       <Handle type="target" :position="Position.Left" />
       <Handle v-if="data.kind !== 'video' && data.kind !== 'audio'" type="source" :position="Position.Right" />
-      <CanvasNodeStatusOverlay :node-id="id" />
+      <CanvasNodeStatusOverlay :node-id="id" :fallback-message="busyFallback" />
       <div class="tag">{{ kindLabel }}</div>
       <template v-if="data.kind === 'text'">
         <p class="text-body">{{ data.summary || '暂无脚本' }}</p>
@@ -30,8 +33,16 @@
         <p class="text-body universal-body">{{ data.summary || '暂无全能分镜词' }}</p>
       </template>
       <template v-else-if="data.kind === 'image'">
-        <img v-if="data.url" :src="data.url" :alt="`${kindLabel}预览`" class="media-img" />
-        <div v-else class="empty">无分镜图</div>
+        <img
+          v-if="imageUrl"
+          :src="imageUrl"
+          :alt="`${kindLabel}预览`"
+          class="media-img"
+          :class="{ 'is-loading-preview': isPreviewLoading }"
+          @load="onPreviewReady"
+          @error="onPreviewError"
+        />
+        <div v-else class="empty" :class="{ 'pending-frame': Boolean(pendingFrameCaption) }">{{ pendingFrameCaption || '无分镜图' }}</div>
       </template>
       <template v-else-if="data.kind === 'video'">
         <div v-if="data.url" class="media-video-wrap">
@@ -42,6 +53,7 @@
             muted
             playsinline
             preload="metadata"
+            aria-hidden="true"
             @loadedmetadata="onVideoMetadata"
             @error="onVideoError"
           />
@@ -59,16 +71,6 @@
       </template>
       <div v-if="showMediaQueryWarning" class="unknown-pill">媒体未知</div>
     </div>
-    <CanvasMediaPanel
-      v-if="showPanel"
-      :node-id="id"
-      :kind="data.kind"
-      :storyboard="data.storyboard"
-      :summary="data.summary"
-      :url="validatedMediaUrl"
-      :audio-type="data.audioType"
-      :frame-kind="data.frameKind"
-    />
   </div>
 </template>
 
@@ -76,7 +78,6 @@
 import { computed, ref, watch } from 'vue'
 import { Handle, Position } from '@vue-flow/core'
 import { useCanvasContext } from '@/composables/useCanvasContext'
-import CanvasMediaPanel from './CanvasMediaPanel.vue'
 import CanvasNodeStatusOverlay from './CanvasNodeStatusOverlay.vue'
 
 const props = defineProps({
@@ -87,10 +88,20 @@ const props = defineProps({
 const ctx = useCanvasContext()
 const showPanel = computed(() => ctx?.focusedNodeId?.value === props.id)
 const videoState = ref('empty')
+const previewState = ref('idle')
 
 const isNodeBusy = computed(() => {
   const map = ctx?.nodeStatus?.map
   return map ? !!map[props.id] : false
+})
+
+const isPreviewLoading = computed(() => previewState.value === 'loading')
+
+const busyFallback = computed(() => {
+  if (isNodeBusy.value) return ''
+  if (isPreviewLoading.value) return '正在加载预览'
+  if (props.data.storyboard?.status === 'processing') return '生成中'
+  return ''
 })
 
 const mediaQueryStatus = computed(() => ctx?.getStoryboardMediaQueryStatus?.(props.data.storyboard?.id) || {})
@@ -101,14 +112,18 @@ const showMediaQueryWarning = computed(() => (
 const kindLabel = computed(() => {
   if (props.data.frameLabel) return props.data.frameLabel
   const map = { text: '脚本摘要', universal: '全能分镜词', image: '分镜图', video: '视频', audio: '音频' }
-  return map[props.data.kind] || props.data.kind
+  return map[props.data.kind] || '媒体'
 })
 
-const validatedMediaUrl = computed(() => (
-  props.data.kind === 'video'
-    ? (videoState.value === 'ready' ? props.data.url : '')
-    : props.data.url
-))
+const imageUrl = computed(() => String(props.data.url || '').trim())
+
+const pendingFrameCaption = computed(() => {
+  if (props.data.kind !== 'image' || imageUrl.value) return ''
+  if (props.data.frameKind === 'first') return '待生成首帧'
+  if (props.data.frameKind === 'last') return '待生成尾帧'
+  return ''
+})
+
 
 const accessibleLabel = computed(() => {
   const storyboardNumber = props.data.storyboard?.storyboard_number
@@ -117,8 +132,18 @@ const accessibleLabel = computed(() => {
     ? `，${videoState.value === 'ready' ? '可播放' : videoState.value === 'invalid' ? '不可播放' : '校验中'}`
     : ''
   const unknownStatus = showMediaQueryWarning.value ? '，媒体状态未知，可重试查询' : ''
-  return `${kindLabel.value}${suffix}${videoStatus}${unknownStatus}，按 Enter 或空格展开`
+  const loadingStatus = isPreviewLoading.value ? '，加载中' : (isNodeBusy.value ? '，生成中' : '')
+  const title = pendingFrameCaption.value || kindLabel.value
+  return `${title}${suffix}${videoStatus}${unknownStatus}${loadingStatus}，按 Enter 或空格展开`
 })
+
+function onPreviewReady() {
+  previewState.value = 'ready'
+}
+
+function onPreviewError() {
+  previewState.value = 'error'
+}
 
 function reportVideoState(state) {
   videoState.value = state
@@ -134,8 +159,8 @@ function onVideoError() {
   reportVideoState('invalid')
 }
 
-function openPanel() {
-  ctx?.setFocusedNode?.(props.id)
+async function openPanel() {
+  await ctx?.setFocusedNode?.(props.id)
 }
 
 watch(
@@ -146,6 +171,7 @@ watch(
       videoState.value = 'empty'
       ctx?.clearMediaValidity?.(props.id)
     }
+    previewState.value = kind === 'image' && String(url || '').trim() ? 'loading' : 'idle'
   },
   { immediate: true },
 )
@@ -178,6 +204,10 @@ watch(
 .canvas-media-node.unknown {
   border-color: var(--canvas-amber-strong, #fbbf24);
 }
+.canvas-media-node.pending {
+  border-style: dashed;
+  border-color: var(--canvas-indigo-border, rgba(129, 140, 248, 0.62));
+}
 
 .tag {
   font-size: 10px;
@@ -204,6 +234,9 @@ watch(
   border-radius: 6px;
   background: var(--canvas-media-well, #09090b);
 }
+.media-img.is-loading-preview {
+  opacity: 0.35;
+}
 
 .media-vid {
   width: 100%;
@@ -227,6 +260,16 @@ watch(
   color: var(--canvas-text-subtle, #71717a);
   padding: 20px 0;
   text-align: center;
+}
+
+.pending-frame {
+  min-height: 92px;
+  display: grid;
+  place-items: center;
+  padding: 0 8px;
+  border: 1px dashed var(--border-muted, #3f3f46);
+  border-radius: 6px;
+  background: var(--canvas-media-well, #09090b);
 }
 
 .universal-body {

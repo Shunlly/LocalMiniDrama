@@ -1,10 +1,12 @@
 'use strict';
 
 const { secureHttpFetch } = require('./secureHttpFetch');
+const { requireCompleteProviderNetworkPolicy } = require('./providerNetworkPolicy');
 const {
   buildProviderErrorMessage,
   summarizeProviderResponse,
   toSafeProviderErrorMessage,
+  isTrustedChineseUserError,
 } = require('./providerErrorSanitizer');
 
 const HUB_MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
@@ -12,7 +14,7 @@ const HUB_REQUEST_TIMEOUT_MS = 30000;
 
 /**
  * 即梦2角色认证 — 业务侧「素材管理」HTTP API（与官方路径一致，如 /api/business/v1/assets）。
- * 网关 URL 与 Token 从 AI 配置（service_type = jimeng2_character_auth）读取；可选兼容旧版 config 中的 jimeng_material_hub / silvamux_hub。
+ * 网关地址与密钥从 AI 配置（service_type = jimeng2_character_auth）读取；可选兼容旧版配置中的素材库网关。
  * 参考：https://83zi.com/sd2realperson.html
  */
 
@@ -21,7 +23,7 @@ function loadAiJimeng2AuthRow(db) {
   try {
     return db
       .prepare(
-        `SELECT id, name, base_url, api_key FROM ai_service_configs
+        `SELECT id, name, base_url, api_key, provider, service_type, settings FROM ai_service_configs
          WHERE deleted_at IS NULL AND service_type = ? AND is_active = 1
          ORDER BY is_default DESC, priority DESC, id ASC LIMIT 1`
       )
@@ -75,13 +77,14 @@ function safeOrigin(value) {
  */
 function buildHubContext(cfg, db, log) {
   const row = loadAiJimeng2AuthRow(db);
+  const legacy = legacyYamlHubSection(cfg);
   let base_url = (row?.base_url || '').toString().trim();
   let token = (row?.api_key || '').toString().trim();
   let poll_max_ms;
   let poll_interval_ms;
 
   if (!base_url || !token) {
-    const y = legacyYamlHubSection(cfg);
+    const y = legacy;
     if (!base_url) base_url = (y.base_url || '').toString().trim();
     if (!token) token = (y.token || '').toString().trim();
     if (poll_max_ms == null && y.poll_max_ms != null) poll_max_ms = Number(y.poll_max_ms);
@@ -113,6 +116,23 @@ function buildHubContext(cfg, db, log) {
   const hadLeadingBearer = /^bearer\s+/i.test(rawTokJoined);
   const tok = normalizeMaterialHubToken(rawTokJoined);
 
+  let networkPolicy = null;
+  let networkPolicyError = '';
+  try {
+    const aiConfigService = require('./aiConfigService');
+    networkPolicy = aiConfigService.getProviderNetworkOptions({
+      base_url: baseUrl,
+      provider: row?.provider || legacy.provider || 'jimeng2_character_auth',
+      service_type: row?.service_type || 'jimeng2_character_auth',
+      settings: row?.settings || legacy.settings || JSON.stringify({
+        allow_local_http: legacy.allow_local_http === true,
+      }),
+    });
+  } catch (error) {
+    networkPolicyError = error?.code || 'INVALID_PROVIDER_URL';
+  }
+  const safeToken = networkPolicy ? tok : '';
+
   const env2 = !!String(process.env.JIMENG2_CHARACTER_AUTH_TOKEN || '').trim();
   const envMat = !!String(process.env.JIMENG_MATERIAL_HUB_TOKEN || '').trim();
   const envSilva = !!String(process.env.SILVAMUX_HUB_TOKEN || '').trim();
@@ -130,7 +150,7 @@ function buildHubContext(cfg, db, log) {
   const hubAuthDiag = {
     winning_token_source: winningTokenSource,
     raw_token_chars_before_normalize: rawTokJoined.length,
-    token_chars_in_bearer_payload: tok.length,
+    token_chars_in_bearer_payload: safeToken.length,
     raw_had_leading_bearer_prefix: hadLeadingBearer,
     leading_bearer_prefix_stripped: hadLeadingBearer,
     env_token_flags: {
@@ -151,19 +171,22 @@ function buildHubContext(cfg, db, log) {
   if (log && typeof log.info === 'function') {
     log.info('[JimengMaterialHub] buildHubContext 鉴权诊断（不含密钥原文）', {
       hub_origin: safeOrigin(baseUrl),
-      token_present: !!tok,
+      token_present: !!safeToken,
       ...hubAuthDiag,
     });
   }
 
-  const trustedOrigins = row?.base_url && sameOrigin(baseUrl, row.base_url) ? [row.base_url] : [];
   return {
     baseUrl,
-    token: tok,
+    token: safeToken,
     poll_max_ms,
     poll_interval_ms,
     hubAuthDiag,
-    trustedOrigins,
+    networkPolicy,
+    networkPolicyError,
+    trustedOrigins: networkPolicy?.trustedOrigins || [],
+    allowPrivateOrigins: networkPolicy?.allowPrivateOrigins || [],
+    networkLookup: networkPolicy?.lookup,
   };
 }
 
@@ -270,7 +293,23 @@ async function hubJson(path, ctx, { method, body, log } = {}) {
     return {
       ok: false,
       error:
-        '未配置即梦2角色认证：请在「AI 配置」中添加类型为「即梦2角色认证」的一条配置，填写网关 URL 与 Token（或设置环境变量 JIMENG2_CHARACTER_AUTH_*；兼容旧 config / SILVAMUX_*）',
+        '未配置即梦2角色认证：请在「AI 配置」中添加类型为「即梦2角色认证」的一条配置，并填写网关地址与密钥。',
+    };
+  }
+  let networkOptions;
+  try {
+    networkOptions = requireCompleteProviderNetworkPolicy(ctx.networkPolicy, base);
+  } catch (error) {
+    const raw = String(error?.message || '');
+    return {
+      ok: false,
+      code: error?.code || 'PROVIDER_NETWORK_POLICY_INVALID',
+      error: isTrustedChineseUserError(raw)
+        ? raw
+        : toSafeProviderErrorMessage(error, {
+          provider: '即梦素材库',
+          operation: '请求',
+        }),
     };
   }
   const url = `${base}/api/business/v1${path}`;
@@ -305,9 +344,10 @@ async function hubJson(path, ctx, { method, body, log } = {}) {
   let res;
   try {
     res = await secureHttpFetch(url, { ...init, redirect: 'error' }, {
-      trustedOrigins: ctx.trustedOrigins || [base],
-      allowPrivateOrigins: ctx.allowPrivateOrigins,
-      lookup: ctx.networkLookup,
+      trustedOrigins: networkOptions.trustedOrigins,
+      allowPrivateOrigins: networkOptions.allowPrivateOrigins,
+      lookup: networkOptions.lookup,
+      requireHttpsForPublic: networkOptions.requireHttpsForPublic,
       timeoutMs: HUB_REQUEST_TIMEOUT_MS,
       maxBytes: HUB_MAX_RESPONSE_BYTES,
       maxRedirects: 0,
@@ -403,7 +443,7 @@ async function createImageAsset(ctx, params, log) {
   return {
     ok: false,
     status: r.status,
-    error: `素材库未返回素材 id（响应字段：${keys || '空'}）`,
+    error: '素材库未返回素材 ID',
   };
 }
 
@@ -423,7 +463,7 @@ async function listAssets(ctx, opts = {}, log) {
 
 async function getAsset(ctx, assetId, log) {
   const id = encodeURIComponent(String(assetId || '').trim());
-  if (!id) return { ok: false, error: '缺少 asset id' };
+  if (!id) return { ok: false, error: '缺少素材 ID' };
   const r = await hubJson(`/assets/${id}`, ctx, { method: 'GET', log });
   if (!r.ok) return r;
   const asset = unwrapMaterialHubAssetView(r.data);

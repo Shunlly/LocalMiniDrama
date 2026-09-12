@@ -1,0 +1,417 @@
+.drama-canvas-page {
+  --canvas-project-surface: linear-gradient(135deg, rgba(49, 46, 129, 0.55), rgba(24, 24, 27, 0.92));
+  --canvas-episode-surface: rgba(76, 29, 149, 0.35);
+  --canvas-script-surface: rgba(120, 53, 15, 0.35);
+  --canvas-card-surface: var(--bg-card, #18181b);
+  --canvas-node-surface: rgba(24, 24, 27, 0.95);
+  --canvas-add-surface: rgba(24, 24, 27, 0.65);
+  --canvas-add-character-surface: var(--canvas-add-surface);
+  --canvas-add-scene-surface: var(--canvas-add-surface);
+  --canvas-add-prop-surface: var(--canvas-add-surface);
+  --canvas-add-storyboard-surface: var(--canvas-add-surface);
+  --canvas-media-text-surface: var(--canvas-node-surface);
+  --canvas-media-universal-surface: var(--canvas-node-surface);
+  --canvas-media-image-surface: var(--canvas-node-surface);
+  --canvas-media-video-surface: var(--canvas-node-surface);
+  --canvas-media-audio-surface: var(--canvas-node-surface);
+  --canvas-panel-surface: rgba(15, 15, 18, 0.97);
+  --canvas-media-well: #09090b;
+  --canvas-video-well: #000000;
+  --canvas-chip-surface: rgba(255, 255, 255, 0.08);
+  --canvas-chip-surface-soft: rgba(255, 255, 255, 0.06);
+  --canvas-loading-surface: rgba(9, 9, 11, 0.82);
+  --canvas-spinner-track: rgba(255, 255, 255, 0.12);
+  --canvas-overlay-surface: rgba(9, 9, 11, 0.72);
+  --canvas-overlay-text: #e4e4e7;
+  --canvas-project-title: #f4f4f5;
+  --canvas-text-primary: #e4e4e7;
+  --canvas-text-secondary: #d4d4d8;
+  --canvas-text-muted: #a1a1aa;
+  --canvas-text-subtle: #71717a;
+  --canvas-text-faint: #52525b;
+  --canvas-episode-text: #e9d5ff;
+  --canvas-indigo-text: #a5b4fc;
+  --canvas-indigo-strong: #818cf8;
+  --canvas-violet-text: #c4b5fd;
+  --canvas-amber-text: #fcd34d;
+  --canvas-amber-strong: #fbbf24;
+  --canvas-emerald-text: #6ee7b7;
+  --canvas-blue-text: #93c5fd;
+  --canvas-pink-text: #f472b6;
+  --canvas-success-text: #34d399;
+  --canvas-info-text: #60a5fa;
+  --canvas-danger-text: #f87171;
+  --canvas-indigo-border: rgba(129, 140, 248, 0.45);
+  --canvas-violet-border: rgba(167, 139, 250, 0.5);
+  --canvas-amber-border: rgba(251, 191, 36, 0.45);
+  --canvas-emerald-border: rgba(52, 211, 153, 0.45);
+  --canvas-blue-border: rgba(96, 165, 250, 0.45);
+  --canvas-pink-border: rgba(244, 114, 182, 0.45);
+  --canvas-raised-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  --canvas-node-focus-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  --canvas-project-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+  --canvas-divider: rgba(63, 63, 70, 0.6);
+  --canvas-divider-strong: rgba(63, 63, 70, 0.8);
+  --canvas-focus-ring: #818cf8;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-page, #0f0f12);
+  color: var(--text-primary, #e4e4e7);
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.header {
+  box-sizing: border-box;
+  flex-shrink: 0;
+  min-width: 0;
+  max-width: 100%;
+  border-bottom: 1px solid var(--border-color, #27272a);
+  background: var(--bg-card, #18181b);
+}
+
+.header-inner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 20px 6px;
+  flex-wrap: wrap;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.canvas-warning-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 20px 12px;
+  border-top: 1px solid rgba(251, 191, 36, 0.18);
+  color: var(--canvas-amber-text, #fcd34d);
+  font-size: 12px;
+  background: rgba(251, 191, 36, 0.06);
+  flex-wrap: wrap;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.canvas-warning-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+}
+
+.workflow-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 20px 10px;
+  flex-wrap: wrap;
+}
+
+.wf-hint {
+  font-size: 12px;
+  color: var(--text-subtle, #71717a);
+}
+
+.wf-steps {
+  display: flex;
+  gap: 4px;
+}
+
+.workflow-progress {
+  padding: 0 20px 8px;
+  font-size: 12px;
+  color: var(--canvas-info-text);
+}
+
+.workflow-progress.episode-gen {
+  color: var(--canvas-success-text);
+}
+
+.generate-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 20px 10px;
+  flex-wrap: wrap;
+  border-top: 1px solid rgba(63, 63, 70, 0.35);
+  margin-top: 2px;
+  padding-top: 8px;
+}
+
+.gen-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #a1a1aa;
+  margin-right: 4px;
+}
+
+.gen-hint {
+  font-size: 11px;
+  color: #52525b;
+  flex: 1;
+  min-width: 200px;
+}
+
+.logo {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+}
+
+.logo-main {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-bright, #fafafa);
+}
+
+.logo-sub {
+  font-size: 11px;
+  color: var(--canvas-indigo-strong);
+}
+
+.breadcrumb-sep { color: var(--text-faint, #52525b); }
+
+.page-title {
+  font-size: 14px;
+  color: var(--text-muted, #a1a1aa);
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.layout-status { font-size: 12px; }
+.layout-status.saving { color: var(--canvas-info-text); }
+.layout-status.saved { color: var(--canvas-success-text); }
+.layout-status.error { color: var(--canvas-danger-text); }
+.layout-save-error {
+  max-width: 320px;
+  color: var(--canvas-danger-text);
+  font-size: 12px;
+  line-height: 18px;
+  overflow-wrap: anywhere;
+}
+
+.header-actions {
+  margin-left: auto;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+:deep(.canvas-shell) {
+  flex: 1;
+  display: flex;
+  min-width: 0;
+  max-width: 100%;
+  min-height: 0;
+}
+
+.canvas-sidebar {
+  box-sizing: border-box;
+  width: 220px;
+  flex: 0 0 220px;
+  min-width: 0;
+  max-width: 100%;
+  border-right: 1px solid var(--border-color, #27272a);
+  background: var(--bg-card, #18181b);
+  padding: 14px 12px;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.sidebar-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 13px;
+  font-weight: 700;
+  margin-bottom: 12px;
+  color: var(--text-bright, #fafafa);
+}
+
+.sidebar-section { margin-bottom: 14px; }
+.sidebar-script {
+  padding-bottom: 12px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--border-color, #27272a);
+}
+
+.sec-label {
+  font-size: 11px;
+  color: var(--text-subtle, #71717a);
+  margin-bottom: 6px;
+}
+
+.sec-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.sidebar-item {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  font-size: 12px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  color: var(--text-primary, #e4e4e7);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.sidebar-item:hover { background: rgba(129, 140, 248, 0.12); }
+.sidebar-item:focus-visible { outline: 2px solid var(--canvas-indigo-strong); outline-offset: 1px; }
+.sidebar-item.active { background: rgba(52, 211, 153, 0.16); color: var(--canvas-emerald-text); }
+
+.workflow-item { white-space: normal; }
+.wf-item-title { font-weight: 600; }
+.wf-item-meta { font-size: 10px; color: var(--text-faint, #52525b); margin-top: 2px; }
+.sidebar-empty { font-size: 11px; color: var(--text-faint, #52525b); padding: 4px 0; max-width: 100%; }
+
+
+:deep(.canvas-main) {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  position: relative;
+  transition: margin-right 0.2s ease;
+}
+.drama-canvas-page.inspector-open :deep(.canvas-main) {
+  margin-right: 480px;
+}
+.drama-canvas-page.free-inspector-open :deep(.canvas-main) {
+  margin-right: 380px;
+}
+:deep(.free-canvas-inspector-dock) {
+  position: fixed;
+  top: 150px;
+  right: 20px;
+  z-index: 1200;
+  width: min(340px, calc(100vw - 32px));
+  max-height: min(680px, calc(100vh - 286px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+:deep(.free-canvas-bottom-toolbar) {
+  box-sizing: border-box;
+  position: absolute;
+  left: 50%;
+  bottom: 16px;
+  z-index: 1100;
+  max-width: min(720px, calc(100% - 24px));
+  transform: translateX(-50%);
+  overflow-x: visible;
+  box-shadow: var(--canvas-raised-shadow, 0 12px 32px rgba(0, 0, 0, 0.45));
+}
+.drama-canvas-page.free-mode :deep(.vue-flow__node:not(.vue-flow__node-freeCanvas)) {
+  opacity: 0.16;
+  filter: grayscale(0.85);
+  pointer-events: none;
+}
+
+.drama-canvas-page.free-mode :deep(.vue-flow__node-freeCanvas) {
+  overflow: visible;
+}
+.logo:focus-visible { outline: 2px solid var(--canvas-indigo-strong); outline-offset: 4px; }
+
+:deep(.vue-flow-canvas) {
+  width: 100%;
+  height: 100%;
+  background: #0c0c0f;
+}
+
+:deep(.vue-flow__minimap) {
+  right: 16px;
+  bottom: 92px;
+  background: rgba(24, 24, 27, 0.92);
+  border: 1px solid #3f3f46;
+}
+
+:deep(.vue-flow__controls) {
+  box-shadow: none;
+  border: 1px solid #3f3f46;
+}
+
+.drama-canvas-page.free-mode :deep(.vue-flow__controls) {
+  left: 16px;
+  bottom: 76px;
+}
+
+:deep(.vue-flow__controls button) {
+  background: #18181b;
+  border-color: #3f3f46;
+  color: var(--canvas-text-primary);
+}
+:deep(.vue-flow__controls button:focus-visible) {
+  position: relative;
+  z-index: 1;
+  outline: 3px solid var(--canvas-focus-ring);
+  outline-offset: 2px;
+}
+
+:deep(.vue-flow__node.selected) {
+  box-shadow: 0 0 0 2px rgba(129, 140, 248, 0.8);
+}
+
+@media (max-width: 1100px) {
+  .drama-canvas-page.inspector-open :deep(.canvas-main),
+  .drama-canvas-page.free-inspector-open :deep(.canvas-main) {
+    margin-right: 0;
+  }
+  .drama-canvas-page.free-inspector-open :deep(.vue-flow__minimap) {
+    display: none;
+  }
+  :deep(.free-canvas-bottom-toolbar) {
+    max-width: calc(100% - 24px);
+  }
+}
+@media (max-width: 769px) {
+  .header-inner,
+  .canvas-warning-bar {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+  .canvas-sidebar {
+    flex-basis: 220px;
+    max-width: 100%;
+  }
+  :deep(.free-canvas-bottom-toolbar) {
+    max-width: calc(100% - 24px);
+    overflow-x: visible;
+  }
+  :deep(.free-canvas-inspector-dock) {
+    top: 104px;
+    right: 16px;
+    width: calc(100vw - 32px);
+    max-height: min(520px, calc(100vh - 240px));
+  }
+  .drama-canvas-page.free-mode :deep(.vue-flow__minimap) {
+    display: none;
+  }
+}

@@ -195,4 +195,38 @@ describe('secureHttpFetch', () => {
       (error) => error?.code === 'UNSAFE_MEDIA_REFERENCE'
     );
   });
+
+  it('aborted requests surface a Chinese AbortError', async () => {
+    const port = await startServer((_req) => {});
+    const origin = `http://127.0.0.1:${port}`;
+    const controller = new AbortController();
+    controller.abort();
+    await assert.rejects(
+      secureHttpFetch(`${origin}/health`, { signal: controller.signal }, {
+        trustedOrigins: [origin],
+        allowPrivateOrigins: [origin],
+        lookup: async () => [{ address: '127.0.0.1', family: 4 }],
+      }),
+      (error) => error?.name === 'AbortError'
+        && /[\u4e00-\u9fff]/.test(error.message)
+        && !/The operation was aborted/i.test(error.message)
+    );
+  });
+
+  it('timed-out requests surface a Chinese TimeoutError', async () => {
+    const port = await startServer((_req) => {});
+    const origin = `http://127.0.0.1:${port}`;
+    await assert.rejects(
+      secureHttpFetch(`${origin}/hang`, {}, {
+        trustedOrigins: [origin],
+        allowPrivateOrigins: [origin],
+        lookup: async () => [{ address: '127.0.0.1', family: 4 }],
+        timeoutMs: 30,
+      }),
+      (error) => error?.name === 'TimeoutError'
+        && /[\u4e00-\u9fff]/.test(error.message)
+        && !/timed out after/i.test(error.message)
+    );
+  });
+
 });

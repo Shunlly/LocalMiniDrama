@@ -3,254 +3,51 @@
  */
 const fs = require('fs');
 const path = require('path');
-const { spawnSync } = require('child_process');
-const { getFfmpegPath, getFfprobePath } = require('../utils/ffmpegPath');
-const uploadService = require('./uploadService');
-
-const MAX_STORED_AUDIO_BYTES = 256 * 1024 * 1024;
-
-function ffprobeDurationSec(filePath) {
-  const probe = getFfprobePath();
-  const r = spawnSync(
-    probe,
-    ['-v', 'error', '-show_entries', 'format=duration', '-of', 'default=noprint_wrappers=1:nokey=1', filePath],
-    { encoding: 'utf8', maxBuffer: 1024 * 1024 }
-  );
-  if (r.status !== 0) return null;
-  const d = parseFloat(String(r.stdout || '').trim());
-  return Number.isFinite(d) && d > 0 ? d : null;
-}
-
-function formatSrtTimestamp(ms) {
-  if (!Number.isFinite(ms) || ms < 0) ms = 0;
-  const h = Math.floor(ms / 3600000);
-  const m = Math.floor((ms % 3600000) / 60000);
-  const s = Math.floor((ms % 60000) / 1000);
-  const z = Math.floor(ms % 1000);
-  const p2 = (n) => String(n).padStart(2, '0');
-  return `${p2(h)}:${p2(m)}:${p2(s)},${String(z).padStart(3, '0')}`;
-}
-
-function buildAtempoChain(factor) {
-  if (!Number.isFinite(factor) || factor <= 0) return null;
-  if (Math.abs(factor - 1) < 0.002) return null;
-  const parts = [];
-  let f = factor;
-  while (f > 2.001) {
-    parts.push('atempo=2');
-    f /= 2;
-  }
-  while (f < 0.499) {
-    parts.push('atempo=0.5');
-    f /= 0.5;
-  }
-  parts.push(`atempo=${Math.min(2, Math.max(0.5, f))}`);
-  return parts.join(',');
-}
-
-function escapeFfmpegPath(absPath) {
-  let s = path.resolve(absPath).replace(/\\/g, '/');
-  if (/^[A-Za-z]:/.test(s)) s = s.replace(/^([A-Za-z]):/, '$1\\:');
-  return s.replace(/'/g, "\\'");
-}
-
-function runFfmpeg(args, log, tag) {
-  const bin = getFfmpegPath();
-  const r = spawnSync(bin, args, { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
-  if (r.error) {
-    log.warn('merged post: ffmpeg spawn', { tag, error: r.error.message });
-    return false;
-  }
-  if (r.status !== 0) {
-    log.warn('merged post: ffmpeg failed', { tag, stderr: r.stderr?.slice(-1000) });
-    return false;
-  }
-  return true;
-}
-
-function copyStoredAudioToTemp(storageRoot, storedPath, targetPath) {
-  const raw = storedPath && String(storedPath).trim();
-  if (!raw) return false;
-  let opened;
-  try {
-    opened = uploadService.openStorageFile(storageRoot, raw);
-  } catch (error) {
-    if (error?.code === 'UNSAFE_MEDIA_REFERENCE' && error?.reason === 'NOT_FOUND') return false;
-    throw error;
-  }
-  let targetFd;
-  let completed = false;
-  try {
-    if (!opened.stat.isFile() || opened.stat.size <= 0 || opened.stat.size > MAX_STORED_AUDIO_BYTES) {
-      throw new Error('Stored audio file is empty or exceeds the size limit.');
-    }
-    targetFd = fs.openSync(targetPath, 'wx');
-    const buffer = Buffer.allocUnsafe(64 * 1024);
-    let bytesRead;
-    do {
-      bytesRead = fs.readSync(opened.fd, buffer, 0, buffer.length, null);
-      let offset = 0;
-      while (offset < bytesRead) {
-        offset += fs.writeSync(targetFd, buffer, offset, bytesRead - offset);
-      }
-    } while (bytesRead > 0);
-    completed = true;
-    return true;
-  } finally {
-    if (targetFd !== undefined) fs.closeSync(targetFd);
-    fs.closeSync(opened.fd);
-    if (!completed) {
-      try { fs.unlinkSync(targetPath); } catch (_) {}
-    }
-  }
-}
-
-function appendVideoEncoderArgs(args, videoEncoder) {
-  if (videoEncoder && Array.isArray(videoEncoder.outputArgs) && videoEncoder.outputArgs.length > 0) {
-    args.push(...videoEncoder.outputArgs, '-pix_fmt', 'yuv420p');
-    return;
-  }
-  args.push('-c:v', 'libx264', '-preset', 'fast', '-crf', '23');
-}
-
-function writeSilenceMp3(slotSec, outPath, log) {
-  return runFfmpeg(
-    ['-y', '-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=mono', '-t', String(slotSec), '-c:a', 'libmp3lame', '-q:a', '6', outPath],
-    log,
-    'silence'
-  );
-}
-
-function fitAudioToSlot(inputPath, slotSec, outPath, log) {
-  const d = ffprobeDurationSec(inputPath);
-  if (d == null || d <= 0.01) return false;
-  const eps = 0.06;
-  if (d > slotSec + eps) {
-    const factor = d / slotSec;
-    const chain = buildAtempoChain(factor);
-    const af = chain || 'anull';
-    return runFfmpeg(
-      ['-y', '-i', inputPath, '-af', af, '-t', String(slotSec), '-c:a', 'libmp3lame', '-q:a', '4', outPath],
-      log,
-      'fit_speed'
-    );
-  }
-  if (d < slotSec - eps) {
-    const pad = slotSec - d;
-    return runFfmpeg(
-      ['-y', '-i', inputPath, '-af', `apad=pad_dur=${pad}`, '-t', String(slotSec), '-c:a', 'libmp3lame', '-q:a', '4', outPath],
-      log,
-      'fit_pad'
-    );
-  }
-  try {
-    fs.copyFileSync(inputPath, outPath);
-    return true;
-  } catch (_) {
-    return runFfmpeg(
-      ['-y', '-i', inputPath, '-t', String(slotSec), '-c:a', 'libmp3lame', '-q:a', '4', outPath],
-      log,
-      'fit_copy'
-    );
-  }
-}
-
-function concatMp3List(segmentPaths, outPath, log) {
-  const listFile = path.join(path.dirname(outPath), `mix_concat_${Date.now()}.txt`);
-  try {
-    const lines = segmentPaths.map((p) => {
-      const normalized = path.resolve(p).replace(/\\/g, '/');
-      return `file '${normalized.replace(/'/g, "'\\''")}'`;
-    });
-    fs.writeFileSync(listFile, lines.join('\n'), 'utf8');
-    return runFfmpeg(
-      ['-y', '-f', 'concat', '-safe', '0', '-i', listFile, '-c:a', 'libmp3lame', '-q:a', '4', outPath],
-      log,
-      'concat_mix'
-    );
-  } finally {
-    try {
-      if (fs.existsSync(listFile)) fs.unlinkSync(listFile);
-    } catch (_) {}
-  }
-}
-
-function alignAudioToVideoDuration(inMp3, videoDur, outPath, log) {
-  const n = ffprobeDurationSec(inMp3);
-  if (n == null || !Number.isFinite(videoDur) || videoDur <= 0.1) return false;
-  const eps = 0.08;
-  if (n > videoDur + eps) {
-    const factor = n / videoDur;
-    const chain = buildAtempoChain(factor);
-    if (!chain) {
-      try {
-        fs.copyFileSync(inMp3, outPath);
-        return true;
-      } catch (_) {
-        return false;
-      }
-    }
-    return runFfmpeg(
-      ['-y', '-i', inMp3, '-af', chain, '-t', String(videoDur), '-c:a', 'libmp3lame', '-q:a', '4', outPath],
-      log,
-      'align_speed'
-    );
-  }
-  if (n < videoDur - eps) {
-    const pad = videoDur - n;
-    return runFfmpeg(
-      ['-y', '-i', inMp3, '-af', `apad=pad_dur=${pad}`, '-t', String(videoDur), '-c:a', 'libmp3lame', '-q:a', '4', outPath],
-      log,
-      'align_pad'
-    );
-  }
-  try {
-    fs.copyFileSync(inMp3, outPath);
-    return true;
-  } catch (_) {
-    return false;
-  }
-}
-
-function amixTwoTracks(pathA, pathB, slotSec, outPath, log) {
-  return runFfmpeg(
-    [
-      '-y', '-i', pathA, '-i', pathB,
-      '-filter_complex', `[0:a][1:a]amix=inputs=2:duration=first:dropout_transition=2[aout]`,
-      '-map', '[aout]',
-      '-t', String(slotSec),
-      '-c:a', 'libmp3lame', '-q:a', '4',
-      outPath,
-    ],
-    log,
-    'amix_seg'
-  );
-}
-
-function getDrawtextFontOption() {
-  const candidates = [];
-  if (process.platform === 'win32') {
-    const root = process.env.SystemRoot || 'C:\\Windows';
-    candidates.push(
-      path.join(root, 'Fonts', 'msyh.ttc'),
-      path.join(root, 'Fonts', 'msyhbd.ttc'),
-      path.join(root, 'Fonts', 'simhei.ttf')
-    );
-  }
-  candidates.push('/System/Library/Fonts/PingFang.ttc', '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf');
-  for (const p of candidates) {
-    if (p && fs.existsSync(p)) {
-      return `:fontfile='${escapeFfmpegPath(p)}'`;
-    }
-  }
-  return '';
-}
+const {
+  POST_PROCESS_FALLBACK,
+  throwIfAborted,
+  userFacingPostProcessError,
+  ffprobeDurationSec,
+  copyStoredAudioToTemp,
+  fitAudioToSlot,
+  writeSilenceMp3,
+  concatMp3List,
+  alignAudioToVideoDuration,
+  amixTwoTracks,
+  escapeFfmpegPath,
+  getDrawtextFontOption,
+  appendVideoEncoderArgs,
+  runFfmpeg,
+  publishStagedFiles,
+  ffprobeHasAudio,
+  assertSameStorageDevice,
+  operationCancelledError,
+  formatSrtTimestamp,
+} = require('./mergedEpisodePostProcessFfmpeg');
 
 /**
  * @param {object} mergeOpts — burn_dialogue_audio, burn_narration_subtitles, watermark_text
  */
 async function runMergedEpisodePostProcess(db, log, opts) {
-  const { mergedAbsPath, storageRoot, scenes, episodeId, mergeOpts = {}, videoEncoder = null } = opts;
+  const {
+    mergedAbsPath,
+    storageRoot,
+    scenes,
+    episodeId,
+    mergeOpts = {},
+    videoEncoder = null,
+    outputPath = null,
+    srtOutputPath = null,
+    deferPublication = false,
+    signal = null,
+    processTimeoutMs,
+    processKillGraceMs,
+  } = opts;
+  const processOptions = {
+    signal,
+    timeoutMs: processTimeoutMs,
+    killGraceMs: processKillGraceMs,
+  };
   const wantDial = !!mergeOpts.burn_dialogue_audio;
   const wantNarr = !!mergeOpts.burn_narration_subtitles;
   const watermarkText = (mergeOpts.watermark_text && String(mergeOpts.watermark_text).trim())
@@ -266,15 +63,27 @@ async function runMergedEpisodePostProcess(db, log, opts) {
     return { ok: false, error: 'NO_POST_OPTS' };
   }
 
-  const videoDur = ffprobeDurationSec(mergedAbsPath);
-  if (videoDur == null) {
-    return { ok: false, error: '无法读取合成视频时长' };
+  const storageRootResolved = path.resolve(storageRoot);
+  const mergedResolved = path.resolve(mergedAbsPath);
+  if (mergedResolved !== storageRootResolved
+    && !mergedResolved.startsWith(`${storageRootResolved}${path.sep}`)) {
+    return { ok: false, error: '合成视频不在本地存储目录内' };
   }
-
-  const tempRoot = path.join(require('os').tmpdir(), 'drama-merged-post', String(episodeId || 0), String(Date.now()));
-  fs.mkdirSync(tempRoot, { recursive: true });
-
+  // 暂存目录必须和最终目录处于同一文件系统，避免 Docker 挂载盘或 Windows 跨盘符 rename 失败。
+  const tempRoot = fs.mkdtempSync(path.join(path.dirname(mergedResolved), `.drama-merged-post-${episodeId || 0}-`));
+  const baseName = path.basename(mergedAbsPath, path.extname(mergedAbsPath));
+  const outAbs = path.resolve(outputPath || path.join(path.dirname(mergedAbsPath), `${baseName}_post.mp4`));
+  const stagedOutAbs = path.join(tempRoot, 'post-output.mp4');
+  const finalSrtPath = path.resolve(srtOutputPath || path.join(path.dirname(outAbs), `${path.basename(outAbs, path.extname(outAbs))}_narration.srt`));
+  let publication = null;
   try {
+    assertSameStorageDevice(tempRoot, outAbs);
+    throwIfAborted(signal);
+    const videoDur = await ffprobeDurationSec(mergedAbsPath, processOptions);
+    if (videoDur == null) {
+      return { ok: false, error: '无法读取合成视频时长' };
+    }
+
     let alignedAudioPath = null;
     let srtPath = null;
     let srtLines = [];
@@ -285,6 +94,7 @@ async function runMergedEpisodePostProcess(db, log, opts) {
       const segmentFiles = [];
 
       for (let i = 0; i < scenes.length; i++) {
+        throwIfAborted(signal);
         const sc = scenes[i];
         const sbId = Number(sc.scene_id);
         const slotSec = Math.max(0.2, Number(sc.duration) || 5);
@@ -306,17 +116,17 @@ async function runMergedEpisodePostProcess(db, log, opts) {
         if (wantDial) {
           const diaRaw = path.join(tempRoot, `dia_raw_${i}.audio`);
           if (copyStoredAudioToTemp(storageRoot, row?.audio_local_path, diaRaw)) {
-            if (!fitAudioToSlot(diaRaw, slotSec, diaFit, log)) {
+            if (!await fitAudioToSlot(diaRaw, slotSec, diaFit, log, processOptions)) {
               return { ok: false, error: `对白配音时长对齐失败 #${i}` };
             }
-          } else if (!writeSilenceMp3(slotSec, diaFit, log)) {
+          } else if (!await writeSilenceMp3(slotSec, diaFit, log, processOptions)) {
             return { ok: false, error: `对白静音片段失败 #${i}` };
           }
         }
 
         if (wantNarr) {
           if (!narrText) {
-            if (!writeSilenceMp3(slotSec, narrFit, log)) {
+            if (!await writeSilenceMp3(slotSec, narrFit, log, processOptions)) {
               return { ok: false, error: `旁白静音片段失败 #${i}` };
             }
           } else {
@@ -331,32 +141,37 @@ async function runMergedEpisodePostProcess(db, log, opts) {
             } else {
               let synth;
               try {
+                throwIfAborted(signal);
                 synth = await require('./ttsService').synthesize(db, log, {
                   text: narrText,
                   storyboard_id: sbId || null,
                   storage_base: storageRoot,
+                  signal,
                 });
+                throwIfAborted(signal);
               } catch (e) {
+                if (signal?.aborted || e?.code === 'OPERATION_CANCELLED') throw operationCancelledError(signal?.reason || e);
                 log.warn('merged post: narration TTS failed', { segment: i, error: e.message });
-                return { ok: false, error: `解说旁白 TTS 失败：${e.message}` };
+                return { ok: false, error: userFacingPostProcessError(e, '解说旁白 TTS 失败') };
               }
               if (!copyStoredAudioToTemp(storageRoot, synth?.local_path, segRaw)) {
                 return { ok: false, error: '旁白 TTS 文件不存在' };
               }
               if (sbId && synth?.local_path) {
+                throwIfAborted(signal);
                 db.prepare(
                   'UPDATE storyboards SET narration_audio_local_path = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL'
                 ).run(String(synth.local_path), new Date().toISOString(), sbId);
               }
             }
-            if (!fitAudioToSlot(segRaw, slotSec, narrFit, log)) {
+            if (!await fitAudioToSlot(segRaw, slotSec, narrFit, log, processOptions)) {
               return { ok: false, error: `旁白时长对齐失败 #${i}` };
             }
           }
         }
 
         if (wantDial && wantNarr) {
-          if (!amixTwoTracks(diaFit, narrFit, slotSec, segOut, log)) {
+          if (!await amixTwoTracks(diaFit, narrFit, slotSec, segOut, log, processOptions)) {
             return { ok: false, error: `对白与旁白混音失败 #${i}` };
           }
         } else if (wantDial) {
@@ -377,24 +192,20 @@ async function runMergedEpisodePostProcess(db, log, opts) {
       }
 
       const concatOut = path.join(tempRoot, 'full_mix.mp3');
-      if (!concatMp3List(segmentFiles, concatOut, log)) {
+      if (!await concatMp3List(segmentFiles, concatOut, log, processOptions)) {
         return { ok: false, error: '音轨拼接失败' };
       }
 
       alignedAudioPath = path.join(tempRoot, 'aligned_mix.mp3');
-      if (!alignAudioToVideoDuration(concatOut, videoDur, alignedAudioPath, log)) {
+      if (!await alignAudioToVideoDuration(concatOut, videoDur, alignedAudioPath, log, processOptions)) {
         return { ok: false, error: '音轨与视频总时长对齐失败' };
       }
 
       if (wantNarr && srtLines.length > 0) {
-        const baseName = path.basename(mergedAbsPath, path.extname(mergedAbsPath));
-        srtPath = path.join(path.dirname(mergedAbsPath), `${baseName}_narration.srt`);
+        srtPath = path.join(tempRoot, 'narration.srt');
         fs.writeFileSync(srtPath, `\uFEFF${srtLines.join('\n')}\n`, 'utf8');
       }
     }
-
-    const baseName = path.basename(mergedAbsPath, path.extname(mergedAbsPath));
-    const outAbs = path.join(path.dirname(mergedAbsPath), `${baseName}_post.mp4`);
 
     const hasSubs = !!(srtPath && fs.existsSync(srtPath));
     const hasWm = !!watermarkText;
@@ -431,8 +242,8 @@ async function runMergedEpisodePostProcess(db, log, opts) {
         args.push('-map', '0:v', '-map', '1:a');
       }
       appendVideoEncoderArgs(args, videoEncoder);
-      args.push('-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart', '-shortest', outAbs);
-      if (!runFfmpeg(args, log, 'mux_av')) {
+      args.push('-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart', '-shortest', stagedOutAbs);
+      if (!await runFfmpeg(args, log, 'mux_av', processOptions)) {
         return { ok: false, error: '烧录字幕/水印或混音失败' };
       }
     } else {
@@ -440,23 +251,48 @@ async function runMergedEpisodePostProcess(db, log, opts) {
         return { ok: false, error: '内部错误：仅水印但无滤镜链' };
       }
       const args = ['-y', '-i', mergedAbsPath, '-filter_complex', filterComplex, '-map', '[vout]'];
-      if (ffprobeHasAudio(mergedAbsPath)) {
+      if (await ffprobeHasAudio(mergedAbsPath, processOptions)) {
         args.push('-map', '0:a', '-c:a', 'copy');
       } else {
         args.push('-an');
       }
       appendVideoEncoderArgs(args, videoEncoder);
-      args.push('-movflags', '+faststart', outAbs);
-      if (!runFfmpeg(args, log, 'watermark_only')) {
+      args.push('-movflags', '+faststart', stagedOutAbs);
+      if (!await runFfmpeg(args, log, 'watermark_only', processOptions)) {
         return { ok: false, error: '水印烧录失败' };
       }
     }
 
-    if (!fs.existsSync(outAbs)) {
+    throwIfAborted(signal);
+    if (!fs.existsSync(stagedOutAbs) || fs.statSync(stagedOutAbs).size <= 0) {
       return { ok: false, error: '输出文件未生成' };
     }
+    const stagedFiles = [{ stagedPath: stagedOutAbs, finalPath: outAbs }];
+    if (srtPath && fs.existsSync(srtPath)) {
+      stagedFiles.push({ stagedPath: srtPath, finalPath: finalSrtPath });
+    }
+    publication = publishStagedFiles(stagedFiles, tempRoot);
+    throwIfAborted(signal);
 
     const relFromRoot = path.relative(storageRoot, outAbs).replace(/\\/g, '/');
+    const srtRelativePath = srtPath && fs.existsSync(finalSrtPath)
+      ? path.relative(storageRootResolved, finalSrtPath).replace(/\\/g, '/')
+      : null;
+    if (deferPublication) {
+      const pendingPublication = publication;
+      publication = null;
+      log.info('merged post: published pending parent transaction', { episode_id: episodeId, video: relFromRoot });
+      return {
+        ok: true,
+        relativePath: relFromRoot,
+        srtRelativePath,
+        publication: pendingPublication,
+        intermediatePath: outAbs !== mergedAbsPath ? mergedAbsPath : null,
+      };
+    }
+
+    publication.commit();
+    publication = null;
 
     try {
       if (fs.existsSync(mergedAbsPath) && outAbs !== mergedAbsPath) {
@@ -467,31 +303,21 @@ async function runMergedEpisodePostProcess(db, log, opts) {
     }
 
     log.info('merged post: done', { episode_id: episodeId, video: relFromRoot });
-    return { ok: true, relativePath: relFromRoot };
+    return { ok: true, relativePath: relFromRoot, srtRelativePath };
   } catch (e) {
+    publication?.rollback();
     log.warn('merged post: exception', { error: e.message });
-    return { ok: false, error: e.message || String(e) };
+    return { ok: false, error: userFacingPostProcessError(e, POST_PROCESS_FALLBACK) };
   } finally {
     try {
-      for (const p of fs.readdirSync(tempRoot)) {
-        try {
-          fs.unlinkSync(path.join(tempRoot, p));
-        } catch (_) {}
-      }
-      fs.rmdirSync(tempRoot);
+      fs.rmSync(tempRoot, { recursive: true, force: true });
+    } catch (_) {}
+    try {
+      fs.rmdirSync(path.dirname(tempRoot));
     } catch (_) {}
   }
 }
 
-function ffprobeHasAudio(filePath) {
-  const probe = getFfprobePath();
-  const r = spawnSync(
-    probe,
-    ['-v', 'error', '-select_streams', 'a', '-show_entries', 'stream=index', '-of', 'csv=p=0', filePath],
-    { encoding: 'utf8', maxBuffer: 1024 * 1024 }
-  );
-  return r.status === 0 && String(r.stdout || '').trim().length > 0;
-}
 
 module.exports = {
   copyStoredAudioToTemp,

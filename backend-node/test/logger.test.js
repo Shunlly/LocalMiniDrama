@@ -97,4 +97,101 @@ describe('logger redaction', () => {
     assert.ok(formatted.length < 8300);
     assert.match(formatted, /truncated/);
   });
+
+  it('operation 记录统一生命周期字段并复用脱敏', () => {
+    const record = logger.sanitizeLogValue({
+      event: 'operation',
+      operation: 'task_cancel',
+      operationId: 'op-1',
+      phase: 'error',
+      api_key: 'sk-synthetic-placeholder',
+    });
+    assert.equal(record.event, 'operation');
+    assert.equal(record.operation, 'task_cancel');
+    assert.equal(record.operationId, 'op-1');
+    assert.equal(record.phase, 'error');
+    assert.equal(record.api_key, '[REDACTED]');
+  });
+
+  it('request-scoped logs reuse the same request_id without inventing a second field', () => {
+    const lines = [];
+    const originalLog = console.log;
+    console.log = (msg) => { lines.push(String(msg)); };
+    try {
+      logger.runWithRequestId('trace-logger-1', () => {
+        logger.info('scoped-event', { path: '/health' });
+        logger.info('provider-event', { request_id: 'provider-task-9', path: '/health' });
+        logger.operation({ operation: 'http_request', phase: 'error', code: 'INTERNAL_ERROR' });
+      });
+      logger.info('unscoped-event', { path: '/health' });
+    } finally {
+      console.log = originalLog;
+    }
+
+    const scoped = lines.find((line) => line.includes('scoped-event'));
+    const provider = lines.find((line) => line.includes('provider-event'));
+    const operation = lines.find((line) => line.includes('"event":"operation"'));
+    const unscoped = lines.find((line) => line.includes('unscoped-event'));
+    assert.match(String(scoped), /"request_id":"trace-logger-1"/);
+    assert.doesNotMatch(String(scoped), /requestId/);
+    assert.match(String(provider), /"request_id":"provider-task-9"/);
+    assert.doesNotMatch(String(provider), /trace-logger-1/);
+    assert.match(String(operation), /"request_id":"trace-logger-1"/);
+    assert.match(String(operation), /"operationId":"http_request-/);
+    assert.doesNotMatch(String(operation), /"operationId":"trace-logger-1"/);
+    assert.equal(String(unscoped).includes('trace-logger-1'), false);
+  });
+
+  it('缺省 operationId 会自造，不回落 requestId，并单独保留 request_id', () => {
+    const lines = [];
+    const originalLog = console.log;
+    console.log = (msg) => { lines.push(String(msg)); };
+    try {
+      logger.runWithRequestId('trace-logger-1', () => {
+        logger.operation({ operation: 'provider_poll', request_id: 'provider-task-9', phase: 'error' });
+      });
+    } finally {
+      console.log = originalLog;
+    }
+    const operation = lines.find((line) => line.includes('"event":"operation"'));
+    assert.match(String(operation), /"operationId":"provider_poll-/);
+    assert.doesNotMatch(String(operation), /"operationId":"trace-logger-1"/);
+    assert.doesNotMatch(String(operation), /"operationId":"provider-task-9"/);
+    assert.match(String(operation), /"request_id":"provider-task-9"/);
+    assert.doesNotMatch(String(operation), /requestId/);
+  });
+
+  it('显式传入的 operationId 会保留，request_id 仍走 ALS', () => {
+    const lines = [];
+    const originalLog = console.log;
+    console.log = (msg) => { lines.push(String(msg)); };
+    try {
+      logger.runWithRequestId('trace-logger-1', () => {
+        logger.operation({ operation: 'http_request', operationId: 'op-explicit-1', phase: 'error' });
+      });
+    } finally {
+      console.log = originalLog;
+    }
+    const operation = lines.find((line) => line.includes('"event":"operation"'));
+    assert.match(String(operation), /"operationId":"op-explicit-1"/);
+    assert.match(String(operation), /"request_id":"trace-logger-1"/);
+    assert.doesNotMatch(String(operation), /"operationId":"trace-logger-1"/);
+  });
+
+  it('createOperationId 生成独立编号，不复用 requestId', () => {
+    const first = logger.createOperationId('http_request');
+    const second = logger.createOperationId('http_request');
+    assert.match(first, /^http_request-/);
+    assert.match(second, /^http_request-/);
+    assert.notEqual(first, second);
+    assert.notEqual(first, 'trace-logger-1');
+  });
+
+  it('unsafe request ids are not bound into the log context', () => {
+    logger.runWithRequestId('../secret\r\nInjected: yes', () => {
+      assert.equal(logger.getRequestId(), undefined);
+    });
+    assert.equal(logger.isSafeRequestId('trace-123:child'), true);
+    assert.equal(logger.isSafeRequestId('../secret'), false);
+  });
 });

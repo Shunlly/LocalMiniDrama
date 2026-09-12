@@ -5,6 +5,8 @@ const Database = require('better-sqlite3');
 
 const dramaService = require('../src/services/dramaService');
 const dramaRoutes = require('../src/routes/drama');
+const workflowService = require('../src/services/workflowService');
+const assetService = require('../src/services/assetService');
 
 const log = {
   info() {},
@@ -29,7 +31,11 @@ function createDb() {
       metadata TEXT,
       created_at TEXT,
       updated_at TEXT,
-      deleted_at TEXT
+      deleted_at TEXT,
+      trash_state TEXT,
+      recycle_operation_id TEXT,
+      recycle_phase TEXT,
+      recycle_started_at TEXT
     );
     CREATE TABLE episodes (
       id INTEGER PRIMARY KEY,
@@ -47,7 +53,26 @@ function createDb() {
     CREATE TABLE assets (
       id INTEGER PRIMARY KEY,
       drama_id INTEGER NOT NULL,
+      name TEXT,
+      type TEXT,
+      category TEXT,
+      url TEXT,
       local_path TEXT,
+      file_size INTEGER,
+      mime_type TEXT,
+      width INTEGER,
+      height INTEGER,
+      duration REAL,
+      image_gen_id INTEGER,
+      video_gen_id INTEGER,
+      created_at TEXT,
+      updated_at TEXT,
+      deleted_at TEXT
+    );
+    CREATE TABLE workflow_runs (
+      id TEXT PRIMARY KEY,
+      drama_id INTEGER NOT NULL,
+      status TEXT NOT NULL,
       deleted_at TEXT
     );
   `);
@@ -95,8 +120,11 @@ function seedDb(db) {
     INSERT INTO storyboards (id, episode_id, local_path, video_local_path, deleted_at)
     VALUES (?, ?, ?, ?, NULL)
   `).run(20, 10, 'dramas/1/storyboards/20/frame.png', 'dramas/1/storyboards/20/clip.mp4');
-  db.prepare('INSERT INTO assets (id, drama_id, local_path, deleted_at) VALUES (?, ?, ?, NULL)')
-    .run(30, 1, 'dramas/1/assets/reference.png');
+  db.prepare(`
+    INSERT INTO assets (id, drama_id, name, type, url, local_path, created_at, updated_at, deleted_at)
+    VALUES (?, ?, ?, 'image', ?, ?, ?, ?, NULL)
+  `).run(30, 1, 'Reference', '/static/dramas/1/assets/reference.png', 'dramas/1/assets/reference.png',
+    '2026-07-01T00:00:00.000Z', '2026-07-01T00:00:00.000Z');
 }
 
 function retainedRows(db) {
@@ -113,13 +141,13 @@ function closeServer(server) {
   });
 }
 
-test('moving a project to trash and restoring it preserves every associated row', () => {
+test('moving a project to trash and restoring it preserves every associated row', async () => {
   const db = createDb();
   try {
     seedDb(db);
     const before = retainedRows(db);
 
-    const removed = dramaService.moveDramaToTrash(db, log, 1);
+    const removed = await dramaService.moveDramaToTrash(db, log, 1);
     assert.equal(removed.id, 1);
     assert.equal(removed.is_removed, true);
     assert.ok(removed.removed_at);
@@ -139,7 +167,21 @@ test('moving a project to trash and restoring it preserves every associated row'
     assert.equal(restored.id, 1);
     assert.equal(restored.is_removed, false);
     assert.equal(restored.removed_at, null);
+    assert.deepEqual(
+      db.prepare('SELECT trash_state, recycle_operation_id, recycle_phase, recycle_started_at FROM dramas WHERE id = 1').get(),
+      { trash_state: null, recycle_operation_id: null, recycle_phase: null, recycle_started_at: null }
+    );
     assert.deepEqual(retainedRows(db), before);
+    const updated = assetService.update(db, log, 30, { name: 'Restored reference' });
+    assert.equal(updated.name, 'Restored reference');
+    const created = assetService.create(db, log, {
+      drama_id: 1,
+      name: 'Created after restore',
+      type: 'image',
+      local_path: 'dramas/1/assets/after-restore.png',
+    });
+    assert.equal(created.drama_id, 1);
+    assert.equal(created.name, 'Created after restore');
     assert.equal(dramaService.restoreDrama(db, log, 1), null);
   } finally {
     db.close();
@@ -215,4 +257,45 @@ test('trash API lists, moves and restores projects with an explicit retention co
     if (server.listening) await closeServer(server);
     db.close();
   }
+});
+
+test('工作流首次排空超时后会自动续跑并完成项目回收', async (t) => {
+  const db = createDb();
+  seedDb(db);
+  const originalCancelAndDrain = workflowService.cancelAndDrainDramaWorkflows;
+  let attempts = 0;
+  workflowService.cancelAndDrainDramaWorkflows = async () => {
+    attempts += 1;
+    if (attempts === 1) {
+      const error = new Error('测试工作流仍在退出');
+      error.code = 'WORKFLOW_DRAIN_TIMEOUT';
+      throw error;
+    }
+    return { cancelled_run_ids: [] };
+  };
+  t.after(() => {
+    workflowService.cancelAndDrainDramaWorkflows = originalCancelAndDrain;
+    db.close();
+  });
+
+  await assert.rejects(
+    dramaService.moveDramaToTrash(db, log, 1),
+    (error) => error.code === 'WORKFLOW_DRAIN_TIMEOUT'
+  );
+  assert.equal(db.prepare('SELECT trash_state FROM dramas WHERE id = 1').get().trash_state, 'recycling');
+
+  const deadline = Date.now() + 3000;
+  while (Date.now() < deadline) {
+    const row = db.prepare('SELECT deleted_at FROM dramas WHERE id = 1').get();
+    if (row?.deleted_at) break;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+
+  const recycled = db.prepare(
+    'SELECT deleted_at, trash_state, recycle_phase FROM dramas WHERE id = 1'
+  ).get();
+  assert.equal(attempts, 2);
+  assert.ok(recycled.deleted_at);
+  assert.equal(recycled.trash_state, null);
+  assert.equal(recycled.recycle_phase, 'completed');
 });

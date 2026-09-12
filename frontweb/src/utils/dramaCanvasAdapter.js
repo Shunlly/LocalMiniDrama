@@ -99,7 +99,7 @@ function buildAssetNodes(drama, savedLayout, startY) {
       id: addId,
       type: 'canvasAddButton',
       position: resolveNodePosition(savedLayout, addId, { x: ASSET_X, y }),
-      data: { assetType: sec.kind, label: '+ 新建' },
+      data: { assetType: sec.kind, label: '新建' },
       draggable: false,
       selectable: false,
       connectable: false,
@@ -139,9 +139,12 @@ function appendUniversalNode(nodes, edges, ctx) {
 
 function appendMediaImageNode(nodes, edges, ctx) {
   const {
-    savedLayout, sb, sbId, fromId, mediaX, mediaY, imgId, url, frameKind, frameLabel,
+    savedLayout, sb, fromId, mediaX, mediaY, imgId, url, frameKind, frameLabel,
+    allowEmpty = false,
   } = ctx
-  if (!url) return fromId
+  const resolvedUrl = url ? String(url).trim() : ''
+  // 首尾帧即使还没有图片也要留下占位节点，避免流水线把后续视频直接接到脚本上。
+  if (!resolvedUrl && !allowEmpty) return fromId
   nodes.push(makeNode({
     id: imgId,
     type: 'canvasMedia',
@@ -149,9 +152,10 @@ function appendMediaImageNode(nodes, edges, ctx) {
     data: {
       kind: 'image',
       storyboard: sb,
-      url,
+      url: resolvedUrl,
       frameKind: frameKind || null,
       frameLabel: frameLabel || null,
+      ...(allowEmpty ? { pending: !resolvedUrl } : {}),
     },
   }))
   edges.push(makeEdge({
@@ -262,14 +266,14 @@ function buildEpisodePipeline(episode, savedLayout, startY, options = {}) {
         const firstId = `sbimg-first:${sb.id}`
         pipelineTailId = appendMediaImageNode(nodes, edges, {
           savedLayout, sb, sbId, fromId: pipelineTailId, mediaX, mediaY, imgId: firstId, url: firstUrl,
-          frameKind: 'first', frameLabel: '首帧',
+          frameKind: 'first', frameLabel: '首帧', allowEmpty: true,
         })
         mediaX += MEDIA_GAP_X
         const lastUrl = imageRecordUrl(resolveSbLastImageRecord(sb, imagesBySbId))
         const lastId = `sbimg-last:${sb.id}`
         pipelineTailId = appendMediaImageNode(nodes, edges, {
           savedLayout, sb, sbId, fromId: pipelineTailId, mediaX, mediaY, imgId: lastId, url: lastUrl,
-          frameKind: 'last', frameLabel: '尾帧',
+          frameKind: 'last', frameLabel: '尾帧', allowEmpty: true,
         })
         mediaX += MEDIA_GAP_X
       } else {
@@ -303,21 +307,27 @@ function buildEpisodePipeline(episode, savedLayout, startY, options = {}) {
       mediaX += MEDIA_GAP_X
     }
 
-    const dialogueAudioUrl = audioUrl(sb.audio_local_path)
-    if (dialogueAudioUrl) {
-      const audId = `sbaud:${sb.id}:dialogue`
+    const audioTracks = [
+      { kind: 'dialogue', path: sb.audio_local_path, edgeId: `e-sb-aud-${sb.id}` },
+      { kind: 'narration', path: sb.narration_audio_local_path, edgeId: `e-sb-aud-${sb.id}-narration` },
+    ]
+    for (const track of audioTracks) {
+      const trackUrl = audioUrl(track.path)
+      if (!trackUrl) continue
+      const audId = `sbaud:${sb.id}:${track.kind}`
       nodes.push(makeNode({
         id: audId,
         type: 'canvasMedia',
         position: resolveNodePosition(savedLayout, audId, { x: mediaX, y: mediaY }),
-        data: { kind: 'audio', storyboard: sb, url: dialogueAudioUrl, audioType: 'dialogue' },
+        data: { kind: 'audio', storyboard: sb, url: trackUrl, audioType: track.kind },
       }))
       edges.push(makeEdge({
-        id: `e-sb-aud-${sb.id}`,
+        id: track.edgeId,
         source: sbId,
         target: audId,
         style: { stroke: '#fbbf24', strokeWidth: 1.5 },
       }))
+      mediaX += MEDIA_GAP_X
     }
 
     const charIds = Array.isArray(sb.characters) ? sb.characters : []
@@ -369,7 +379,7 @@ function buildEpisodePipeline(episode, savedLayout, startY, options = {}) {
     id: addSbId,
     type: 'canvasAddButton',
     position: resolveNodePosition(savedLayout, addSbId, { x: PIPELINE_X, y: addY }),
-    data: { assetType: 'storyboard', label: '+ 新建分镜', episodeId: episode.id },
+    data: { assetType: 'storyboard', label: '新建分镜', episodeId: episode.id },
     draggable: false,
     selectable: false,
     connectable: false,
@@ -478,6 +488,7 @@ export function getAssetRelationHighlight(drama, assetNodeId) {
       nodeIds.add(`sbimg-last:${sb.id}`)
       if (storyboardVideoUrl(sb)) nodeIds.add(`sbvid:${sb.id}`)
       if (sb.audio_local_path) nodeIds.add(`sbaud:${sb.id}:dialogue`)
+      if (sb.narration_audio_local_path) nodeIds.add(`sbaud:${sb.id}:narration`)
 
       if (prefix === 'char') edgeIds.add(`e-char-${entityId}-sb-${sb.id}`)
       if (prefix === 'scene') edgeIds.add(`e-scene-${entityId}-sb-${sb.id}`)

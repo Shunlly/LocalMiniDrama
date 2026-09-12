@@ -1,8 +1,10 @@
 import { ref, reactive, computed } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
-import { sceneAPI } from '@/api/scenes'
-import { sceneLibraryAPI } from '@/api/sceneLibrary'
-import { uploadAPI } from '@/api/upload'
+import { toUserFacingError, isUserFacingAbort } from '@/utils/userFacingError'
+import { ElMessage as RawElMessage, ElMessageBox } from '@/utils/elementPlusFeedback.js'
+import { sceneAPI as rawSceneAPI } from '@/api/scenes'
+import { sceneLibraryAPI as rawSceneLibraryAPI } from '@/api/sceneLibrary'
+import { useSceneLibrary } from './useSceneLibrary.js'
+import { uploadAPI as rawUploadAPI } from '@/api/upload'
 import { useGenerationTaskStore, GEN_RESOURCE } from '@/stores/generationTaskStore'
 import { buildExtractTaskMeta, isEpisodeExtractRunning } from '@/composables/useGenerationTaskSync'
 
@@ -21,7 +23,22 @@ import { buildExtractTaskMeta, isEpisodeExtractRunning } from '@/composables/use
  * @param {object} deps.dramaAPI
  */
 export function useScenes(deps) {
-  const { store, dramaId, currentEpisodeId, getSelectedStyle, scriptLanguage, loadDrama, pollTask, pollUntilResourceHasImage, hasAssetImage, dramaAPI } = deps
+  const {
+    store,
+    dramaId,
+    currentEpisodeId,
+    getSelectedStyle,
+    scriptLanguage,
+    loadDrama,
+    pollTask,
+    pollUntilResourceHasImage,
+    hasAssetImage,
+    dramaAPI,
+    ElMessage = RawElMessage,
+    sceneAPI = rawSceneAPI,
+    sceneLibraryAPI = rawSceneLibraryAPI,
+    uploadAPI = rawUploadAPI,
+  } = deps
   const genStore = useGenerationTaskStore()
 
   function buildSceneImageMeta(scene) {
@@ -64,31 +81,53 @@ export function useScenes(deps) {
     isEpisodeExtractRunning(genStore, dramaId.value, currentEpisodeId.value, GEN_RESOURCE.EXTRACT_SCENES)
   )
   const generatingSceneIds = reactive(new Set())
+  const generatingPanoramaIds = reactive(new Set())
 
-  // ── 场景库状态 ────────────────────────────────────────
-  const showSceneLibrary = ref(false)
-  const sceneLibraryList = ref([])
-  const sceneLibraryLoading = ref(false)
-  const sceneLibraryPage = ref(1)
-  const sceneLibraryPageSize = ref(20)
-  const sceneLibraryTotal = ref(0)
-  const sceneLibraryKeyword = ref('')
-  const showEditSceneLibrary = ref(false)
-  const editSceneLibraryForm = ref(null)
-  const editSceneLibrarySaving = ref(false)
-  const addingSceneToLibraryId = ref(null)
-  const addingSceneToMaterialId = ref(null)
-  const addingSceneFromLibraryId = ref(null)
-  let sceneLibraryKeywordTimer = null
-
-  const sceneLibraryTab = ref('library')
-  const dramaAllSceneList = ref([])
-  const dramaAllSceneLoading = ref(false)
-  const dramaAllScenePage = ref(1)
-  const dramaAllScenePageSize = ref(20)
-  const dramaAllSceneTotal = ref(0)
-  const dramaAllSceneKeyword = ref('')
-  let dramaAllSceneKeywordTimer = null
+  const {
+    showSceneLibrary,
+    sceneLibraryList,
+    sceneLibraryLoading,
+    sceneLibraryPage,
+    sceneLibraryPageSize,
+    sceneLibraryTotal,
+    sceneLibraryKeyword,
+    sceneLibraryTab,
+    dramaAllSceneList,
+    dramaAllSceneLoading,
+    dramaAllScenePage,
+    dramaAllScenePageSize,
+    dramaAllSceneTotal,
+    dramaAllSceneKeyword,
+    showEditSceneLibrary,
+    editSceneLibraryForm,
+    editSceneLibrarySaving,
+    addingSceneToLibraryId,
+    addingSceneToMaterialId,
+    addingSceneFromLibraryId,
+    loadSceneLibraryList,
+    debouncedLoadSceneLibrary,
+    loadDramaAllSceneList,
+    debouncedLoadDramaAllSceneList,
+    onSceneLibraryDialogOpen,
+    onSceneLibraryTabChange,
+    isSceneAddToEpisodeLoading,
+    openEditSceneLibrary,
+    submitEditSceneLibrary,
+    onDeleteSceneLibrary,
+    onAddSceneToLibrary,
+    onAddSceneToMaterialLibrary,
+    onAddSceneFromLibrary,
+    onAddDramaSceneToEpisode,
+  } = useSceneLibrary({
+    store,
+    dramaId,
+    currentEpisodeId,
+    loadDrama,
+    hasAssetImage,
+    ElMessage,
+    sceneAPI,
+    sceneLibraryAPI,
+  })
 
 
   // ── 函数 ──────────────────────────────────────────────
@@ -108,15 +147,20 @@ export function useScenes(deps) {
         const pollRes = await pollTask(taskId, () => loadDrama(), meta)
         if (pollRes?.status === 'completed') {
           ElMessage.success('场景提取完成')
+        } else if (pollRes?.status === 'timeout') {
+          ElMessage.warning(toUserFacingError(pollRes?.error, '场景提取超时，请稍后重试'))
+        } else if (pollRes?.status === 'cancelled' || pollRes?.status === 'canceled') {
+          ElMessage.info(toUserFacingError(pollRes?.error, '操作已取消'))
         } else {
-          ElMessage.warning(pollRes?.error || '场景提取未完成')
+          ElMessage.warning(toUserFacingError(pollRes?.error, '场景提取未完成'))
         }
       } else {
         await loadDrama()
         ElMessage.success('场景提取任务已提交')
       }
     } catch (e) {
-      ElMessage.error(e.message || '提取失败')
+      if (isUserFacingAbort(e)) return
+      ElMessage.error(toUserFacingError(e, '提取失败'))
     } finally {
       genStore.markDone(meta)
     }
@@ -181,7 +225,8 @@ export function useScenes(deps) {
         await loadDrama()
       }
     } catch (e) {
-      ElMessage.error(e.message || '生成提示词失败')
+      if (isUserFacingAbort(e)) return
+      ElMessage.error(toUserFacingError(e, '生成提示词失败'))
     } finally {
       editScenePromptGenerating.value = false
     }
@@ -199,7 +244,8 @@ export function useScenes(deps) {
         await loadDrama()
       }
     } catch (e) {
-      ElMessage.error(e.message || '生成提示词失败')
+      if (isUserFacingAbort(e)) return
+      ElMessage.error(toUserFacingError(e, '生成提示词失败'))
     } finally {
       editScenePromptGenerating.value = false
     }
@@ -226,7 +272,8 @@ export function useScenes(deps) {
       form.ref_image = ''
       ElMessage.success('参考图已移除')
     } catch (e) {
-      ElMessage.error('移除失败')
+      if (isUserFacingAbort(e)) return
+      ElMessage.error(toUserFacingError(e, '移除失败'))
     }
   }
 
@@ -241,7 +288,8 @@ export function useScenes(deps) {
         ElMessage.success('已从图片提取场景描述')
       }
     } catch (e) {
-      ElMessage.error(e.message || '提取失败，请检查场景是否已上传参考图片')
+      if (isUserFacingAbort(e)) return
+      ElMessage.error(toUserFacingError(e, '提取失败，请检查场景是否已上传参考图片'))
     } finally {
       extractingSceneDesc.value = false
     }
@@ -282,7 +330,8 @@ export function useScenes(deps) {
       await loadDrama()
       showEditScene.value = false
     } catch (e) {
-      ElMessage.error(e.message || (form.id ? '保存失败' : '添加失败'))
+      if (isUserFacingAbort(e)) return
+      ElMessage.error(toUserFacingError(e, form.id ? '保存失败' : '添加失败'))
     } finally {
       editSceneSaving.value = false
     }
@@ -307,7 +356,7 @@ export function useScenes(deps) {
       ElMessage.success('场景已删除')
     } catch (e) {
       if (e === 'cancel') return
-      ElMessage.error(e.message || '删除失败')
+      ElMessage.error(toUserFacingError(e, '删除失败'))
     }
   }
 
@@ -328,11 +377,16 @@ export function useScenes(deps) {
       if (taskId) {
         const pollRes = await pollTask(taskId, () => loadDrama(), meta)
         if (pollRes?.status === 'failed') {
-          scene.errorMsg = pollRes.error || '生成失败'
+          scene.errorMsg = toUserFacingError(pollRes.error, '生成失败')
         } else if (pollRes?.status === 'completed') {
           ElMessage.success('场景图片已生成')
+        } else if (pollRes?.status === 'timeout') {
+          scene.errorMsg = toUserFacingError(pollRes?.error, '生成超时，请稍后重试')
+          ElMessage.warning(scene.errorMsg)
+        } else if (pollRes?.status === 'cancelled' || pollRes?.status === 'canceled') {
+          scene.errorMsg = toUserFacingError(pollRes?.error, '操作已取消')
         } else {
-          scene.errorMsg = pollRes?.error || '场景图片生成未完成'
+          scene.errorMsg = toUserFacingError(pollRes?.error, '场景图片生成未完成')
           ElMessage.warning(scene.errorMsg)
         }
       } else {
@@ -345,232 +399,55 @@ export function useScenes(deps) {
         ElMessage.success('场景图片已生成')
       }
     } catch (e) {
+      scene.errorMsg = toUserFacingError(e, '生成失败')
+      if (isUserFacingAbort(e)) return
       console.error(e)
-      scene.errorMsg = e.message || '生成失败'
-      ElMessage.error(e.message || '提交失败')
+      ElMessage.error(toUserFacingError(e, '提交失败'))
     } finally {
       generatingSceneIds.delete(scene.id)
       genStore.markDone(meta)
     }
   }
 
-  // ── 场景库函数 ────────────────────────────────────────
-  async function loadSceneLibraryList() {
-    sceneLibraryLoading.value = true
-    try {
-      const res = await sceneLibraryAPI.list({
-        drama_id: dramaId.value,
-        page: sceneLibraryPage.value,
-        page_size: sceneLibraryPageSize.value,
-        keyword: sceneLibraryKeyword.value || undefined
-      })
-      sceneLibraryList.value = res?.items ?? []
-      const pagination = res?.pagination ?? {}
-      sceneLibraryTotal.value = pagination.total ?? 0
-      if (pagination.page != null) sceneLibraryPage.value = pagination.page
-      if (pagination.page_size != null) sceneLibraryPageSize.value = pagination.page_size
-    } catch (e) {
-      sceneLibraryList.value = []
-    } finally {
-      sceneLibraryLoading.value = false
-    }
-  }
 
-  function debouncedLoadSceneLibrary() {
-    if (sceneLibraryKeywordTimer) clearTimeout(sceneLibraryKeywordTimer)
-    sceneLibraryKeywordTimer = setTimeout(() => {
-      sceneLibraryPage.value = 1
-      loadSceneLibraryList()
-    }, 300)
-  }
-
-  async function loadDramaAllSceneList() {
-    if (!dramaId.value) {
-      dramaAllSceneList.value = []
-      dramaAllSceneTotal.value = 0
+  async function onGenerateScenePanorama(scene) {
+    if (!scene?.id) return
+    if (!hasAssetImage(scene)) {
+      ElMessage.warning('请先为该场景生成或上传主图')
       return
     }
-    dramaAllSceneLoading.value = true
+    const meta = {
+      dramaId: dramaId.value,
+      episodeId: currentEpisodeId.value,
+      resourceType: 'scene_panorama',
+      resourceId: scene.id,
+      label: `全景图: ${scene.location || scene.id}`,
+    }
+    generatingPanoramaIds.add(scene.id)
+    genStore.markRunning(meta)
     try {
-      const res = await sceneAPI.list(dramaId.value)
-      let list = Array.isArray(res) ? res : (res?.items ?? res?.scenes ?? [])
-      const kw = (dramaAllSceneKeyword.value || '').trim().toLowerCase()
-      if (kw) {
-        list = list.filter((s) => {
-          const loc = (s.location || '').toLowerCase()
-          const time = (s.time || '').toLowerCase()
-          const desc = (s.description || '').toLowerCase()
-          const prompt = (s.prompt || '').toLowerCase()
-          return loc.includes(kw) || time.includes(kw) || desc.includes(kw) || prompt.includes(kw)
-        })
-      }
-      dramaAllSceneTotal.value = list.length
-      const start = (dramaAllScenePage.value - 1) * dramaAllScenePageSize.value
-      dramaAllSceneList.value = list.slice(start, start + dramaAllScenePageSize.value)
-    } catch {
-      dramaAllSceneList.value = []
-      dramaAllSceneTotal.value = 0
-    } finally {
-      dramaAllSceneLoading.value = false
-    }
-  }
-
-  function debouncedLoadDramaAllSceneList() {
-    if (dramaAllSceneKeywordTimer) clearTimeout(dramaAllSceneKeywordTimer)
-    dramaAllSceneKeywordTimer = setTimeout(() => {
-      dramaAllScenePage.value = 1
-      loadDramaAllSceneList()
-    }, 300)
-  }
-
-  function onSceneLibraryDialogOpen() {
-    if (sceneLibraryTab.value === 'library') loadSceneLibraryList()
-    else if (sceneLibraryTab.value === 'drama') loadDramaAllSceneList()
-  }
-
-  function onSceneLibraryTabChange() {
-    if (sceneLibraryTab.value === 'library') {
-      sceneLibraryPage.value = 1
-      loadSceneLibraryList()
-    } else if (sceneLibraryTab.value === 'drama') {
-      dramaAllScenePage.value = 1
-      loadDramaAllSceneList()
-    }
-  }
-
-  function sceneAddToEpisodeLoadingKey(scope, id) {
-    return `${scope}-${id}`
-  }
-
-  function isSceneAddToEpisodeLoading(scope, id) {
-    return addingSceneFromLibraryId.value === sceneAddToEpisodeLoadingKey(scope, id)
-  }
-
-  function openEditSceneLibrary(item) {
-    editSceneLibraryForm.value = {
-      id: item.id,
-      location: item.location ?? '',
-      time: item.time ?? '',
-      category: item.category ?? '',
-      description: item.description ?? '',
-      tags: item.tags ?? ''
-    }
-    showEditSceneLibrary.value = true
-  }
-
-  async function submitEditSceneLibrary() {
-    if (!editSceneLibraryForm.value?.id) return
-    editSceneLibrarySaving.value = true
-    try {
-      await sceneLibraryAPI.update(editSceneLibraryForm.value.id, {
-        location: editSceneLibraryForm.value.location,
-        time: editSceneLibraryForm.value.time || null,
-        category: editSceneLibraryForm.value.category || null,
-        description: editSceneLibraryForm.value.description || null,
-        tags: editSceneLibraryForm.value.tags || null
-      })
-      ElMessage.success('已保存')
-      showEditSceneLibrary.value = false
-      loadSceneLibraryList()
-    } catch (e) {
-      ElMessage.error(e.message || '保存失败')
-    } finally {
-      editSceneLibrarySaving.value = false
-    }
-  }
-
-  async function onDeleteSceneLibrary(item) {
-    try {
-      const name = (item.location || item.time || '未命名').slice(0, 20)
-      await ElMessageBox.confirm(
-        `确定删除公共场景「${name}」吗？`,
-        '删除确认',
-        { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' }
-      )
-      await sceneLibraryAPI.delete(item.id)
-      ElMessage.success('已删除')
-      loadSceneLibraryList()
-    } catch (e) {
-      if (e === 'cancel') return
-      ElMessage.error(e.message || '删除失败')
-    }
-  }
-
-  async function onAddSceneToLibrary(scene) {
-    if (!hasAssetImage(scene)) { ElMessage.warning('请先为该场景生成或上传图片'); return }
-    addingSceneToLibraryId.value = scene.id
-    try {
-      await sceneAPI.addToLibrary(scene.id, {})
-      ElMessage.success('已加入本剧场景库')
-      if (showSceneLibrary.value) loadSceneLibraryList()
-    } catch (e) {
-      ElMessage.error(e.message || '加入失败')
-    } finally {
-      addingSceneToLibraryId.value = null
-    }
-  }
-
-  async function onAddSceneToMaterialLibrary(scene) {
-    if (!hasAssetImage(scene)) { ElMessage.warning('请先为该场景生成或上传图片'); return }
-    addingSceneToMaterialId.value = scene.id
-    try {
-      await sceneAPI.addToMaterialLibrary(scene.id)
-      ElMessage.success('已加入全局素材库')
-    } catch (e) {
-      ElMessage.error(e.message || '加入失败')
-    } finally {
-      addingSceneToMaterialId.value = null
-    }
-  }
-
-  async function addSceneToEpisode(item, scope) {
-    if (!store.dramaId || !currentEpisodeId.value) {
-      ElMessage.warning('请先选择本集')
-      return
-    }
-    const loadingKey = sceneAddToEpisodeLoadingKey(scope, item.id)
-    addingSceneFromLibraryId.value = loadingKey
-    try {
-      const existingScene = (store.scenes || []).find((s) => s.location === item.location)
-      if (existingScene) {
-        await sceneAPI.update(existingScene.id, {
-          location: item.location || existingScene.location,
-          time: item.time || existingScene.time,
-          prompt: existingScene.prompt || item.prompt || '',
-          image_url: item.image_url || existingScene.image_url || undefined,
-          local_path: item.local_path || existingScene.local_path || undefined,
-        })
-        ElMessage.success(`「${item.location || '场景'}」已更新到本集`)
+      const res = await sceneAPI.generatePanorama(scene.id)
+      const taskId = res?.image_generation?.task_id ?? res?.task_id
+      if (!taskId) throw new Error('全景图任务未返回')
+      const pollRes = await pollTask(taskId, () => loadDrama(), meta)
+      if (pollRes?.status === 'failed') {
+        ElMessage.error(toUserFacingError(pollRes.error, '全景图生成失败'))
+      } else if (pollRes?.status === 'completed') {
+        ElMessage.success('全景图已生成')
+      } else if (pollRes?.status === 'timeout') {
+        ElMessage.warning(toUserFacingError(pollRes?.error, '全景图生成超时，请稍后重试'))
+      } else if (pollRes?.status === 'cancelled' || pollRes?.status === 'canceled') {
+        ElMessage.info(toUserFacingError(pollRes?.error, '操作已取消'))
       } else {
-        await sceneAPI.create({
-          drama_id: store.dramaId,
-          episode_id: currentEpisodeId.value,
-          location: item.location || '',
-          time: item.time || '',
-          prompt: item.prompt || '',
-          image_url: item.image_url || undefined,
-          local_path: item.local_path || undefined,
-        })
-        ElMessage.success(`「${item.location || '场景'}」已加入本集`)
+        ElMessage.warning(toUserFacingError(pollRes?.error, '全景图生成未完成'))
       }
-      await loadDrama()
     } catch (e) {
-      ElMessage.error(e.message || '加入失败')
+      if (isUserFacingAbort(e)) return
+      ElMessage.error(toUserFacingError(e, '全景图生成失败'))
     } finally {
-      addingSceneFromLibraryId.value = null
+      generatingPanoramaIds.delete(scene.id)
+      genStore.markDone(meta)
     }
-  }
-
-  function onAddSceneFromLibrary(item) {
-    return addSceneToEpisode(item, 'library')
-  }
-
-  function onAddDramaSceneToEpisode(item) {
-    return addSceneToEpisode(item, 'drama')
-  }
-
-  function onAddTeamSceneToEpisode(item) {
-    return addSceneToEpisode(item, 'team')
   }
 
   return {
@@ -585,6 +462,7 @@ export function useScenes(deps) {
     // 生成状态
     scenesExtracting,
     generatingSceneIds,
+    generatingPanoramaIds,
     // 库状态
     showSceneLibrary,
     sceneLibraryList,
@@ -627,6 +505,7 @@ export function useScenes(deps) {
     onCloseSceneDialog,
     onDeleteScene,
     onGenerateSceneImage,
+    onGenerateScenePanorama,
     loadSceneLibraryList,
     debouncedLoadSceneLibrary,
     loadDramaAllSceneList,

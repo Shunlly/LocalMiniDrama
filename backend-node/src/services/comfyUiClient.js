@@ -2,114 +2,38 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const uploadService = require('./uploadService');
-const { redirectRequestOptions, secureHttpFetch } = require('./secureHttpFetch');
+const { requireCompleteProviderNetworkPolicy } = require('./providerNetworkPolicy');
+const { redirectRequestOptions, secureHttpFetch, validateHttpRequestTarget } = require('./secureHttpFetch');
+const {
+  ComfyUiError,
+  comfyFallbackMessage,
+  createAbortError,
+  readProviderError,
+  sanitizeProviderText,
+  trustedChineseDetail,
+} = require('./comfyUiErrors');
+const {
+  buildHeaders,
+  buildWorkflow,
+  collectSecrets,
+  extensionForMime,
+  joinUrl,
+  mimeForFilename,
+  normalizeBaseUrl,
+  numericSetting,
+  parseDataUrl,
+  parseSettings,
+  replaceWorkflowPlaceholders,
+  resolveHistoryEndpoint,
+} = require('./comfyUiProtocol');
+const { waitForComfyUiCompletion } = require('./comfyUiPollControl');
+
+// ComfyUI 图片客户端：请求编排与公开 API。协议解析、错误装配、轮询控制已拆出；本模块不新增真实接入。
 
 const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
 const DEFAULT_REQUEST_TIMEOUT_MS = 30 * 1000;
 const DEFAULT_POLL_INTERVAL_MS = 1000;
 const DEFAULT_MAX_IMAGE_BYTES = 50 * 1024 * 1024;
-
-class ComfyUiError extends Error {
-  constructor(message, code, details = {}) {
-    super(message);
-    this.name = 'ComfyUiError';
-    this.code = code || 'COMFYUI_ERROR';
-    if (details.status != null) this.status = details.status;
-    if (details.promptId) this.promptId = details.promptId;
-  }
-}
-
-function parseSettings(config) {
-  const raw = config?.settings;
-  if (!raw) return {};
-  if (typeof raw === 'object' && !Array.isArray(raw)) {
-    const nested = raw.comfyui && typeof raw.comfyui === 'object' ? raw.comfyui : {};
-    return { ...raw, ...nested };
-  }
-  try {
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
-    const nested = parsed.comfyui && typeof parsed.comfyui === 'object' ? parsed.comfyui : {};
-    return { ...parsed, ...nested };
-  } catch (_) {
-    throw new ComfyUiError('ComfyUI settings 不是有效的 JSON', 'INVALID_SETTINGS');
-  }
-}
-
-function normalizeBaseUrl(value) {
-  const text = String(value || '').trim().replace(/\/+$/, '');
-  if (!text) throw new ComfyUiError('ComfyUI Base URL 未配置', 'INVALID_CONFIG');
-  let parsed;
-  try {
-    parsed = new URL(text);
-  } catch (_) {
-    throw new ComfyUiError('ComfyUI Base URL 无效', 'INVALID_CONFIG');
-  }
-  if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password) {
-    throw new ComfyUiError('ComfyUI Base URL 必须是无内嵌凭据的 HTTP(S) 地址', 'INVALID_CONFIG');
-  }
-  return text;
-}
-
-function joinUrl(baseUrl, endpoint) {
-  const suffix = String(endpoint || '').trim() || '/';
-  return `${baseUrl}/${suffix.replace(/^\/+/, '')}`;
-}
-
-function numericSetting(value, fallback, minimum = 1) {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed >= minimum ? parsed : fallback;
-}
-
-function collectSecrets(config, settings) {
-  const secrets = [];
-  if (config?.api_key) secrets.push(String(config.api_key));
-  for (const [key, value] of Object.entries(settings?.headers || {})) {
-    if (/authorization|api[-_]?key|token|secret|cookie/i.test(key) && value) {
-      secrets.push(String(value));
-    }
-  }
-  return secrets.filter((value) => value.length >= 3);
-}
-
-function sanitizeProviderText(value, secrets = []) {
-  let text = String(value || '').replace(/[\u0000-\u001f\u007f]+/g, ' ').trim();
-  for (const secret of secrets) {
-    text = text.split(secret).join('********');
-  }
-  text = text
-    .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]+/gi, 'Bearer ********')
-    .replace(/((?:api[-_]?key|access[-_]?token|token|secret|authorization)["'\s:=]+)[^\s,"'}]+/gi, '$1********')
-    .replace(/https?:\/\/[^\s"']+/gi, (rawUrl) => {
-      try {
-        const parsed = new URL(rawUrl);
-        return `${parsed.protocol}//${parsed.host}${parsed.pathname}`;
-      } catch (_) {
-        return '[redacted-url]';
-      }
-    });
-  return text.slice(0, 300);
-}
-
-function buildHeaders(config, settings, json = false) {
-  const headers = {};
-  for (const [key, value] of Object.entries(settings?.headers || {})) {
-    if (!json && key.toLowerCase() === 'content-type') continue;
-    if (value != null && String(value).trim()) headers[key] = String(value);
-  }
-  if (config?.api_key && !headers.Authorization && !headers.authorization) {
-    headers.Authorization = `Bearer ${config.api_key}`;
-  }
-  if (json) headers['Content-Type'] = 'application/json';
-  return headers;
-}
-
-function createAbortError(code, promptId) {
-  if (code === 'COMFYUI_CANCELLED') {
-    return new ComfyUiError('ComfyUI 任务已取消', code, { promptId });
-  }
-  return new ComfyUiError('ComfyUI 任务超时', 'COMFYUI_TIMEOUT', { promptId });
-}
 
 async function fetchWithLimits(url, options, context) {
   const controller = new AbortController();
@@ -139,6 +63,7 @@ async function fetchWithLimits(url, options, context) {
         trustedOrigins: context.trustedOrigins,
         allowPrivateOrigins: context.allowPrivateOrigins,
         lookup: context.networkLookup,
+        requireHttpsForPublic: context.requireHttpsForPublic,
         timeoutMs: Math.min(context.requestTimeoutMs, remaining),
         maxBytes: context.maxResponseBytes || DEFAULT_MAX_IMAGE_BYTES,
         maxRedirects: 5,
@@ -147,60 +72,43 @@ async function fetchWithLimits(url, options, context) {
     let currentUrl = String(url);
     let currentOptions = { ...options };
     for (let redirects = 0; redirects <= 5; redirects += 1) {
+      await validateHttpRequestTarget(currentUrl, {
+        trustedOrigins: context.trustedOrigins,
+        allowPrivateOrigins: context.allowPrivateOrigins,
+        lookup: context.networkLookup,
+        requireHttpsForPublic: context.requireHttpsForPublic,
+      });
       const response = await context.fetchImpl(currentUrl, {
         ...currentOptions,
         redirect: 'manual',
         signal: controller.signal,
       });
       if (![301, 302, 303, 307, 308].includes(response.status)) return response;
-      if (redirects === 5) throw new ComfyUiError('ComfyUI redirect limit exceeded', 'COMFYUI_REDIRECT');
+      if (redirects === 5) throw new ComfyUiError('ComfyUI 重定向次数过多，请检查服务地址后重试', 'COMFYUI_REDIRECT');
       const location = response.headers?.get?.('location');
-      if (!location) throw new ComfyUiError('ComfyUI redirect has no Location', 'COMFYUI_REDIRECT');
+      if (!location) throw new ComfyUiError('ComfyUI 重定向缺少目标地址，请检查服务地址后重试', 'COMFYUI_REDIRECT');
       const nextUrl = new URL(location, currentUrl).toString();
       const crossOrigin = new URL(currentUrl).origin !== new URL(nextUrl).origin;
       const method = String(currentOptions?.method || 'GET').toUpperCase();
       if (crossOrigin && !['GET', 'HEAD'].includes(method)) {
-        throw new ComfyUiError('ComfyUI write request redirect rejected', 'COMFYUI_REDIRECT');
+        throw new ComfyUiError('ComfyUI 写入请求不允许跨源重定向，请检查服务地址后重试', 'COMFYUI_REDIRECT');
       }
       currentOptions = redirectRequestOptions(currentOptions, response.status, currentUrl, nextUrl);
       currentUrl = nextUrl;
     }
-    throw new ComfyUiError('ComfyUI redirect limit exceeded', 'COMFYUI_REDIRECT');
+    throw new ComfyUiError('ComfyUI 重定向次数过多，请检查服务地址后重试', 'COMFYUI_REDIRECT');
   } catch (error) {
     if (error instanceof ComfyUiError) throw error;
     if (error?.name === 'AbortError' || controller.signal.aborted) {
       throw createAbortError(reason === 'cancelled' ? 'COMFYUI_CANCELLED' : 'COMFYUI_TIMEOUT', context.promptId);
     }
-    throw new ComfyUiError(`ComfyUI 网络请求失败: ${sanitizeProviderText(error?.message, context.secrets) || '连接失败'}`, 'COMFYUI_NETWORK', {
+    throw new ComfyUiError(comfyFallbackMessage(error, 'ComfyUI 网络请求失败，请检查网络后重试', context.secrets), 'COMFYUI_NETWORK', {
       promptId: context.promptId,
     });
   } finally {
     clearTimeout(timer);
     externalSignal?.removeEventListener('abort', onAbort);
   }
-}
-
-async function readProviderError(response, operation, context) {
-  let raw = '';
-  try {
-    raw = await response.text();
-  } catch (_) {}
-  let detail = raw;
-  try {
-    const parsed = JSON.parse(raw);
-    detail = parsed?.error?.message
-      || parsed?.message
-      || parsed?.error
-      || parsed?.node_errors
-      || '';
-    if (typeof detail !== 'string') detail = JSON.stringify(detail);
-  } catch (_) {}
-  const safeDetail = sanitizeProviderText(detail, context.secrets);
-  const suffix = safeDetail ? `: ${safeDetail}` : '';
-  return new ComfyUiError(`ComfyUI ${operation}失败 (HTTP ${response.status})${suffix}`, 'COMFYUI_PROVIDER', {
-    status: response.status,
-    promptId: context.promptId,
-  });
 }
 
 async function requestJson(baseUrl, endpoint, options, operation, context) {
@@ -216,43 +124,6 @@ async function requestJson(baseUrl, endpoint, options, operation, context) {
   }
 }
 
-function parseDataUrl(value) {
-  const match = String(value || '').match(/^data:([^;,]+)?(;base64)?,([\s\S]*)$/i);
-  if (!match) return null;
-  const mimeType = match[1] || 'application/octet-stream';
-  try {
-    const buffer = match[2]
-      ? Buffer.from(match[3].replace(/\s/g, ''), 'base64')
-      : Buffer.from(decodeURIComponent(match[3]));
-    return { buffer, mimeType, filename: `reference.${extensionForMime(mimeType)}` };
-  } catch (_) {
-    throw new ComfyUiError('ComfyUI 参考图 data URL 无效', 'INVALID_REFERENCE');
-  }
-}
-
-function extensionForMime(mimeType) {
-  const normalized = String(mimeType || '').split(';')[0].toLowerCase();
-  return {
-    'image/jpeg': 'jpg',
-    'image/png': 'png',
-    'image/webp': 'webp',
-    'image/gif': 'gif',
-    'image/bmp': 'bmp',
-  }[normalized] || 'png';
-}
-
-function mimeForFilename(filename) {
-  const ext = path.extname(String(filename || '')).toLowerCase();
-  return {
-    '.jpg': 'image/jpeg',
-    '.jpeg': 'image/jpeg',
-    '.png': 'image/png',
-    '.webp': 'image/webp',
-    '.gif': 'image/gif',
-    '.bmp': 'image/bmp',
-  }[ext] || 'application/octet-stream';
-}
-
 function resolveLocalReference(value, storageLocalPath, maxBytes) {
   const text = String(value || '').trim();
   if (!text || text.startsWith('data:')) return null;
@@ -260,7 +131,7 @@ function resolveLocalReference(value, storageLocalPath, maxBytes) {
   if (!resolved) return null;
   const filename = resolved.absolutePath;
   if (fs.statSync(filename).size > maxBytes) {
-    throw new ComfyUiError('ComfyUI local reference exceeds the size limit', 'REFERENCE_TOO_LARGE');
+    throw new ComfyUiError('ComfyUI 本地参考图超过大小限制', 'REFERENCE_TOO_LARGE');
   }
   return {
     buffer: fs.readFileSync(filename),
@@ -283,7 +154,7 @@ async function loadReference(value, index, opts, context) {
   } catch (error) {
     if (!/^https?:\/\//i.test(String(value || ''))) {
       if (error instanceof ComfyUiError) throw error;
-      throw new ComfyUiError(`ComfyUI 第 ${index + 1} 张参考图不在 storage 内`, 'INVALID_REFERENCE');
+      throw new ComfyUiError(`ComfyUI 第 ${index + 1} 张参考图不在本地存储目录内`, 'INVALID_REFERENCE');
     }
   }
   if (local) return local;
@@ -349,184 +220,16 @@ async function uploadReference(baseUrl, config, settings, value, index, opts, co
   return subfolder ? `${subfolder}/${name}` : String(name);
 }
 
-function getWorkflowTemplate(config, settings) {
-  let template = settings.workflow ?? settings.workflow_json ?? settings.workflow_template ?? config?.workflow;
-  if (typeof template === 'string') {
-    try {
-      template = JSON.parse(template);
-    } catch (_) {
-      throw new ComfyUiError('ComfyUI workflow 模板不是有效的 JSON', 'INVALID_WORKFLOW');
-    }
-  }
-  if (!template || typeof template !== 'object' || Array.isArray(template)) {
-    throw new ComfyUiError('ComfyUI workflow 模板未配置', 'INVALID_WORKFLOW');
-  }
-  return template;
-}
-
-function tokenMatches(value) {
-  const text = String(value);
-  const exact = text.match(/^\s*(?:\{\{\s*([A-Za-z0-9_.-]+)\s*\}\}|\$\{\s*([A-Za-z0-9_.-]+)\s*\}|__([A-Za-z0-9_.-]+)__)\s*$/);
-  return exact ? (exact[1] || exact[2] || exact[3]) : null;
-}
-
-function replaceWorkflowPlaceholders(template, replacements) {
-  const values = new Map(Object.entries(replacements || {}).map(([key, value]) => [String(key).toLowerCase(), value]));
-  const unresolved = new Set();
-  const lookup = (name) => {
-    const key = String(name).toLowerCase();
-    if (values.has(key)) return values.get(key);
-    if (/^(?:reference|input)_image_?\d+$/.test(key)) return '';
-    unresolved.add(name);
-    return undefined;
-  };
-  const visit = (value) => {
-    if (Array.isArray(value)) return value.map(visit);
-    if (value && typeof value === 'object') {
-      return Object.fromEntries(Object.entries(value).map(([key, child]) => [key, visit(child)]));
-    }
-    if (typeof value !== 'string') return value;
-    const exactName = tokenMatches(value);
-    if (exactName) {
-      const exactValue = lookup(exactName);
-      return exactValue === undefined ? value : exactValue;
-    }
-    return value.replace(
-      /\{\{\s*([A-Za-z0-9_.-]+)\s*\}\}|\$\{\s*([A-Za-z0-9_.-]+)\s*\}|__([A-Za-z0-9_.-]+)__/g,
-      (match, curly, dollar, underscored) => {
-        const replacement = lookup(curly || dollar || underscored);
-        if (replacement === undefined) return match;
-        return Array.isArray(replacement) || (replacement && typeof replacement === 'object')
-          ? JSON.stringify(replacement)
-          : String(replacement);
-      }
-    );
-  };
-  const workflow = visit(template);
-  if (unresolved.size > 0) {
-    throw new ComfyUiError(`ComfyUI workflow 存在未定义占位符: ${Array.from(unresolved).join(', ')}`, 'INVALID_WORKFLOW');
-  }
-  return workflow;
-}
-
-function parseSize(size) {
-  const match = String(size || '').match(/(\d+)\s*[xX*×]\s*(\d+)/);
-  if (!match) return { width: 1024, height: 1024 };
-  return { width: Number(match[1]), height: Number(match[2]) };
-}
-
-function buildWorkflow(config, settings, opts, uploadedReferences) {
-  const template = getWorkflowTemplate(config, settings);
-  const { width, height } = parseSize(opts.size);
-  const configuredSeed = opts.seed ?? settings.seed;
-  const parsedSeed = Number(configuredSeed);
-  const seed = configuredSeed == null || configuredSeed === '' || !Number.isFinite(parsedSeed)
-    ? crypto.randomBytes(6).readUIntBE(0, 6)
-    : parsedSeed;
-  const customValues = {
-    ...(settings.variables && typeof settings.variables === 'object' ? settings.variables : {}),
-    ...(opts.workflow_variables && typeof opts.workflow_variables === 'object' ? opts.workflow_variables : {}),
-  };
-  const replacements = {
-    ...customValues,
-    prompt: String(opts.prompt || ''),
-    negative_prompt: String(opts.negative_prompt || ''),
-    model: String(opts.model || config.default_model || ''),
-    width,
-    height,
-    size: String(opts.size || `${width}x${height}`),
-    seed,
-    batch_size: Number(opts.batch_size || 1),
-    quality: String(opts.quality || ''),
-    reference_image: uploadedReferences[0] || '',
-    input_image: uploadedReferences[0] || '',
-    reference_images: uploadedReferences,
-  };
-  uploadedReferences.forEach((reference, index) => {
-    replacements[`reference_image_${index + 1}`] = reference;
-    replacements[`input_image_${index + 1}`] = reference;
-  });
-  return replaceWorkflowPlaceholders(template, replacements);
-}
-
-function getHistoryEntry(history, promptId) {
-  if (!history || typeof history !== 'object') return null;
-  return history[promptId] || (history.prompt_id === promptId ? history : null);
-}
-
-function historyErrorMessage(entry) {
-  const status = entry?.status;
-  const statusText = String(status?.status_str || status?.status || '').toLowerCase();
-  if (!/error|failed/.test(statusText)) return '';
-  const messages = Array.isArray(status?.messages) ? status.messages : [];
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const item = messages[index];
-    const payload = Array.isArray(item) ? item[1] : item;
-    const message = payload?.exception_message || payload?.message || payload?.error;
-    if (message) return String(message);
-  }
-  return 'workflow 执行失败';
-}
-
-function extractOutputs(entry, settings) {
-  const outputs = entry?.outputs;
-  if (!outputs || typeof outputs !== 'object') return [];
-  const configuredNodes = settings.output_node_ids || (settings.output_node_id != null ? [settings.output_node_id] : null);
-  const nodeIds = configuredNodes
-    ? configuredNodes.map(String)
-    : Object.keys(outputs).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
-  const items = [];
-  for (const nodeId of nodeIds) {
-    const nodeOutput = outputs[nodeId];
-    for (const image of nodeOutput?.images || []) {
-      if (image?.filename) items.push(image);
-    }
-  }
-  return items;
-}
-
 async function waitForCompletion(baseUrl, config, settings, promptId, context) {
-  const endpointTemplate = config.query_endpoint || settings.history_endpoint || '/history/{promptId}';
-  const endpoint = endpointTemplate
-    .replace(/\{promptId\}/g, encodeURIComponent(promptId))
-    .replace(/\{taskId\}/g, encodeURIComponent(promptId));
-  while (true) {
-    if (context.signal?.aborted) throw createAbortError('COMFYUI_CANCELLED', promptId);
-    if (Date.now() >= context.deadline) throw createAbortError('COMFYUI_TIMEOUT', promptId);
-    context.promptId = promptId;
-    const history = await requestJson(baseUrl, endpoint, {
+  const endpoint = resolveHistoryEndpoint(config, settings, promptId);
+  return waitForComfyUiCompletion({
+    promptId,
+    context,
+    settings,
+    queryHistory: () => requestJson(baseUrl, endpoint, {
       method: 'GET',
       headers: buildHeaders(config, settings, false),
-    }, '历史查询', context);
-    const entry = getHistoryEntry(history, promptId);
-    if (entry) {
-      const providerError = historyErrorMessage(entry);
-      if (providerError) {
-        const safe = sanitizeProviderText(providerError, context.secrets);
-        throw new ComfyUiError(`ComfyUI workflow 执行失败${safe ? `: ${safe}` : ''}`, 'COMFYUI_EXECUTION', { promptId });
-      }
-      const images = extractOutputs(entry, settings);
-      if (images.length > 0) return images;
-      if (entry?.status?.completed === true) {
-        throw new ComfyUiError('ComfyUI workflow 已完成但没有图片输出', 'COMFYUI_NO_OUTPUT', { promptId });
-      }
-    }
-    await abortableDelay(context.pollIntervalMs, context.signal, promptId);
-  }
-}
-
-function abortableDelay(ms, signal, promptId) {
-  return new Promise((resolve, reject) => {
-    if (signal?.aborted) return reject(createAbortError('COMFYUI_CANCELLED', promptId));
-    const timer = setTimeout(() => {
-      signal?.removeEventListener('abort', onAbort);
-      resolve();
-    }, ms);
-    const onAbort = () => {
-      clearTimeout(timer);
-      reject(createAbortError('COMFYUI_CANCELLED', promptId));
-    };
-    signal?.addEventListener('abort', onAbort, { once: true });
+    }, '历史查询', context),
   });
 }
 
@@ -589,6 +292,7 @@ async function cancelPrompt(baseUrl, config, settings, promptId, requestContext 
 async function generateComfyUiImage(config, log, opts = {}) {
   const settings = parseSettings(config);
   const baseUrl = normalizeBaseUrl(config?.base_url);
+  const networkPolicy = requireCompleteProviderNetworkPolicy(opts.provider_network_policy, baseUrl);
   const timeoutMs = numericSetting(opts.timeout_ms ?? settings.timeout_ms, DEFAULT_TIMEOUT_MS);
   const context = {
     fetchImpl: opts.fetch_impl || global.fetch,
@@ -599,14 +303,14 @@ async function generateComfyUiImage(config, log, opts = {}) {
     pollIntervalMs: numericSetting(opts.poll_interval_ms ?? settings.poll_interval_ms, DEFAULT_POLL_INTERVAL_MS),
     secrets: collectSecrets(config, settings),
     promptId: null,
-    trustedOrigins: Array.isArray(opts.trusted_origins) && opts.trusted_origins.length > 0
-      ? opts.trusted_origins
-      : [baseUrl],
-    networkLookup: opts.network_lookup,
+    trustedOrigins: networkPolicy.trustedOrigins,
+    allowPrivateOrigins: networkPolicy.allowPrivateOrigins,
+    networkLookup: networkPolicy.lookup,
+    requireHttpsForPublic: networkPolicy.requireHttpsForPublic,
     maxResponseBytes: numericSetting(settings.max_response_bytes, DEFAULT_MAX_IMAGE_BYTES),
   };
   if (typeof context.fetchImpl !== 'function') {
-    throw new ComfyUiError('当前 Node.js 环境不支持 fetch', 'COMFYUI_UNSUPPORTED');
+    throw new ComfyUiError('当前运行环境不支持网络请求', 'COMFYUI_UNSUPPORTED');
   }
   const references = Array.isArray(opts.reference_image_urls) ? opts.reference_image_urls.filter(Boolean) : [];
   const referenceOptions = {
@@ -634,8 +338,8 @@ async function generateComfyUiImage(config, log, opts = {}) {
     }, '任务提交', context);
     promptId = submitted?.prompt_id || submitted?.promptId;
     if (!promptId) {
-      const nodeErrors = sanitizeProviderText(JSON.stringify(submitted?.node_errors || ''), context.secrets);
-      throw new ComfyUiError(`ComfyUI 任务提交未返回 prompt_id${nodeErrors ? `: ${nodeErrors}` : ''}`, 'COMFYUI_RESPONSE');
+      const nodeErrors = trustedChineseDetail(JSON.stringify(submitted?.node_errors || ''), context.secrets);
+      throw new ComfyUiError(nodeErrors ? `ComfyUI 任务提交未返回任务编号：${nodeErrors}` : 'ComfyUI 任务提交未返回任务编号', 'COMFYUI_RESPONSE');
     }
     context.promptId = String(promptId);
     log?.info?.('ComfyUI image task submitted', {
@@ -661,7 +365,7 @@ async function generateComfyUiImage(config, log, opts = {}) {
   } catch (error) {
     const safeError = error instanceof ComfyUiError
       ? error
-      : new ComfyUiError(`ComfyUI 请求失败: ${sanitizeProviderText(error?.message, context.secrets) || '未知错误'}`, 'COMFYUI_ERROR', { promptId });
+      : new ComfyUiError(comfyFallbackMessage(error, 'ComfyUI 请求失败，请稍后重试', context.secrets), 'COMFYUI_ERROR', { promptId });
     if (promptId && (safeError.code === 'COMFYUI_TIMEOUT' || safeError.code === 'COMFYUI_CANCELLED')) {
       await cancelPrompt(baseUrl, config, settings, String(promptId), context);
     }
@@ -678,6 +382,7 @@ async function generateComfyUiImage(config, log, opts = {}) {
 async function probeComfyUiConnection(config, options = {}) {
   const settings = parseSettings(config);
   const baseUrl = normalizeBaseUrl(config?.base_url);
+  const networkPolicy = requireCompleteProviderNetworkPolicy(options.provider_network_policy, baseUrl);
   const context = {
     fetchImpl: options.fetch_impl || global.fetch,
     useSecureFetch: typeof options.fetch_impl !== 'function',
@@ -687,10 +392,10 @@ async function probeComfyUiConnection(config, options = {}) {
     pollIntervalMs: DEFAULT_POLL_INTERVAL_MS,
     secrets: collectSecrets(config, settings),
     promptId: null,
-    trustedOrigins: Array.isArray(options.trusted_origins) && options.trusted_origins.length > 0
-      ? options.trusted_origins
-      : [baseUrl],
-    networkLookup: options.network_lookup,
+    trustedOrigins: networkPolicy.trustedOrigins,
+    allowPrivateOrigins: networkPolicy.allowPrivateOrigins,
+    networkLookup: networkPolicy.lookup,
+    requireHttpsForPublic: networkPolicy.requireHttpsForPublic,
     maxResponseBytes: 2 * 1024 * 1024,
   };
   const endpoints = [settings.system_stats_endpoint || '/system_stats', '/prompt'];

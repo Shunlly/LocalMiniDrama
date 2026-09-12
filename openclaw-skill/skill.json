@@ -1,6 +1,6 @@
 {
   "name": "local-mini-drama",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "LocalMiniDrama 本地短剧助手 - AI短剧生成工具，从剧本到成片的全流程",
   "author": "xuanyustudio",
   "homepage": "https://github.com/Shunlly/LocalMiniDrama",
@@ -10,16 +10,20 @@
     "base_url": {
       "type": "string",
       "description": "LocalMiniDrama 后端地址",
-      "default": "http://localhost:5679"
+      "default": "http://127.0.0.1:5679"
     },
     "default_aspect_ratio": {
       "type": "string",
       "description": "默认画面比例",
       "default": "16:9"
     },
+    "default_video_clip_duration": {
+      "type": "number",
+      "description": "项目单个视频片段时长（秒）的优先配置，写入 metadata.video_clip_duration"
+    },
     "default_video_duration": {
       "type": "number",
-      "description": "默认单个视频片段时长（秒）",
+      "description": "兼容旧版配置的弃用别名；仅在 default_video_clip_duration 未设置时回退使用",
       "default": 5
     }
   },

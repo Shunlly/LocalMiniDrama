@@ -1,0 +1,1118 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LocalMiniDrama — 制作全景 UI 概念稿</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:        #111113;
+  --surface:   #1c1c21;
+  --cell:      #242429;
+  --cell-hover:#2d2d34;
+  --border:    #2a2a32;
+  --border-hi: #3a3a46;
+  --text:      #e8e8ec;
+  --muted:     #70707a;
+  --faint:     #424250;
+  --amber:     #f59e0b;
+  --amber-dim: rgba(245,158,11,.15);
+  --green:     #4d8f6f;
+  --green-dim: rgba(77,143,111,.15);
+  --red:       #c0413a;
+  --red-dim:   rgba(192,65,58,.15);
+  --blue:      #4a7fcb;
+  --blue-dim:  rgba(74,127,203,.12);
+  --radius:    8px;
+  --radius-sm: 5px;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  font-size: 13px;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ─── Header ─────────────────────────────────────────── */
+.header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 20px;
+  height: 48px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  z-index: 10;
+}
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text);
+  white-space: nowrap;
+}
+.logo-icon {
+  width: 22px; height: 22px;
+  background: linear-gradient(135deg, var(--amber) 0%, #e06b1a 100%);
+  border-radius: 5px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px;
+}
+.breadcrumb {
+  display: flex; align-items: center; gap: 5px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.breadcrumb-sep { color: var(--faint); }
+.breadcrumb-current {
+  color: var(--text);
+  background: var(--cell);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 2px 8px;
+  font-size: 12px;
+  cursor: pointer;
+  display: flex; align-items: center; gap: 4px;
+}
+.breadcrumb-current:hover { border-color: var(--border-hi); }
+.header-spacer { flex: 1; }
+
+/* Search bar */
+.search-bar {
+  display: flex; align-items: center; gap: 6px;
+  background: var(--cell);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0 10px;
+  height: 30px;
+  color: var(--muted);
+  font-size: 12px;
+  width: 200px;
+  cursor: text;
+  transition: border-color .15s;
+}
+.search-bar:hover { border-color: var(--border-hi); }
+
+/* Queue badge */
+.queue-badge {
+  display: flex; align-items: center; gap: 6px;
+  background: var(--amber-dim);
+  border: 1px solid rgba(245,158,11,.3);
+  border-radius: 20px;
+  padding: 4px 10px;
+  font-size: 12px;
+  color: var(--amber);
+  cursor: pointer;
+  transition: background .15s;
+}
+.queue-badge:hover { background: rgba(245,158,11,.22); }
+.queue-dot {
+  width: 6px; height: 6px;
+  background: var(--amber);
+  border-radius: 50%;
+  animation: pulse 1.4s ease-in-out infinite;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%       { opacity: .5; transform: scale(.7); }
+}
+
+.icon-btn {
+  width: 30px; height: 30px;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--muted);
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 14px;
+  transition: all .15s;
+}
+.icon-btn:hover { background: var(--cell); border-color: var(--border); color: var(--text); }
+
+/* ─── Toolbar ─────────────────────────────────────────── */
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 20px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.btn {
+  display: inline-flex; align-items: center; gap: 5px;
+  border-radius: var(--radius-sm);
+  padding: 5px 12px;
+  font-size: 12px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: all .15s;
+  font-family: inherit;
+}
+.btn-ghost {
+  background: transparent;
+  border-color: var(--border);
+  color: var(--text);
+}
+.btn-ghost:hover { background: var(--cell); border-color: var(--border-hi); }
+.btn-primary {
+  background: var(--amber);
+  color: #111;
+  font-weight: 600;
+  border-color: transparent;
+}
+.btn-primary:hover { background: #f9a722; }
+.btn-primary-split {
+  display: inline-flex; align-items: center;
+}
+.btn-primary-split .split-divider {
+  width: 1px; height: 18px;
+  background: rgba(0,0,0,.25);
+  margin: 0 1px;
+}
+.btn-primary-split .split-arrow {
+  padding: 5px 7px;
+  border-left: none;
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  color: #111;
+  font-size: 10px;
+  cursor: pointer;
+}
+.toolbar-spacer { flex: 1; }
+.project-meta {
+  display: flex; gap: 8px; align-items: center;
+}
+.meta-chip {
+  background: var(--cell);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 2px 9px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+/* ─── Main layout ─────────────────────────────────────── */
+.main {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+.matrix-wrap {
+  flex: 1;
+  overflow: auto;
+  padding: 16px 20px;
+}
+
+/* ─── Matrix table ────────────────────────────────────── */
+.matrix {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+.matrix th {
+  position: sticky;
+  top: 0;
+  background: var(--bg);
+  z-index: 2;
+  padding: 0 0 10px 0;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--muted);
+  text-align: center;
+  white-space: nowrap;
+}
+.matrix th:first-child { text-align: left; padding-left: 4px; width: 120px; }
+.col-header-inner {
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
+  cursor: pointer;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  transition: background .15s;
+  position: relative;
+}
+.col-header-inner:hover { background: var(--cell); color: var(--text); }
+.col-header-inner:hover .col-gen-hint { opacity: 1; }
+.col-gen-hint {
+  font-size: 10px;
+  color: var(--amber);
+  opacity: 0;
+  transition: opacity .15s;
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.col-icon { font-size: 15px; margin-bottom: 1px; }
+
+.matrix td { padding: 4px; vertical-align: top; }
+.matrix td:first-child { padding-left: 0; vertical-align: middle; }
+
+/* Episode label */
+.ep-label {
+  display: flex; flex-direction: column; gap: 3px;
+  padding: 8px 10px 8px 4px;
+}
+.ep-num {
+  font-size: 13px; font-weight: 600; color: var(--text);
+}
+.ep-stats { font-size: 11px; color: var(--muted); }
+
+/* Cell */
+.cell {
+  background: var(--cell);
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius);
+  padding: 9px 10px;
+  min-height: 72px;
+  cursor: pointer;
+  transition: border-color .15s, background .15s, transform .1s;
+  position: relative;
+  display: flex; flex-direction: column; gap: 5px;
+  user-select: none;
+}
+.cell:hover { border-color: var(--border-hi); background: var(--cell-hover); }
+.cell.active { border-color: var(--amber) !important; background: var(--amber-dim); }
+.cell.state-done { border-color: rgba(77,143,111,.35); }
+.cell.state-done:hover { border-color: var(--green); }
+.cell.state-fail { border-color: rgba(192,65,58,.4); }
+.cell.state-fail:hover { border-color: var(--red); }
+.cell.state-gen { border-color: rgba(245,158,11,.4); background: var(--amber-dim); }
+.cell.state-pending { background: var(--bg); border-color: var(--border); opacity: .7; }
+.cell.state-pending:hover { opacity: 1; background: var(--cell); }
+.cell.state-empty { background: transparent; border: 1.5px dashed var(--faint); cursor: default; }
+.cell.state-empty:hover { border-color: var(--border-hi); }
+
+/* Cell status badge */
+.cell-status {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 11px; font-weight: 600;
+}
+.status-done  { color: var(--green); }
+.status-gen   { color: var(--amber); }
+.status-fail  { color: var(--red); }
+.status-pending { color: var(--faint); }
+
+/* Spin animation */
+@keyframes spin { to { transform: rotate(360deg); } }
+.spin { display: inline-block; animation: spin .9s linear infinite; }
+
+/* Progress bar */
+.prog-bar-wrap {
+  height: 3px; background: var(--border);
+  border-radius: 3px; overflow: hidden;
+}
+.prog-bar {
+  height: 100%; background: var(--amber);
+  border-radius: 3px;
+  transition: width .4s ease;
+}
+.prog-label { font-size: 10px; color: var(--muted); }
+
+/* Thumb grid */
+.thumbs {
+  display: flex; gap: 4px; flex-wrap: wrap; margin-top: 2px;
+}
+.thumb {
+  width: 26px; height: 26px;
+  border-radius: 3px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.thumb-img { width: 100%; height: 100%; object-fit: cover; }
+.thumb-placeholder {
+  width: 100%; height: 100%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px;
+}
+
+/* ─── Side panel ──────────────────────────────────────── */
+.side-panel {
+  width: 340px;
+  flex-shrink: 0;
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  display: flex; flex-direction: column;
+  overflow: hidden;
+  transition: width .2s ease;
+}
+.side-panel.hidden { width: 0; border: none; }
+.panel-header {
+  display: flex; align-items: center; gap: 8px;
+  padding: 14px 16px 12px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.panel-breadcrumb {
+  flex: 1; font-size: 12px; color: var(--muted);
+  display: flex; align-items: center; gap: 5px;
+}
+.panel-breadcrumb strong { color: var(--text); }
+.panel-close {
+  width: 24px; height: 24px; border-radius: 4px;
+  background: transparent; border: none;
+  color: var(--muted); cursor: pointer; font-size: 14px;
+  display: flex; align-items: center; justify-content: center;
+  transition: all .15s;
+}
+.panel-close:hover { background: var(--cell); color: var(--text); }
+.panel-body { flex: 1; overflow-y: auto; padding: 14px 16px; display: flex; flex-direction: column; gap: 12px; }
+.panel-actions {
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+  display: flex; gap: 8px; flex-shrink: 0;
+}
+
+/* Shot cards */
+.shot-grid { display: flex; flex-direction: column; gap: 8px; }
+.shot-card {
+  background: var(--cell);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  transition: border-color .15s;
+}
+.shot-card:hover { border-color: var(--border-hi); }
+.shot-card.generating { border-color: rgba(245,158,11,.4); }
+.shot-top {
+  display: flex; gap: 0;
+}
+.shot-thumb {
+  width: 80px; height: 54px; flex-shrink: 0;
+  position: relative; overflow: hidden;
+}
+.shot-thumb-img {
+  width: 100%; height: 100%; object-fit: cover;
+}
+.shot-thumb-overlay {
+  position: absolute; inset: 0;
+  background: rgba(0,0,0,.55);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 18px;
+}
+.shot-info { flex: 1; padding: 7px 10px; }
+.shot-num { font-size: 10px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .05em; }
+.shot-type { font-size: 11px; color: var(--text); margin-top: 2px; }
+.shot-desc { font-size: 11px; color: var(--muted); line-height: 1.5; padding: 6px 10px 8px; }
+
+.section-label {
+  font-size: 10px; color: var(--muted); font-weight: 600;
+  text-transform: uppercase; letter-spacing: .07em; margin-bottom: 4px;
+}
+
+/* ─── Bottom queue bar ────────────────────────────────── */
+.queue-bar {
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  padding: 0 20px;
+  height: 40px;
+  display: flex; align-items: center; gap: 12px;
+  flex-shrink: 0;
+}
+.queue-label {
+  font-size: 11px; color: var(--muted); font-weight: 600;
+  white-space: nowrap;
+}
+.queue-tasks { display: flex; gap: 8px; overflow: hidden; }
+.queue-task {
+  display: flex; align-items: center; gap: 6px;
+  background: var(--cell);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 3px 10px;
+  font-size: 11px; white-space: nowrap;
+}
+.queue-task.running { border-color: rgba(245,158,11,.35); color: var(--amber); }
+.queue-task.done { border-color: rgba(77,143,111,.35); color: var(--green); }
+.queue-task.retry { border-color: rgba(192,65,58,.35); color: var(--red); }
+.queue-expand { margin-left: auto; font-size: 11px; color: var(--muted); cursor: pointer; white-space: nowrap; }
+.queue-expand:hover { color: var(--text); }
+
+/* scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--faint); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+
+/* row hover highlight */
+.matrix tr:hover .cell:not(.state-empty) { border-color: var(--border-hi); }
+.matrix tr:hover .ep-num { color: var(--amber); }
+
+/* tooltip hint */
+[data-tip] { position: relative; }
+[data-tip]:hover::after {
+  content: attr(data-tip);
+  position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%);
+  background: #2a2a35; border: 1px solid var(--border-hi);
+  color: var(--text); font-size: 11px; padding: 4px 8px;
+  border-radius: 5px; white-space: nowrap; pointer-events: none;
+  z-index: 99;
+}
+
+/* ─── View toggle ─────────────────────────────────────── */
+.view-toggle {
+  display: flex; background: var(--cell);
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  overflow: hidden; flex-shrink: 0;
+}
+.view-toggle-btn {
+  padding: 4px 13px; font-size: 12px; font-weight: 500;
+  color: var(--muted); background: transparent; border: none; cursor: pointer;
+  transition: all .15s; display: flex; align-items: center; gap: 5px;
+  font-family: inherit;
+}
+.view-toggle-btn.active { background: var(--surface); color: var(--text); }
+.view-toggle-btn:hover:not(.active) { color: var(--text); }
+.matrix-view { display: flex; flex: 1; overflow: hidden; }
+.matrix-view.hidden { display: none; }
+
+/* ─── Canvas View ─────────────────────────────────────── */
+.canvas-view { display: none; flex: 1; position: relative; overflow: hidden; }
+.canvas-view.active { display: flex; flex-direction: column; }
+
+.canvas-bg {
+  flex: 1; overflow: auto; position: relative; cursor: grab;
+  background-image: radial-gradient(circle, #3a3a46 1px, transparent 1px);
+  background-size: 24px 24px; background-position: 12px 12px;
+}
+.canvas-bg:active { cursor: grabbing; }
+.canvas-inner { position: relative; width: 2400px; height: 1100px; }
+
+.canvas-mini-toolbar {
+  position: absolute; top: 14px; left: 50%; transform: translateX(-50%);
+  background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+  padding: 4px; display: flex; gap: 2px; z-index: 10;
+  box-shadow: 0 4px 20px rgba(0,0,0,.5);
+}
+.canvas-tool {
+  width: 32px; height: 28px; border-radius: 5px;
+  background: transparent; border: none; color: var(--muted); cursor: pointer;
+  font-size: 13px; display: flex; align-items: center; justify-content: center;
+  transition: all .15s;
+}
+.canvas-tool:hover { background: var(--cell); color: var(--text); }
+.canvas-tool.act { background: var(--amber-dim); color: var(--amber); }
+.canvas-divider { width: 1px; background: var(--border); margin: 3px 2px; }
+
+/* Episode group node */
+.ep-group {
+  position: absolute; border-radius: 12px; overflow: hidden;
+  background: rgba(28,28,33,.88); border: 1.5px solid var(--border);
+  transition: border-color .15s, box-shadow .15s; backdrop-filter: blur(6px);
+}
+.ep-group:hover { border-color: var(--border-hi); box-shadow: 0 0 0 1px rgba(245,158,11,.1),0 10px 40px rgba(0,0,0,.55); }
+.ep-group.gen { border-color: rgba(245,158,11,.45); }
+.ep-group.fail { border-color: rgba(192,65,58,.4); }
+
+.ep-group-header {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 14px 9px; cursor: move;
+  background: rgba(36,36,42,.75); border-bottom: 1px solid var(--border);
+}
+.ep-group-title { font-size: 13px; font-weight: 700; color: var(--text); }
+.ep-group-sub { font-size: 11px; color: var(--muted); margin-left: auto; }
+.ep-badge {
+  font-size: 10px; font-weight: 600; padding: 2px 8px;
+  border-radius: 20px;
+}
+.ep-badge-gen  { background:var(--amber-dim); color:var(--amber); border:1px solid rgba(245,158,11,.3); }
+.ep-badge-fail { background:var(--red-dim);   color:var(--red);   border:1px solid rgba(192,65,58,.3); }
+.ep-badge-ok   { background:var(--green-dim); color:var(--green); border:1px solid rgba(77,143,111,.3); }
+.ep-badge-draft{ background:var(--cell);      color:var(--muted); border:1px solid var(--border); }
+
+.ep-group-body {
+  padding: 12px 14px 14px; display: flex; gap: 10px;
+  align-items: flex-start; overflow-x: auto;
+}
+
+/* Shot frame node */
+.sf {
+  flex-shrink: 0; width: 88px; background: var(--cell);
+  border: 1.5px solid var(--border); border-radius: 7px;
+  overflow: hidden; cursor: pointer;
+  transition: border-color .15s, transform .12s;
+}
+.sf:hover { border-color: var(--border-hi); transform: translateY(-3px); }
+.sf.done { border-color: rgba(77,143,111,.45); }
+.sf.gen  { border-color: rgba(245,158,11,.5); }
+.sf.fail { border-color: rgba(192,65,58,.5); }
+.sf.pend { opacity: .55; }
+.sf-img {
+  width: 100%; height: 60px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 22px; position: relative; overflow: hidden;
+}
+.sf-ov {
+  position: absolute; inset: 0; background: rgba(0,0,0,.5);
+  display: flex; align-items: center; justify-content: center; font-size: 16px;
+}
+.sf-foot { padding: 5px 7px; }
+.sf-n { font-size: 10px; color: var(--muted); font-weight: 600; }
+.sf-s { font-size: 10px; margin-top: 1px; }
+.sf-s.done { color: var(--green); }
+.sf-s.gen  { color: var(--amber); }
+.sf-s.fail { color: var(--red); }
+.sf-s.pend { color: var(--faint); }
+
+/* Add more placeholder */
+.sf-add {
+  flex-shrink: 0; width: 88px; height: 98px;
+  border: 1.5px dashed var(--faint); border-radius: 7px;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--faint); font-size: 22px; cursor: pointer;
+  transition: all .15s;
+}
+.sf-add:hover { border-color: var(--amber); color: var(--amber); }
+
+/* Character node */
+.char-node {
+  position: absolute; width: 210px;
+  background: rgba(28,28,33,.9); border: 1.5px solid var(--border);
+  border-radius: 10px; overflow: hidden; backdrop-filter: blur(6px);
+  transition: border-color .15s;
+}
+.char-node:hover { border-color: var(--blue); }
+.char-node-hdr {
+  padding: 8px 12px; font-size: 10px; font-weight: 700; color: var(--muted);
+  text-transform: uppercase; letter-spacing: .07em;
+  background: rgba(36,36,42,.6); border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 6px;
+}
+.char-list { padding: 8px; display: flex; flex-direction: column; gap: 5px; }
+.char-item {
+  display: flex; align-items: center; gap: 8px; padding: 6px 8px;
+  background: var(--cell); border: 1px solid var(--border); border-radius: 6px;
+  cursor: pointer; transition: border-color .15s;
+}
+.char-item:hover { border-color: var(--border-hi); }
+.char-av {
+  width: 32px; height: 32px; border-radius: 50%; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center; font-size: 16px;
+}
+.char-name { font-size: 12px; font-weight: 600; color: var(--text); }
+.char-role { font-size: 10px; color: var(--muted); }
+
+/* SVG lines */
+.cv-svg {
+  position: absolute; top: 0; left: 0;
+  width: 100%; height: 100%; pointer-events: none; overflow: visible;
+}
+
+/* Minimap */
+.minimap {
+  position: absolute; bottom: 16px; right: 16px;
+  width: 168px; height: 96px;
+  background: rgba(17,17,19,.92); border: 1px solid var(--border);
+  border-radius: 7px; overflow: hidden; backdrop-filter: blur(4px); z-index: 10;
+}
+.mm-lbl {
+  position: absolute; top: 5px; left: 8px;
+  font-size: 9px; color: var(--faint); font-weight: 600;
+  text-transform: uppercase; letter-spacing: .07em;
+}
+.mm-ep {
+  position: absolute; background: rgba(245,158,11,.18);
+  border: 1px solid rgba(245,158,11,.28); border-radius: 2px;
+}
+.mm-char {
+  position: absolute; background: rgba(74,127,203,.22);
+  border: 1px solid rgba(74,127,203,.35); border-radius: 2px;
+}
+.mm-vp {
+  position: absolute; border: 1.5px solid rgba(245,158,11,.7);
+  border-radius: 2px; background: rgba(245,158,11,.04);
+}
+</style>
+</head>
+<body>
+
+<!-- ═══ HEADER ═══════════════════════════════════════════ -->
+<header class="header">
+  <div class="logo">
+    <div class="logo-icon">🎬</div>
+    LocalMiniDrama
+  </div>
+  <div class="breadcrumb">
+    <span class="breadcrumb-sep">›</span>
+    <div class="breadcrumb-current">霸总的秘密 ▾</div>
+  </div>
+  <div class="header-spacer"></div>
+  <div class="search-bar">🔍 &nbsp;搜索集数、分镜… &nbsp;<span style="margin-left:auto;font-size:10px;opacity:.5;">⌘K</span></div>
+  <div class="queue-badge" onclick="toggleQueue()">
+    <div class="queue-dot"></div>
+    队列 (3)
+  </div>
+  <button class="icon-btn" title="AI 配置">⚙</button>
+  <button class="icon-btn" title="切换主题">🌙</button>
+</header>
+
+<!-- ═══ TOOLBAR ══════════════════════════════════════════ -->
+<div class="toolbar">
+  <div class="view-toggle">
+    <button class="view-toggle-btn active" id="btnMatrix" onclick="switchView('matrix')">⊞ 矩阵</button>
+    <button class="view-toggle-btn" id="btnCanvas" onclick="switchView('canvas')">◈ 画布</button>
+  </div>
+  <div style="width:1px;height:20px;background:var(--border);margin:0 4px;"></div>
+  <button class="btn btn-ghost">＋ 新增集数</button>
+  <button class="btn btn-ghost">📥 批量导入脚本</button>
+  <button class="btn btn-primary" style="border-radius:var(--radius-sm) 0 0 var(--radius-sm);padding-right:10px;">▶ 全部生成</button>
+  <button class="btn btn-primary" style="border-radius:0 var(--radius-sm) var(--radius-sm) 0;padding:5px 8px;border-left:1px solid rgba(0,0,0,.2);">▾</button>
+  <div class="toolbar-spacer"></div>
+  <div class="project-meta">
+    <span class="meta-chip">9:16 竖屏</span>
+    <span class="meta-chip">写实风格</span>
+    <span class="meta-chip">5集 · 47个分镜</span>
+  </div>
+  <button class="btn btn-ghost" style="color:var(--muted)">筛选 ▾</button>
+</div>
+
+<!-- ═══ MAIN AREA ════════════════════════════════════════ -->
+
+<!-- Matrix View -->
+<div class="matrix-view" id="matrixView">
+
+  <!-- Matrix -->
+  <div class="matrix-wrap" id="matrixWrap">
+    <table class="matrix">
+      <thead>
+        <tr>
+          <th></th>
+          <th><div class="col-header-inner" data-tip="批量生成全部集数的剧本">
+            <span class="col-icon">📝</span>剧本
+            <span class="col-gen-hint">全部生成 ▶</span>
+          </div></th>
+          <th><div class="col-header-inner" data-tip="批量生成角色形象">
+            <span class="col-icon">👤</span>角色
+            <span class="col-gen-hint">全部生成 ▶</span>
+          </div></th>
+          <th><div class="col-header-inner" data-tip="批量生成分镜描述">
+            <span class="col-icon">🎞</span>分镜
+            <span class="col-gen-hint">全部生成 ▶</span>
+          </div></th>
+          <th><div class="col-header-inner" data-tip="批量生成配图">
+            <span class="col-icon">🖼</span>配图
+            <span class="col-gen-hint">全部生成 ▶</span>
+          </div></th>
+          <th><div class="col-header-inner" data-tip="批量合成视频">
+            <span class="col-icon">🎬</span>视频
+            <span class="col-gen-hint">全部生成 ▶</span>
+          </div></th>
+        </tr>
+      </thead>
+      <tbody>
+        <!-- Episode 01 -->
+        <tr>
+          <td>
+            <div class="ep-label">
+              <span class="ep-num">第 01 集</span>
+              <span class="ep-stats">12 分镜 · 8/12 图</span>
+            </div>
+          </td>
+          <td><div class="cell state-done" onclick="openPanel('ep1','script')">
+            <div class="cell-status status-done">✓ 完成</div>
+            <div class="prog-label">1,240 字</div>
+          </div></td>
+          <td><div class="cell state-done" onclick="openPanel('ep1','char')">
+            <div class="cell-status status-done">✓ 完成</div>
+            <div class="thumbs">
+              <div class="thumb"><div class="thumb-placeholder" style="background:linear-gradient(135deg,#4a6fa5,#2d4a7a)">👩</div></div>
+              <div class="thumb"><div class="thumb-placeholder" style="background:linear-gradient(135deg,#5a3a6a,#3a2050)">👨</div>
+              </div>
+              <div class="thumb"><div class="thumb-placeholder" style="background:linear-gradient(135deg,#6a4a3a,#4a2e22)">👩</div></div>
+            </div>
+          </div></td>
+          <td><div class="cell state-gen active" onclick="openPanel('ep1','board')">
+            <div class="cell-status status-gen"><span class="spin">⟳</span> &nbsp;生成中 5/12</div>
+            <div class="prog-bar-wrap"><div class="prog-bar" style="width:42%"></div></div>
+            <div class="prog-label">预计还需 ~2 分钟</div>
+          </div></td>
+          <td><div class="cell state-pending" onclick="openPanel('ep1','img')">
+            <div class="cell-status status-pending">— 等待分镜</div>
+          </div></td>
+          <td><div class="cell state-pending">
+            <div class="cell-status status-pending">— 等待配图</div>
+          </div></td>
+        </tr>
+        <!-- Episode 02 -->
+        <tr>
+          <td>
+            <div class="ep-label">
+              <span class="ep-num">第 02 集</span>
+              <span class="ep-stats">10 分镜 · 0 图</span>
+            </div>
+          </td>
+          <td><div class="cell state-done" onclick="openPanel('ep2','script')">
+            <div class="cell-status status-done">✓ 完成</div>
+            <div class="prog-label">987 字</div>
+          </div></td>
+          <td><div class="cell state-fail" onclick="openPanel('ep2','char')">
+            <div class="cell-status status-fail">⚠ 失败</div>
+            <div class="prog-label" style="color:var(--red);font-size:10px;">生成超时，点击重试</div>
+          </div></td>
+          <td><div class="cell state-pending">
+            <div class="cell-status status-pending">— 待生成</div>
+          </div></td>
+          <td><div class="cell state-pending">
+            <div class="cell-status status-pending">— 待生成</div>
+          </div></td>
+          <td><div class="cell state-pending">
+            <div class="cell-status status-pending">— 待生成</div>
+          </div></td>
+        </tr>
+        <!-- Episode 03 -->
+        <tr>
+          <td>
+            <div class="ep-label">
+              <span class="ep-num">第 03 集</span>
+              <span class="ep-stats">9 分镜 · 0 图</span>
+            </div>
+          </td>
+          <td><div class="cell state-done">
+            <div class="cell-status status-done">✓ 完成</div>
+            <div class="prog-label">1,105 字</div>
+          </div></td>
+          <td><div class="cell state-pending">
+            <div class="cell-status status-pending">— 待生成</div>
+          </div></td>
+          <td><div class="cell state-pending">
+            <div class="cell-status status-pending">— 待生成</div>
+          </div></td>
+          <td><div class="cell state-pending">
+            <div class="cell-status status-pending">— 待生成</div>
+          </div></td>
+          <td><div class="cell state-pending">
+            <div class="cell-status status-pending">— 待生成</div>
+          </div></td>
+        </tr>
+        <!-- Episode 04 -->
+        <tr>
+          <td>
+            <div class="ep-label">
+              <span class="ep-num">第 04 集</span>
+              <span class="ep-stats">0 分镜</span>
+            </div>
+          </td>
+          <td><div class="cell state-gen" onclick="openPanel('ep4','script')">
+            <div class="cell-status status-gen"><span class="spin">⟳</span> &nbsp;生成中</div>
+            <div class="prog-bar-wrap"><div class="prog-bar" id="ep4prog" style="width:70%"></div></div>
+          </div></td>
+          <td><div class="cell state-empty"></div></td>
+          <td><div class="cell state-empty"></div></td>
+          <td><div class="cell state-empty"></div></td>
+          <td><div class="cell state-empty"></div></td>
+        </tr>
+        <!-- Episode 05 -->
+        <tr>
+          <td>
+            <div class="ep-label">
+              <span class="ep-num">第 05 集</span>
+              <span class="ep-stats">0 分镜</span>
+            </div>
+          </td>
+          <td><div class="cell state-pending" style="align-items:center;justify-content:center;min-height:56px;">
+            <span style="font-size:11px;color:var(--faint)">＋ 生成剧本</span>
+          </div></td>
+          <td><div class="cell state-empty"></div></td>
+          <td><div class="cell state-empty"></div></td>
+          <td><div class="cell state-empty"></div></td>
+          <td><div class="cell state-empty"></div></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Side Panel -->
+  <div class="side-panel" id="sidePanel">
+    <div class="panel-header">
+      <div class="panel-breadcrumb">
+        <span>第 01 集</span>
+        <span style="color:var(--faint)">›</span>
+        <strong id="panelTitle">分镜</strong>
+        <span class="cell-status status-gen" style="margin-left:6px;font-size:10px;"><span class="spin">⟳</span> &nbsp;5/12</span>
+      </div>
+      <button class="panel-close" onclick="closePanel()">✕</button>
+    </div>
+    <div class="panel-body" id="panelBody">
+      <div>
+        <div class="section-label">当前进度</div>
+        <div style="background:var(--cell);border:1px solid var(--border);border-radius:var(--radius);padding:10px 12px;">
+          <div style="display:flex;justify-content:space-between;margin-bottom:7px;">
+            <span style="font-size:12px;color:var(--amber)"><span class="spin">⟳</span> &nbsp;分镜生成中</span>
+            <span style="font-size:11px;color:var(--muted)">5 / 12</span>
+          </div>
+          <div class="prog-bar-wrap"><div class="prog-bar" style="width:42%"></div></div>
+          <div style="font-size:10px;color:var(--muted);margin-top:5px;">预计还需约 2 分钟 · 可切换到其他集数继续工作</div>
+        </div>
+      </div>
+      <div class="shot-grid">
+        <div class="section-label">已完成的分镜 (5)</div>
+        <div class="shot-card">
+          <div class="shot-top">
+            <div class="shot-thumb">
+              <div class="thumb-placeholder shot-thumb-img" style="background:linear-gradient(135deg,#2a3a5a,#1a2540);font-size:20px;">🏢</div>
+            </div>
+            <div class="shot-info">
+              <div class="shot-num">Shot 01 · 全景</div>
+              <div class="shot-type">办公室外景，清晨</div>
+            </div>
+          </div>
+          <div class="shot-desc">镜头从远处缓缓推进，高楼大厦在晨光中闪耀，字幕：「顾氏集团，清晨七点」</div>
+        </div>
+        <div class="shot-card">
+          <div class="shot-top">
+            <div class="shot-thumb">
+              <div class="thumb-placeholder shot-thumb-img" style="background:linear-gradient(135deg,#3a2a5a,#22154a);font-size:20px;">🚗</div>
+            </div>
+            <div class="shot-info">
+              <div class="shot-num">Shot 02 · 中景</div>
+              <div class="shot-type">地下停车场</div>
+            </div>
+          </div>
+          <div class="shot-desc">豪华轿车缓缓停下，车门开启，一双皮鞋踏出，镜头向上摇</div>
+        </div>
+        <div class="shot-card generating">
+          <div class="shot-top">
+            <div class="shot-thumb">
+              <div class="shot-thumb-overlay"><span class="spin" style="color:var(--amber)">⟳</span></div>
+              <div class="thumb-placeholder shot-thumb-img" style="background:#1c1c21;"></div>
+            </div>
+            <div class="shot-info">
+              <div class="shot-num">Shot 06 · 近景</div>
+              <div class="shot-type" style="color:var(--amber)">生成中…</div>
+            </div>
+          </div>
+          <div class="shot-desc" style="color:var(--faint)">正在生成分镜描述…</div>
+        </div>
+      </div>
+    </div>
+    <div class="panel-actions">
+      <button class="btn btn-ghost" style="flex:1">✎ 手动编辑</button>
+      <button class="btn btn-primary" style="flex:1">⟳ 重新生成</button>
+    </div>
+  </div>
+</div>
+
+<!-- Canvas View -->
+<div class="canvas-view" id="canvasView">
+  <div class="canvas-mini-toolbar">
+    <button class="canvas-tool act" title="选择">↖</button>
+    <button class="canvas-tool" title="平移">✋</button>
+    <div class="canvas-divider"></div>
+    <button class="canvas-tool" title="缩小">－</button>
+    <button class="canvas-tool" title="适应屏幕" onclick="fitCanvas()">⊡</button>
+    <button class="canvas-tool" title="放大">＋</button>
+    <div class="canvas-divider"></div>
+    <button class="canvas-tool act" style="font-size:11px;width:auto;padding:0 10px;" title="分镜模式">🎞 分镜</button>
+    <button class="canvas-tool"    style="font-size:11px;width:auto;padding:0 10px;" title="自由模式">✦ 自由</button>
+  </div>
+  <div class="canvas-bg" id="canvasBg">
+    <div class="canvas-inner" id="canvasInner">
+
+      <!-- SVG connection lines -->
+      <svg class="cv-svg" style="position:absolute;top:0;left:0;width:2400px;height:1100px;">
+        <defs>
+          <marker id="arrowAmber" markerWidth="7" markerHeight="7" refX="5" refY="3" orient="auto">
+            <path d="M0,0 L0,6 L7,3 z" fill="rgba(245,158,11,.45)"/>
+          </marker>
+          <marker id="arrowBlue" markerWidth="7" markerHeight="7" refX="5" refY="3" orient="auto">
+            <path d="M0,0 L0,6 L7,3 z" fill="rgba(74,127,203,.35)"/>
+          </marker>
+        </defs>
+        <!-- EP01 → EP02 narrative flow -->
+        <path d="M580,370 C580,430 580,430 350,380"
+              stroke="rgba(245,158,11,.3)" stroke-width="1.5" fill="none"
+              stroke-dasharray="5,3" marker-end="url(#arrowAmber)"/>
+        <!-- EP01 → EP03 -->
+        <path d="M580,370 C580,440 830,440 830,380"
+              stroke="rgba(74,127,203,.25)" stroke-width="1.5" fill="none"
+              stroke-dasharray="5,3" marker-end="url(#arrowBlue)"/>
+        <!-- EP01 → Char node -->
+        <path d="M1110,160 C1140,160 1165,185 1165,190"
+              stroke="rgba(74,127,203,.2)" stroke-width="1" fill="none"
+              stroke-dasharray="3,3"/>
+      </svg>
+
+      <!-- ── Episode 01 Group ── -->
+      <div class="ep-group gen" style="top:50px;left:50px;width:1060px;">
+        <div class="ep-group-header">
+          <span style="font-size:15px">🎬</span>
+          <span class="ep-group-title">第 01 集 — 霸总的秘密·开篇</span>
+          <span class="ep-badge ep-badge-gen"><span class="spin">⟳</span>&nbsp;分镜 5/12</span>
+          <span class="ep-group-sub">12 个镜头</span>
+        </div>
+        <div class="ep-group-body">
+          <div class="sf done"><div class="sf-img" style="background:linear-gradient(135deg,#1a2a4a,#0d1828)">🏢</div><div class="sf-foot"><div class="sf-n">Shot 01</div><div class="sf-s done">✓ 完成</div></div></div>
+          <div class="sf done"><div class="sf-img" style="background:linear-gradient(135deg,#2a1a4a,#180d30)">🚗</div><div class="sf-foot"><div class="sf-n">Shot 02</div><div class="sf-s done">✓ 完成</div></div></div>
+          <div class="sf done"><div class="sf-img" style="background:linear-gradient(135deg,#1a3a2a,#0d2018)">🛗</div><div class="sf-foot"><div class="sf-n">Shot 03</div><div class="sf-s done">✓ 完成</div></div></div>
+          <div class="sf done"><div class="sf-img" style="background:linear-gradient(135deg,#3a2a1a,#221508)">🏙</div><div class="sf-foot"><div class="sf-n">Shot 04</div><div class="sf-s done">✓ 完成</div></div></div>
+          <div class="sf done"><div class="sf-img" style="background:linear-gradient(135deg,#1a1a3a,#0d0d22)">🌆</div><div class="sf-foot"><div class="sf-n">Shot 05</div><div class="sf-s done">✓ 完成</div></div></div>
+          <div class="sf gen">
+            <div class="sf-img" style="background:#1c1c21"><div class="sf-ov"><span class="spin" style="color:var(--amber)">⟳</span></div></div>
+            <div class="sf-foot"><div class="sf-n">Shot 06</div><div class="sf-s gen"><span class="spin">⟳</span> 生成中</div></div>
+          </div>
+          <div class="sf pend"><div class="sf-img" style="background:#18181c;color:#333;font-size:16px">—</div><div class="sf-foot"><div class="sf-n">Shot 07</div><div class="sf-s pend">— 待定</div></div></div>
+          <div class="sf pend"><div class="sf-img" style="background:#18181c;color:#333;font-size:16px">—</div><div class="sf-foot"><div class="sf-n">Shot 08</div><div class="sf-s pend">— 待定</div></div></div>
+          <div class="sf pend"><div class="sf-img" style="background:#18181c;color:#333;font-size:16px">—</div><div class="sf-foot"><div class="sf-n">Shot 09</div><div class="sf-s pend">— 待定</div></div></div>
+          <div class="sf-add" title="新增镜头">＋</div>
+        </div>
+      </div>
+
+      <!-- ── Episode 02 Group ── -->
+      <div class="ep-group fail" style="top:380px;left:50px;width:680px;">
+        <div class="ep-group-header">
+          <span style="font-size:15px">🎬</span>
+          <span class="ep-group-title">第 02 集 — 初次交锋</span>
+          <span class="ep-badge ep-badge-fail">⚠ 角色生成失败</span>
+          <span class="ep-group-sub">10 个镜头</span>
+        </div>
+        <div class="ep-group-body">
+          <div class="sf done" style="opacity:.75"><div class="sf-img" style="background:linear-gradient(135deg,#1a2530,#0d1820)">🏢</div><div class="sf-foot"><div class="sf-n">Shot 01</div><div class="sf-s done">✓ 剧本</div></div></div>
+          <div class="sf fail">
+            <div class="sf-img" style="background:linear-gradient(135deg,#2a1515,#1a0a0a)"><div class="sf-ov" style="background:rgba(192,65,58,.25)">⚠</div></div>
+            <div class="sf-foot"><div class="sf-n">Shot 02</div><div class="sf-s fail">角色失败</div></div>
+          </div>
+          <div class="sf pend"><div class="sf-img" style="background:#18181c;color:#333;font-size:16px">—</div><div class="sf-foot"><div class="sf-n">Shot 03</div><div class="sf-s pend">— 待定</div></div></div>
+          <div class="sf pend"><div class="sf-img" style="background:#18181c;color:#333;font-size:16px">—</div><div class="sf-foot"><div class="sf-n">Shot 04</div><div class="sf-s pend">— 待定</div></div></div>
+          <div class="sf pend"><div class="sf-img" style="background:#18181c;color:#333;font-size:16px">—</div><div class="sf-foot"><div class="sf-n">Shot 05</div><div class="sf-s pend">— 待定</div></div></div>
+          <div class="sf-add" title="新增镜头">＋</div>
+        </div>
+      </div>
+
+      <!-- ── Episode 03 Group ── -->
+      <div class="ep-group" style="top:380px;left:780px;width:360px;">
+        <div class="ep-group-header">
+          <span style="font-size:15px">🎬</span>
+          <span class="ep-group-title">第 03 集 — 草稿</span>
+          <span class="ep-badge ep-badge-draft">· 待开始</span>
+          <span class="ep-group-sub">9 个镜头</span>
+        </div>
+        <div class="ep-group-body">
+          <div class="sf pend"><div class="sf-img" style="background:#18181c;color:#333;font-size:16px">—</div><div class="sf-foot"><div class="sf-n">Shot 01</div><div class="sf-s pend">— 待定</div></div></div>
+          <div class="sf pend"><div class="sf-img" style="background:#18181c;color:#333;font-size:16px">—</div><div class="sf-foot"><div class="sf-n">Shot 02</div><div class="sf-s pend">— 待定</div></div></div>
+          <div class="sf-add" title="新增镜头">＋</div>
+        </div>
+      </div>
+
+      <!-- ── Character Node ── -->
+      <div class="char-node" style="top:50px;left:1165px;">
+        <div class="char-node-hdr">👤&nbsp; 角色库</div>
+        <div class="char-list">
+          <div class="char-item">
+            <div class="char-av" style="background:linear-gradient(135deg,#4a6fa5,#2d4a7a)">👨</div>
+            <div><div class="char-name">顾霆峰</div><div class="char-role">男主 · 顾氏集团 CEO</div></div>
+          </div>
+          <div class="char-item">
+            <div class="char-av" style="background:linear-gradient(135deg,#a5506a,#7a2d40)">👩</div>
+            <div><div class="char-name">林晓</div><div class="char-role">女主 · 新入职员工</div></div>
+          </div>
+          <div class="char-item">
+            <div class="char-av" style="background:linear-gradient(135deg,#6a8a5a,#3a5a2a)">👩</div>
+            <div><div class="char-name">张薇</div><div class="char-role">配角 · CEO 秘书</div></div>
+          </div>
+          <div style="padding:4px 8px 6px;">
+            <button class="btn btn-ghost" style="width:100%;justify-content:center;font-size:11px;padding:4px;">＋ 新增角色</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Minimap ── -->
+      <div class="minimap">
+        <div class="mm-lbl">总览</div>
+        <div class="mm-ep"   style="top:20px;left:7px;width:68px;height:13px;"></div>
+        <div class="mm-ep"   style="top:42px;left:7px;width:44px;height:11px;"></div>
+        <div class="mm-ep"   style="top:42px;left:56px;width:24px;height:11px;"></div>
+        <div class="mm-char" style="top:20px;left:80px;width:14px;height:30px;"></div>
+        <div class="mm-vp"   style="top:15px;left:4px;width:95px;height:48px;"></div>
+      </div>
+
+    </div><!-- /canvas-inner -->
+  </div><!-- /canvas-bg -->
+</div><!-- /canvas-view -->
+
+<!-- ═══ QUEUE BAR ════════════════════════════════════════ -->
+<div class="queue-bar">
+  <span class="queue-label">⟳ 生成队列</span>
+  <div class="queue-tasks">
+    <div class="queue-task running"><span class="spin">⟳</span> 第01集·分镜 &nbsp;<strong>5/12</strong></div>
+    <div class="queue-task retry">↺ 第02集·角色 &nbsp;重试中</div>
+    <div class="queue-task running"><span class="spin">⟳</span> 第04集·剧本 &nbsp;生成中</div>
+    <div class="queue-task done">✓ 第01集·场景 &nbsp;完成</div>
+  </div>
+  <div class="queue-expand">查看全部 →</div>
+</div>
+
+<script>
+// ── View toggle ──────────────────────────────────────────
+function switchView(v) {
+  const isMatrix = v === 'matrix';
+  document.getElementById('matrixView').classList.toggle('hidden', !isMatrix);
+  document.getElementById('canvasView').classList.toggle('active', !isMatrix);
+  document.getElementById('btnMatrix').classList.toggle('active', isMatrix);
+  document.getElementById('btnCanvas').classList.toggle('active', !isMatrix);
+}
+
+// ── Matrix panel ─────────────────────────────────────────
+function openPanel(ep, stage) {
+  const panel = document.getElementById('sidePanel');
+  const title = document.getElementById('panelTitle');
+  panel.classList.remove('hidden');
+  const stageNames = { script:'剧本', char:'角色', board:'分镜', img:'配图' };
+  title.textContent = stageNames[stage] || stage;
+  document.querySelectorAll('.cell').forEach(c => c.classList.remove('active'));
+  event.currentTarget.classList.add('active');
+}
+function closePanel() {
+  document.getElementById('sidePanel').classList.add('hidden');
+  document.querySelectorAll('.cell').forEach(c => c.classList.remove('active'));
+}
+
+// ── Canvas pan (click-drag) ───────────────────────────────
+const bg = document.getElementById('canvasBg');
+let panning = false, startX, startY, scrollLeft, scrollTop;
+bg.addEventListener('mousedown', e => {
+  if (e.target.closest('.ep-group,.char-node,.sf,.sf-add,.canvas-mini-toolbar,.minimap')) return;
+  panning = true;
+  startX = e.pageX - bg.offsetLeft;
+  startY = e.pageY - bg.offsetTop;
+  scrollLeft = bg.scrollLeft;
+  scrollTop  = bg.scrollTop;
+  bg.style.cursor = 'grabbing';
+});
+document.addEventListener('mouseup', () => { panning = false; bg.style.cursor = 'grab'; });
+bg.addEventListener('mousemove', e => {
+  if (!panning) return;
+  e.preventDefault();
+  bg.scrollLeft = scrollLeft - (e.pageX - bg.offsetLeft - startX);
+  bg.scrollTop  = scrollTop  - (e.pageY - bg.offsetTop  - startY);
+});
+
+function fitCanvas() {
+  bg.scrollTo({ left: 0, top: 0, behavior: 'smooth' });
+}
+
+// ── Progress animations ───────────────────────────────────
+let ep4w = 70, boardw = 42;
+setInterval(() => {
+  ep4w = Math.min(ep4w + 0.3, 95);
+  const el = document.getElementById('ep4prog');
+  if (el) el.style.width = ep4w + '%';
+}, 200);
+setInterval(() => {
+  boardw = Math.min(boardw + 0.15, 98);
+  document.querySelectorAll('.prog-bar').forEach((el, i) => {
+    if (i === 0) el.style.width = boardw + '%';
+  });
+}, 300);
+</script>
+</body>
+</html>

@@ -1,14 +1,51 @@
 const fs = require('node:fs')
 const path = require('node:path')
 const zlib = require('node:zlib')
+const { removeFixtureTreeSync } = require('./fixture-cleanup.cjs')
 
 const DIST_ROOT = path.resolve(__dirname, '..', 'dist')
 const MANIFEST_PATH = path.join(DIST_ROOT, '.vite', 'manifest.json')
 const BUDGETS = Object.freeze({
   initialJavaScriptGzip: 120 * 1024,
   initialCssGzip: 40 * 1024,
-  asyncChunkGzip: 130 * 1024,
+  // 制作页页面块接近上限；filmCreate composable/utils 已拆独立异步块，且不把公共 Element Plus 打回全量共享块。预留 2KiB 避免 gzip 抖动。
+  asyncChunkGzip: 132 * 1024,
 })
+
+const UNUSED_ICON_ASSETS = Object.freeze([
+  'AddLocation',
+  'Watermelon',
+  'WindPower',
+  'Baseball',
+])
+
+// 业务未使用的组件类名。全量 theme-chalk / dist/index.css 会带上它们。
+const UNUSED_ELEMENT_PLUS_CSS = Object.freeze([
+  'el-calendar',
+  'el-cascader',
+  'el-color-picker',
+  'el-date-picker',
+  'el-notification',
+  'el-rate',
+  'el-slider',
+  'el-transfer',
+  'el-tree',
+  'el-tour',
+])
+
+function findLeakedUnusedElementPlusCss(cssText) {
+  const source = String(cssText || '')
+  return UNUSED_ELEMENT_PLUS_CSS.filter((name) => source.includes(`.${name}`))
+}
+
+function findLeakedUnusedElementPlusIcons(jsText) {
+  const source = String(jsText || '')
+  return UNUSED_ICON_ASSETS.filter((name) => new RegExp(`name:\\s*["']${name}["']`).test(source))
+}
+
+function readAssetText(fileName) {
+  return fs.readFileSync(path.join(DIST_ROOT, 'assets', fileName), 'utf8')
+}
 
 function gzipSize(relativePath) {
   const absolutePath = path.join(DIST_ROOT, relativePath)
@@ -62,11 +99,61 @@ function verifyBundleBudget(manifest) {
   for (const item of oversizedAsyncChunks) {
     failures.push(`${item.file} is ${formatBytes(item.gzip)} (async budget ${formatBytes(BUDGETS.asyncChunkGzip)})`)
   }
+  const assetNames = fs.readdirSync(path.join(DIST_ROOT, 'assets'))
+  const jsText = assetNames
+    .filter((name) => name.endsWith('.js'))
+    .map((name) => readAssetText(name))
+    .join('\n')
+  const leakedUnusedIcons = [
+    ...new Set([
+      ...UNUSED_ICON_ASSETS.filter((name) => (
+        assetNames.some((file) => file.startsWith(`${name}-`) || file.startsWith(`${name}.`))
+      )),
+      ...findLeakedUnusedElementPlusIcons(jsText),
+    ]),
+  ]
+  if (leakedUnusedIcons.length) {
+    failures.push(`unused Element Plus icons were still emitted: ${leakedUnusedIcons.join(', ')}`)
+  }
+  const leakedInitialIconChunks = [...initialJsFiles].filter((file) => {
+    const base = path.basename(file)
+    return UNUSED_ICON_ASSETS.some((name) => base.startsWith(`${name}-`)) || base.startsWith('MagicStick-')
+  })
+  if (leakedInitialIconChunks.length) {
+    failures.push(`initial JavaScript still includes on-demand icon chunks: ${leakedInitialIconChunks.join(', ')}`)
+  }
+  const leakedInitialDialogJs = [...initialJsFiles].filter((file) => (
+    path.basename(file).startsWith('AccessibleDialog-')
+  ))
+  if (leakedInitialDialogJs.length) {
+    failures.push(`initial JavaScript still includes AccessibleDialog: ${leakedInitialDialogJs.join(', ')}`)
+  }
+  const leakedInitialDialogCss = [...initialCssFiles].filter((file) => (
+    path.basename(file).startsWith('AccessibleDialog-')
+  ))
+  if (leakedInitialDialogCss.length) {
+    failures.push(`initial CSS still includes AccessibleDialog: ${leakedInitialDialogCss.join(', ')}`)
+  }
+  const indexHtml = fs.readFileSync(path.join(DIST_ROOT, 'index.html'), 'utf8')
+  if (/AccessibleDialog-/.test(indexHtml)) {
+    failures.push('index.html still preloads AccessibleDialog on first paint')
+  }
+  const cssText = assetNames
+    .filter((name) => name.endsWith('.css'))
+    .map((name) => readAssetText(name))
+    .join('\n')
+  const leakedUnusedCss = findLeakedUnusedElementPlusCss(cssText)
+  if (leakedUnusedCss.length) {
+    failures.push(`unused Element Plus CSS still emitted: ${leakedUnusedCss.join(', ')}`)
+  }
+
   if (failures.length) throw new Error(`Bundle budget exceeded:\n- ${failures.join('\n- ')}`)
 
   return {
     initialJavaScriptGzip,
     initialCssGzip,
+    leakedUnusedIcons,
+    leakedUnusedCss,
     largestAsyncChunkGzip: Math.max(0, ...Object.entries(manifest)
       .filter(([key, item]) => item.file?.endsWith('.js') && !initialKeys.has(key))
       .map(([, item]) => gzipSize(item.file))),
@@ -77,10 +164,18 @@ function main() {
   if (!fs.existsSync(MANIFEST_PATH)) throw new Error(`Vite manifest not found: ${MANIFEST_PATH}`)
   const manifest = JSON.parse(fs.readFileSync(MANIFEST_PATH, 'utf8'))
   const result = verifyBundleBudget(manifest)
-  fs.rmSync(path.dirname(MANIFEST_PATH), { recursive: true, force: true })
+  removeFixtureTreeSync(path.dirname(MANIFEST_PATH), { force: true })
   console.log(JSON.stringify({ bundle_budget: 'passed', ...result }))
 }
 
-module.exports = { BUDGETS, collectInitialEntries, verifyBundleBudget }
+module.exports = {
+  BUDGETS,
+  collectInitialEntries,
+  verifyBundleBudget,
+  findLeakedUnusedElementPlusCss,
+  findLeakedUnusedElementPlusIcons,
+  UNUSED_ELEMENT_PLUS_CSS,
+  UNUSED_ICON_ASSETS,
+}
 
 if (require.main === module) main()

@@ -13,21 +13,30 @@ COPY frontweb/public ./public
 COPY frontweb/src ./src
 COPY frontweb/scripts ./scripts
 COPY frontweb/test ./test
+COPY backend-node/src/utils/runtimeInstanceId.js /backend-node/src/utils/runtimeInstanceId.js
 
 ENV NODE_ENV=production
-RUN npm run build
+# Docker Desktop 在部分 Windows 主机上会让 V8 Turbofan 在 Vite 编译时崩溃。
+# --no-opt 不能放进 NODE_OPTIONS，必须直接传给 node。
+RUN node --no-opt ./node_modules/vite/bin/vite.js build && node --no-opt scripts/check-bundle-budget.cjs
 
 FROM nginxinc/nginx-unprivileged:1.29-alpine@sha256:0c79d56aee561a1d81c63f00eee5fb5fe29279560cdc55e91425133104c7fbe6 AS runtime
 
 USER root
+# Bump when Alpine packages in the pinned nginx image need a security refresh.
+ARG ALPINE_PACKAGE_REFRESH=20260827
 RUN apk upgrade --no-cache
 
 COPY frontweb/nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /app/dist /usr/share/nginx/html
 
+ARG LOCALMINIDRAMA_BUILD_REVISION=unknown
+LABEL org.opencontainers.image.revision="${LOCALMINIDRAMA_BUILD_REVISION}"
+
 USER 101
 
 EXPOSE 3013
 
-HEALTHCHECK --interval=10s --timeout=3s --retries=6 \
+# 与 compose 一致：/healthz 由 Nginx 代理到 backend /ready。nginx.conf 还必须有 location = /ready，避免备份页吃到 SPA HTML。start-period 避免启动瞬间误判。
+HEALTHCHECK --interval=10s --timeout=3s --start-period=10s --retries=12 \
   CMD wget -q -O - http://127.0.0.1:3013/healthz >/dev/null 2>&1 || exit 1

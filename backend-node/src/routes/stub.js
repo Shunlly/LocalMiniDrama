@@ -1,5 +1,6 @@
 // 与 Go 路由一一对应的桩实现，保证前端可一键切换；后续可逐步替换为真实逻辑
 const response = require('../response');
+const { sendCaughtRouteError, publicErrorMessage } = require('./serviceFailure');
 const taskService = require('../services/taskService');
 const episodeStoryboardService = require('../services/episodeStoryboardService');
 
@@ -99,7 +100,7 @@ module.exports = function stubRoutes(db, cfg, log) {
         }
       } catch (err) {
         log.errorw('backgrounds/extract failed', { error: err.message });
-        if (!res.headersSent) response.internalError(res, err.message || '任务创建失败');
+        sendCaughtRouteError(res, err, '任务创建失败');
       }
     },
     imageEpisodeBatch: (req, res) => response.success(res, []),

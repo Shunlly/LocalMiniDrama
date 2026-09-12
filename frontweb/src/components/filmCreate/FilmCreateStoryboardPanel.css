@@ -1,0 +1,75 @@
+.section { margin-bottom: 24px; }
+
+.card { background: #1e1f28; border-radius: 14px; padding: 22px; border: 1px solid rgba(255, 255, 255, 0.06); }
+
+html.light .card { background: rgba(255, 255, 255, 0.75); border-color: rgba(139, 92, 246, 0.08); }
+
+.section-title { font-size: 1.05rem; margin: 0 0 4px; color: #f4f4f5; font-weight: 600; }
+
+html.light .section-title { color: #1e1b4b; }
+
+.step-desc { margin-left: 8px; font-size: 0.82rem; font-weight: 400; color: #71717a; }
+
+[id^="anchor-"] { scroll-margin-top: 84px; }
+
+.sb-generating-tip {
+
+  display: flex;
+
+  align-items: center;
+
+  gap: 6px;
+
+  padding: 12px 18px;
+
+  margin-top: 10px;
+
+  background: rgba(139, 92, 246, 0.08);
+
+  border: 1px dashed rgba(139, 92, 246, 0.35);
+
+  border-radius: 10px;
+
+  color: #a78bfa;
+
+  font-size: 0.9rem;
+
+}
+
+.sb-gen-text {
+
+  flex: 1;
+
+  letter-spacing: 0.03em;
+
+}
+
+.sb-gen-dot {
+
+  display: inline-block;
+
+  width: 7px;
+
+  height: 7px;
+
+  border-radius: 50%;
+
+  background: #a78bfa;
+
+  animation: sb-dot-bounce 1.2s infinite ease-in-out both;
+
+}
+
+.sb-gen-dot:nth-child(1) { animation-delay: 0s; }
+
+.sb-gen-dot:nth-child(2) { animation-delay: 0.2s; }
+
+.sb-gen-dot:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes sb-dot-bounce {
+
+  0%, 80%, 100% { transform: scale(0.6); opacity: 0.5; }
+
+  40%            { transform: scale(1);   opacity: 1;   }
+
+}

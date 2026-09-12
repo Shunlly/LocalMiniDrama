@@ -11,11 +11,12 @@
         type="button"
         class="workflow-group-select"
         :aria-pressed="activeGroupId === group.id"
+        :aria-label="group.title || '工作流分组'"
         @click="emit('select-group', group.id)"
       >
         <span class="wf-item-title">{{ group.title }}</span>
         <span class="wf-item-meta">
-          {{ (group.storyboard_ids || []).length }} 镜 · {{ (group.pipeline || []).join(' → ') }}
+          {{ (group.storyboard_ids || []).length }} 镜 · {{ pipelineLabel(group.pipeline) }}
         </span>
       </button>
 
@@ -43,7 +44,7 @@
             :draggable="!reorderDisabled"
             :disabled="reorderDisabled"
             :aria-label="dragHandleLabel(storyboardId, index, group.storyboard_ids.length)"
-            title="拖动排序；按上下方向键移动"
+            :title="reorderDisabled ? '当前不能调整工作流分镜顺序' : '拖动排序；按上下方向键移动'"
             @click.stop
             @dragstart.stop="onDragStart($event, group.id, index)"
             @dragend="clearDragState"
@@ -64,9 +65,9 @@
             <button
               type="button"
               class="storyboard-order-button"
-              :disabled="reorderDisabled || index === 0"
-              :aria-label="`上移${storyboardTitle(storyboardId)}`"
-              title="上移"
+              :disabled="Boolean(moveUpReason(index, group.storyboard_ids.length))"
+              :aria-label="moveUpReason(index, group.storyboard_ids.length) ? `上移${storyboardTitle(storyboardId)}不可用：${moveUpReason(index, group.storyboard_ids.length)}` : `上移${storyboardTitle(storyboardId)}`"
+              :title="moveUpReason(index, group.storyboard_ids.length) || '上移'"
               @click.stop="requestMove(group.id, index, index - 1, group.storyboard_ids.length)"
             >
               <el-icon><ArrowUp /></el-icon>
@@ -74,9 +75,9 @@
             <button
               type="button"
               class="storyboard-order-button"
-              :disabled="reorderDisabled || index === group.storyboard_ids.length - 1"
-              :aria-label="`下移${storyboardTitle(storyboardId)}`"
-              title="下移"
+              :disabled="Boolean(moveDownReason(index, group.storyboard_ids.length))"
+              :aria-label="moveDownReason(index, group.storyboard_ids.length) ? `下移${storyboardTitle(storyboardId)}不可用：${moveDownReason(index, group.storyboard_ids.length)}` : `下移${storyboardTitle(storyboardId)}`"
+              :title="moveDownReason(index, group.storyboard_ids.length) || '下移'"
               @click.stop="requestMove(group.id, index, index + 1, group.storyboard_ids.length)"
             >
               <el-icon><ArrowDown /></el-icon>
@@ -85,9 +86,15 @@
         </li>
       </ol>
     </section>
-    <div v-if="!workflowGroups.length" class="sidebar-workflow-empty">
+    <div v-if="!workflowGroups.length" class="sidebar-workflow-empty" role="status">
       <div class="workflow-empty-title">尚未创建工作流</div>
-      <p>从顶部工作流工具中框选分镜后创建分组，分组会显示在这里。</p>
+      <p>先框选分镜，再创建分组。分组会显示在这里。</p>
+      <button
+        type="button"
+        class="workflow-empty-action"
+        aria-label="去创建分组"
+        @click="emit('create-workflow')"
+      >去创建分组</button>
     </div>
   </div>
 </template>
@@ -104,12 +111,37 @@ const props = defineProps({
   reorderPending: { type: Boolean, default: false },
 })
 
-const emit = defineEmits(['select-group', 'reorder-storyboards'])
+const emit = defineEmits(['select-group', 'reorder-storyboards', 'create-workflow'])
 const draggedItem = ref(null)
 const dragTarget = ref(null)
 
+function pipelineStepLabel(step) {
+  const map = { image: '生图', video: '生视频', audio: '配音' }
+  return map[step] || '未命名步骤'
+}
+
+function pipelineLabel(pipeline) {
+  return (pipeline || []).map(pipelineStepLabel).join(' → ')
+}
+
 function storyboardDetail(storyboardId) {
   return props.storyboardDetails[String(storyboardId)] || {}
+}
+
+function workflowMoveDisabledReason(index, total, offset) {
+  if (props.reorderDisabled) return '当前不能调整工作流分镜顺序'
+  if (Number(total) < 2) return '至少两条分镜才能调整顺序'
+  if (offset < 0 && index === 0) return '已经是第一条分镜'
+  if (offset > 0 && index === Number(total) - 1) return '已经是最后一条分镜'
+  return ''
+}
+
+function moveUpReason(index, total) {
+  return workflowMoveDisabledReason(index, total, -1)
+}
+
+function moveDownReason(index, total) {
+  return workflowMoveDisabledReason(index, total, 1)
 }
 
 function storyboardTitle(storyboardId) {
@@ -196,6 +228,8 @@ function moveByKeyboard(groupId, index, delta, total) {
 <style scoped>
 .sidebar-section {
   margin-bottom: 14px;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .sec-label {
@@ -206,6 +240,8 @@ function moveByKeyboard(groupId, index, delta, total) {
 
 .sidebar-item {
   margin-bottom: 6px;
+  min-width: 0;
+  max-width: 100%;
   overflow: hidden;
   border-radius: 6px;
   color: var(--text-primary, #e4e4e7);
@@ -365,5 +401,23 @@ function moveByKeyboard(groupId, index, delta, total) {
   color: var(--canvas-text-subtle, var(--text-subtle, #71717a));
   font-size: 10px;
   line-height: 1.5;
+}
+
+.workflow-empty-action {
+  display: inline-flex;
+  margin-top: 8px;
+  padding: 4px 8px;
+  border: 1px solid var(--canvas-indigo-strong, #818cf8);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--canvas-indigo-text, #a5b4fc);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.workflow-empty-action:focus-visible {
+  outline: 2px solid var(--canvas-focus-ring, #818cf8);
+  outline-offset: 2px;
 }
 </style>

@@ -1,4 +1,4 @@
-const { it } = require('node:test');
+const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
 const fs = require('node:fs');
@@ -15,12 +15,224 @@ const aiConfigService = require('../src/services/aiConfigService');
 const workflowService = require('../src/services/workflowService');
 const { validateFfmpegTools } = require('../src/utils/ffmpegPath');
 const { selectFixtureVideoEncoder } = require('./mediaFixture');
+const providerSdkService = require('../src/services/providerSdkService');
+const providerSdkProduction = require('../src/services/providerSdkProduction');
+const timelineService = require('../src/services/timelineService');
 
 const log = {
   info() {},
   warn() {},
   error() {},
 };
+
+function createDb() {
+  const db = new Database(':memory:');
+  runMigrationsAndEnsure(db);
+  return db;
+}
+
+function insertDrama(db, dramaId = 1, title = '生产拆分项目') {
+  const now = new Date().toISOString();
+  db.prepare(
+    `INSERT INTO dramas (id, title, description, style, status, created_at, updated_at)
+     VALUES (?, ?, '', 'anime', 'draft', ?, ?)`
+  ).run(dramaId, title, now, now);
+  return dramaId;
+}
+
+describe('providerSdkProduction 生产生成拆分', () => {
+  it('providerSdkService 公开导出不变，生产生成函数在新模块', () => {
+    assert.deepEqual(Object.keys(providerSdkService).sort(), [
+      'assertProductionReadiness',
+      'buildProductionTimelineCompositePlan',
+      'compositeEpisodes',
+      'generateAssetBibleImagesProduction',
+      'generateStoryboardAudio',
+      'generateStoryboardImages',
+      'generateStoryboardVideos',
+      'recordProviderInvocation',
+    ].sort());
+
+    assert.deepEqual(Object.keys(providerSdkProduction).sort(), [
+      'assertProductionReadiness',
+      'buildProductionTimelineCompositePlan',
+      'compositeEpisodesProduction',
+      'configuredModel',
+      'generateAssetBibleImagesProduction',
+      'generateStoryboardAudioProduction',
+      'generateStoryboardImagesProduction',
+      'generateStoryboardVideosProduction',
+      'getStoryboards',
+      'latestMergeId',
+      'nowIso',
+      'parseJsonObject',
+      'persistOwnedCompositorMerge',
+      'providerCallKey',
+      'recordProviderInvocation',
+      'stageCurrentCompositorMerge',
+    ]);
+
+    const timeline = require('../src/services/providerSdkProductionTimeline');
+    const assets = require('../src/services/providerSdkProductionAssets');
+    const storyboards = require('../src/services/providerSdkProductionStoryboards');
+    const composite = require('../src/services/providerSdkProductionComposite');
+    assert.equal(providerSdkProduction.buildProductionTimelineCompositePlan, timeline.buildProductionTimelineCompositePlan);
+    assert.equal(providerSdkProduction.generateAssetBibleImagesProduction, assets.generateAssetBibleImagesProduction);
+    assert.equal(providerSdkProduction.generateStoryboardImagesProduction, storyboards.generateStoryboardImagesProduction);
+    assert.equal(providerSdkProduction.generateStoryboardVideosProduction, storyboards.generateStoryboardVideosProduction);
+    assert.equal(providerSdkProduction.generateStoryboardAudioProduction, storyboards.generateStoryboardAudioProduction);
+    assert.equal(providerSdkProduction.compositeEpisodesProduction, composite.compositeEpisodesProduction);
+  });
+
+  it('原文件保留 mock 与对外包装，并调用新模块；不重复抽 Errors/Models/Protocol', () => {
+    const serviceSrc = fs.readFileSync(path.join(__dirname, '../src/services/providerSdkService.js'), 'utf8');
+    const productionSrc = fs.readFileSync(path.join(__dirname, '../src/services/providerSdkProduction.js'), 'utf8');
+    const timelineSrc = fs.readFileSync(path.join(__dirname, '../src/services/providerSdkProductionTimeline.js'), 'utf8');
+    const assetsSrc = fs.readFileSync(path.join(__dirname, '../src/services/providerSdkProductionAssets.js'), 'utf8');
+    const storyboardsSrc = fs.readFileSync(path.join(__dirname, '../src/services/providerSdkProductionStoryboards.js'), 'utf8');
+    const compositeSrc = fs.readFileSync(path.join(__dirname, '../src/services/providerSdkProductionComposite.js'), 'utf8');
+
+    assert.match(serviceSrc, /function generateStoryboardImagesMock\s*\(/);
+    assert.match(serviceSrc, /function generateStoryboardVideosMock\s*\(/);
+    assert.match(serviceSrc, /function generateStoryboardAudioMock\s*\(/);
+    assert.match(serviceSrc, /function compositeEpisodesMock\s*\(/);
+    assert.match(serviceSrc, /require\('\.\/providerSdkProduction'\)/);
+    assert.match(serviceSrc, /generateStoryboardImagesProduction\(/);
+    assert.match(serviceSrc, /generateStoryboardVideosProduction\(/);
+    assert.match(serviceSrc, /generateStoryboardAudioProduction\(/);
+    assert.match(serviceSrc, /compositeEpisodesProduction\(/);
+    assert.match(serviceSrc, /isProductionMode\(params\)/);
+    assert.match(serviceSrc, /resolveConfiguredModel\s*\(/);
+    assert.match(serviceSrc, /toUserFacingProcessError\(error/);
+    assert.match(serviceSrc, /assembleProductionFailure\(/);
+
+    assert.doesNotMatch(serviceSrc, /async function generateStoryboardImagesProduction\s*\(/);
+    assert.doesNotMatch(serviceSrc, /async function generateStoryboardVideosProduction\s*\(/);
+    assert.doesNotMatch(serviceSrc, /async function generateStoryboardAudioProduction\s*\(/);
+    assert.doesNotMatch(serviceSrc, /async function compositeEpisodesProduction\s*\(/);
+    assert.doesNotMatch(serviceSrc, /function assertProductionReadiness\s*\(/);
+    assert.doesNotMatch(serviceSrc, /function buildProductionTimelineCompositePlan\s*\(/);
+
+    assert.match(productionSrc, /function assertProductionReadiness\s*\(/);
+    assert.match(productionSrc, /resolveConfiguredModel\s*\(/);
+    assert.match(productionSrc, /require\('\.\/providerSdkModels'\)/);
+    assert.match(productionSrc, /require\('\.\/providerSdkErrors'\)/);
+    assert.match(productionSrc, /require\('\.\/providerSdkProductionTimeline'\)/);
+    assert.match(productionSrc, /require\('\.\/providerSdkProductionAssets'\)/);
+    assert.match(productionSrc, /require\('\.\/providerSdkProductionStoryboards'\)/);
+    assert.match(productionSrc, /require\('\.\/providerSdkProductionComposite'\)/);
+    assert.doesNotMatch(productionSrc, /async function generateAssetBibleImagesProduction\s*\(/);
+    assert.doesNotMatch(productionSrc, /async function generateStoryboardImagesProduction\s*\(/);
+    assert.doesNotMatch(productionSrc, /async function generateStoryboardVideosProduction\s*\(/);
+    assert.doesNotMatch(productionSrc, /async function generateStoryboardAudioProduction\s*\(/);
+    assert.doesNotMatch(productionSrc, /async function compositeEpisodesProduction\s*\(/);
+    assert.doesNotMatch(productionSrc, /function buildProductionTimelineCompositePlan\s*\(/);
+    assert.doesNotMatch(productionSrc, /function isProductionMode\s*\(/);
+    assert.doesNotMatch(productionSrc, /function getActiveTtsConfig\s*\(/);
+    assert.doesNotMatch(productionSrc, /function productionCompositeError\s*\(/);
+    assert.doesNotMatch(productionSrc, /function isMockValue\s*\(/);
+
+    assert.match(timelineSrc, /function buildProductionTimelineCompositePlan\s*\(/);
+    assert.match(timelineSrc, /require\('\.\/providerSdkProtocol'\)/);
+    assert.match(timelineSrc, /require\('\.\/providerSdkErrors'\)/);
+    assert.match(assetsSrc, /async function generateAssetBibleImagesProduction\s*\(/);
+    assert.match(storyboardsSrc, /async function generateStoryboardImagesProduction\s*\(/);
+    assert.match(storyboardsSrc, /async function generateStoryboardVideosProduction\s*\(/);
+    assert.match(storyboardsSrc, /async function generateStoryboardAudioProduction\s*\(/);
+    assert.match(compositeSrc, /async function compositeEpisodesProduction\s*\(/);
+    assert.match(compositeSrc, /require\('\.\/providerSdkProductionTimeline'\)/);
+    assert.match(compositeSrc, /require\('\.\/providerSdkProtocol'\)/);
+  });
+
+  it('对外包装按 mode 分发：mock 不走生产就绪检查，production 走中文就绪错误', async () => {
+    const db = createDb();
+    try {
+      insertDrama(db, 1);
+      const mockResult = await providerSdkService.generateStoryboardImages(db, log, { drama_id: 1 });
+      assert.equal(mockResult.storyboard_count, 0);
+      assert.equal(mockResult.image_created, 0);
+
+      await assert.rejects(
+        () => providerSdkService.generateStoryboardImages(db, log, { drama_id: 1, mode: 'production' }),
+        (error) => /生产工作流尚未就绪，缺少：/.test(error.message) && /分镜/.test(error.message),
+      );
+      await assert.rejects(
+        () => providerSdkProduction.generateStoryboardImagesProduction(db, log, { drama_id: 1 }),
+        (error) => /生产工作流尚未就绪，缺少：/.test(error.message) && /分镜/.test(error.message),
+      );
+    } finally {
+      db.close();
+    }
+  });
+
+  it('中文用户错误保持，且不会把项目 ID 当成剧集 ID 写入合成归属', async () => {
+    const db = createDb();
+    try {
+      insertDrama(db, 1, '本项目');
+      insertDrama(db, 2, '其他项目');
+      const now = new Date().toISOString();
+      const episode = db.prepare(
+        `INSERT INTO episodes
+           (drama_id, episode_number, title, script_content, status, created_at, updated_at)
+         VALUES (1, 1, '第一集', '正文', 'draft', ?, ?)`
+      ).run(now, now);
+      const episodeId = Number(episode.lastInsertRowid);
+      assert.notEqual(episodeId, 2);
+
+      await assert.rejects(
+        () => providerSdkService.generateAssetBibleImagesProduction(db, log, { drama_id: 1 }),
+        (error) => error.message === '素材图供应商不可用，请在「AI 配置」中启用图片模型',
+      );
+      await assert.rejects(
+        () => providerSdkProduction.generateAssetBibleImagesProduction(db, log, { drama_id: 1 }),
+        (error) => error.message === '素材图供应商不可用，请在「AI 配置」中启用图片模型',
+      );
+
+      assert.throws(
+        () => providerSdkService.assertProductionReadiness(db, { drama_id: 1 }),
+        (error) => /生产工作流尚未就绪，缺少：/.test(error.message) && /素材图供应商/.test(error.message),
+      );
+
+      const originalGetEpisodeTimeline = timelineService.getEpisodeTimeline;
+      timelineService.getEpisodeTimeline = () => null;
+      try {
+        assert.throws(
+          () => providerSdkService.buildProductionTimelineCompositePlan(db, 9),
+          (error) => error.code === 'PRODUCTION_TIMELINE_INVALID'
+            && error.message === '第 9 集还没有时间线，请先生成时间线后再合成',
+        );
+        assert.throws(
+          () => providerSdkProduction.buildProductionTimelineCompositePlan(db, 9),
+          (error) => error.code === 'PRODUCTION_TIMELINE_INVALID'
+            && error.message === '第 9 集还没有时间线，请先生成时间线后再合成',
+        );
+      } finally {
+        timelineService.getEpisodeTimeline = originalGetEpisodeTimeline;
+      }
+
+      assert.throws(
+        () => providerSdkProduction.persistOwnedCompositorMerge(db, log, {
+          episode_id: episodeId,
+          drama_id: 2,
+          title: '错绑合成',
+          provider: 'ffmpeg',
+          model: 'ffmpeg',
+          status: 'completed',
+          scenes: [],
+          merge_options: {},
+          merged_url: 'videos/a.mp4',
+          duration: 1,
+          mode: 'strict_production',
+          now,
+        }),
+        (error) => error.message === '剧集与项目不匹配',
+      );
+    } finally {
+      db.close();
+    }
+  });
+});
+
 
 function createMediaFixture(ffmpeg, outputPath, type) {
   const args = type === 'video'

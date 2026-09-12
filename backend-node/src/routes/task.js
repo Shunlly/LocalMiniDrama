@@ -1,39 +1,83 @@
 const taskService = require('../services/taskService');
+const dramaWriteGuard = require('../services/dramaWriteGuard');
 const response = require('../response');
+const { sendCaughtRouteError, logCaughtRouteError, publicErrorMessage } = require('./serviceFailure');
+
+function sendBoundaryError(res, err) {
+  if (err.code === 'TASK_SCOPE_CONFLICT') {
+    response.error(res, 409, err.code, publicErrorMessage(err, '任务不属于当前项目'), err.details);
+    return true;
+  }
+  if (dramaWriteGuard.isBoundaryError(err)) {
+    response.error(res, err.statusCode || 409, err.code, publicErrorMessage(err, '当前项目不可用'), err.details);
+    return true;
+  }
+  return false;
+}
 
 function getTaskStatus(db, log) {
   return (req, res) => {
-    const task = taskService.getTask(db, req.params.task_id);
-    if (!task) return response.notFound(res, '任务不存在');
-    response.success(res, task);
+    try {
+      const task = taskService.getTask(db, req.params.task_id, { requireReadable: true });
+      if (!task) return response.notFound(res, '任务不存在');
+      response.success(res, task);
+    } catch (err) {
+      if (sendBoundaryError(res, err)) return;
+      logCaughtRouteError(log, 'Get task failed', err, { task_id: req.params.task_id, fallback: '任务查询失败，请稍后重试' });
+      return sendCaughtRouteError(res, err, '任务查询失败，请稍后重试');
+    }
   };
 }
 
 function getResourceTasks(db, log) {
   return (req, res) => {
     const resourceId = req.query.resource_id;
-    if (!resourceId) return response.badRequest(res, '缺少resource_id参数');
+    if (!resourceId) return response.badRequest(res, '请提供资源编号');
     try {
-      const tasks = taskService.getTasksByResource(db, resourceId);
+      const tasks = taskService.getTasksByResource(db, resourceId, {
+        dramaId: req.query.drama_id,
+        requireReadable: true,
+      });
       response.success(res, tasks);
     } catch (err) {
-      log.errorw('Get resource tasks failed', { error: err.message });
-      response.internalError(res, err.message);
+      if (sendBoundaryError(res, err)) return;
+      logCaughtRouteError(log, 'Get resource tasks failed', err, { resource_id: resourceId, drama_id: req.query.drama_id, fallback: '任务查询失败，请稍后重试' });
+      sendCaughtRouteError(res, err, '任务查询失败，请稍后重试');
     }
   };
 }
 
 function cancelTaskStatus(db, log) {
-  return (req, res) => {
+  return async (req, res) => {
     try {
-      const result = taskService.cancelTask(db, log, req.params.task_id, req.body?.reason);
+      const result = await taskService.cancelTask(db, log, req.params.task_id, req.body?.reason, {
+        requireReadable: true,
+      });
       if (!result.ok && result.reason === 'not_found') {
         return response.notFound(res, '任务不存在');
       }
+      if (!result.ok) {
+        const code = result.code || (result.reason === 'task_scope_conflict'
+          ? 'TASK_SCOPE_CONFLICT'
+          : result.reason === 'remote_cancel_uncertain'
+            ? 'REMOTE_CANCEL_UNCERTAIN'
+            : result.reason === 'remote_cancel_exhausted'
+              ? 'REMOTE_CANCEL_EXHAUSTED'
+            : 'REMOTE_CANCEL_FAILED');
+        const statusCode = code === 'DRAMA_NOT_FOUND' ? 404 : 409;
+        return response.error(
+          res,
+          statusCode,
+          code,
+          publicErrorMessage({ message: result.error }, '任务取消失败，任务仍在运行'),
+          result.details
+        );
+      }
       response.success(res, result.task || { id: req.params.task_id });
     } catch (err) {
-      log.errorw('Cancel task failed', { error: err.message, task_id: req.params.task_id });
-      response.internalError(res, err.message);
+      if (sendBoundaryError(res, err)) return;
+      logCaughtRouteError(log, 'Cancel task failed', err, { task_id: req.params.task_id, fallback: '任务取消失败，请稍后重试' });
+      sendCaughtRouteError(res, err, '任务取消失败，请稍后重试');
     }
   };
 }

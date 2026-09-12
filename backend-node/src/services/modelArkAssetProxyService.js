@@ -3,6 +3,7 @@
 const querystring = require('querystring');
 const { Signer } = require('@volcengine/openapi');
 const { secureHttpFetch } = require('./secureHttpFetch');
+const { requireCompleteProviderNetworkPolicy } = require('./providerNetworkPolicy');
 const {
   createProviderHttpError,
   sanitizeProviderException,
@@ -27,8 +28,8 @@ const ALLOWED_ACTIONS = new Set([
 
 function normalizeBaseUrl(raw) {
   let s = String(raw || '').trim().replace(/\/$/, '');
-  if (!s) throw new Error('缺少 base_url');
-  if (!/^https?:\/\//i.test(s)) throw new Error('base_url 须以 http:// 或 https:// 开头');
+  if (!s) throw new Error('缺少接口地址');
+  if (!/^https?:\/\//i.test(s)) throw new Error('接口地址须以 HTTP 或 HTTPS 开头');
   return s;
 }
 
@@ -77,7 +78,7 @@ function inferSignRegion(host, explicit) {
  * 转发 ModelArk / 方舟「私有资产库」请求。
  *
  * - open_api_query：POST {base}?Action=…&Version=…，JSON body。
- *   控制面接口须使用 **auth_mode: volc_sign**（Access Key 签名），推理用的 ARK API Key + Bearer 会报 Invalid Authorization。
+ *   控制面接口须使用 **auth_mode: volc_sign**（访问密钥签名）；推理用的 ARK API Key + Bearer 会被拒绝。
  * - asset_subpath / flat：部分中转仍可用 Bearer。
  */
 function buildRequestUrl(base, pathMode, act, apiVersion, projectName) {
@@ -92,25 +93,13 @@ function buildRequestUrl(base, pathMode, act, apiVersion, projectName) {
   try {
     u = new URL(base);
   } catch (e) {
-    throw new Error('base_url 不是合法 URL');
+    throw new Error('接口地址不是合法网址');
   }
   u.searchParams.set('Action', act);
   u.searchParams.set('Version', ver);
   const pn = (projectName || '').toString().trim();
   if (pn) u.searchParams.set('ProjectName', pn);
   return u.toString();
-}
-
-function extractUpstreamMessage(data, text) {
-  const m =
-    data &&
-    data.ResponseMetadata &&
-    data.ResponseMetadata.Error &&
-    data.ResponseMetadata.Error.Message;
-  if (m) return String(m);
-  if (data && data.message) return String(data.message);
-  if (data && data.Message) return String(data.Message);
-  return `HTTP 错误: ${text ? text.slice(0, 500) : ''}`;
 }
 
 function parseSignedOpenApiUrl(base) {
@@ -173,6 +162,7 @@ async function fetchSignedOpenApi({
     trustedOrigins: networkOptions?.trustedOrigins || [base],
     allowPrivateOrigins: networkOptions?.allowPrivateOrigins,
     lookup: networkOptions?.lookup,
+    requireHttpsForPublic: networkOptions?.requireHttpsForPublic,
     timeoutMs: MODEL_ARK_TIMEOUT_MS,
     maxBytes: MODEL_ARK_MAX_RESPONSE_BYTES,
     maxRedirects: 0,
@@ -197,6 +187,7 @@ async function fetchBearer(url, method, token, bodyObj, networkOptions = {}) {
     trustedOrigins: networkOptions.trustedOrigins,
     allowPrivateOrigins: networkOptions.allowPrivateOrigins,
     lookup: networkOptions.lookup,
+    requireHttpsForPublic: networkOptions.requireHttpsForPublic,
     timeoutMs: MODEL_ARK_TIMEOUT_MS,
     maxBytes: MODEL_ARK_MAX_RESPONSE_BYTES,
     maxRedirects: 0,
@@ -219,14 +210,16 @@ async function callModelArkAsset(opts, log) {
     sign_service,
     session_token,
     project_name,
-    trusted_origins,
-    allow_private_origins,
-    network_lookup,
+    network_policy,
   } = opts;
 
-  if (!action || typeof action !== 'string') throw new Error('缺少 action');
+  if (!action || typeof action !== 'string') throw new Error('缺少操作名称');
   const act = action.trim();
-  if (!ALLOWED_ACTIONS.has(act)) throw new Error('不支持的 action: ' + act);
+  if (!ALLOWED_ACTIONS.has(act)) {
+    const error = new Error('不支持的资产库操作');
+    error.code = 'BAD_REQUEST';
+    throw error;
+  }
 
   const base = normalizeBaseUrl(ensureArkOpenApiBasePath(base_url));
   const pathMode = (path_mode || 'open_api_query').toString();
@@ -234,7 +227,7 @@ async function callModelArkAsset(opts, log) {
 
   const method = String(http_method || 'POST').toUpperCase();
   if (!['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
-    throw new Error('不支持的 http_method');
+    throw new Error('不支持的请求方法');
   }
 
   const pnScope = (project_name || '').toString().trim();
@@ -243,21 +236,17 @@ async function callModelArkAsset(opts, log) {
     bodyObj.ProjectName = pnScope;
   }
   let res;
-  const networkOptions = {
-    trustedOrigins: Array.isArray(trusted_origins) && trusted_origins.length ? trusted_origins : [base],
-    allowPrivateOrigins: allow_private_origins,
-    lookup: network_lookup,
-  };
+  const networkOptions = requireCompleteProviderNetworkPolicy(network_policy, base);
 
   try {
   if (modeAuth === 'volc_sign') {
     const ak = String(access_key_id || '').trim();
     const sk = String(secret_access_key || '').trim();
     if (!ak || !sk) {
-      throw new Error('控制面 OpenAPI 须填写 Access Key ID 与 Secret Access Key（控制台 IAM 密钥，非推理 API Key）');
+      throw new Error('控制面 OpenAPI 须填写访问密钥和签名密钥（控制台 IAM 密钥，不是推理密钥）');
     }
     if (pathMode !== 'open_api_query') {
-      throw new Error('AK/SK 签名仅支持与「官方 OpenAPI」路径模式（Query 中带 Action）一起使用');
+      throw new Error('访问密钥签名仅支持与「官方 OpenAPI」路径模式一起使用');
     }
     res = await fetchSignedOpenApi({
       base,
@@ -274,7 +263,7 @@ async function callModelArkAsset(opts, log) {
     });
   } else {
     const token = normalizeBearerToken(api_key);
-    if (!token) throw new Error('缺少 api_key');
+    if (!token) throw new Error('缺少密钥');
     const url = buildRequestUrl(base, pathMode, act, api_version, pnScope);
     res = await fetchBearer(url, method, token, bodyObj, networkOptions);
   }

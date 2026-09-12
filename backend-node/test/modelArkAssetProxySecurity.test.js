@@ -5,6 +5,15 @@ const assert = require('node:assert/strict');
 const http = require('node:http');
 
 const { callModelArkAsset } = require('../src/services/modelArkAssetProxyService');
+const aiConfigService = require('../src/services/aiConfigService');
+
+function localNetworkPolicy(baseUrl) {
+  return aiConfigService.getProviderNetworkOptions({
+    base_url: baseUrl,
+    provider: 'openai_compatible',
+    settings: JSON.stringify({ allow_local_http: true }),
+  });
+}
 
 async function startServer(t, handler) {
   const server = http.createServer(handler);
@@ -31,6 +40,7 @@ test('ModelArk errors never expose the upstream payload or attach it to the exce
       path_mode: 'flat',
       http_method: 'GET',
       auth_mode: 'bearer',
+      network_policy: localNetworkPolicy(baseUrl),
     }),
     (error) => {
       assert.equal(error.status, 400);
@@ -61,6 +71,7 @@ test('ModelArk write requests do not follow redirects or forward credentials', a
     path_mode: 'flat',
     http_method: 'POST',
     auth_mode: 'bearer',
+    network_policy: localNetworkPolicy(source),
   }));
   assert.equal(targetCalls, 0);
 });
@@ -68,13 +79,19 @@ test('ModelArk write requests do not follow redirects or forward credentials', a
 test('a saved public ModelArk hostname cannot rebind to a private address', async () => {
   await assert.rejects(
     callModelArkAsset({
-      base_url: 'http://modelark.example:8090',
+      base_url: 'https://modelark.example:8090',
       api_key: 'synthetic-token',
       action: 'ListAssets',
       path_mode: 'flat',
       http_method: 'GET',
       auth_mode: 'bearer',
-      network_lookup: async () => [{ address: '127.0.0.1', family: 4 }],
+      network_policy: aiConfigService.getProviderNetworkOptions({
+        base_url: 'https://modelark.example:8090',
+        provider: 'model_ark',
+        settings: '{}',
+      }, {
+        lookup: async () => [{ address: '127.0.0.1', family: 4 }],
+      }),
     }),
     (error) => error?.code === 'UNSAFE_MEDIA_REFERENCE'
   );

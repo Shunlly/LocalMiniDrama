@@ -109,3 +109,52 @@ test('workflow queue drain waits for provider polling and the durable step commi
   assert.equal(detail.steps[0].status, 'completed');
   assert.equal(detail.steps[0].output_json.video_created, 1);
 });
+
+test('cancelled workflow detail reports an active worker until the in-flight run exits', async (t) => {
+  const db = createDb(t);
+  const providerStarted = createDeferred();
+  const releaseProvider = createDeferred();
+  const originalGenerateVideos = providerSdkService.generateStoryboardVideos;
+  t.after(() => {
+    providerSdkService.generateStoryboardVideos = originalGenerateVideos;
+  });
+  providerSdkService.generateStoryboardVideos = async () => {
+    providerStarted.resolve();
+    await releaseProvider.promise;
+    return {
+      mode: 'production-simulated',
+      storyboard_count: 1,
+      video_created: 1,
+      video_reused: 0,
+    };
+  };
+  const run = workflowService.createWorkflowRun(db, log, {
+    drama_id: 1,
+    type: 'novel2anime:cancel-worker-lifecycle',
+    steps: [{ key: 'video_generation', label: 'Video generation' }],
+  });
+
+  const worker = workflowService.processWorkflowRun(db, log, run.id);
+  await providerStarted.promise;
+
+  try {
+    const cancelled = workflowService.cancelWorkflowRun(db, log, run.id, 'test cancellation');
+    assert.equal(cancelled.status, 'cancelled');
+    assert.equal(cancelled.worker_active, true);
+    assert.equal(cancelled.steps[0].status, 'cancelled');
+
+    releaseProvider.resolve();
+    const drainedResult = await worker;
+    assert.equal(drainedResult.worker_active, false);
+    assert.equal(drainedResult.status, 'cancelled');
+    assert.equal(drainedResult.steps[0].status, 'cancelled');
+
+    const drained = workflowService.getWorkflowRunDetail(db, run.id);
+    assert.equal(drained.worker_active, false);
+    assert.equal(drained.status, 'cancelled');
+    assert.equal(drained.steps[0].status, 'cancelled');
+  } finally {
+    releaseProvider.resolve();
+    await worker;
+  }
+});

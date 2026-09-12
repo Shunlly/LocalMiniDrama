@@ -74,7 +74,7 @@ function normalizeStoryboardVideoReference(value, localOnly = false) {
   if (value == null || String(value).trim() === '') return null;
   const text = String(value).trim();
   if (/^https?:\/\//i.test(text)) {
-    if (localOnly) throw badRequest('视频本地路径必须位于 storage 内');
+    if (localOnly) throw badRequest('视频本地路径必须位于本地存储目录内');
     try {
       return uploadService.assertPublicHttpUrlSyntax(text).toString();
     } catch (_) {
@@ -86,7 +86,7 @@ function normalizeStoryboardVideoReference(value, localOnly = false) {
     if (!resolved) throw new Error('not local');
     return resolved.relativePath;
   } catch (_) {
-    throw badRequest('视频路径必须是 storage 内的相对路径');
+    throw badRequest('视频路径必须是本地存储目录内的相对路径');
   }
 }
 
@@ -97,13 +97,13 @@ function normalizeStoryboardAudioReference(value) {
     if (!resolved) throw new Error('not local');
     const opened = uploadService.openStorageFile(storageRoot(), resolved.relativePath);
     try {
-      if (!opened.stat.isFile() || opened.stat.size <= 0) throw new Error('invalid audio file');
+      if (!opened.stat.isFile() || opened.stat.size <= 0) throw new Error('音频文件无效');
     } finally {
       require('fs').closeSync(opened.fd);
     }
     return resolved.relativePath;
   } catch (_) {
-    throw badRequest('音频路径必须指向 storage 内已存在的普通文件');
+    throw badRequest('音频路径必须指向本地存储目录内已存在的普通文件');
   }
 }
 
@@ -199,7 +199,7 @@ function createStoryboard(db, log, req) {
 function updateStoryboard(db, log, id, req) {
   const row = db.prepare('SELECT id FROM storyboards WHERE id = ? AND deleted_at IS NULL').get(Number(id));
   if (!row) return null;
-  const allowed = ['title', 'description', 'location', 'time', 'duration', 'dialogue', 'narration', 'action', 'result', 'atmosphere', 'image_prompt', 'polished_prompt', 'video_prompt', 'scene_id', 'characters', 'composed_image', 'image_url', 'local_path', 'main_panel_idx', 'video_url', 'video_local_path', 'audio_local_path', 'narration_audio_local_path', 'status', 'shot_type', 'angle', 'angle_h', 'angle_v', 'angle_s', 'movement', 'segment_index', 'segment_title', 'creation_mode', 'universal_segment_text', 'layout_description', 'first_frame_image_id', 'last_frame_image_id', 'last_frame_image_url', 'last_frame_local_path'];
+  const allowed = ['title', 'description', 'location', 'time', 'duration', 'dialogue', 'narration', 'action', 'result', 'atmosphere', 'image_prompt', 'polished_prompt', 'video_prompt', 'scene_id', 'characters', 'composed_image', 'image_url', 'local_path', 'main_panel_idx', 'video_url', 'video_local_path', 'audio_local_path', 'narration_audio_local_path', 'status', 'shot_type', 'angle', 'angle_h', 'angle_v', 'angle_s', 'movement', 'segment_index', 'segment_title', 'creation_mode', 'universal_segment_text', 'layout_description', 'first_frame_image_id', 'last_frame_image_id', 'last_frame_image_url', 'last_frame_local_path', 'storyboard_number'];
   const updates = [];
   const params = [];
   // 前端可能传 character_ids，与 characters 统一：存为 JSON 字符串
@@ -228,6 +228,11 @@ function updateStoryboard(db, log, id, req) {
       if (key === 'video_local_path') val = normalizeStoryboardVideoReference(val, true);
       if (key === 'audio_local_path' || key === 'narration_audio_local_path') {
         val = normalizeStoryboardAudioReference(val);
+      }
+      if (key === 'storyboard_number') {
+        const num = Number(val);
+        if (!Number.isInteger(num) || num < 1) throw badRequest('分镜序号无效');
+        val = num;
       }
       params.push(val);
     }

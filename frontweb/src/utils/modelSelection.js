@@ -10,9 +10,16 @@ export function parseModelList(models, defaultModel = '') {
 
 export function getSelectableModels(configs, serviceType, configId) {
   const list = Array.isArray(configs) ? configs : []
-  const selectedConfig = configId
-    ? list.find((c) => c.id === configId)
+  const hasExplicitConfig = configId !== null
+    && configId !== undefined
+    && String(configId).trim() !== ''
+  const selectedConfig = hasExplicitConfig
+    ? list.find((c) => String(c.id) === String(configId)
+      && c.service_type === serviceType
+      && c.is_active)
     : null
+  // 已指定的配置无效时返回空列表，避免把模型回退到另一个厂商或服务类型。
+  if (hasExplicitConfig && !selectedConfig) return []
   const config = selectedConfig
     || list.find((c) => c.service_type === serviceType && c.is_active && c.is_default)
     || list.find((c) => c.service_type === serviceType && c.is_active)

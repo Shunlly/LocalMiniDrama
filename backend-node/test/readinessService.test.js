@@ -13,6 +13,9 @@ const {
   checkNovel2AnimeReadiness,
   serviceConfigReadiness,
 } = require('../src/services/readinessService');
+const {
+  acquireServiceMaintenanceLockSync,
+} = require('../src/services/dataBackupService');
 
 const log = {
   info() {},
@@ -72,32 +75,120 @@ function mockResponse() {
   };
 }
 
-test('readiness requires both a queryable database and writable storage', (t) => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'localminidrama-ready-'));
+function makeReadinessWorkspace(t) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'localminidrama-ready-workspace-'));
   const storage = path.join(root, 'storage');
+  const storySources = path.join(root, 'story_sources');
+  const databasePath = path.join(root, 'drama_generator.db');
   fs.mkdirSync(storage);
-  const db = new Database(':memory:');
-  t.after(() => {
-    db.close();
-    fs.rmSync(root, { recursive: true, force: true });
+  fs.mkdirSync(storySources);
+  const db = new Database(databasePath);
+  runMigrationsAndEnsure(db);
+  const maintenanceGuard = acquireServiceMaintenanceLockSync({
+    databasePath,
+    storagePath: storage,
+    storySourcesPath: storySources,
+    ownerScope: 'readiness-test-' + process.pid,
   });
+  t.after(() => {
+    try {
+      if (db.open) db.close();
+    } finally {
+      try { maintenanceGuard.release(); } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+      }
+    }
+  });
+  return { root, storage, storySources, databasePath, db, maintenanceGuard };
+}
 
-  const result = checkReadiness(db, storage);
+test('readiness requires both a queryable database and writable storage', (t) => {
+  const workspace = makeReadinessWorkspace(t);
+  const before = workspace.db.prepare('SELECT COUNT(*) AS count FROM dramas').get().count;
+  const result = checkReadiness(workspace.db, workspace.storage, {
+    maintenanceGuard: workspace.maintenanceGuard,
+  });
+  const after = workspace.db.prepare('SELECT COUNT(*) AS count FROM dramas').get().count;
   assert.equal(result.ready, true);
   assert.equal(result.checks.database.ok, true);
   assert.equal(result.checks.storage.ok, true);
+  assert.equal(result.checks.maintenance.ok, true);
+  assert.equal(after, before);
 });
 
-test('readiness fails without exposing filesystem details', () => {
-  const db = new Database(':memory:');
+test('readiness performs a real file write and fsync, then removes the probe', (t) => {
+  const workspace = makeReadinessWorkspace(t);
+  const calls = [];
+  const fileSystem = Object.create(fs);
+  fileSystem.writeSync = (...args) => {
+    calls.push('write');
+    return fs.writeSync(...args);
+  };
+  fileSystem.fsyncSync = (...args) => {
+    calls.push('fsync');
+    return fs.fsyncSync(...args);
+  };
+  fileSystem.unlinkSync = (...args) => {
+    calls.push('unlink');
+    return fs.unlinkSync(...args);
+  };
+
+  const result = checkReadiness(workspace.db, workspace.storage, {
+    fs: fileSystem,
+    maintenanceGuard: workspace.maintenanceGuard,
+  });
+
+  assert.equal(result.ready, true);
+  assert.ok(calls.includes('write'));
+  assert.ok(calls.includes('fsync'));
+  assert.ok(calls.includes('unlink'));
+  assert.deepEqual(fs.readdirSync(workspace.storage), []);
+});
+
+test('readiness fails without exposing filesystem details or allowing a missing maintenance lease', (t) => {
+  const workspace = makeReadinessWorkspace(t);
+  fs.rmSync(workspace.storage, { recursive: true, force: true });
+  const secretPath = path.join(workspace.root, 'private', 'lease.json');
+  const result = checkReadiness(workspace.db, workspace.storage, {
+    assertMaintenanceLease() {
+      throw new Error('敏感路径 ' + secretPath);
+    },
+  });
+  assert.equal(result.ready, false);
+  assert.deepEqual(result.checks.storage, { ok: false, error: '存储目录不可用' });
+  assert.deepEqual(result.checks.maintenance, { ok: false, error: '维护租约不可用' });
+  assert.equal(JSON.stringify(result).includes(secretPath), false);
+});
+
+test('readiness refuses a closed database even when storage and lease are healthy', (t) => {
+  const workspace = makeReadinessWorkspace(t);
+  workspace.db.close();
+  const result = checkReadiness(workspace.db, workspace.storage, {
+    maintenanceGuard: workspace.maintenanceGuard,
+  });
+  assert.equal(result.ready, false);
+  assert.equal(result.checks.database.ok, false);
+  assert.equal(result.checks.storage.ok, true);
+  assert.equal(result.checks.maintenance.ok, true);
+});
+
+test('readiness 写探测失败时不会把 database.ok 留成 true', (t) => {
+  const workspace = makeReadinessWorkspace(t);
+  workspace.db.close();
+  const readonlyDb = new Database(workspace.databasePath, { readonly: true, fileMustExist: true });
+  let result;
   try {
-    const result = checkReadiness(db, path.join(os.tmpdir(), 'missing-readiness-directory'));
-    assert.equal(result.ready, false);
-    assert.deepEqual(result.checks.storage, { ok: false, error: 'storage unavailable' });
-    assert.equal(JSON.stringify(result).includes(os.tmpdir()), false);
+    result = checkReadiness(readonlyDb, workspace.storage, {
+      maintenanceGuard: workspace.maintenanceGuard,
+    });
   } finally {
-    db.close();
+    readonlyDb.close();
   }
+  assert.equal(result.ready, false);
+  assert.equal(result.checks.database.ok, false);
+  assert.equal(result.checks.database.error, '数据库不可用');
+  assert.equal(result.checks.storage.ok, true);
+  assert.equal(result.checks.maintenance.ok, true);
 });
 
 test('production workflow readiness reports concrete missing capabilities without secrets or local paths', (t) => {
@@ -149,6 +240,50 @@ test('production workflow readiness is ready only when every required capability
   assert.equal(result.capabilities.every((item) => item.required && item.ready), true);
 });
 
+
+test('图片识别和语音转写不计入成片五类就绪', (t) => {
+  const db = createWorkflowDb(t);
+  for (const serviceType of ['text', 'image', 'storyboard_image', 'video', 'tts']) addConfig(db, serviceType);
+  addConfig(db, 'ocr');
+  addConfig(db, 'transcription');
+
+  const withExtraction = checkNovel2AnimeReadiness(db, {
+    drama_id: 1,
+    qa_mode: 'production',
+  }, {
+    validateMediaTools: () => ({
+      ok: true,
+      ffmpeg: { ok: true, path: 'ffmpeg' },
+      ffprobe: { ok: true, path: 'ffprobe' },
+    }),
+  });
+  assert.equal(withExtraction.ready, true);
+  assert.equal(withExtraction.capabilities.length, 6);
+  assert.equal(withExtraction.capabilities.some((item) => item.service_type === 'ocr'), false);
+  assert.equal(withExtraction.capabilities.some((item) => item.service_type === 'transcription'), false);
+  assert.deepEqual(
+    withExtraction.capabilities.map((item) => item.key),
+    ['text', 'asset_image', 'image', 'video', 'tts', 'ffmpeg']
+  );
+
+  db.prepare("DELETE FROM ai_service_configs WHERE service_type IN ('text', 'image', 'storyboard_image', 'video', 'tts')").run();
+  const onlyExtraction = checkNovel2AnimeReadiness(db, {
+    drama_id: 1,
+    qa_mode: 'production',
+  }, {
+    validateMediaTools: () => ({
+      ok: true,
+      ffmpeg: { ok: true, path: 'ffmpeg' },
+      ffprobe: { ok: true, path: 'ffprobe' },
+    }),
+  });
+  assert.equal(onlyExtraction.ready, false);
+  assert.equal(onlyExtraction.missing_capabilities.some((item) => item.service_type === 'ocr'), false);
+  assert.equal(onlyExtraction.missing_capabilities.some((item) => item.service_type === 'transcription'), false);
+  assert.equal(onlyExtraction.missing_capabilities.some((item) => item.service_type === 'text'), true);
+  assert.equal(db.prepare("SELECT COUNT(*) AS count FROM ai_service_configs WHERE service_type IN ('ocr', 'transcription')").get().count, 2);
+});
+
 test('production readiness rejects an enabled default with no usable model', (t) => {
   const db = createWorkflowDb(t);
   addConfig(db, 'text');
@@ -167,6 +302,34 @@ test('production readiness rejects an enabled default with no usable model', (t)
   assert.deepEqual(result.missing_capabilities.map((item) => item.key), ['video']);
   assert.equal(result.capabilities.find((item) => item.key === 'video').detail.includes('可用模型'), true);
   assert.equal(serviceConfigReadiness({ service_type: 'video', model: [], default_model: '' }).ready, false);
+});
+
+test('production readiness reports an actionable reason for a historical invalid default model', (t) => {
+  const db = createWorkflowDb(t);
+  for (const serviceType of ['text', 'image', 'storyboard_image', 'video', 'tts']) addConfig(db, serviceType);
+  db.prepare(
+    'UPDATE ai_service_configs SET model = ?, default_model = ? WHERE service_type = ?'
+  ).run(JSON.stringify(['current-video-model']), 'retired-video-model', 'video');
+
+  const direct = serviceConfigReadiness({
+    service_type: 'video',
+    provider: 'openai',
+    api_key: 'LMD_SYNTHETIC_READINESS_CREDENTIAL',
+    model: [' current-video-model ', '', 'current-video-model'],
+    default_model: ' retired-video-model ',
+  });
+  assert.equal(direct.ready, false);
+  assert.equal(direct.issue, 'invalid_default_model');
+
+  const result = checkNovel2AnimeReadiness(db, { drama_id: 1, qa_mode: 'production' }, {
+    validateMediaTools: () => ({ ok: true, ffmpeg: { ok: true }, ffprobe: { ok: true } }),
+  });
+  const video = result.capabilities.find((item) => item.key === 'video');
+  assert.equal(result.ready, false);
+  assert.equal(video.ready, false);
+  assert.equal(video.issue, 'invalid_default_model');
+  assert.match(video.detail, /默认模型.*可用模型列表.*重新选择/);
+  assert.equal(JSON.stringify(result).includes('LMD_SYNTHETIC_READINESS_CREDENTIAL'), false);
 });
 
 test('production readiness rejects remote provider configs without credentials', (t) => {
@@ -338,4 +501,23 @@ test('production retry and resume recheck the original run selection and return 
   const { checked_at: _resumeCheckedAt, ...resumeDetails } = resumeResponse.body.error.details;
   assert.deepEqual(resumeDetails, startDetails);
   assert.equal(db.prepare('SELECT status FROM workflow_runs WHERE id = ?').get(run.id).status, 'paused');
+});
+
+test('就绪探测源码不再包含英文内部抛错', () => {
+  const source = fs.readFileSync(path.join(__dirname, '../src/services/readinessService.js'), 'utf8');
+  for (const phrase of [
+    'required database schema is unavailable',
+    'database write probe did not insert one row',
+    'database write probe could not read its row',
+    'database write probe left persistent data',
+    'storage write probe stopped early',
+    'not a regular directory',
+  ]) {
+    assert.equal(source.includes(phrase), false, phrase);
+  }
+  assert.match(source, /数据库结构不可用/);
+  assert.match(source, /存储路径不是普通目录/);
+  assert.match(source, /checks\.database\.error = '数据库不可用'/);
+  assert.match(source, /checks\.storage\.error = '存储目录不可用'/);
+  assert.match(source, /checks\.maintenance\.error = '维护租约不可用'/);
 });

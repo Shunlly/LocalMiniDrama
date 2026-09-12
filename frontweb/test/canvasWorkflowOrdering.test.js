@@ -7,12 +7,14 @@ import { VueFlow } from '@vue-flow/core'
 import { ref } from 'vue'
 
 import { useCanvasWorkflowOrder } from '../src/composables/useCanvasWorkflowOrder.js'
+import { readDramaCanvasPageSource } from './helpers/dramaCanvasPageSource.js'
 import { reorderWorkflowGroupStoryboards } from '../src/utils/canvasWorkflow.js'
 
 const sidebarUrl = new URL('../src/components/dramaCanvas/CanvasWorkflowSidebarList.vue', import.meta.url)
 const canvasUrl = new URL('../src/views/DramaCanvas.vue', import.meta.url)
+const productionSidebarUrl = new URL('../src/components/dramaCanvas/CanvasProductionSidebar.vue', import.meta.url)
 const sidebarSource = readFileSync(sidebarUrl, 'utf8')
-const canvasSource = readFileSync(canvasUrl, 'utf8')
+const canvasSource = readDramaCanvasPageSource()
 
 function workflowGroups() {
   return [
@@ -92,11 +94,12 @@ test('workflow order rolls back when persistence reports a failure', async () =>
   const appliedSnapshots = []
   const failures = []
   const expectedError = new Error('network unavailable')
+  const failedResult = { ok: false, error: expectedError, operation: { operationId: 42 } }
   const { workflowOrderSaving, reorderWorkflowStoryboards } = useCanvasWorkflowOrder({
     workflowGroups: groups,
-    persist: async () => ({ ok: false, error: expectedError }),
+    persist: async () => failedResult,
     onOrderApplied: () => appliedSnapshots.push(groups.value[0].storyboard_ids.join(',')),
-    onSaveFailed: (error) => failures.push(error),
+    onSaveFailed: (error, result) => failures.push({ error, result }),
   })
 
   const saved = await reorderWorkflowStoryboards({ groupId: 'group-a', fromIndex: 1, toIndex: 0 })
@@ -106,7 +109,7 @@ test('workflow order rolls back when persistence reports a failure', async () =>
   assert.strictEqual(groups.value, previousGroups)
   assert.deepEqual(groups.value[0].storyboard_ids, [11, 12, 13])
   assert.deepEqual(appliedSnapshots, ['12,11,13', '11,12,13'])
-  assert.deepEqual(failures, [expectedError])
+  assert.deepEqual(failures, [{ error: expectedError, result: failedResult }])
 })
 
 test('workflow order also rolls back when persistence rejects', async () => {
@@ -145,12 +148,19 @@ test('workflow sidebar template compiles with drag handle and keyboard ordering 
   assert.match(sidebarSource, /<ArrowUp\s*\/>/)
   assert.match(sidebarSource, /<ArrowDown\s*\/>/)
   assert.match(sidebarSource, /:aria-label="dragHandleLabel/)
+  assert.match(sidebarSource, /workflowMoveDisabledReason/)
+  assert.match(sidebarSource, /已经是第一条分镜/)
+  assert.match(sidebarSource, /当前不能调整工作流分镜顺序/)
 })
 
-test('drama canvas enables Vue Flow visibility rendering and persists sidebar ordering', () => {
+test('drama canvas enables Vue Flow visibility rendering outside the focused inspector and persists sidebar ordering', () => {
   assert.equal(Boolean(VueFlow.props?.onlyRenderVisibleElements), true)
   assert.match(canvasSource, /:only-render-visible-elements="true"/)
+  assert.doesNotMatch(canvasSource, /only-render-visible-elements="!focusedNodeId/)
+  assert.match(canvasSource, /<CanvasProductionSidebar/)
+  assert.match(canvasSource, /:reorder-workflow-storyboards="reorderWorkflowStoryboards"/)
   assert.match(canvasSource, /@reorder-storyboards="reorderWorkflowStoryboards"/)
   assert.match(canvasSource, /persist: \(\) => persistCanvasState\(\{ groupsOnly: true, reportError: false \}\)/)
   assert.match(canvasSource, /分镜排序保存失败，已恢复原顺序/)
+  assert.match(canvasSource, /onSaveFailed: \(error, result\)[\s\S]*?abandonCanvasSaveOperation\(result\?\.operation\)/)
 })

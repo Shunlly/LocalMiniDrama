@@ -1,4 +1,6 @@
 import request from '@/utils/request'
+import { isSafeUserFacingMessage } from '@/utils/requestError.js'
+import { toUserFacingError } from '@/utils/userFacingError.js'
 
 /**
  * @param {string} url
@@ -6,24 +8,51 @@ import request from '@/utils/request'
  * @param {(delta: string) => void} [onDelta]
  * @returns {Promise<{ universal_segment_text: string }>}
  */
-function postUniversalSegmentNdjsonStream(url, body, onDelta) {
-  return fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/x-ndjson' },
-    body: JSON.stringify(body || {}),
-  }).then(async (res) => {
+function streamUserError(raw, fallback = '请求失败') {
+  const text = String(raw || '').trim()
+  if (isSafeUserFacingMessage(text)) return text
+  return toUserFacingError({ message: text }, fallback)
+}
+
+function createAbortError(message = '操作已取消') {
+  if (typeof DOMException === 'function') return new DOMException(message, 'AbortError')
+  const error = new Error(message)
+  error.name = 'AbortError'
+  return error
+}
+
+function throwIfStreamAborted(signal) {
+  if (!signal?.aborted) return
+  throw createAbortError()
+}
+
+async function postUniversalSegmentNdjsonStream(url, body, onDelta, options = {}) {
+  const signal = options.signal
+  throwIfStreamAborted(signal)
+  let res
+  try {
+    res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/x-ndjson' },
+      body: JSON.stringify(body || {}),
+      signal,
+    })
+  } catch (error) {
+    if (error?.name === 'AbortError' || signal?.aborted) throw createAbortError()
+    throw error
+  }
     if (!res.ok) {
-      let msg = `请求失败 (${res.status})`
+      let msg = '请求失败'
       try {
         const j = await res.json()
-        if (j?.error?.message) msg = j.error.message
+        if (j?.error?.message) msg = streamUserError(j.error.message, msg)
       } catch (_) {
         try {
           const t = await res.text()
-          if (t) msg = t.slice(0, 200)
+          if (t) msg = streamUserError(t.slice(0, 200), msg)
         } catch (_) {}
       }
-      throw new Error(msg)
+      throw new Error(streamUserError(msg, '请求失败'))
     }
     const reader = res.body && res.body.getReader()
     if (!reader) throw new Error('浏览器不支持流式读取')
@@ -31,6 +60,7 @@ function postUniversalSegmentNdjsonStream(url, body, onDelta) {
     let buf = ''
     let finalText = ''
     while (true) {
+      throwIfStreamAborted(signal)
       const { done, value } = await reader.read()
       if (done) break
       buf += dec.decode(value, { stream: true })
@@ -46,7 +76,7 @@ function postUniversalSegmentNdjsonStream(url, body, onDelta) {
           continue
         }
         if (obj.type === 'delta' && obj.text && typeof onDelta === 'function') onDelta(String(obj.text))
-        if (obj.type === 'error') throw new Error(obj.message || '请求失败')
+        if (obj.type === 'error') throw new Error(streamUserError(obj.message, '请求失败'))
         if (obj.type === 'done') {
           finalText = (obj.universal_segment_text && String(obj.universal_segment_text).trim()) || ''
         }
@@ -56,14 +86,13 @@ function postUniversalSegmentNdjsonStream(url, body, onDelta) {
     if (tail) {
       try {
         const obj = JSON.parse(tail)
-        if (obj.type === 'error') throw new Error(obj.message || '请求失败')
+        if (obj.type === 'error') throw new Error(streamUserError(obj.message, '请求失败'))
         if (obj.type === 'done') finalText = (obj.universal_segment_text && String(obj.universal_segment_text).trim()) || finalText
       } catch (e) {
         if (e instanceof Error && e.message && !e.message.includes('JSON')) throw e
       }
     }
     return { universal_segment_text: finalText }
-  })
 }
 
 export const storyboardsAPI = {
@@ -79,11 +108,11 @@ export const storyboardsAPI = {
   delete(id) {
     return request.delete(`/storyboards/${id}`)
   },
-  generateFramePrompt(id, data) {
-    return request.post(`/storyboards/${id}/frame-prompt`, data)
+  generateFramePrompt(id, data, options) {
+    return request.post(`/storyboards/${id}/frame-prompt`, data, options || {})
   },
-  getFramePrompts(id) {
-    return request.get(`/storyboards/${id}/frame-prompts`)
+  getFramePrompts(id, options) {
+    return request.get(`/storyboards/${id}/frame-prompts`, options || {})
   },
   /** 保存/覆盖首帧或尾帧提示词（用于用户手动编辑后保存） */
   saveFramePrompt(id, frameType, data) {
@@ -97,22 +126,24 @@ export const storyboardsAPI = {
     return request.post(`/storyboards/${id}/universal-segment-prompt`, body)
   },
   /** 全能模式生成：NDJSON 流式，可选 body.duration、body.force_without_reference_images */
-  generateUniversalSegmentPromptStream(id, body, onDelta) {
+  generateUniversalSegmentPromptStream(id, body, onDelta, options) {
     return postUniversalSegmentNdjsonStream(
       `/api/v1/storyboards/${id}/universal-segment-prompt-stream`,
       body,
-      onDelta
+      onDelta,
+      options || {}
     )
   },
   /**
    * 流式润色全能片段：NDJSON 行 {type:'delta',text} / {type:'done',universal_segment_text} / {type:'error',message}
    * body.draft_universal_segment_text 为当前编辑区全文；可选 duration、force_without_reference_images
    */
-  polishUniversalSegmentPromptStream(id, body, onDelta) {
+  polishUniversalSegmentPromptStream(id, body, onDelta, options) {
     return postUniversalSegmentNdjsonStream(
       `/api/v1/storyboards/${id}/universal-segment-polish-stream`,
       body,
-      onDelta
+      onDelta,
+      options || {}
     )
   },
   insertBefore(id) {

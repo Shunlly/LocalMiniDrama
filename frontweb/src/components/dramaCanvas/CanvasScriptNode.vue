@@ -11,11 +11,13 @@
       tabindex="0"
       :aria-label="accessibleLabel"
       :aria-expanded="showPanel"
+      :aria-busy="isNodeBusy"
+      :title="accessibleLabel"
       @keydown.enter.stop.prevent="openPanel"
       @keydown.space.stop.prevent="openPanel"
     >
       <Handle type="source" :position="Position.Right" />
-      <CanvasNodeStatusOverlay :node-id="id" />
+      <CanvasNodeStatusOverlay :node-id="id" :fallback-message="busyFallback" />
       <div class="head">
         <span class="badge">📜 剧本</span>
         <span class="ep">第 {{ data.episode?.episode_number ?? '?' }} 集</span>
@@ -26,13 +28,8 @@
         <span>{{ sceneCount }} 场景</span>
         <span>{{ propCount }} 道具</span>
       </div>
-      <div class="hint">{{ showPanel ? '下方可编辑与提取' : '单击展开 · 创作起点' }}</div>
+      <div class="hint">{{ showPanel ? '右侧检查器可编辑与提取' : '单击展开 · 创作起点' }}</div>
     </div>
-    <CanvasScriptPanel
-      v-if="showPanel"
-      :episode="data.episode"
-      :node-id="id"
-    />
   </div>
 </template>
 
@@ -40,7 +37,6 @@
 import { computed } from 'vue'
 import { Handle, Position } from '@vue-flow/core'
 import { useCanvasContext } from '@/composables/useCanvasContext'
-import CanvasScriptPanel from './CanvasScriptPanel.vue'
 import CanvasNodeStatusOverlay from './CanvasNodeStatusOverlay.vue'
 
 const props = defineProps({
@@ -66,14 +62,16 @@ const isNodeBusy = computed(() => {
   return map ? !!map[props.id] : false
 })
 
+const busyFallback = computed(() => (isNodeBusy.value ? '处理中…' : ''))
+
 const accessibleLabel = computed(() => {
   const episodeNumber = props.data.episode?.episode_number ?? '?'
   const state = isNodeBusy.value ? '处理中' : hasScript.value ? '已有剧本' : '暂无剧本'
   return `第 ${episodeNumber} 集剧本，${state}，按 Enter 或空格展开`
 })
 
-function openPanel() {
-  ctx?.setFocusedNode?.(props.id)
+async function openPanel() {
+  await ctx?.setFocusedNode?.(props.id)
 }
 </script>
 

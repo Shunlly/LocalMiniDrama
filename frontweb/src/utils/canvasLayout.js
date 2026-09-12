@@ -13,6 +13,12 @@ export function parseCanvasLayout(metadata) {
   return meta.canvas_layout || null
 }
 
+/** 读取自由画布状态；旧项目没有该字段时返回 null。 */
+export function parseFreeCanvas(metadata) {
+  const meta = parseDramaMetadata(metadata)
+  return meta.free_canvas || null
+}
+
 /** 合并 metadata 并写入 canvas_layout（阶段 B 使用） */
 export function mergeCanvasLayoutIntoMetadata(metadata, canvasLayout) {
   let meta = metadata
@@ -47,13 +53,13 @@ export function resolveViewport(savedLayout, fallback = { x: 0, y: 0, zoom: 0.75
   return fallback
 }
 
-const NON_DRAGGABLE_TYPES = new Set(['canvasLabel', 'canvasAddButton'])
+const NON_PERSISTED_LAYOUT_TYPES = new Set(['canvasLabel', 'canvasAddButton', 'freeCanvas'])
 
 /** 从当前 Vue Flow 节点与视口构建可持久化的 canvas_layout */
 export function buildCanvasLayoutPayload(flowNodes, viewport, existingLayout = null) {
   const nodes = { ...(existingLayout?.nodes || {}) }
   for (const node of flowNodes || []) {
-    if (!node?.id || NON_DRAGGABLE_TYPES.has(node.type)) continue
+    if (!node?.id || NON_PERSISTED_LAYOUT_TYPES.has(node.type) || node.id.startsWith?.('free:')) continue
     if (!node.position) continue
     nodes[node.id] = {
       x: node.position.x,

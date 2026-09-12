@@ -2,7 +2,7 @@
 export function normalizeEntityId(id) {
   if (id == null || id === '') return null
   const n = Number(id)
-  return Number.isFinite(n) ? n : null
+  return Number.isSafeInteger(n) && n > 0 ? n : null
 }
 
 export function normalizeEntityIdList(ids) {

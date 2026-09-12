@@ -1,76 +1,91 @@
-# Novel2Anime Implementation Status
+# Novel2Anime 实现状态
 
-Date: 2026-07-17
-Release scope: LocalMiniDrama 1.3.2 desktop
+日期：2026-09-10
+范围：LocalMiniDrama `1.3.3` 桌面源码 / Docker
 
-## Status
+## 当前状态
 
-The desktop Novel2Anime workflow is implemented end to end and is part of the 1.3.2 release candidate. It covers source intake, extraction, adaptation, asset generation, storyboards, media generation, TTS, FFmpeg composition, QA, repair, export, recovery, and cleanup.
+Novel2Anime 生产工作流的源码链路已经实现，覆盖文本素材导入、改编、资产生成、分镜、媒体生成、TTS、FFmpeg 合成、QA、修复、导出、恢复和清理。故事素材可上传 PDF/图片/音视频并走 OCR/转写抽取；这是素材抽取扩展，不是成片就绪条件。源码实现不等于产品已发版，也不等于真实云 OCR/Whisper 账号、真实厂商账号或移动端已经完成。当前分支和脏工作树不能当作发布完成。
 
-The production E2E uses a deterministic local OpenAI-compatible provider harness so the workflow can be verified without committing external credentials. Availability, quota, billing, and model-specific behavior of any third-party account remain external concerns and must be checked from AI Configuration before a real production run.
+生产 E2E 使用隔离的本地 OpenAI 兼容 Provider harness，不提交外部凭据。它可以验证本地协议兼容的非 mock 流程，但不代表任何第三方账号、模型、额度、计费或长耗时行为已经深度联调。厂商预设填表不等于真实接入已跑通；真实部署仍须在「AI 配置」中连接测试并用非敏感样例验收。用户可见错误为简体中文。
 
-## Completed Product Flow
+## 已实现生产流程
 
-1. Project Readiness exposes one next action across AI configuration, source, script/episodes, assets, storyboards, and media.
-2. Source Intake presents `Import source -> Start processing -> QA -> Repair -> Episodes / Timeline` with executable empty and failure states.
-3. Film Create and Canvas share project data, action prerequisites, task progress, failure recovery, reference media, first/last frames, and composition output.
-4. Media Library supports validated local upload, search, type filtering, URL intake boundaries, preview, download, and cleanup.
-5. Production QA requires real local media plus successful non-mock provider audit records for text/image/video/TTS/compositor stages.
+1. 项目就绪度在 AI 配置、素材、剧本/剧集、资产、分镜和媒体之间给出唯一下一步。
+2. 故事素材处理按「导入素材 → 启动处理 → QA → 修复 → 剧集/时间线」形成可执行的空数据和失败状态。文本可直接导入；PDF/图片/音视频可上传抽取，失败时引导到「AI 配置」的图片识别或语音转写。
+3. 制作台与画布共享项目数据、动作前置条件、任务进度、失败恢复、参考媒体、首尾帧和合成输出。
+4. 素材中心支持本地图片/视频上传、搜索、筛选、预览、下载和清理，也支持从 Wikimedia Commons 和 Openverse 搜索公开图片、展示作者与许可来源、预览并安全下载到项目或全局素材库。Openverse 目前以图片为主，视频仍以 Commons 为主。
+5. 网页 URL 入口只负责导入故事正文，不等同于第三方媒体搜索或版权服务。
+6. 生产 QA 要求真实本地媒体，以及文本、图片、视频、TTS 和合成阶段成功的非 mock Provider 审计记录。
 
-## Production Provider Execution
+## AI 文本与媒体能力
 
-- Text adaptation routes through an active configured text service, including OpenAI-compatible cloud gateways and local Ollama-compatible routes.
-- Asset and storyboard images route through configured image services; ComfyUI execution includes workflow submission, history polling, output retrieval, cancellation, timeout, and error sanitization.
-- Storyboard video uses the configured video service with bounded polling, retry, cancellation, idempotency, and local media persistence.
-- Dialogue and narration use the configured TTS service and persist validated local audio.
-- Episode composition validates FFmpeg/FFprobe, combines video and audio tracks, stores a local merged output, and records compositor evidence.
-- Provider calls record sanitized audit state, idempotency keys, cost semantics, status, and safe error summaries.
+- 文本改编通过已启用的文本服务路由；Google Gemini 文本使用官方 Gemini OpenAI 兼容端点 `https://generativelanguage.googleapis.com/v1beta/openai`，前端提供 Gemini 文本模型预设。
+- Gemini 文本的配置、路由和连接测试已接入；真实 Google 账号、模型版本、配额和计费行为仍未由仓库自动化测试验证。
+- 资产图和分镜图调用已配置的图片服务；ComfyUI 路径包含提交、历史轮询、输出获取、取消、超时和错误净化。
+- 分镜视频调用已配置的视频服务，具有限界轮询、重试、取消、幂等和本地媒体持久化。
+- 对白和旁白调用已配置的 TTS 服务并持久化校验后的本地音频。
+- 剧集合成校验 FFmpeg/FFprobe，合并音视频轨道，保存本地成片并记录合成证据。
+- Provider 调用记录净化后的审计状态、幂等键、成本语义、状态和安全错误摘要。
 
-## Source Extraction
+## 素材抽取
 
-- Text-like files are decoded and normalized with upload and content limits.
-- PDF sources use embedded text where available and configured OCR for image-only pages.
-- Images use the configured OCR-capable vision service.
-- Audio uses an active OpenAI-compatible transcription service.
-- Video is probed, duration-limited, converted to bounded audio with FFmpeg, and sent to transcription.
-- Original source files remain project-scoped and are included in safe project/full-data export policies.
+- 文本类文件可直接导入，并按上传和内容限制解码、规范化。
+- PDF/图片/音视频可从故事素材入口上传：PDF 与图片需要图片识别（可本机 Tesseract 或 AI 配置 OCR）；音视频需要语音转写配置。未配置时会给出中文失败原因。真实云 OCR/转写账号联调仍后置。
+- OCR/转写是素材抽取扩展，不是正式制作的成片就绪条件；成片仍要求文本、素材图、分镜图、视频、TTS 五类服务就绪。
+- 真实云 OCR/Whisper 账号、模型、额度、计费组合仍后置，仓库测试只用本地协议兼容服务，不能写成每个云账号都已联调。
+- 原始素材保持项目作用域，并纳入安全项目/全量导出策略。
 
-## Reliability And Security
+## 可靠性与安全
 
-- Workflow runs support pause, resume, retry, cancel, startup recovery, shutdown drain, and recorded step side effects.
-- Provider requests apply timeouts, finite retries, cancellation, response-size limits, safe redirects, and SSRF checks.
-- AI configuration responses, exports, backups, logs, and Provider errors redact keys, credentials, URL signatures, and nested sensitive fields.
-- Import/export and media paths use controlled roots, archive entry/size limits, media signature checks, and rollback cleanup.
-- Full data backup verifies SQLite and referenced files; restore refuses a live database/port and retains a pre-restore rollback copy.
+- 工作流支持暂停、恢复、重试、取消、启动恢复、关闭排空和步骤副作用记录。
+- Provider 请求具备超时、有限重试、取消、响应大小限制、安全重定向和 SSRF 检查。
+- AI 配置响应、导出、备份、日志和 Provider 错误会脱敏密钥、凭据、URL 签名和嵌套敏感字段。
+- 导入导出和素材路径受控，具备归档条目/大小限制、媒体签名检查和失败回滚清理。
+- 跨项目素材搜索采用最新请求生效策略；项目导入失败保留净化后的可重试页内反馈。
+- 全量备份校验 SQLite 和引用文件；恢复会拒绝在线数据库/端口并保留恢复前回滚副本。
 
-## Verification Evidence
+## 验证证据
 
-Release acceptance requires all of the following on the same source revision:
+源码、后端、前端、Docker 和通用 PR/分支门禁固定使用 Node.js 20.x；桌面依赖安装、原生重建、打包和 Windows 制品安全扫描固定使用 Node.js 22.12.0，Electron 运行时自带 Node.js 24。
+
+常用校验命令：
 
 ```bash
+npm --prefix backend-node test
+npm --prefix frontweb test
 npm run verify
 npm run verify:docker
-npm run verify:e2e
-npm run verify:release:source
-npm run verify:release:windows
-# After independent Gitleaks, Trivy, Defender, extraction, and Fuse checks:
-npm run verify:release:artifacts
 ```
 
-`verify:release:windows` builds and smoke-tests the unverified Setup, Portable, and Unpacked candidate plus SBOMs; it never creates a final release manifest before independent artifact scans pass. The production E2E covers text, asset/storyboard image, video, TTS, FFmpeg composition, playback at desktop viewports, final download, project export, injected failure recovery, and zero-residue cleanup. Final evidence is written under `artifacts/e2e-production/` and must report version `1.3.2`, the release commit SHA, and `working_tree_dirty=false`.
+生产 E2E 必须在干净工作树、使用新建的仓库外空数据目录，先执行 `npm run docker:e2e:up` 启动隔离 Compose 与本地 Provider，再执行 `npm run verify:e2e`，最后销毁 E2E profile 和临时数据目录。命令示例见 [快速开始](quickstart.md#运行方式二docker)。仓库测试使用本地协议兼容 Provider，不代表真实厂商账号已联调。当前脏工作树不能当作已通过。
 
-The Trivy vulnerability gate reads the backend, frontend, desktop, and release CycloneDX SBOMs separately. Its configuration gate scans the three real Dockerfiles rather than the extracted application tree. The backend bind-mount ownership exception is path-scoped in `backend-node/.trivyignore.yaml`, recorded in artifact security evidence, and expires on 2027-07-17 for review.
+生产 E2E 覆盖文本、资产/分镜图片、视频、TTS、FFmpeg 合成、桌面视口播放、最终下载、项目导出、注入失败恢复和零残留清理。最终证据应写入 `artifacts/e2e-production/`，并绑定版本 `1.3.3`、完整源码 SHA 和 `working_tree_dirty=false`。
 
-## Deferred Boundaries
+说明性产品报告中的 tracked 截图矩阵为历史/说明性图片，不能替代当前仓库的 `npm run verify:docker` 与隔离生产 E2E。
 
-### Mobile Web
+## 历史失败记录
 
-The 1.3.2 acceptance matrix is desktop-only. Mobile reflow, touch-specific behavior, and a mobile Canvas/list fallback remain deferred and must not be inferred as complete from desktop screenshots or tests.
+2026-07-27 的自由画布运行证据记录过来源校验 403、点击「生成配置」时被画布容器拦截、刷新后文本节点未保留浏览器编辑内容，以及画布平移保存超时。它们是历史失败记录，不能当作当前能力说明。
 
-### External Provider Deep Validation
+## 明确后置边界
 
-The generic production adapters and routing are implemented. The release does not claim that every vendor, model revision, private deployment, account quota, or billing policy has been validated. Each real endpoint must be configured locally, connection-tested, and accepted with non-sensitive sample content before production use. Provider credentials are never included in repository, reports, E2E evidence, exports, or backups.
+### Wikimedia 以外的网络素材与许可判断
 
-### Desktop Signing And Other Platforms
+Wikimedia Commons 与 Openverse 的搜索、作者/许可元数据展示、预览和安全下载已实现。Openverse 缩略图经本后端同源代理，不直连任意 CDN。更多第三方素材平台，以及针对具体商业、编辑、再发布等用途的自动许可兼容判断后置；使用者仍需自行核对实际用途的许可条件。
 
-Windows x64 Setup, Portable, and unpacked are the release targets. Authenticode signing, macOS artifacts, and Linux desktop artifacts are deferred; the macOS build script fails closed instead of producing an unverified artifact.
+### 远端模型发现与真实厂商接入
+
+AI 配置提供厂商预设、自定义 OpenAI 兼容厂商和手工模型列表。连接测试可以探测配置端点。OpenAI 兼容厂商可按需读取 `/v1/models` 目录并合并进手工模型列表，不会自动覆盖已有模型名。厂商预设填表不等于真实图片/视频/TTS 接入已跑通。
+
+### 素材 OCR/转写与真实云账号
+
+故事素材入口已可上传 PDF/图片/音视频并走 OCR/转写。这不等于每个云 OCR/Whisper 账号、模型、额度或计费组合已经联调，也不能替代正式制作所需的五类服务。
+
+### 移动端与外部 Provider
+
+当前验收范围仅覆盖桌面。移动重排、触控行为、移动画布/列表降级、协作、完整 Agent/MCP 面板，以及每个真实图片/视频/TTS 厂商/模型/账号组合的深度验证均后置，不能当作已完成。
+
+### 桌面签名与其他平台
+
+当前桌面范围是 Windows x64。Authenticode 签名、macOS 制品和 Linux 桌面制品后置；macOS 构建脚本会失败关闭。

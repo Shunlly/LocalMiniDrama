@@ -19,7 +19,7 @@
         description-id="canvas-reason-workflow-video-step"
         config-service-type="video"
       >
-        <el-checkbox value="video" :disabled="Boolean(videoStepGateReason)">生视频</el-checkbox>
+        <el-checkbox value="video" :disabled="Boolean(videoStepGateReason)" :title="videoStepGateReason || undefined">生视频</el-checkbox>
       </CanvasActionGate>
       <CanvasActionGate
         :reason="audioStepGateReason"
@@ -27,7 +27,7 @@
         description-id="canvas-reason-workflow-audio-step"
         config-service-type="tts"
       >
-        <el-checkbox value="audio" :disabled="Boolean(audioStepGateReason)">配音</el-checkbox>
+        <el-checkbox value="audio" :disabled="Boolean(audioStepGateReason)" :title="audioStepGateReason || undefined">配音</el-checkbox>
       </CanvasActionGate>
     </el-checkbox-group>
 
@@ -40,7 +40,9 @@
     >
       <el-button
         size="small"
+        aria-label="创建分组（工作流）"
         :disabled="Boolean(actionReasons.createWorkflow)"
+        :title="actionReasons.createWorkflow || '创建分组（工作流）'"
         @click="emit('create-workflow')"
       >
         <el-icon><Plus /></el-icon>
@@ -51,6 +53,8 @@
     <template v-if="showManagementControls">
       <el-select
         :model-value="activeGroupId"
+        aria-label="当前工作流分组"
+        title="当前工作流分组"
         size="small"
         placeholder="选择工作流"
         clearable
@@ -76,12 +80,25 @@
           type="primary"
           :loading="workflowRunning"
           :disabled="Boolean(actionReasons.runWorkflow)"
-          @click="emit('run-workflow')"
+          :title="actionReasons.runWorkflow || '执行工作流分组'"
+          :aria-label="workflowRunning ? '正在执行分组' : (actionReasons.runWorkflow || '执行工作流分组')" @click="emit('run-workflow')"
         >
           <el-icon><Refresh /></el-icon>
           执行分组
         </el-button>
       </CanvasActionGate>
+
+      <el-button
+        v-if="workflowRunning"
+        size="small"
+        type="warning"
+        plain
+        aria-label="取消执行"
+        title="取消执行"
+        @click="emit('cancel-workflow')"
+      >
+        取消执行
+      </el-button>
 
       <CanvasActionGate :reason="actionReasons.deleteWorkflow" label="删除工作流分组" description-id="canvas-reason-delete-workflow">
         <el-button
@@ -89,7 +106,8 @@
           type="danger"
           plain
           :disabled="Boolean(actionReasons.deleteWorkflow)"
-          @click="emit('delete-workflow')"
+          :title="actionReasons.deleteWorkflow || '删除工作流分组'"
+          :aria-label="actionReasons.deleteWorkflow || '删除工作流分组'" @click="emit('delete-workflow')"
         >
           <el-icon><Delete /></el-icon>
           删除
@@ -113,6 +131,7 @@ const props = defineProps({
   activeGroupId: { type: [String, Number], default: null },
   pipelineSteps: { type: Array, default: () => [] },
   workflowRunning: { type: Boolean, default: false },
+  workflowProgress: { type: String, default: '' },
   actionReasons: { type: Object, default: () => ({}) },
   actionConfigServices: { type: Object, default: () => ({}) },
 })
@@ -122,6 +141,7 @@ const emit = defineEmits([
   'update:activeGroupId',
   'create-workflow',
   'run-workflow',
+  'cancel-workflow',
   'delete-workflow',
 ])
 
@@ -133,7 +153,11 @@ const workflowUiState = computed(() => getCanvasWorkflowUiState({
 
 const showCreateControls = computed(() => workflowUiState.value.showCreateControls)
 const showManagementControls = computed(() => workflowUiState.value.showManagementControls)
-const helperText = computed(() => workflowUiState.value.helperText)
+const helperText = computed(() => (
+  props.workflowRunning && props.workflowProgress
+    ? props.workflowProgress
+    : workflowUiState.value.helperText
+))
 const videoStepGateReason = computed(() => (
   props.actionReasons.video && !props.pipelineSteps.includes('video')
     ? props.actionReasons.video

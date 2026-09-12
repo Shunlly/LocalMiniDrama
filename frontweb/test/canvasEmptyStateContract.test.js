@@ -3,11 +3,12 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
 import { compileScript, parse } from '@vue/compiler-sfc'
+import { readDramaCanvasPageSource } from './helpers/dramaCanvasPageSource.js'
 import { createRenderer, defineComponent, h, nextTick, ref } from 'vue'
 
 const componentUrl = new URL('../src/components/dramaCanvas/CanvasEmptyState.vue', import.meta.url)
 const componentSource = readFileSync(componentUrl, 'utf8')
-const canvasSource = readFileSync(new URL('../src/views/DramaCanvas.vue', import.meta.url), 'utf8')
+const canvasSource = readDramaCanvasPageSource()
 const { descriptor } = parse(componentSource, { filename: componentUrl.pathname })
 let compiledSource = compileScript(descriptor, {
   id: 'canvas-empty-state-contract',
@@ -143,6 +144,10 @@ function textContent(node) {
   return `${node.text || ''}${(node.children || []).map(textContent).join('')}`
 }
 
+function findConfirmButton(root) {
+  return findAll(root, 'button').find((button) => /进入这一集/.test(textContent(button)))
+}
+
 function mountEmptyState({ initialEpisodes = [], initialSelectedEpisodeId = null } = {}) {
   const episodes = ref(initialEpisodes)
   const selectedEpisodeId = ref(initialSelectedEpisodeId)
@@ -250,10 +255,68 @@ test('no episode options expose creation without a dead confirm action', async (
   }
 })
 
+test('disabled confirm action explains missing episode selection', async () => {
+  const missingSelection = mountEmptyState({
+    initialEpisodes: [{ id: 11, title: '第 1 集' }, { id: 12, title: '第 2 集' }],
+  })
+  try {
+    const disabledButton = findConfirmButton(missingSelection.root)
+    assert.equal(disabledButton.props.disabled, true)
+    assert.equal(disabledButton.props.title, '请先选择要进入的剧集')
+    assert.equal(disabledButton.props['aria-label'], '进入这一集')
+    assert.equal(disabledButton.props['aria-describedby'], 'canvas-empty-episode-reason')
+    assert.ok(String(disabledButton.props['aria-label']).includes('进入这一集'))
+
+    findAll(missingSelection.root, 'select')[0].props.onChange({ target: { value: '12' } })
+    await nextTick()
+
+    const enabledAfterSelect = findConfirmButton(missingSelection.root)
+    assert.equal(enabledAfterSelect.props.disabled, false)
+    assert.equal(enabledAfterSelect.props.title, undefined)
+  } finally {
+    missingSelection.app.unmount()
+  }
+
+  const preselected = mountEmptyState({
+    initialEpisodes: [{ id: 11, title: '第 1 集' }, { id: 12, title: '第 2 集' }],
+    initialSelectedEpisodeId: 11,
+  })
+  try {
+    const enabledButton = findConfirmButton(preselected.root)
+    assert.equal(enabledButton.props.disabled, false)
+    assert.equal(enabledButton.props.title, undefined)
+    assert.equal(enabledButton.props['aria-label'], '进入这一集')
+  } finally {
+    preselected.app.unmount()
+  }
+})
+
 test('parent only commits a validated confirmation event', () => {
   assert.doesNotMatch(componentSource, /update:selectedEpisodeId/)
   assert.doesNotMatch(canvasSource, /@update:selected-episode-id=/)
   assert.match(canvasSource, /@confirm-episode="confirmEpisodeSelection"/)
   assert.match(canvasSource, /const episodeId = resolveCanvasEpisodeId\(drama\.value\?\.episodes, value\)/)
-  assert.match(canvasSource, /filterEpisodeId\.value = episodeId/)
+  assert.match(canvasSource, /async function requestEpisodeFilterChange\([\s\S]*?router\.replace\(\{ query \}\)/)
+  assert.match(canvasSource, /async function confirmEpisodeSelection\([\s\S]*?await requestEpisodeFilterChange\(episodeId\)/)
+})
+
+test('空态下一步入口带 autofocus，方便键盘直接开始', () => {
+  assert.match(componentSource, /autofocus/)
+  assert.match(componentSource, /:autofocus="!actions.primaryAction"/)
+  assert.match(componentSource, /aria-label="新建第一集"/)
+  assert.match(componentSource, /aria-label="进入这一集"/)
+  assert.match(componentSource, /id="canvas-empty-episode-reason"/)
+  assert.match(componentSource, /请先选择要进入的剧集/)
+  assert.match(componentSource, /aria-label="返回列表模式"/)
+})
+
+test('空态面板窄屏换行，读屏名包含可见文案', () => {
+  assert.match(componentSource, /\.start-panel \{[\s\S]*?max-width: 100%;/)
+  assert.match(componentSource, /overflow-wrap: anywhere;/)
+  assert.match(componentSource, /aria-label="进入这一集"/)
+  assert.match(componentSource, />\s*进入这一集\s*</)
+  assert.match(componentSource, /aria-label="返回列表模式"/)
+  assert.match(componentSource, />\s*列表模式\s*</)
+  assert.match(componentSource, /aria-label="新建第一集"/)
+  assert.match(componentSource, />\s*新建第一集\s*</)
 })

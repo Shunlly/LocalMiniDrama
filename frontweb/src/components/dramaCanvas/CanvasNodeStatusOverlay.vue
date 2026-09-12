@@ -1,16 +1,25 @@
 <template>
-  <div v-if="status" class="node-status-overlay" :class="'step-' + status.step">
-    <span class="spinner" />
-    <span class="msg">{{ status.message }}</span>
+  <div
+    v-if="visible"
+    class="node-status-overlay"
+    :class="'step-' + stepClass"
+    role="status"
+    aria-live="polite"
+    aria-busy="true"
+  >
+    <span class="spinner" aria-hidden="true" />
+    <span class="msg">{{ displayMessage }}</span>
   </div>
 </template>
 
 <script setup>
 import { computed } from 'vue'
 import { useCanvasContext } from '@/composables/useCanvasContext'
+import { toCanvasChineseMessage } from './canvasExperienceCopy.js'
 
 const props = defineProps({
   nodeId: { type: String, required: true },
+  fallbackMessage: { type: String, default: '' },
 })
 
 const ctx = useCanvasContext()
@@ -20,6 +29,18 @@ const status = computed(() => {
   if (!map || !props.nodeId) return null
   return map[props.nodeId] || null
 })
+
+const fallbackText = computed(() => String(props.fallbackMessage || '').trim())
+
+const visible = computed(() => Boolean(status.value || fallbackText.value))
+
+const displayMessage = computed(() => {
+  const fromStatus = String(status.value?.message || '').trim()
+  const fallback = fallbackText.value || '处理中…'
+  return toCanvasChineseMessage(fromStatus, fallback)
+})
+
+const stepClass = computed(() => status.value?.step || 'busy')
 </script>
 
 <style scoped>
@@ -53,7 +74,8 @@ const status = computed(() => {
 .step-video .spinner { border-top-color: var(--canvas-pink-text, #f472b6); }
 .step-audio .spinner { border-top-color: var(--canvas-amber-strong, #fbbf24); }
 .msg {
-  font-size: 10px;
+  font-size: 12px;
+  font-weight: 600;
   color: var(--canvas-overlay-text, #e4e4e7);
   text-align: center;
   padding: 0 8px;

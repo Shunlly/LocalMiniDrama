@@ -1,13 +1,15 @@
 <template>
   <div class="canvas-desktop-toolbar">
     <div class="toolbar-main-row">
-      <CanvasToolbarGroup title="创建内容" aria-label="创建内容" :helper="contentHelper">
+      <CanvasToolbarGroup v-if="!isFreeMode" title="创建内容" aria-label="创建内容" :helper="contentHelper">
         <CanvasActionGate :reason="actionReasons.editScript" label="编辑剧本" description-id="canvas-reason-edit-script">
           <el-button
             size="small"
             type="warning"
             plain
+            aria-label="编辑剧本"
             :disabled="Boolean(actionReasons.editScript)"
+            :title="actionReasons.editScript || '编辑剧本'"
             @click="emit('edit-script')"
           >
             <el-icon><Document /></el-icon>
@@ -17,20 +19,22 @@
         <CanvasActionGate :reason="actionReasons.createStoryboard" label="新建分镜" description-id="canvas-reason-create-storyboard">
           <el-button
             size="small"
+            aria-label="新建分镜"
             :disabled="Boolean(actionReasons.createStoryboard)"
+            :title="actionReasons.createStoryboard || '新建分镜'"
             @click="emit('create', 'storyboard')"
           >
             <el-icon><Plus /></el-icon>
             分镜
           </el-button>
         </CanvasActionGate>
-        <el-button size="small" @click="emit('create', 'episode')">
+        <el-button size="small" aria-label="新建剧集" title="新建剧集" @click="emit('create', 'episode')">
           <el-icon><Tickets /></el-icon>
           剧集
         </el-button>
         <CanvasActionGate :reason="actionReasons.createAsset" label="新建素材" description-id="canvas-reason-create-asset">
           <el-dropdown trigger="click" :disabled="Boolean(actionReasons.createAsset)" @command="emit('create', $event)">
-            <el-button size="small" :disabled="Boolean(actionReasons.createAsset)">
+            <el-button size="small" aria-label="新建素材" :disabled="Boolean(actionReasons.createAsset)" :title="actionReasons.createAsset || '新建素材'">
               <el-icon><Box /></el-icon>
               素材
               <el-icon class="dropdown-arrow"><ArrowDown /></el-icon>
@@ -47,28 +51,33 @@
       </CanvasToolbarGroup>
 
       <CanvasWorkflowToolbarGroup
+        v-if="!isFreeMode"
         class="workflow-group"
         :selected-storyboard-count="selectedStoryboardCount"
         :workflow-groups="workflowGroups"
         :active-group-id="activeGroupId"
         :pipeline-steps="pipelineSteps"
         :workflow-running="workflowRunning"
+        :workflow-progress="workflowProgress"
         :action-reasons="actionReasons"
         :action-config-services="actionConfigServices"
         @update:pipeline-steps="emit('update:pipelineSteps', $event)"
         @update:active-group-id="emit('update:activeGroupId', $event)"
         @create-workflow="emit('create-workflow')"
         @run-workflow="emit('run-workflow')"
+        @cancel-workflow="emit('cancel-workflow')"
         @delete-workflow="emit('delete-workflow')"
       />
 
-      <CanvasToolbarGroup title="批量生成" aria-label="本集批量生成" :helper="batchHelper">
+      <CanvasToolbarGroup v-if="!isFreeMode" title="批量生成" aria-label="本集批量生成" :helper="batchHelper">
         <CanvasActionGate :reason="actionReasons.generateStoryboards" label="AI 生成分镜" description-id="canvas-reason-generate-storyboards">
           <el-button
             size="small"
             type="primary"
+            aria-label="AI 生成分镜"
             :loading="episodeGenerating"
             :disabled="Boolean(actionReasons.generateStoryboards)"
+            :title="actionReasons.generateStoryboards || 'AI 生成分镜'"
             @click="emit('generate-storyboards')"
           >
             <el-icon><MagicStick /></el-icon>
@@ -78,8 +87,10 @@
         <CanvasActionGate :reason="actionReasons.batchImages" label="批量生成图片" description-id="canvas-reason-batch-images">
           <el-button
             size="small"
+            aria-label="批量生成图片"
             :loading="episodeGenerating"
             :disabled="Boolean(actionReasons.batchImages)"
+            :title="actionReasons.batchImages || '批量生成图片'"
             @click="emit('batch-images')"
           >
             <el-icon><Picture /></el-icon>
@@ -94,8 +105,10 @@
         >
           <el-button
             size="small"
+            aria-label="批量生成视频"
             :loading="episodeGenerating"
             :disabled="Boolean(actionReasons.batchVideos)"
+            :title="actionReasons.batchVideos || '批量生成视频'"
             @click="emit('batch-videos')"
           >
             <el-icon><VideoPlay /></el-icon>
@@ -104,25 +117,62 @@
         </CanvasActionGate>
       </CanvasToolbarGroup>
 
-      <div class="toolbar-utilities" aria-label="画布工具">
-        <el-tooltip content="自动对齐并适配全部节点" placement="bottom">
-          <el-button size="small" :loading="aligningNodes" aria-label="对齐节点" @click="emit('align')">
-            <el-icon><Grid /></el-icon>
-          </el-button>
-        </el-tooltip>
-        <el-button size="small" type="primary" plain @click="emit('list-mode')">
+      <div class="toolbar-utilities" role="group" aria-label="画布工具">
+        <div class="mode-switch" role="group" aria-label="画布模式">
+          <el-button
+            size="small"
+            :type="isFreeMode ? 'default' : 'primary'"
+            :aria-pressed="!isFreeMode"
+            aria-label="剧集画布"
+            title="剧集画布"
+            @click="emit('set-mode', 'production')"
+          >制作</el-button>
+          <el-button
+            size="small"
+            :type="isFreeMode ? 'primary' : 'default'"
+            :aria-pressed="isFreeMode"
+            aria-label="自由画布"
+            title="自由画布不跑本集生成"
+            @click="emit('set-mode', 'free')"
+          >自由</el-button>
+        </div>
+        <CanvasActionGate
+          :reason="alignDisabledReason"
+          label="对齐节点"
+          description-id="canvas-reason-align-nodes"
+        >
+          <el-tooltip :content="alignTooltip" placement="bottom" :disabled="Boolean(alignDisabledReason)">
+            <el-button
+              size="small"
+              :loading="aligningNodes"
+              :disabled="Boolean(alignDisabledReason)"
+              aria-label="对齐节点"
+              :title="alignTooltip"
+              @click="emit('align')"
+            >
+              <el-icon><Grid /></el-icon>
+            </el-button>
+          </el-tooltip>
+        </CanvasActionGate>
+        <el-button size="small" type="primary" plain aria-label="返回列表模式" title="返回列表模式" @click="emit('list-mode')">
           <el-icon><List /></el-icon>
           列表模式
         </el-button>
         <el-tooltip :content="isDark ? '切换到浅色主题' : '切换到暗色主题'" placement="bottom">
-          <el-button size="small" class="theme-button" :aria-label="isDark ? '浅色主题' : '暗色主题'" @click="emit('toggle-theme')">
+          <el-button size="small" class="theme-button" :aria-label="isDark ? '浅色主题' : '暗色主题'" :title="isDark ? '浅色主题' : '暗色主题'" @click="emit('toggle-theme')">
             <el-icon><Sunny v-if="isDark" /><Moon v-else /></el-icon>
           </el-button>
         </el-tooltip>
       </div>
     </div>
 
-    <div v-if="workflowProgress || episodeGenProgress" class="toolbar-progress" aria-live="polite">
+    <p
+      v-if="!isFreeMode && emptyNextCopy"
+      class="empty-next-copy"
+      role="status"
+      :aria-label="`空剧集下一步：${emptyNextCopy}`"
+    >{{ emptyNextCopy }}</p>
+    <div v-if="!isFreeMode && (workflowProgress || episodeGenProgress)" class="toolbar-progress" aria-live="polite">
       <span v-if="workflowProgress">{{ workflowProgress }}</span>
       <span v-if="episodeGenProgress" class="episode-progress">{{ episodeGenProgress }}</span>
     </div>
@@ -149,6 +199,10 @@ import { computed } from 'vue'
 import CanvasToolbarGroup from './CanvasToolbarGroup.vue'
 import CanvasWorkflowToolbarGroup from './CanvasWorkflowToolbarGroup.vue'
 import CanvasActionGate from './CanvasActionGate.vue'
+import {
+  freeCanvasUxState,
+  getFreeCanvasAlignDisabledReason,
+} from './freeCanvasUx.js'
 
 const props = defineProps({
   selectedStoryboardCount: { type: Number, default: 0 },
@@ -163,6 +217,8 @@ const props = defineProps({
   actionConfigServices: { type: Object, default: () => ({}) },
   aligningNodes: { type: Boolean, default: false },
   isDark: { type: Boolean, default: false },
+  canvasMode: { type: String, default: 'production' },
+  emptyNextCopy: { type: String, default: '' },
 })
 
 const emit = defineEmits([
@@ -175,10 +231,12 @@ const emit = defineEmits([
   'update:activeGroupId',
   'create-workflow',
   'run-workflow',
+  'cancel-workflow',
   'delete-workflow',
   'generate-storyboards',
   'batch-images',
   'batch-videos',
+  'set-mode',
 ])
 
 const contentHelper = computed(() => (
@@ -194,11 +252,25 @@ const batchHelper = computed(() => (
   || props.actionReasons.batchVideos
   || ''
 ))
+
+const isFreeMode = computed(() => props.canvasMode === 'free')
+const alignDisabledReason = computed(() => {
+  if (props.aligningNodes) return '正在对齐节点，请稍候'
+  if (!isFreeMode.value) return ''
+  return getFreeCanvasAlignDisabledReason({
+    selectionCount: freeCanvasUxState.selectionCount,
+    readonly: Boolean(freeCanvasUxState.readonly),
+  })
+})
+const alignTooltip = computed(() => (
+  alignDisabledReason.value
+  || (isFreeMode.value ? '对齐所选自由节点' : '自动对齐并适配全部节点')
+))
 </script>
 
 <style scoped>
 .canvas-desktop-toolbar {
-  padding: 0 20px 12px;
+  padding: 0 20px 8px;
   box-sizing: border-box;
   min-width: 0;
   max-width: 100%;
@@ -206,18 +278,29 @@ const batchHelper = computed(() => (
 
 .toolbar-main-row {
   display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 0;
+  flex-wrap: nowrap;
   min-width: 0;
+  border: 1px solid var(--border-color, #3f3f46);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--bg-card, #18181b) 92%, transparent);
 }
 
 .toolbar-main-row > * {
+  min-width: 0;
   max-width: 100%;
+  border-right: 1px solid var(--border-color, #3f3f46);
+}
+
+.toolbar-main-row > :last-child {
+  border-right: 0;
 }
 
 .workflow-group {
-  flex: 1 1 340px;
+  min-width: 0;
+  max-width: 100%;
+  flex: 1 1 260px;
 }
 
 .dropdown-arrow {
@@ -226,12 +309,17 @@ const batchHelper = computed(() => (
 }
 
 .toolbar-utilities {
-  margin-left: auto;
   display: flex;
   align-items: center;
-  gap: 8px;
-  min-height: 44px;
+  justify-content: center;
+  gap: 6px;
+  min-width: 0;
+  min-height: 0;
+  max-width: 100%;
+  flex: 0 1 auto;
   flex-wrap: wrap;
+  padding: 8px 10px;
+  background: color-mix(in srgb, var(--bg-page, #0f0f12) 48%, transparent);
 }
 
 .theme-button {
@@ -250,6 +338,57 @@ const batchHelper = computed(() => (
 
 .episode-progress {
   color: var(--canvas-success-text, #34d399);
+}
+
+.empty-next-copy {
+  min-width: 0;
+  max-width: 100%;
+  margin: 8px 0 0;
+  color: var(--canvas-text-secondary, #d4d4d8);
+  font-size: 12px;
+  line-height: 18px;
+  overflow-wrap: anywhere;
+}
+
+.mode-switch {
+  display: inline-flex;
+  flex: 0 0 auto;
+  gap: 2px;
+}
+
+.mode-switch :deep(.el-button + .el-button) { margin-left: 0; }
+
+@media (max-width: 1120px) {
+  .toolbar-main-row {
+    flex-wrap: wrap;
+  }
+
+  .toolbar-main-row > * {
+    flex: 1 1 100%;
+    min-width: 0;
+    max-width: 100%;
+    border-right: 0;
+    border-bottom: 1px solid var(--border-color, #3f3f46);
+  }
+
+  .toolbar-main-row > :last-child {
+    border-bottom: 0;
+  }
+
+  .toolbar-utilities {
+    margin-left: 0;
+  }
+}
+
+@media (max-width: 769px) {
+  .canvas-desktop-toolbar {
+    padding: 0 12px 8px;
+  }
+
+  .toolbar-main-row,
+  .toolbar-utilities {
+    flex-wrap: wrap;
+  }
 }
 
 .canvas-desktop-toolbar :deep(.el-button:focus-visible) {

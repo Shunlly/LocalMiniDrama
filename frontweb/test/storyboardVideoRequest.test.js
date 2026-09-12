@@ -93,7 +93,7 @@ test('storyboard free references parse strings, drop invalid entries, and cap du
     ]),
   })
   assert.deepEqual(items, [
-    { name: 'Free reference', image_url: 'https://cdn.test/one.png' },
+    { name: '自由参考图', image_url: 'https://cdn.test/one.png' },
     { name: 'Two', image_url: 'https://cdn.test/two.png' },
   ])
 })
@@ -142,4 +142,37 @@ test('classic video request carries first and last frames consistently', () => {
   assert.equal(body.first_frame_url, 'https://app.test/first.png')
   assert.equal(body.last_frame_url, 'https://app.test/last.png')
   assert.deepEqual(body.reference_image_urls, ['https://app.test/first.png', 'https://app.test/last.png'])
+})
+
+
+test('自由参考图不会把本地条目 id 当成素材库 asset_id', () => {
+  const items = normalizeStoryboardReferenceImages({
+    reference_images: [
+      { id: 99, name: 'Sketch', local_path: 'uploads/sketch.png' },
+      { asset_id: 18, id: 7, name: 'Rain', local_path: 'uploads/rain.png', drama_id: 99, source_drama_id: 4 },
+    ],
+  })
+  assert.equal(items[0].asset_id, undefined)
+  assert.equal(items[0].id, undefined)
+  assert.equal(items[1].asset_id, 18)
+  assert.equal(items[1].source_drama_id, 4)
+  assert.notEqual(items[1].asset_id, items[1].source_drama_id)
+})
+
+test('参考槽空名回落到中文，同名角色与自由参考图不会共用展示前缀', () => {
+  const drama = {
+    characters: [{ id: 2, name: '阿明', image_url: 'https://cdn.test/a.png' }],
+    scenes: [],
+    props: [],
+  }
+  const storyboard = {
+    characters: ['2'],
+    reference_images: [{ name: '阿明', local_path: 'uploads/ming.png' }],
+  }
+  const slots = collectStoryboardReferenceSlots(drama, storyboard)
+  assert.deepEqual(slots.map((slot) => slot.kind), ['character', 'free'])
+  assert.equal(slots[0].name, '阿明')
+  assert.equal(slots[1].name, '阿明')
+  assert.equal(slots[0].index, 1)
+  assert.equal(slots[1].index, 2)
 })

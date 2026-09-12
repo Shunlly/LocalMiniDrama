@@ -142,6 +142,28 @@ test('canvas production readiness fails closed while loading, after failure, and
   assert.equal(getCanvasPipelineProductionGate(['audio'], failed).ready, false)
 })
 
+test('optional image capability is consumed without becoming a required production field', () => {
+  const withoutImage = productionReadiness()
+  const missingImage = getCanvasProductionActionState({ status: 'loaded', data: withoutImage })
+  assert.equal(missingImage.image.ready, false)
+  assert.equal(missingImage.image.status, 'error')
+  assert.doesNotThrow(() => normalizeCanvasProductionReadiness(withoutImage))
+  assert.equal(getCanvasPipelineProductionGate(['image'], missingImage).ready, true)
+
+  const withImage = {
+    ...withoutImage,
+    capabilities: [
+      ...withoutImage.capabilities,
+      { key: 'asset_image', label: 'role-image', service_type: 'image', ready: true, detail: 'image-ready', config: { name: 'wanxiang', provider: 'dashscope', model: 'wan2.6-image' } },
+    ],
+  }
+  const readyImage = getCanvasProductionActionState({ status: 'loaded', data: withImage })
+  assert.equal(readyImage.image.ready, true)
+  assert.equal(readyImage.image.serviceType, 'image')
+  assert.equal(readyImage.image.config.name, 'wanxiang')
+  assert.equal(readyImage.video.ready, true)
+})
+
 test('canvas production readiness accepts valid capability responses and rejects draft or incomplete data', () => {
   const ready = productionReadiness()
   assert.deepEqual(normalizeCanvasProductionReadiness(ready), ready)

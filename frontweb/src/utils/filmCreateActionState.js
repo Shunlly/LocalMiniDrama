@@ -1,5 +1,6 @@
 import { getServiceConfigReadiness } from './aiServiceReadiness.js'
 import { isPlaceholderMediaUrl } from './mediaUrl.js'
+import { isUserFacingAbort, toUserFacingError } from './userFacingError.js'
 
 function firstBusyReason(state) {
   if (state.pipelineRunning) return '全流程任务正在执行，请先暂停或等待完成'
@@ -89,16 +90,20 @@ export function getVideoGenerationCapability(configs, options = {}) {
 }
 
 export function userFacingVideoGenerationError(value, fallback = '视频生成失败，请稍后重试。') {
-  const message = String(value || '').trim()
-  if (!message) return fallback
-  if (isPlaceholderMediaUrl(message)) return '草稿占位视频，尚未生成可播放片段。'
-  if (/^(?:internal server error|server error)$/i.test(message)) {
+  const message = typeof value === 'string'
+    ? value.trim()
+    : String(value?.message || '').trim()
+  if (isPlaceholderMediaUrl(message) || isPlaceholderMediaUrl(String(value || '').trim())) {
+    return '草稿占位视频，尚未生成可播放片段。'
+  }
+  if (isUserFacingAbort(value)) return '操作已取消'
+  if (/^(?:internal server error|server error|http\s*500)$/i.test(message) || /request failed with status code 500/i.test(message)) {
     return '视频生成服务暂时不可用，请检查视频模型配置后重试。'
   }
   if (/^(?:failed to fetch|fetch failed|network error)$/i.test(message)) {
     return '无法连接视频生成服务，请检查网络与模型配置后重试。'
   }
-  return message.slice(0, 300)
+  return toUserFacingError(value, fallback)
 }
 
 export function projectResourceDisabledReason({ hasProject, running = false, label = '资源' }) {
@@ -107,20 +112,23 @@ export function projectResourceDisabledReason({ hasProject, running = false, lab
   return ''
 }
 
-export function episodeResourceDisabledReason({ hasEpisode, running = false, label = '资源' }) {
+export function episodeResourceDisabledReason({ hasEpisode, hasScript = true, running = false, label = '资源' }) {
   if (!hasEpisode) return '请先创建或选择剧集'
+  if (!hasScript) return '当前集还没有剧本，请先编写或导入剧本'
   if (running) return `正在处理${label}，请等待完成`
   return ''
 }
 
-export function pipelineDisabledReason({ hasEpisode, pipelineRunning }) {
+export function pipelineDisabledReason({ hasEpisode, hasScript = true, pipelineRunning }) {
   if (!hasEpisode) return '请先创建或选择剧集'
   if (pipelineRunning) return '全流程任务正在执行，可暂停后再调整操作'
+  if (!hasScript) return '当前集还没有剧本，请先编写或导入剧本'
   return ''
 }
 
-export function storyboardDisabledReason({ hasEpisode, storyboardGenerating, omniPolishing }) {
+export function storyboardDisabledReason({ hasEpisode, hasScript = true, storyboardGenerating, omniPolishing }) {
   if (!hasEpisode) return '请先创建或选择剧集'
+  if (!hasScript) return '当前集还没有剧本，请先编写或导入剧本'
   return firstBusyReason({ storyboardGenerating, omniPolishing })
 }
 
@@ -167,4 +175,13 @@ export function composeVideoDisabledReason({
     batchImageRunning,
     batchVideoRunning,
   })
+}
+
+export function saveCurrentEpisodeDisabledReason({ dramaId, hasAnyEpisode, currentEpisodeId }) {
+  if (dramaId && hasAnyEpisode && !currentEpisodeId) return '请先选择要保存的剧集'
+  return ''
+}
+
+export function missingAssetImageReason(hasImage) {
+  return hasImage ? '' : '请先生成或上传图片'
 }

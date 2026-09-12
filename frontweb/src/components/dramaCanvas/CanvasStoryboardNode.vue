@@ -17,6 +17,8 @@
       tabindex="0"
       :aria-label="accessibleLabel"
       :aria-expanded="showPanel"
+      :aria-busy="isProcessing || isNodeBusy"
+      :title="accessibleLabel"
       @keydown.enter.stop.prevent="openPanel"
       @keydown.space.stop.prevent="openPanel"
     >
@@ -24,7 +26,7 @@
       <Handle type="target" :position="Position.Left" />
       <Handle type="source" :position="Position.Right" />
       <Handle id="chain-out" type="source" :position="Position.Bottom" />
-      <CanvasNodeStatusOverlay :node-id="id" />
+      <CanvasNodeStatusOverlay :node-id="id" :fallback-message="busyFallback" />
       <div class="head">
         <span class="num">#{{ data.storyboard?.storyboard_number ?? data.index }}</span>
         <span v-if="data.workflowGroup?.title" class="wf-badge">{{ data.workflowGroup.title }}</span>
@@ -33,55 +35,25 @@
       </div>
       <div class="title">{{ data.storyboard?.title || '分镜' }}</div>
       <div class="chips">
-        <span v-if="data.storyboard?.shot_type">{{ data.storyboard.shot_type }}</span>
-        <span v-if="data.storyboard?.duration">{{ data.storyboard.duration }}s</span>
+        <span v-if="data.storyboard?.shot_type">{{ storyboardShotTypeLabel(data.storyboard.shot_type) }}</span>
+        <span v-if="data.storyboard?.duration">{{ data.storyboard.duration }} 秒</span>
         <span :class="'st-' + statusState.key">{{ statusState.label }}</span>
       </div>
       <div class="hint">
-        {{ mediaQueryUnknown ? '媒体状态未知，重试查询后再继续生成' : (showPanel ? '下方可编辑与生成' : '单击展开操作，双击进入列表') }}
+        {{ mediaQueryUnknown ? '媒体状态未知，重试查询后再继续生成' : (showPanel ? '右侧检查器可编辑与生成' : '单击展开操作，双击进入列表') }}
       </div>
     </div>
 
-    <div v-if="showPanel" class="panel-wrap">
-      <CanvasStoryboardPanel
-        :storyboard="data.storyboard"
-        :episode-id="data.episodeId"
-        :node-id="id"
-      />
-      <div
-        v-if="mediaQueryUnknown"
-        class="media-query-blocker"
-        role="alert"
-        @pointerdown.stop
-        @mousedown.stop
-        @click.stop
-        @mouseup.stop
-      >
-        <p class="media-query-title">媒体查询失败</p>
-        <p class="media-query-message">{{ mediaQueryMessage }}</p>
-        <p class="media-query-note">
-          {{ mediaQueryPreservedData ? '已保留上次加载到的媒体结果。' : '当前没有可确认的媒体结果。' }}
-          为避免重复计费，图片和视频重新生成已暂时阻断。
-        </p>
-        <button
-          type="button"
-          class="media-query-retry"
-          :disabled="retryingMedia"
-          @click.stop="retryMedia"
-        >
-          {{ retryingMedia ? '重试中...' : '重试媒体查询' }}
-        </button>
-      </div>
-    </div>
   </div>
 </template>
 
 <script setup>
-import { computed, ref } from 'vue'
+import { computed } from 'vue'
 import { Handle, Position } from '@vue-flow/core'
-import { ElMessage } from 'element-plus'
 import { useCanvasContext } from '@/composables/useCanvasContext'
-import CanvasStoryboardPanel from './CanvasStoryboardPanel.vue'
+import {
+  storyboardShotTypeLabel,
+} from '@/utils/canvasUiState'
 import CanvasNodeStatusOverlay from './CanvasNodeStatusOverlay.vue'
 
 const props = defineProps({
@@ -91,7 +63,6 @@ const props = defineProps({
 })
 
 const ctx = useCanvasContext()
-const retryingMedia = ref(false)
 const showPanel = computed(() => ctx?.focusedNodeId?.value === props.id)
 
 const isProcessing = computed(() => props.data.storyboard?.status === 'processing')
@@ -101,10 +72,12 @@ const isNodeBusy = computed(() => {
   return map ? !!map[props.id] : false
 })
 
+const busyFallback = computed(() => (
+  isNodeBusy.value || isProcessing.value ? '生成中' : ''
+))
+
 const mediaQueryStatus = computed(() => props.data.mediaQueryStatus || ctx?.getStoryboardMediaQueryStatus?.(props.data.storyboard?.id) || {})
 const mediaQueryUnknown = computed(() => mediaQueryStatus.value?.state === 'unknown')
-const mediaQueryMessage = computed(() => mediaQueryStatus.value?.error || '媒体查询失败，请重试。')
-const mediaQueryPreservedData = computed(() => Boolean(mediaQueryStatus.value?.preservedData))
 
 const mediaAvailability = computed(() => {
   const base = props.data.mediaAvailability || {}
@@ -144,23 +117,10 @@ const accessibleLabel = computed(() => {
   return `分镜 ${number}，${storyboard.title || '未命名'}，${statusState.value.label}${unknownSuffix}，按 Enter 或空格展开`
 })
 
-function openPanel() {
-  ctx?.setFocusedNode?.(props.id)
+async function openPanel() {
+  await ctx?.setFocusedNode?.(props.id)
 }
 
-async function retryMedia() {
-  if (!props.data.storyboard?.id || retryingMedia.value) return
-  retryingMedia.value = true
-  try {
-    const ok = await ctx?.retryStoryboardMedia?.(props.data.storyboard.id)
-    if (ok) ElMessage.success('媒体查询已刷新')
-    else ElMessage.warning('媒体查询仍未恢复，请稍后重试')
-  } catch (error) {
-    ElMessage.error(error?.message || '媒体查询重试失败')
-  } finally {
-    retryingMedia.value = false
-  }
-}
 </script>
 
 <style scoped>
@@ -302,61 +262,9 @@ async function retryMedia() {
   color: var(--canvas-text-faint, #52525b);
 }
 
-.panel-wrap {
-  position: relative;
-}
-
-.media-query-blocker {
-  position: absolute;
-  inset: 10px 0 0;
-  display: grid;
-  gap: 8px;
-  padding: 14px;
-  border-radius: 8px;
-  border: 1px solid rgba(251, 191, 36, 0.35);
-  background: rgba(9, 9, 11, 0.94);
-  color: var(--canvas-text-primary, #e4e4e7);
-  z-index: 2;
-}
-
-.media-query-title {
-  margin: 0;
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--canvas-amber-text, #fcd34d);
-}
-
-.media-query-message,
-.media-query-note {
-  margin: 0;
-  font-size: 12px;
-  line-height: 1.5;
-}
-
-.media-query-note {
-  color: var(--canvas-text-muted, #a1a1aa);
-}
-
-.media-query-retry {
-  justify-self: flex-start;
-  min-width: 112px;
-  height: 30px;
-  padding: 0 12px;
-  border: 1px solid rgba(251, 191, 36, 0.42);
-  border-radius: 6px;
-  background: rgba(251, 191, 36, 0.12);
-  color: var(--canvas-amber-text, #fcd34d);
-  font: inherit;
-  cursor: pointer;
-}
-
-.media-query-retry:disabled {
-  cursor: wait;
-  opacity: 0.7;
-}
-
 .canvas-sb-node:focus-visible {
   outline: 2px solid var(--canvas-focus-ring, #818cf8);
   outline-offset: 3px;
 }
+
 </style>

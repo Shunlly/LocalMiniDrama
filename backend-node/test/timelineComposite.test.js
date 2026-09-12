@@ -119,7 +119,7 @@ test('production compositor rejects an episode without a valid subtitle timeline
 
   assert.throws(
     () => providerSdkService.buildProductionTimelineCompositePlan(fixture.db, fixture.episodeId),
-    (error) => error.code === 'PRODUCTION_TIMELINE_INVALID' && /subtitle timeline is incomplete/.test(error.message)
+    (error) => error.code === 'PRODUCTION_TIMELINE_INVALID' && /字幕时间线不完整/.test(error.message)
   );
 });
 
@@ -130,6 +130,6 @@ test('production compositor rejects an episode without voice or dialogue media',
 
   assert.throws(
     () => providerSdkService.buildProductionTimelineCompositePlan(fixture.db, fixture.episodeId),
-    (error) => error.code === 'PRODUCTION_TIMELINE_INVALID' && /requires voice or dialogue/.test(error.message)
+    (error) => error.code === 'PRODUCTION_TIMELINE_INVALID' && /需要旁白或对白/.test(error.message)
   );
 });

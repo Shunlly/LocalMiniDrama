@@ -2,6 +2,7 @@
 
 const fs = require('node:fs');
 const { workerData } = require('node:worker_threads');
+const { updateMaintenanceHeartbeatFd } = require('./maintenanceLockFile');
 
 const state = new Int32Array(workerData.stateBuffer);
 
@@ -9,22 +10,11 @@ function writeHeartbeat() {
   let fd;
   try {
     fd = fs.openSync(workerData.lockPath, 'r+');
-    const payload = JSON.parse(fs.readFileSync(fd, 'utf8'));
-    if (
-      payload.token !== workerData.token ||
-      Number(payload.pid) !== workerData.pid ||
-      payload.contract !== workerData.contract
-    ) {
-      throw new Error('Maintenance recovery lease ownership changed.');
-    }
-    payload.heartbeatAt = new Date().toISOString();
-    const data = Buffer.from(`${JSON.stringify(payload)}\n`, 'utf8');
-    fs.ftruncateSync(fd, 0);
-    let offset = 0;
-    while (offset < data.length) {
-      offset += fs.writeSync(fd, data, offset, data.length - offset, offset);
-    }
-    fs.fsyncSync(fd);
+    updateMaintenanceHeartbeatFd(fd, {
+      contract: workerData.contract,
+      pid: workerData.pid,
+      token: workerData.token,
+    });
   } finally {
     if (fd != null) fs.closeSync(fd);
   }

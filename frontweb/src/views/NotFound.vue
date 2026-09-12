@@ -1,32 +1,56 @@
 <template>
   <main class="not-found-page">
     <section class="not-found-content" aria-labelledby="not-found-title">
-      <p class="product-name">LocalMiniDrama</p>
+      <p class="product-name">
+        <span class="logo-main">本地短剧助手</span>
+        <span class="logo-sub">LocalMiniDrama</span>
+      </p>
       <p class="status-code" aria-hidden="true">404</p>
-      <h1 id="not-found-title">页面不存在</h1>
-      <p class="description">地址可能已失效，或项目编号不正确。</p>
+      <h1 id="not-found-title" ref="titleRef" tabindex="-1" aria-describedby="not-found-reason not-found-next-step">{{ copy.title }}</h1>
+      <p id="not-found-reason" class="description">{{ copy.reason }}</p>
+      <p id="not-found-next-step" class="next-step">{{ copy.nextStep }}</p>
       <div class="actions">
-        <el-button :icon="ArrowLeft" @click="goBack">返回上一页</el-button>
-        <el-button type="primary" :icon="HomeFilled" @click="goHome">项目列表</el-button>
+        <el-button v-if="canGoBack" :icon="ArrowLeft" aria-label="返回上一页" @click="goBack">返回上一页</el-button>
+        <el-button type="primary" :icon="HomeFilled" aria-label="返回项目列表" @click="goHome">返回项目列表</el-button>
       </div>
     </section>
   </main>
 </template>
 
 <script setup>
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { ArrowLeft, HomeFilled } from '@element-plus/icons-vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
+import { resolveNotFoundCopy, resolveNotFoundDisplayPath, resolveNotFoundNavigation } from '@/utils/notFoundNavigation.js'
 
+const route = useRoute()
 const router = useRouter()
+const titleRef = ref(null)
 
-function goBack() {
-  if (window.history.length > 1) router.back()
-  else router.replace('/')
-}
+const navigation = computed(() => resolveNotFoundNavigation(router.options.history.state, route.fullPath))
+const canGoBack = computed(() => navigation.value.type === 'back')
+const fromPath = computed(() => resolveNotFoundDisplayPath(route))
+const copy = computed(() => resolveNotFoundCopy(fromPath.value, { canGoBack: canGoBack.value }))
 
 function goHome() {
-  router.replace('/')
+  router.replace({ name: 'list' })
 }
+
+function goBack() {
+  if (canGoBack.value) router.back()
+  else goHome()
+}
+
+function focusTitle() {
+  titleRef.value?.focus({ preventScroll: true })
+}
+
+onMounted(focusTitle)
+
+watch(() => route.fullPath, (fullPath, previousFullPath) => {
+  if (!previousFullPath || fullPath === previousFullPath) return
+  nextTick(focusTitle)
+})
 </script>
 
 <style scoped>
@@ -37,18 +61,33 @@ function goHome() {
   padding: 32px;
   background: var(--bg-page);
   color: var(--text-primary);
+  overflow-x: clip;
 }
 
 .not-found-content {
   width: min(100%, 460px);
+  min-width: 0;
   text-align: center;
+  overflow-wrap: anywhere;
 }
 
 .product-name {
   margin: 0 0 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  line-height: 1.2;
+}
+.logo-main {
   color: var(--accent-text);
   font-size: 15px;
   font-weight: 700;
+}
+.logo-sub {
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 400;
 }
 
 .status-code {
@@ -65,10 +104,28 @@ h1 {
   line-height: 1.3;
 }
 
+h1:focus {
+  outline: none;
+}
+
+h1:focus-visible {
+  outline: 2px solid var(--el-color-primary);
+  outline-offset: 4px;
+}
+
 .description {
   margin: 0;
   color: var(--text-muted);
   line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+
+.next-step {
+  margin: 12px 0 0;
+  color: var(--text-primary);
+  line-height: 1.7;
+  font-weight: 600;
+  overflow-wrap: anywhere;
 }
 
 .actions {

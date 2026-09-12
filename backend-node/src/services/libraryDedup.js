@@ -10,7 +10,7 @@ const columnCache = new WeakMap();
 
 function assertKnownTable(table) {
   if (!KNOWN_TABLES.has(table)) {
-    throw new Error(`Unknown library table: ${table}`);
+    throw new Error(`未知的素材库表：${table}`);
   }
 }
 

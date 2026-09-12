@@ -1,4 +1,6 @@
 const response = require('../response');
+const { sendCaughtRouteError } = require('./serviceFailure');
+const { isTrustedChineseUserError } = require('../services/providerErrorSanitizer');
 const videoService = require('../services/videoService');
 
 function routes(db, log) {
@@ -10,7 +12,7 @@ function routes(db, log) {
         response.successWithPagination(res, items, total, page, pageSize);
       } catch (err) {
         log.error('videos list', { error: err.message });
-        response.internalError(res, err.message);
+        sendCaughtRouteError(res, err, '视频操作失败，请稍后重试');
       }
     },
     create: (req, res) => {
@@ -18,8 +20,7 @@ function routes(db, log) {
         response.created(res, videoService.createVideoGeneration(db, log, req.body || {}));
       } catch (err) {
         log.error('videos create', { error: err.message });
-        if (err.code === 'BAD_REQUEST') return response.badRequest(res, err.message);
-        response.internalError(res, err.message);
+        sendCaughtRouteError(res, err, '视频操作失败，请稍后重试');
       }
     },
     get: (req, res) => {
@@ -29,36 +30,39 @@ function routes(db, log) {
         response.success(res, item);
       } catch (err) {
         log.error('videos get', { error: err.message });
-        response.internalError(res, err.message);
+        sendCaughtRouteError(res, err, '视频操作失败，请稍后重试');
       }
     },
-    delete: (req, res) => {
+    delete: async (req, res) => {
       try {
-        const ok = videoService.deleteById(db, log, req.params.id);
+        const ok = await videoService.deleteById(db, log, req.params.id);
         if (!ok) return response.notFound(res, '记录不存在');
         response.success(res, { message: '删除成功' });
       } catch (err) {
         log.error('videos delete', { error: err.message });
-        response.internalError(res, err.message);
+      if ([
+        'REMOTE_CANCEL_FAILED',
+        'REMOTE_CANCEL_UNCERTAIN',
+        'TASK_SCOPE_CONFLICT',
+      ].includes(err.code)) {
+          const raw = String(err.message || '');
+          return response.error(res, 409, err.code, isTrustedChineseUserError(raw) ? raw : '无法取消远程任务，请稍后重试');
+        }
+        sendCaughtRouteError(res, err, '视频操作失败，请稍后重试');
       }
     },
-    fromImage: (req, res) => {
-      try {
-        const task = taskService.createTask(db, log, 'video_generation', req.params.image_gen_id);
-        response.success(res, { task_id: task.id });
-      } catch (err) {
-        log.error('videos fromImage', { error: err.message });
-        response.internalError(res, err.message);
-      }
-    },
-    episodeBatch: (req, res) => {
-      try {
-        response.success(res, []);
-      } catch (err) {
-        log.error('videos episode batch', { error: err.message });
-        response.internalError(res, err.message);
-      }
-    },
+    fromImage: (_req, res) => response.error(
+      res,
+      501,
+      'LEGACY_ENDPOINT_DISABLED',
+      '请改用视频生成接口，并传入分镜 ID 与帧参考'
+    ),
+    episodeBatch: (_req, res) => response.error(
+      res,
+      501,
+      'LEGACY_ENDPOINT_DISABLED',
+      '请改为对每个分镜单独调用视频生成接口'
+    ),
   };
 }
 

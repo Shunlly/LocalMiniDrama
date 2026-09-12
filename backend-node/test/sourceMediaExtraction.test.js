@@ -18,9 +18,13 @@ const { requestBounded } = require('../src/services/sourceMediaExtractionService
 const TEST_TOKEN = 'unit-test-token-not-a-real-key';
 const previousStorySourceRoot = process.env.LOCALMINIDRAMA_TEST_STORY_SOURCE_ROOT;
 const storySourceRoot = path.join(os.tmpdir(), `localminidrama-source-media-test-${process.pid}-${Date.now()}`);
+const fakeExtractionServers = [];
 process.env.LOCALMINIDRAMA_TEST_STORY_SOURCE_ROOT = storySourceRoot;
 
 after(async () => {
+  await Promise.all(fakeExtractionServers.splice(0).map(
+    (server) => new Promise((resolve) => server.close(resolve))
+  ));
   if (previousStorySourceRoot == null) delete process.env.LOCALMINIDRAMA_TEST_STORY_SOURCE_ROOT;
   else process.env.LOCALMINIDRAMA_TEST_STORY_SOURCE_ROOT = previousStorySourceRoot;
   await fsp.rm(storySourceRoot, { recursive: true, force: true });
@@ -63,6 +67,7 @@ function createLog() {
     info(message, fields) { records.push({ level: 'info', message, fields }); },
     warn(message, fields) { records.push({ level: 'warn', message, fields }); },
     error(message, fields) { records.push({ level: 'error', message, fields }); },
+    operation(event) { records.push({ level: 'operation', event }); },
   };
 }
 
@@ -176,7 +181,7 @@ async function startFakeExtractionService(options = {}) {
         });
         res.writeHead(options.ocrStatus || 200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(options.ocrStatus && options.ocrStatus !== 200
-          ? { error: { message: 'local test failure' } }
+          ? (options.ocrErrorBody || { error: { message: 'local test failure' } })
           : { choices: [{ message: { content: options.ocrText || 'Characters: Mira\nLocation: Harbor\nMira finds a coded sign.' } }] }));
         return;
       }
@@ -190,7 +195,7 @@ async function startFakeExtractionService(options = {}) {
         });
         res.writeHead(options.transcriptionStatus || 200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(options.transcriptionStatus && options.transcriptionStatus !== 200
-          ? { error: { message: 'local test failure' } }
+          ? (options.transcriptionErrorBody || { error: { message: 'local test failure' } })
           : { text: options.transcriptText || 'Speaker 1: The hidden door is open.' }));
         return;
       }
@@ -206,6 +211,7 @@ async function startFakeExtractionService(options = {}) {
     server.once('error', reject);
     server.listen(0, '127.0.0.1', resolve);
   });
+  fakeExtractionServers.push(server);
   const address = server.address();
   return {
     baseUrl: `http://127.0.0.1:${address.port}/v1`,
@@ -310,7 +316,7 @@ function assertSafeMetadata(metadata, extractedText) {
   assert.equal(Object.hasOwn(metadata, 'raw_text'), false);
 }
 
-describe('Source Intake media extraction', () => {
+describe('sourceMediaExtraction: Source Intake media extraction', () => {
   it('does not let a configured public extraction hostname rebind to loopback', async () => {
     await assert.rejects(
       requestBounded('http://ocr-provider.example/v1/chat/completions', {
@@ -324,7 +330,7 @@ describe('Source Intake media extraction', () => {
         trustedOrigins: ['http://ocr-provider.example'],
         networkLookup: async () => [{ address: '127.0.0.1', family: 4 }],
       }),
-      /could not be reached/
+      /无法连接/
     );
   });
 
@@ -491,7 +497,8 @@ describe('Source Intake media extraction', () => {
         file: { originalname: 'rollback.pdf', mimetype: 'application/pdf', size: pdf.length, buffer: pdf },
       }, res);
 
-      assert.equal(res.statusCode, 500);
+      assert.equal(res.statusCode, 400);
+      assert.match(res.body.error.message, /素材源操作失败/);
       assert.equal(db.prepare('SELECT COUNT(*) AS count FROM story_sources').get().count, 0);
       assert.equal(db.prepare('SELECT COUNT(*) AS count FROM source_items').get().count, 0);
       assert.deepEqual(await listFiles(storageRoot), []);
@@ -548,8 +555,9 @@ describe('Source Intake media extraction', () => {
 
       const download = mockResponse();
       routes.downloadOriginal({ params: { source_id: upload.body.data.source.id } }, download);
-      assert.equal(download.statusCode, 500);
-      assert.equal(download.body.error.code, 'INTERNAL_ERROR');
+      assert.ok(download.statusCode === 400 || download.statusCode === 500);
+      assert.notEqual(download.body.error.code, 'OK');
+      assert.doesNotMatch(String(download.body.error.message || ''), /outside\.pdf|storage_path/);
       assert.equal(Buffer.isBuffer(download.body), false);
     } finally {
       db.close();
@@ -586,7 +594,7 @@ describe('Source Intake media extraction', () => {
         file: { originalname: 'link.pdf', mimetype: 'application/pdf', size: pdf.length, buffer: pdf },
       }, res);
 
-      assert.equal(res.statusCode, 500);
+      assert.equal(res.statusCode, 400);
       assert.equal(db.prepare('SELECT COUNT(*) AS count FROM story_sources').get().count, 0);
       assert.deepEqual(await listFiles(outsideRoot), []);
     } finally {
@@ -613,8 +621,16 @@ describe('Source Intake media extraction', () => {
         file: { originalname: 'failure.mp4', mimetype: 'video/mp4', size: video.length, buffer: video },
       }, res);
 
+      assert.equal(fake.requests.length, 1);
+      assert.equal(fake.requests[0].kind, 'transcription');
       assert.equal(res.statusCode, 400);
-      assert.match(res.body.error.message, /Transcription service returned HTTP 503/);
+      assert.equal(res.body.success, false);
+      assert.equal(res.body.error.code, 'BAD_REQUEST');
+      // 503 会取消响应体，但仍按转写失败返回可操作中文；同时接受现行「语音转写」与旧「转写服务」提示。
+      assert.match(res.body.error.message, /语音转写返回了无法处理的响应|转写服务/);
+      assert.match(res.body.error.message, /AI 配置|「语音转写」/);
+      assert.doesNotMatch(res.body.error.message, /HTTP\s*503|service_type=/);
+      assert.doesNotMatch(res.body.error.message, /超时|操作已取消/);
       assert.equal(db.prepare('SELECT COUNT(*) AS count FROM story_sources').get().count, 0);
       assert.equal(db.prepare('SELECT COUNT(*) AS count FROM source_items').get().count, 0);
       assert.deepEqual(await fsp.readdir(tempRoot), []);
@@ -624,6 +640,58 @@ describe('Source Intake media extraction', () => {
       db.close();
       await fake.close();
       await fsp.rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('OCR HTTP 404 Invalid Authorization 返回认证失败，不泄漏状态或英文错误码', async () => {
+    const fake = await startFakeExtractionService({
+      ocrStatus: 404,
+      ocrErrorBody: { error: 'Invalid Authorization', code: 'AUTH_DENIED' },
+    });
+    const db = createDb();
+    const log = createLog();
+    try {
+      addAiConfig(db, 'ocr', fake.baseUrl);
+      const image = await sharp({ create: { width: 16, height: 16, channels: 3, background: '#ffffff' } }).png().toBuffer();
+      const routes = createRoutes(db, log);
+      const res = mockResponse();
+      await routes.uploadForDrama({
+        params: { id: 1 }, body: {},
+        file: { originalname: 'auth.png', mimetype: 'image/png', size: image.length, buffer: image },
+      }, res);
+      assert.equal(res.statusCode, 400);
+      assert.match(res.body.error.message, /认证失败/);
+      assert.doesNotMatch(res.body.error.message, /HTTP\s*404|Invalid Authorization|AUTH_DENIED|Not Found/i);
+      const op = log.records.find((item) => item.level === 'operation');
+      assert.ok(!op || op.event.phase !== 'success');
+    } finally {
+      db.close();
+      await fake.close();
+    }
+  });
+
+  it('转写 HTTP 404 Invalid Authorization 返回认证失败，不泄漏状态或英文错误码', async () => {
+    const fake = await startFakeExtractionService({
+      transcriptionStatus: 404,
+      transcriptionErrorBody: { error: 'Invalid Authorization', code: 'AUTH_DENIED' },
+    });
+    const db = createDb();
+    const log = createLog();
+    try {
+      addAiConfig(db, 'transcription', fake.baseUrl);
+      const audio = wavAudio();
+      const routes = createRoutes(db, log);
+      const res = mockResponse();
+      await routes.uploadForDrama({
+        params: { id: 1 }, body: {},
+        file: { originalname: 'auth.wav', mimetype: 'audio/wav', size: audio.length, buffer: audio },
+      }, res);
+      assert.equal(res.statusCode, 400);
+      assert.match(res.body.error.message, /认证失败/);
+      assert.doesNotMatch(res.body.error.message, /HTTP\s*404|Invalid Authorization|AUTH_DENIED|Not Found/i);
+    } finally {
+      db.close();
+      await fake.close();
     }
   });
 
@@ -642,7 +710,8 @@ describe('Source Intake media extraction', () => {
       }, res);
 
       assert.equal(res.statusCode, 400);
-      assert.match(res.body.error.message, /service_type=ocr/i);
+      assert.match(res.body.error.message, /图片识别/);
+      assert.doesNotMatch(res.body.error.message, /service_type=/);
       assert.match(res.body.error.message, /Tesseract/i);
       assert.equal(db.prepare('SELECT COUNT(*) AS count FROM story_sources').get().count, 0);
       assert.deepEqual(await fsp.readdir(tempRoot), []);
@@ -666,7 +735,7 @@ describe('Source Intake media extraction', () => {
       }, res);
 
       assert.equal(res.statusCode, 400);
-      assert.match(res.body.error.message, /extension.*signature/i);
+      assert.match(res.body.error.message, /扩展名.*文件签名/);
       assert.equal(fake.requests.length, 0);
       assert.equal(db.prepare('SELECT COUNT(*) AS count FROM story_sources').get().count, 0);
     } finally {

@@ -119,6 +119,12 @@ test('static storage serves regular files but never follows a directory symlink'
   });
   fs.mkdirSync(path.join(storagePath, 'safe'));
   fs.writeFileSync(path.join(storagePath, 'safe', 'public.txt'), 'public-data');
+  for (const filename of ['active.html', 'active.js', 'active.svg', 'active.xml', 'unknown.bin']) {
+    fs.writeFileSync(path.join(storagePath, 'safe', filename), '<script>top.location="https://example.invalid"</script>');
+  }
+  const unicodeDirectory = path.join(storagePath, '项目 素材');
+  fs.mkdirSync(unicodeDirectory);
+  fs.writeFileSync(path.join(unicodeDirectory, '成片.mp4'), Buffer.from('video-data'));
   fs.writeFileSync(path.join(outsidePath, 'secret.txt'), 'outside-secret');
   try {
     createDirectoryLink(outsidePath, path.join(storagePath, 'linked'));
@@ -136,13 +142,63 @@ test('static storage serves regular files but never follows a directory symlink'
 
   const safe = await fetch(`${origin}/static/safe/public.txt`);
   assert.equal(safe.status, 200);
+  assert.match(safe.headers.get('content-type'), /^text\/plain/);
   assert.equal(await safe.text(), 'public-data');
+
+  for (const filename of ['active.html', 'active.js', 'active.svg', 'active.xml', 'unknown.bin']) {
+    const activeContent = await fetch(`${origin}/static/safe/${filename}`);
+    assert.equal(activeContent.status, 200);
+    assert.equal(activeContent.headers.get('content-type'), 'application/octet-stream');
+    assert.equal(activeContent.headers.get('content-disposition'), 'attachment');
+    assert.equal(activeContent.headers.get('x-content-type-options'), 'nosniff');
+  }
+
+  const unicodeVideo = await fetch(`${origin}/static/${encodeURIComponent('项目 素材')}/${encodeURIComponent('成片.mp4')}`, {
+    headers: { Range: 'bytes=0-3' },
+  });
+  assert.equal(unicodeVideo.status, 206);
+  assert.equal(unicodeVideo.headers.get('content-type'), 'video/mp4');
+  assert.equal(unicodeVideo.headers.get('content-range'), 'bytes 0-3/10');
+  assert.deepEqual(Buffer.from(await unicodeVideo.arrayBuffer()), Buffer.from('vide'));
 
   const rejected = await fetch(`${origin}/static/linked/secret.txt`);
   const rejectedBody = await rejected.text();
   assert.equal(rejected.status, 403);
   assert.equal(JSON.parse(rejectedBody).error.code, 'UNSAFE_STORAGE_PATH');
   assert.equal(rejectedBody.includes('outside-secret'), false);
+});
+
+test('percent-encoded unicode static paths remain readable when the file is registered', async (t) => {
+  const storagePath = fs.mkdtempSync(path.join(os.tmpdir(), 'lmd-static-unicode-db-'));
+  const db = new Database(':memory:');
+  runMigrationsAndEnsure(db);
+  t.after(() => {
+    db.close();
+    fs.rmSync(storagePath, { recursive: true, force: true });
+  });
+  const relativePath = 'projects/0001_E2E_Novel2Anime_中文路径/images/ig_fixture.png';
+  fs.mkdirSync(path.join(storagePath, path.dirname(relativePath)), { recursive: true });
+  fs.writeFileSync(path.join(storagePath, relativePath), PNG_BYTES);
+  const now = '2026-08-27T12:00:00.000Z';
+  db.prepare(
+    `INSERT INTO dramas (id, title, status, metadata, created_at, updated_at)
+     VALUES (1, 'Unicode static', 'draft', '{}', ?, ?)`
+  ).run(now, now);
+  db.prepare(
+    `INSERT INTO characters (drama_id, name, local_path, sort_order, created_at, updated_at)
+     VALUES (1, 'Aria', ?, 0, ?, ?)`
+  ).run(relativePath, now, now);
+
+  const app = express();
+  app.use('/static', createStorageStaticMiddleware(storagePath, log, db));
+  const server = app.listen(0, '127.0.0.1');
+  await new Promise((resolve) => server.once('listening', resolve));
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  const origin = `http://127.0.0.1:${server.address().port}`;
+  const encoded = relativePath.split('/').map(encodeURIComponent).join('/');
+  const response = await fetch(`${origin}/static/${encoded}`);
+  assert.equal(response.status, 200);
+  assert.deepEqual(Buffer.from(await response.arrayBuffer()), PNG_BYTES);
 });
 
 test('project export enforces every configured budget with structured route errors', (t) => {

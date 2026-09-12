@@ -1,3 +1,40 @@
 # Legacy false positive in the deleted, obfuscated desktop bundle from 2026-04-06.
 # Both generic-api-key findings share this exact commit/path/rule/line fingerprint.
 ececcdcb6b14f40b8d3fec42a38a2633593b4613:desktop/backend-app-secure/src/app.js:generic-api-key:1
+
+# Synthetic acceptance-report credential fixture; the current test builds it from fragments.
+6b216ed727772ab794d5c0bfd6c717b3425d164a:frontweb/test/acceptanceReportVerifier.test.js:generic-api-key:396
+
+# Synthetic maintenance-lease token; the current test builds it at runtime.
+dcf6cc47fe3b526cf57c294e3a0b72a7719d1a45:backend-node/test/maintenanceRecoveryCli.test.js:generic-api-key:50
+
+# Synthetic maintenance authority tokens; current fixtures build these from fragments.
+5fcc14cddb83b9faaa33f50c1d998861d9ef58df:backend-node/test/dataBackupService.test.js:generic-api-key:1907
+5fcc14cddb83b9faaa33f50c1d998861d9ef58df:backend-node/test/dataBackupService.test.js:generic-api-key:1996
+5fcc14cddb83b9faaa33f50c1d998861d9ef58df:scripts/rollback-drill-contract.test.cjs:generic-api-key:95
+
+# Synthetic request-observability credential fixtures; the current test builds them from fragments.
+14b9bd3e0f72f5b0b19862c75200d3b3ba6b69ec:frontweb/test/requestObservability.test.js:generic-api-key:238
+14b9bd3e0f72f5b0b19862c75200d3b3ba6b69ec:frontweb/test/requestObservability.test.js:generic-api-key:241
+
+# Synthetic AI-config connection/TTS credential fixture; the current test builds it from fragments.
+933546c8816aa997b6f40478b58e7be08f624ae9:backend-node/test/aiConfigConnection.test.js:generic-api-key:233
+
+# Synthetic discover-models credential fixture; the current test builds it from fragments.
+933546c8816aa997b6f40478b58e7be08f624ae9:backend-node/test/aiConfigDiscoverModels.test.js:generic-api-key:427
+
+# Synthetic OCR credential fixtures; the current test builds them from fragments.
+933546c8816aa997b6f40478b58e7be08f624ae9:backend-node/test/aiConfigOcrTranscription.test.js:generic-api-key:112
+933546c8816aa997b6f40478b58e7be08f624ae9:backend-node/test/aiConfigOcrTranscription.test.js:generic-api-key:265
+
+# Synthetic image/video assembly credential fixture; the current test builds it from fragments.
+f285d312216d495f34f5d6748fce81347ec3aea2:backend-node/test/imageVideoGatewayAssemblyContract.test.js:generic-api-key:75
+
+# Synthetic route-observability credential fixture; the current test builds it from fragments.
+f285d312216d495f34f5d6748fce81347ec3aea2:backend-node/test/routeObservability.test.js:generic-api-key:71
+
+# Synthetic cancel/timeout route fixtures from 8c9c313; current test builds them from fragments.
+8c9c313716b9db8e93e88e06dc71e7f4cd48c415:backend-node/test/cancelTimeoutLogSanitization.test.js:generic-api-key:82
+8c9c313716b9db8e93e88e06dc71e7f4cd48c415:backend-node/test/cancelTimeoutLogSanitization.test.js:generic-api-key:115
+8c9c313716b9db8e93e88e06dc71e7f4cd48c415:backend-node/test/cancelTimeoutLogSanitization.test.js:generic-api-key:143
+8c9c313716b9db8e93e88e06dc71e7f4cd48c415:backend-node/test/cancelTimeoutLogSanitization.test.js:generic-api-key:158

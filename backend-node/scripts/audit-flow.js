@@ -99,8 +99,25 @@ assertContainsAll(migration24, [
 for (const rel of [
   'src/services/sourceIntakeService.js',
   'src/services/sourceMediaExtractionService.js',
+  'src/services/sourceMediaExtractionDetect.js',
+  'src/services/sourceMediaExtractionRuntime.js',
+  'src/services/sourceMediaExtractionOcr.js',
+  'src/services/sourceMediaExtractionPdf.js',
+  'src/services/sourceMediaExtractionTranscribe.js',
+  'src/services/sourceMediaExtractionValidation.js',
+  'src/services/aiClientVision.js',
   'src/services/workflowService.js',
+  'src/services/workflowLifecycle.js',
+  'src/services/workflowQueue.js',
+  'src/services/workflowStatus.js',
+  'src/services/workflowExecuteSteps.js',
+  'src/services/workflowTimeline.js',
   'src/services/qaService.js',
+  'src/services/qaServiceChecks.js',
+  'src/services/qaServiceCheckCollectors.js',
+  'src/services/qaServiceCheckRules.js',
+  'src/services/qaServiceAssembly.js',
+  'src/services/qaServiceMessages.js',
   'src/services/providerSdkService.js',
   'src/services/skillRegistryService.js',
   'src/services/legacyAsyncSchedulerService.js',
@@ -111,6 +128,8 @@ for (const rel of [
   'test/sourceMediaExtraction.test.js',
   'test/serverLifecycle.test.js',
   'test/workflowDrainLifecycle.test.js',
+  'test/workflowStatus.test.js',
+  'test/workflowQueue.test.js',
 ]) {
   assert(exists(rel), `missing required file: ${rel}`);
 }
@@ -140,7 +159,14 @@ assertContainsAll(sourceIntake, [
   'event_edges',
 ], 'source intake service');
 
-const workflow = read('src/services/workflowService.js');
+const workflow = [
+  read('src/services/workflowService.js'),
+  read('src/services/workflowLifecycle.js'),
+  read('src/services/workflowQueue.js'),
+  read('src/services/workflowStatus.js'),
+  read('src/services/workflowExecuteSteps.js'),
+  read('src/services/workflowTimeline.js'),
+].join('\n');
 assertContainsAll(workflow, [
   'workflowQueues',
   'backgroundTasks.assertAccepting()',
@@ -159,10 +185,18 @@ assertContainsAll(workflow, [
 ], 'workflow service');
 assert(!workflow.includes('setImmediate'), 'workflow scheduler must use the centralized queue, not setImmediate');
 
-const qa = read('src/services/qaService.js');
+const qa = [
+  read('src/services/qaService.js'),
+  read('src/services/qaServiceChecks.js'),
+  read('src/services/qaServiceCheckCollectors.js'),
+  read('src/services/qaServiceCheckRules.js'),
+  read('src/services/qaServiceAssembly.js'),
+  read('src/services/qaServiceMessages.js'),
+].join('\n');
 assertContainsAll(qa, [
   'isRealMediaPath',
-  'Final QA requires non-mock generated media',
+  "'media_timeline_incomplete'",
+  '正式交付检查要求每个分镜都有非占位的真实生成媒体',
   'story_event_edges',
   'provider_invocations',
   'skill_invocations',
@@ -193,7 +227,15 @@ assertContainsAll(storySourcesRoutes, [
   'sanitizeUploadMetadata',
 ], 'story sources routes');
 
-const sourceMediaExtraction = read('src/services/sourceMediaExtractionService.js');
+const sourceMediaExtraction = [
+  read('src/services/sourceMediaExtractionService.js'),
+  read('src/services/sourceMediaExtractionDetect.js'),
+  read('src/services/sourceMediaExtractionRuntime.js'),
+  read('src/services/sourceMediaExtractionOcr.js'),
+  read('src/services/sourceMediaExtractionPdf.js'),
+  read('src/services/sourceMediaExtractionTranscribe.js'),
+  read('src/services/sourceMediaExtractionValidation.js'),
+].join('\n');
 assertContainsAll(sourceMediaExtraction, [
   'MAX_SOURCE_UPLOAD_BYTES',
   'MAX_EXTRACTED_TEXT_BYTES',
@@ -271,6 +313,11 @@ if (hasFullWorkspace) {
   assertNoMojibake([
     'backend-node/src/services/sourceIntakeService.js',
     'backend-node/src/services/qaService.js',
+    'backend-node/src/services/qaServiceChecks.js',
+    'backend-node/src/services/qaServiceCheckCollectors.js',
+    'backend-node/src/services/qaServiceCheckRules.js',
+    'backend-node/src/services/qaServiceAssembly.js',
+    'backend-node/src/services/qaServiceMessages.js',
     'frontweb/src/components/SourceIntakeWorkflowPanel.vue',
     'frontweb/src/utils/sourceIntakeAdapter.js',
     'frontweb/src/utils/workflowRunStatus.js',

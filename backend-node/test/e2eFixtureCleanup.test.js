@@ -332,6 +332,42 @@ test('retains fixture audio that is still referenced by unrelated project data',
     .get(retained.ids.storyboard).audio_local_path, sharedAudio);
 });
 
+test('ignores draft placeholders and safely normalizes legacy absolute audio paths', async (t) => {
+  const db = createDb();
+  const sourceRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'localminidrama-e2e-legacy-audio-'));
+  const storageRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'localminidrama-e2e-legacy-storage-'));
+  t.after(async () => {
+    db.close();
+    await fsp.rm(sourceRoot, { recursive: true, force: true });
+    await fsp.rm(storageRoot, { recursive: true, force: true });
+  });
+
+  const fixture = seedFixtureGraph(db, { dramaId: 9, e2e: true });
+  await fsp.mkdir(resolveStorySourceDirectory(sourceRoot, fixture.ids.drama), { recursive: true });
+  const storageDirectory = resolveProjectStorageDirectory(
+    storageRoot,
+    db.prepare('SELECT id, title, metadata, created_at FROM dramas WHERE id = ?').get(fixture.ids.drama),
+  );
+  await fsp.mkdir(storageDirectory, { recursive: true });
+  const legacyAbsolute = path.join(storageRoot, 'audio', 'legacy.mp3');
+  await fsp.mkdir(path.dirname(legacyAbsolute), { recursive: true });
+  await fsp.writeFile(legacyAbsolute, 'legacy');
+  db.prepare(
+    'UPDATE storyboards SET audio_local_path = ?, narration_audio_local_path = ? WHERE id = ?',
+  ).run('mock://dramas/9/storyboards/905/voice.wav', legacyAbsolute, fixture.ids.storyboard);
+
+  const result = await purgeE2EFixture({
+    db,
+    dramaId: fixture.ids.drama,
+    expectedTitle: fixture.title,
+    storySourceRoot: sourceRoot,
+    storageRoot,
+  });
+
+  assert.deepEqual(result.media_cleanup, { candidates: 1, deleted: 1, missing: 0, shared: 0 });
+  await assert.rejects(fsp.lstat(legacyAbsolute), { code: 'ENOENT' });
+});
+
 test('refuses non-E2E or mismatched fixture identities without touching rows or files', async (t) => {
   const db = createDb();
   const sourceRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'localminidrama-e2e-refuse-'));

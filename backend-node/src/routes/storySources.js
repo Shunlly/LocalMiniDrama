@@ -1,24 +1,33 @@
 const path = require('node:path');
 const response = require('../response');
+const { sendCaughtRouteError, publicErrorMessage, logCaughtRouteError, createClientAbort } = require('./serviceFailure');
 const sourceIntakeService = require('../services/sourceIntakeService');
 const sourceMediaExtractionService = require('../services/sourceMediaExtractionService');
 const uploadService = require('../services/uploadService');
 const webSourceImportService = require('../services/webSourceImportService');
+const dramaWriteGuard = require('../services/dramaWriteGuard');
 
 const MAX_UPLOAD_METADATA_BYTES = 64 * 1024;
 const SENSITIVE_UPLOAD_METADATA_KEY = /api[_-]?key|access[_-]?key|secret|password|token|raw[_-]?text|full[_-]?text|extracted[_-]?text|ocr[_-]?text|transcript/i;
 
 function badRequestOrInternal(res, err) {
-  if (err && err.code === 'BAD_REQUEST') return response.badRequest(res, err.message);
+  if (err && err.code === 'BAD_REQUEST') return response.badRequest(res, publicErrorMessage(err, '素材源请求无效'));
+  if (dramaWriteGuard.isBoundaryError(err)) {
+    return response.error(res, err.statusCode || 409, err.code, publicErrorMessage(err, '当前项目不可用'), err.details);
+  }
   if (uploadService.isUploadStorageError(err)) {
     return response.error(
       res,
       507,
       err.code || 'INSUFFICIENT_STORAGE',
-      'Insufficient storage capacity for the source original.'
+      '存储空间不足，无法保存原始素材。请清理磁盘后重试'
     );
   }
-  return response.internalError(res, err.message || 'Story source operation failed');
+  const sqliteCode = String(err?.code || '');
+  if (sqliteCode.startsWith('SQLITE') || err?.name === 'SqliteError') {
+    return response.badRequest(res, '素材源操作失败，请稍后重试');
+  }
+  return sendCaughtRouteError(res, err, '素材源操作失败，请稍后重试');
 }
 
 function resolveSourceStoragePath(routeOptions) {
@@ -64,7 +73,7 @@ function sanitizeMetadataNode(value, depth = 0) {
 function sanitizeUploadMetadata(value) {
   const metadata = sanitizeMetadataNode(parseMetadata(value));
   if (Buffer.byteLength(JSON.stringify(metadata), 'utf8') > MAX_UPLOAD_METADATA_BYTES) {
-    const err = new Error('Source upload metadata is limited to 64KB.');
+    const err = new Error('素材上传元数据不能超过 64KB');
     err.code = 'BAD_REQUEST';
     throw err;
   }
@@ -104,11 +113,14 @@ module.exports = function storySourceRoutes(db, log, routeOptions = {}) {
     },
 
     async uploadForDrama(req, res) {
+      const clientAbort = createClientAbort(req, res, '素材抽取已取消');
       try {
+        const extractionOptions = { ...(routeOptions.extractionOptions || {}) };
+        if (!extractionOptions.signal) extractionOptions.signal = clientAbort.signal;
         const extracted = await sourceMediaExtractionService.extractUploadedSource(
           db,
           req.file,
-          routeOptions.extractionOptions || {}
+          extractionOptions
         );
         const file = extracted.file;
         const body = req.body || {};
@@ -136,8 +148,13 @@ module.exports = function storySourceRoutes(db, log, routeOptions = {}) {
         });
         response.created(res, result);
       } catch (err) {
-        log.error('story sources upload', { error: err.message, drama_id: req.params.id });
+        logCaughtRouteError(log, 'story sources upload', err, {
+          drama_id: req.params.id,
+          fallback: '素材源操作失败，请稍后重试',
+        });
         badRequestOrInternal(res, err);
+      } finally {
+        clientAbort.dispose();
       }
     },
 
@@ -170,7 +187,7 @@ module.exports = function storySourceRoutes(db, log, routeOptions = {}) {
     get(req, res) {
       try {
         const detail = sourceIntakeService.getSourceDetail(db, req.params.source_id);
-        if (!detail) return response.notFound(res, 'Story source not found');
+        if (!detail) return response.notFound(res, '找不到该素材源');
         response.success(res, detail);
       } catch (err) {
         log.error('story sources get', { error: err.message, source_id: req.params.source_id });
@@ -181,7 +198,7 @@ module.exports = function storySourceRoutes(db, log, routeOptions = {}) {
     downloadOriginal(req, res) {
       try {
         const source = sourceIntakeService.getSourceById(db, req.params.source_id);
-        if (!source) return response.notFound(res, 'Story source not found');
+        if (!source) return response.notFound(res, '找不到该素材源');
         const original = uploadService.readStorySourceOriginal(storagePath, source);
         res.setHeader('Cache-Control', 'private, no-store');
         res.setHeader('Content-Disposition', `attachment; filename="${original.serverFilename}"`);
@@ -191,7 +208,7 @@ module.exports = function storySourceRoutes(db, log, routeOptions = {}) {
         return res.status(200).send(original.buffer);
       } catch (err) {
         if (err?.code === 'SOURCE_ORIGINAL_NOT_FOUND') {
-          return response.notFound(res, err.message);
+          return response.notFound(res, publicErrorMessage(err, '找不到原始素材文件'));
         }
         log.error('story source original download', { error: err.message, source_id: req.params.source_id });
         return badRequestOrInternal(res, err);
@@ -201,7 +218,7 @@ module.exports = function storySourceRoutes(db, log, routeOptions = {}) {
     createPlan(req, res) {
       try {
         const plan = sourceIntakeService.createAdaptationPlan(db, log, req.params.source_id, req.body || {});
-        if (!plan) return response.notFound(res, 'Story source not found');
+        if (!plan) return response.notFound(res, '找不到该素材源');
         response.created(res, plan);
       } catch (err) {
         log.error('story sources create plan', { error: err.message, source_id: req.params.source_id });
@@ -212,7 +229,7 @@ module.exports = function storySourceRoutes(db, log, routeOptions = {}) {
     applyPlan(req, res) {
       try {
         const result = sourceIntakeService.applyAdaptationPlanToEpisodes(db, log, req.params.plan_id, req.body || {});
-        if (!result) return response.notFound(res, 'Adaptation plan not found');
+        if (!result) return response.notFound(res, '找不到该改编方案');
         response.success(res, result);
       } catch (err) {
         log.error('adaptation plan apply', { error: err.message, plan_id: req.params.plan_id });

@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
+const { removeFixtureTree } = require('./fixture-fs');
 const {
   assertTrustedSha256,
   beforePack,
@@ -57,7 +58,7 @@ test('trusted media manifest is fixed to reviewed Windows x64 artifacts', () => 
 
 test('trusted SHA-256 verification rejects changed bytes', (t) => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'localminidrama-media-policy-'));
-  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  t.after(() => removeFixtureTree(directory));
   const fixture = path.join(directory, 'fixture.bin');
   fs.writeFileSync(fixture, 'abc');
   const digest = 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad';

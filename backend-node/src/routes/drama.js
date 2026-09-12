@@ -1,6 +1,8 @@
 const dramaService = require('../services/dramaService');
 const propService = require('../services/propService');
 const response = require('../response');
+const { sendCaughtRouteError, publicErrorMessage } = require('./serviceFailure');
+const { isTrustedChineseUserError } = require('../services/providerErrorSanitizer');
 const dramaExportService = require('../services/dramaExportService');
 const dramaImportService = require('../services/dramaImportService');
 
@@ -15,7 +17,7 @@ function createDrama(db, log) {
       response.created(res, drama);
     } catch (err) {
       log.error('Create drama failed', { error: err.message, stack: err.stack });
-      response.internalError(res, err.message || '创建失败');
+      sendCaughtRouteError(res, err, '创建失败');
     }
   };
 }
@@ -35,6 +37,7 @@ function listDramas(db, log) {
     const status = req.query.status || '';
     const genre = req.query.genre || '';
     const keyword = req.query.keyword || '';
+    const sort = req.query.sort || '';
     try {
       const { dramas, total, page: p, pageSize: ps } = dramaService.listDramas(db, {
         page,
@@ -42,6 +45,7 @@ function listDramas(db, log) {
         status,
         genre,
         keyword,
+        sort,
       });
       response.successWithPagination(res, dramas, total, p, ps);
     } catch (err) {
@@ -76,14 +80,29 @@ function updateDrama(db, log) {
 }
 
 function moveDramaToTrash(db, log) {
-  return (req, res) => {
-    const drama = dramaService.moveDramaToTrash(db, log, req.params.id);
-    if (!drama) return response.notFound(res, '项目不存在或已在回收站中');
-    response.success(res, {
-      message: '项目已移入回收站',
-      project: drama,
-      retention: dramaService.getTrashRetentionPolicy(),
-    });
+  return async (req, res) => {
+    try {
+      const drama = await dramaService.moveDramaToTrash(db, log, req.params.id);
+      if (!drama) return response.notFound(res, '项目不存在或已在回收站中');
+      response.success(res, {
+        message: '项目已移入回收站',
+        project: drama,
+        retention: dramaService.getTrashRetentionPolicy(),
+      });
+    } catch (err) {
+      log.error('Move drama to trash failed', { error: err.message, drama_id: req.params.id });
+      if ([
+        'REMOTE_CANCEL_FAILED',
+        'REMOTE_CANCEL_UNCERTAIN',
+        'TASK_SCOPE_CONFLICT',
+        'DRAMA_RECYCLE_IN_PROGRESS',
+        'WORKFLOW_DRAIN_TIMEOUT',
+      ].includes(err.code)) {
+        const raw = String(err.message || '');
+        return response.error(res, 409, err.code, isTrustedChineseUserError(raw) ? raw : '项目正在处理中，请稍后重试', err.details);
+      }
+      sendCaughtRouteError(res, err, '移动到回收站失败，请稍后重试');
+    }
   };
 }
 
@@ -130,7 +149,7 @@ function getCharacters(db) {
 function saveCharacters(db, log) {
   return (req, res) => {
     const body = req.body || {};
-    if (!Array.isArray(body.characters)) return response.badRequest(res, 'characters 必填且为数组');
+    if (!Array.isArray(body.characters)) return response.badRequest(res, '角色列表必须是数组');
     const ok = dramaService.saveCharacters(db, log, req.params.id, body);
     if (!ok) return response.notFound(res, '剧本或章节不存在');
     response.success(res, { message: '保存成功' });
@@ -140,7 +159,7 @@ function saveCharacters(db, log) {
 function saveEpisodes(db, log) {
   return (req, res) => {
     const body = req.body || {};
-    if (!Array.isArray(body.episodes)) return response.badRequest(res, 'episodes 必填且为数组');
+    if (!Array.isArray(body.episodes)) return response.badRequest(res, '剧集列表必须是数组');
     const ok = dramaService.saveEpisodes(db, log, req.params.id, body);
     if (!ok) return response.notFound(res, '剧本不存在');
     response.success(res, { message: '保存成功' });
@@ -150,7 +169,7 @@ function saveEpisodes(db, log) {
 function saveProgress(db, log) {
   return (req, res) => {
     const body = req.body || {};
-    if (!body.current_step) return response.badRequest(res, 'current_step 必填');
+    if (!body.current_step) return response.badRequest(res, '请提供当前步骤');
     const ok = dramaService.saveProgress(db, log, req.params.id, body);
     if (!ok) return response.notFound(res, '剧本不存在');
     response.success(res, { message: '保存成功' });
@@ -164,9 +183,9 @@ function saveCanvasLayout(db, log) {
       if (!updated) return response.notFound(res, '剧本不存在');
       response.success(res, updated);
     } catch (err) {
-      if (err.code === 'BAD_REQUEST') return response.badRequest(res, err.message);
+      
       log.error('Save canvas layout failed', { error: err.message });
-      response.internalError(res, err.message || '保存画布布局失败');
+      sendCaughtRouteError(res, err, '保存画布布局失败');
     }
   };
 }
@@ -181,10 +200,19 @@ function listProps(db) {
 function finalizeEpisode(db, log, cfg) {
   return (req, res) => {
     const episodeId = req.params.episode_id;
-    if (!episodeId) return response.badRequest(res, 'episode_id不能为空');
+    if (!episodeId) return response.badRequest(res, '请选择剧集');
     const baseUrl = cfg?.storage?.base_url || '';
     const result = dramaService.finalizeEpisode(db, log, episodeId, baseUrl, req.body || {});
     if (!result) return response.notFound(res, '剧集不存在');
+    if (result.scenes_count === 0 && result.merge_id == null) {
+      return response.error(
+        res,
+        409,
+        'EPISODE_NOT_READY',
+        '本集没有可合成的视频片段',
+        { reason: 'NO_VIDEO_CLIPS', episode_id: Number(episodeId) }
+      );
+    }
     response.success(res, result);
   };
 }
@@ -192,7 +220,7 @@ function finalizeEpisode(db, log, cfg) {
 function downloadEpisodeVideo(db) {
   return (req, res) => {
     const episodeId = req.params.episode_id;
-    if (!episodeId) return response.badRequest(res, 'episode_id不能为空');
+    if (!episodeId) return response.badRequest(res, '请选择剧集');
     const result = dramaService.downloadEpisodeVideo(db, episodeId);
     if (!result) return response.notFound(res, '剧集不存在');
     if (result.error) return response.badRequest(res, result.error);
@@ -224,7 +252,7 @@ function exportDrama(db, cfg, log) {
           err.details
         );
       }
-      response.internalError(res, err.message || '导出失败');
+      sendCaughtRouteError(res, err, '导出失败');
     }
   };
 }
@@ -240,7 +268,7 @@ function importDrama(db, cfg, log, importOptions = {}) {
     } catch (err) {
       log.error('Import drama failed', { error: err.message });
       if (err?.code === 'SOURCE_ORIGINAL_QUOTA_EXCEEDED') {
-        return response.error(res, 413, err.code, err.message);
+        return response.error(res, 413, err.code, publicErrorMessage(err, '导入文件过大'));
       }
       if (err?.name === 'DramaImportError') {
         const status = [
@@ -249,9 +277,9 @@ function importDrama(db, cfg, log, importOptions = {}) {
           'TOTAL_SIZE_LIMIT',
           'MATERIALIZED_SIZE_LIMIT',
         ].includes(err.code) ? 413 : 400;
-        return response.error(res, status, err.code, err.message);
+        return response.error(res, status, err.code, publicErrorMessage(err, '导入失败'));
       }
-      response.internalError(res, err.message || '导入失败');
+      sendCaughtRouteError(res, err, '导入失败');
     }
   };
 }
@@ -306,9 +334,9 @@ function importExample(db, cfg, log, importOptions = {}) {
     } catch (err) {
       log.error('Import example failed', { error: err.message });
       if (err?.code === 'SOURCE_ORIGINAL_QUOTA_EXCEEDED') {
-        return response.error(res, 413, err.code, err.message);
+        return response.error(res, 413, err.code, publicErrorMessage(err, '导入文件过大'));
       }
-      response.internalError(res, err.message || '导入示例失败');
+      sendCaughtRouteError(res, err, '导入示例失败');
     }
   };
 }
@@ -332,7 +360,7 @@ function generateStoryboard(db, log) {
       response.success(res, resData);
     } catch (err) {
       log.error('Generate storyboard failed', { error: err.message });
-      response.internalError(res, err.message || '生成分镜失败');
+      sendCaughtRouteError(res, err, '生成分镜失败');
     }
   };
 }

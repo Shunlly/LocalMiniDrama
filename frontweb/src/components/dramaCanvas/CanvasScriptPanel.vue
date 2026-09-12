@@ -1,5 +1,6 @@
 <template>
   <div
+    ref="panelRef"
     class="canvas-node-panel script-panel nodrag nopan nowheel"
     tabindex="-1"
     @pointerdown.stop
@@ -7,12 +8,13 @@
     @click.stop
     @mouseup.stop
     @wheel.stop
+    @keydown.esc.stop.prevent="closePanel"
   >
     <div class="panel-head">
       <span>剧本 · 第 {{ episode?.episode_number ?? '?' }} 集</span>
       <div class="head-right">
         <span v-if="busyLabel" class="busy-tag">{{ busyLabel }}</span>
-        <el-button link size="small" @click.stop="closePanel">收起</el-button>
+        <el-button link size="small" aria-label="收起面板" @click.stop="closePanel">收起</el-button>
       </div>
     </div>
 
@@ -20,7 +22,7 @@
 
     <el-form label-position="left" label-width="44px" size="small" class="compact-form">
       <el-form-item label="集标题">
-        <el-input v-model="form.title" placeholder="第 N 集" />
+        <el-input v-model="form.title" aria-label="集标题" placeholder="第 N 集" />
       </el-form-item>
       <el-form-item label="剧本">
         <el-input
@@ -28,6 +30,7 @@
           type="textarea"
           :rows="6"
           resize="vertical"
+          aria-label="本集剧本"
           placeholder="在此粘贴或编写本集剧本…"
           class="script-textarea"
         />
@@ -40,19 +43,58 @@
     </div>
 
     <div class="panel-actions">
-      <el-button size="small" type="primary" :loading="saving" @click.stop="onSave">保存剧本</el-button>
-      <el-button size="small" :loading="extracting" @click.stop="onExtractChars">提取角色</el-button>
-      <el-button size="small" :loading="extracting" @click.stop="onExtractScenes">提取场景</el-button>
-      <el-button size="small" :loading="extracting" @click.stop="onExtractProps">提取道具</el-button>
-      <el-button size="small" type="warning" :loading="extracting" @click.stop="onExtractAll">一键提取</el-button>
+      <el-button size="small" type="primary" :loading="saving" :aria-label="saving ? '正在保存剧本' : '保存剧本'" @click.stop="onSave">保存剧本</el-button>
+      <el-button
+        size="small"
+        :loading="extracting"
+        :disabled="!hasScriptContent"
+        :title="emptyScriptReason || undefined"
+        :aria-label="hasScriptContent ? '提取角色' : '提取角色不可用：请先填写剧本内容'"
+        @click.stop="onExtractChars"
+      >提取角色</el-button>
+      <el-button
+        size="small"
+        :loading="extracting"
+        :disabled="!hasScriptContent"
+        :title="emptyScriptReason || undefined"
+        :aria-label="hasScriptContent ? '提取场景' : '提取场景不可用：请先填写剧本内容'"
+        @click.stop="onExtractScenes"
+      >提取场景</el-button>
+      <el-button
+        size="small"
+        :loading="extracting"
+        :disabled="!hasScriptContent"
+        :title="emptyScriptReason || undefined"
+        :aria-label="hasScriptContent ? '提取道具' : '提取道具不可用：请先填写剧本内容'"
+        @click.stop="onExtractProps"
+      >提取道具</el-button>
+      <el-button
+        size="small"
+        type="warning"
+        :loading="extracting"
+        :disabled="!hasScriptContent"
+        :title="emptyScriptReason || undefined"
+        :aria-label="hasScriptContent ? '一键提取' : '一键提取不可用：请先填写剧本内容'"
+        @click.stop="onExtractAll"
+      >一键提取</el-button>
+      <el-button
+        v-if="extracting"
+        size="small"
+        type="warning"
+        plain
+        aria-label="取消提取"
+        @click.stop="abortExtract"
+      >取消提取</el-button>
     </div>
   </div>
 </template>
 
 <script setup>
-import { computed, reactive, ref, watch } from 'vue'
-import { ElMessage } from 'element-plus'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { ElMessage } from '@/utils/elementPlusFeedback.js'
 import { useCanvasContext } from '@/composables/useCanvasContext'
+import { canvasUserError, isCanvasUserAbort } from '@/composables/useCanvasUserError'
+import { toCanvasChineseStatus } from './canvasExperienceCopy.js'
 
 const props = defineProps({
   episode: { type: Object, required: true },
@@ -60,21 +102,31 @@ const props = defineProps({
 })
 
 const ctx = useCanvasContext()
+const panelRef = ref(null)
 const saving = ref(false)
 const extracting = ref(false)
 const form = reactive({
   title: '',
   scriptContent: '',
 })
+let extractRun = null
 
 const charCount = computed(() => (ctx?.drama?.value?.characters || []).length)
 const sceneCount = computed(() => (ctx?.drama?.value?.scenes || []).length)
 const propCount = computed(() => (ctx?.drama?.value?.props || []).length)
 const scriptLen = computed(() => (form.scriptContent || '').length)
+const hasScriptContent = computed(() => Boolean(String(form.scriptContent || '').trim()))
+const emptyScriptReason = computed(() => (hasScriptContent.value ? '' : '请先填写剧本内容'))
+
+function requireScriptContent() {
+  if (hasScriptContent.value) return true
+  ElMessage.warning(emptyScriptReason.value)
+  return false
+}
 
 const busyLabel = computed(() => {
   const map = ctx?.nodeStatus?.map
-  return map?.[props.nodeId]?.message || ''
+  return toCanvasChineseStatus(map?.[props.nodeId]?.message, '处理中…')
 })
 
 function syncForm(ep) {
@@ -82,11 +134,24 @@ function syncForm(ep) {
   form.scriptContent = ep?.script_content || ''
 }
 
+onMounted(() => {
+  panelRef.value?.focus?.()
+})
+
 watch(() => props.episode, (ep) => syncForm(ep), { immediate: true, deep: true })
 
+function abortExtract() {
+  extractRun?.abort()
+}
+
 function closePanel() {
+  abortExtract()
   ctx?.clearFocusedNode?.()
 }
+
+onBeforeUnmount(() => {
+  abortExtract()
+})
 
 function getScriptApi() {
   return ctx?.scriptActions
@@ -104,44 +169,51 @@ async function onSave() {
       title: form.title,
     })
   } catch (e) {
-    ElMessage.error(e?.message || '保存失败')
+    ElMessage.error(canvasUserError(e, '保存失败'))
   } finally {
     saving.value = false
   }
 }
 
 async function runExtract(fn) {
+  extractRun?.abort()
+  const controller = new AbortController()
+  extractRun = controller
   extracting.value = true
   try {
-    await fn()
+    await fn(controller.signal)
   } catch (e) {
-    if (e?.message) ElMessage.error(e.message)
+    if (isCanvasUserAbort(e) || controller.signal.aborted) return
+    ElMessage.error(canvasUserError(e, '提取失败'))
   } finally {
-    extracting.value = false
+    if (extractRun === controller) {
+      extractRun = null
+      extracting.value = false
+    }
   }
 }
 
 async function onExtractChars() {
-  await runExtract(() =>
-    getScriptApi()?.extractCharacters?.(props.episode.id, form.scriptContent)
+  if (!requireScriptContent()) return
+  await runExtract((signal) =>
+    getScriptApi()?.extractCharacters?.(props.episode.id, form.scriptContent, { signal })
   )
 }
 
 async function onExtractScenes() {
-  await runExtract(() => getScriptApi()?.extractScenes?.(props.episode.id))
+  if (!requireScriptContent()) return
+  await runExtract((signal) => getScriptApi()?.extractScenes?.(props.episode.id, { signal }))
 }
 
 async function onExtractProps() {
-  await runExtract(() => getScriptApi()?.extractProps?.(props.episode.id))
+  if (!requireScriptContent()) return
+  await runExtract((signal) => getScriptApi()?.extractProps?.(props.episode.id, { signal }))
 }
 
 async function onExtractAll() {
-  if (!form.scriptContent.trim()) {
-    ElMessage.warning('请先填写剧本')
-    return
-  }
-  await runExtract(() =>
-    getScriptApi()?.extractAll?.(props.episode.id, form.scriptContent)
+  if (!requireScriptContent()) return
+  await runExtract((signal) =>
+    getScriptApi()?.extractAll?.(props.episode.id, form.scriptContent, { signal })
   )
 }
 </script>

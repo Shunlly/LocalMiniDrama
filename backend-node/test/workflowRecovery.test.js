@@ -230,6 +230,11 @@ test('restart recovery does not append adaptation episodes twice', async (t) => 
   );
   const countAfterCrash = db.prepare('SELECT COUNT(*) AS count FROM episodes WHERE drama_id = 1 AND deleted_at IS NULL').get().count;
   assert.equal(countAfterCrash, 2);
+  const episodeScripts = db.prepare(
+    'SELECT script_content FROM episodes WHERE drama_id = 1 AND deleted_at IS NULL ORDER BY episode_number ASC'
+  ).all();
+  assert.ok(episodeScripts.every((episode) => !episode.script_content.includes('Hook:')));
+  assert.ok(episodeScripts.every((episode) => episode.script_content.includes('悬念：')));
   assert.equal(db.prepare('SELECT COUNT(*) AS count FROM workflow_step_effects WHERE call_key = ?').get(
     `workflow:${run.id}:step:apply_episodes:v1`
   ).count, 1);
@@ -264,6 +269,19 @@ test('restart recovery reuses provider side effects after image generation check
     "SELECT COUNT(*) AS count FROM provider_invocations WHERE run_id = ? AND provider_type = 'image'"
   ).get(run.id).count;
   assert.ok(generationCount > 0);
+  const generatedCopy = [
+    ...db.prepare('SELECT description, personality, appearance FROM characters WHERE drama_id = 1').all()
+      .flatMap((row) => [row.description, row.personality, row.appearance]),
+    ...db.prepare('SELECT prompt FROM scenes WHERE drama_id = 1').all().map((row) => row.prompt),
+    ...db.prepare(
+      `SELECT layout_description, atmosphere, image_prompt, video_prompt
+       FROM storyboards s JOIN episodes e ON e.id = s.episode_id WHERE e.drama_id = 1`
+    ).all().flatMap((row) => [row.layout_description, row.atmosphere, row.image_prompt, row.video_prompt]),
+  ].filter(Boolean).join('\n');
+  assert.doesNotMatch(
+    generatedCopy,
+    /from the source story|Keep motivation|locked visual identity|cinematic short-drama|Stable composition|dramatic, clear|camera movement follows/i
+  );
 
   workflowService.resumeActiveWorkflowRunsOnStartup(db, log);
   const completed = await waitForTerminal(db, run.id);

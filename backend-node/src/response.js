@@ -1,5 +1,46 @@
 const { randomUUID } = require('crypto');
 
+const SAFE_REQUEST_ID_PATTERN = /^[A-Za-z0-9._:-]{1,128}$/;
+
+function isSafeRequestId(value) {
+  return typeof value === 'string' && SAFE_REQUEST_ID_PATTERN.test(value);
+}
+
+function headerRequestId(res) {
+  if (typeof res?.getHeader !== 'function') return undefined;
+  return res.getHeader('X-Request-Id');
+}
+
+function resolveRequestId(req, res) {
+  if (isSafeRequestId(req?.requestId)) return req.requestId;
+  const header = headerRequestId(res);
+  if (isSafeRequestId(header)) return header;
+  const supplied = String(req?.headers?.['x-request-id'] || '').trim();
+  if (isSafeRequestId(supplied)) return supplied;
+  return randomUUID();
+}
+
+function ensureRequestId(res, preferred) {
+  const requestId = isSafeRequestId(preferred) ? preferred : resolveRequestId(undefined, res);
+  if (typeof res?.setHeader === 'function') {
+    res.setHeader('X-Request-Id', requestId);
+  }
+  return requestId;
+}
+
+function attachRequestIdToErrorBody(body, requestId) {
+  if (!isSafeRequestId(requestId)) return body;
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return body;
+  if (body.success !== false && !(body.error && typeof body.error === 'object' && !Array.isArray(body.error))) {
+    return body;
+  }
+  const next = { ...body, request_id: requestId };
+  if (body.error && typeof body.error === 'object' && !Array.isArray(body.error)) {
+    next.error = { ...body.error, request_id: requestId };
+  }
+  return next;
+}
+
 // 和 Go 端 pkg/response 保持一致，方便前端复用
 function send(res, statusCode, body) {
   const payload = {
@@ -29,10 +70,11 @@ function successWithPagination(res, items, total, page, pageSize) {
 }
 
 function error(res, statusCode, code, message, details) {
-  send(res, statusCode, {
+  const requestId = ensureRequestId(res);
+  send(res, statusCode, attachRequestIdToErrorBody({
     success: false,
     error: { code, message, ...(details && { details }) },
-  });
+  }, requestId));
 }
 
 function badRequest(res, message) {
@@ -47,23 +89,10 @@ function forbidden(res, message) {
   error(res, 403, 'FORBIDDEN', message);
 }
 
-function ensureRequestId(res) {
-  const existing = typeof res.getHeader === 'function'
-    ? res.getHeader('X-Request-Id')
-    : undefined;
-  const requestId = typeof existing === 'string' && /^[A-Za-z0-9._:-]{1,128}$/.test(existing)
-    ? existing
-    : randomUUID();
-  if (typeof res.setHeader === 'function') {
-    res.setHeader('X-Request-Id', requestId);
-  }
-  return requestId;
-}
-
 function internalError(res, message) {
   const requestId = ensureRequestId(res);
   const safeMessage = process.env.NODE_ENV === 'production'
-    ? 'Internal server error'
+    ? '服务器内部错误'
     : (message || '服务器错误');
   send(res, 500, {
     success: false,
@@ -73,6 +102,10 @@ function internalError(res, message) {
 }
 
 module.exports = {
+  attachRequestIdToErrorBody,
+  ensureRequestId,
+  isSafeRequestId,
+  resolveRequestId,
   success,
   created,
   successWithPagination,

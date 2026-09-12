@@ -1,3 +1,5 @@
+const { canReadDrama } = require('./dramaWriteGuard');
+
 function parseJson(value, fallback = null) {
   if (value == null || value === '') return fallback;
   if (typeof value === 'object') return value;
@@ -45,12 +47,14 @@ function rowToTimelineItem(row) {
 }
 
 function getEpisode(db, episodeId) {
-  return db.prepare(
+  const episode = db.prepare(
     `SELECT ep.*, d.title AS drama_title
        FROM episodes ep
        INNER JOIN dramas d ON d.id = ep.drama_id
-      WHERE ep.id = ? AND ep.deleted_at IS NULL AND d.deleted_at IS NULL`
+       WHERE ep.id = ? AND ep.deleted_at IS NULL AND d.deleted_at IS NULL`
   ).get(Number(episodeId));
+  if (!episode || !canReadDrama(db, episode.drama_id)) return null;
+  return episode;
 }
 
 function listEpisodes(db, dramaId) {
@@ -83,13 +87,21 @@ function getEpisodeTimeline(db, episodeId) {
               sb.video_url,
               sb.image_url,
               sb.audio_local_path,
-              sb.narration_audio_local_path
+              sb.narration_audio_local_path,
+              sb.episode_id AS storyboard_episode_id,
+              sb.deleted_at AS storyboard_deleted_at
          FROM timeline_items ti
          LEFT JOIN storyboards sb ON sb.id = ti.storyboard_id
         WHERE ti.track_id IN (${tracks.map(() => '?').join(',')})
         ORDER BY ti.start_sec ASC, ti.id ASC`
     ).all(...tracks.map((track) => track.id))
     : [];
+  const hasInvalidStoryboard = rows.some((row) => row.storyboard_id != null && (
+    row.storyboard_episode_id == null
+    || Number(row.storyboard_episode_id) !== Number(episodeId)
+    || row.storyboard_deleted_at != null
+  ));
+  if (hasInvalidStoryboard) return null;
   const byTrack = new Map();
   for (const row of rows) {
     if (!byTrack.has(row.track_id)) byTrack.set(row.track_id, []);
@@ -133,9 +145,12 @@ function getEpisodeTimeline(db, episodeId) {
 }
 
 function getDramaTimeline(db, dramaId) {
-  const drama = db.prepare('SELECT id, title, status FROM dramas WHERE id = ? AND deleted_at IS NULL').get(Number(dramaId));
+  const id = Number(dramaId);
+  if (!canReadDrama(db, id)) return null;
+  const drama = db.prepare('SELECT id, title, status FROM dramas WHERE id = ? AND deleted_at IS NULL').get(id);
   if (!drama) return null;
-  const episodes = listEpisodes(db, dramaId).map((episode) => getEpisodeTimeline(db, episode.id)).filter(Boolean);
+  const episodes = listEpisodes(db, id).map((episode) => getEpisodeTimeline(db, episode.id));
+  if (episodes.some((episode) => !episode)) return null;
   return {
     drama,
     summary: {

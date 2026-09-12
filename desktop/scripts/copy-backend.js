@@ -1,13 +1,26 @@
 'use strict';
 
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const { sanitizeRuntimeConfigFile } = require('../../scripts/runtime-config-policy.cjs');
+const {
+  migrateLegacyDevelopmentData,
+  resolveDesktopUserDataDir,
+} = require('./user-data-migration');
 
 const repoRoot = path.join(__dirname, '..', '..');
 const DEFAULT_SOURCE_ROOT = path.join(repoRoot, 'backend-node');
 const DEFAULT_DESTINATION_ROOT = path.join(__dirname, '..', 'backend-app');
 const DEFAULT_INITIAL_MIGRATIONS_ROOT = path.join(__dirname, 'initial-migrations');
+
+function defaultAppDataDirectory(environment = process.env) {
+  if (environment.APPDATA) return path.resolve(environment.APPDATA);
+  if (process.platform === 'darwin') {
+    return path.join(os.homedir(), 'Library', 'Application Support');
+  }
+  return path.join(os.homedir(), '.config');
+}
 
 const DIRECTORY_ALLOWLIST = Object.freeze([
   Object.freeze({ relativePath: 'src', extensions: Object.freeze(['.js']) }),
@@ -155,9 +168,22 @@ function copyBackend(options = {}) {
   const initialMigrationsRoot = path.resolve(
     options.initialMigrationsRoot || DEFAULT_INITIAL_MIGRATIONS_ROOT
   );
+  const environment = options.environment || process.env;
+  const developmentUserDataDir = path.resolve(
+    options.developmentUserDataDir || resolveDesktopUserDataDir({
+      appDataDir: defaultAppDataDirectory(environment),
+      isPackaged: false,
+      environment,
+    })
+  );
 
   assertSafeRoots(sourceRoot, destinationRoot);
   assertRealDirectory(sourceRoot, 'backend-node');
+
+  const legacyDevelopmentDataMigration = migrateLegacyDevelopmentData({
+    legacyBackendRoot: destinationRoot,
+    userDataDir: developmentUserDataDir,
+  });
 
   if (fs.existsSync(destinationRoot)) fs.rmSync(destinationRoot, { recursive: true });
   fs.mkdirSync(destinationRoot, { recursive: true });
@@ -171,7 +197,14 @@ function copyBackend(options = {}) {
 
   const mergedInitialMigrations = mergeInitialMigrations(initialMigrationsRoot, destinationRoot);
   const files = assertAllowlistedDestination(destinationRoot);
-  return { sourceRoot, destinationRoot, mergedInitialMigrations, files };
+  return {
+    sourceRoot,
+    destinationRoot,
+    developmentUserDataDir,
+    legacyDevelopmentDataMigration,
+    mergedInitialMigrations,
+    files,
+  };
 }
 
 if (require.main === module) {

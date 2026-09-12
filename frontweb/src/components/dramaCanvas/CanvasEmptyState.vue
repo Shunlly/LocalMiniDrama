@@ -11,6 +11,7 @@
         placeholder="选择要进入的剧集"
         class="episode-picker"
         aria-label="选择要进入的剧集"
+        autofocus
         @update:model-value="selectDraftEpisode"
       >
         <el-option
@@ -23,15 +24,23 @@
       <div v-else-if="mode === 'select-episode' && effectiveEpisodeLabel" class="episode-pill">
         {{ effectiveEpisodeLabel }}
       </div>
-      <p v-else-if="mode === 'select-episode'" class="episode-empty" role="status">
+      <p v-else-if="mode === 'select-episode'" class="episode-empty" role="status" aria-live="polite">
         暂无可选剧集
       </p>
+      <p
+        v-if="actions.primaryAction === 'confirm-episode' && effectiveEpisodeId === null"
+        id="canvas-empty-episode-reason"
+        class="visually-hidden"
+      >请先选择要进入的剧集</p>
 
       <div class="start-actions">
         <el-button
           v-if="actions.primaryAction === 'create-episode'"
           type="primary"
           native-type="button"
+          autofocus
+          aria-label="新建第一集"
+          title="新建第一集"
           @click="emit('create-episode')"
         >
           <el-icon><Plus /></el-icon>
@@ -41,7 +50,11 @@
           v-else-if="actions.primaryAction === 'confirm-episode'"
           type="primary"
           :disabled="effectiveEpisodeId === null"
+          :title="effectiveEpisodeId === null ? '请先选择要进入的剧集' : undefined"
           native-type="submit"
+          autofocus
+          aria-label="进入这一集"
+          :aria-describedby="effectiveEpisodeId === null ? 'canvas-empty-episode-reason' : undefined"
         >
           <el-icon><Right /></el-icon>
           进入这一集
@@ -51,6 +64,9 @@
           link
           type="primary"
           native-type="button"
+          :autofocus="!actions.primaryAction"
+          aria-label="返回列表模式"
+          title="返回列表模式"
           @click="emit('go-list')"
         >
           <el-icon><List /></el-icon>
@@ -140,17 +156,23 @@ watch(() => props.mode, (mode) => {
 
 <style scoped>
 .canvas-start-state {
+  box-sizing: border-box;
   position: absolute;
   inset: 0;
   z-index: 8;
   display: grid;
   place-items: center;
+  min-width: 0;
+  max-width: 100%;
   padding: 32px;
   background: rgba(15, 15, 18, 0.9);
 }
 
 .start-panel {
+  box-sizing: border-box;
   width: min(560px, 100%);
+  min-width: 0;
+  max-width: 100%;
   padding: 30px;
   border: 1px solid var(--border-color, #3f3f46);
   border-radius: 8px;
@@ -174,6 +196,7 @@ h2 {
   font-size: 20px;
   line-height: 1.35;
   color: var(--text-bright, #fafafa);
+  overflow-wrap: anywhere;
 }
 
 p {
@@ -181,6 +204,7 @@ p {
   color: var(--text-muted, #a1a1aa);
   font-size: 13px;
   line-height: 1.6;
+  overflow-wrap: anywhere;
 }
 
 .episode-picker {
@@ -214,7 +238,32 @@ p {
   justify-content: center;
   align-items: center;
   gap: 8px;
+  min-width: 0;
+  max-width: 100%;
   flex-wrap: wrap;
+}
+
+.start-actions :deep(.el-button) {
+  max-width: 100%;
+  white-space: normal;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.start-actions :deep(.el-button:focus-visible),
+.episode-picker:focus-within {
+  outline: 2px solid var(--canvas-focus-ring, #818cf8);
+  outline-offset: 2px;
 }
 
 </style>

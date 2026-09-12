@@ -1,11 +1,11 @@
 import request from '@/utils/request'
 
 export const imagesAPI = {
-  list(params) {
-    return request.get('/images', { params: params || {} })
+  list(params, options) {
+    return request.get('/images', { ...(options || {}), params: params || {} })
   },
-  create(data) {
-    return request.post('/images', data)
+  create(data, options) {
+    return request.post('/images', data, options || {})
   },
   upload(data) {
     return request.post('/images/upload', data)

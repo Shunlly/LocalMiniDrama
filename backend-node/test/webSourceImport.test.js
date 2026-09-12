@@ -35,11 +35,11 @@ test('web source import blocks local and private targets', async () => {
 
   await assert.rejects(
     () => assertPublicHttpUrl('http://localhost:3013/story'),
-    /not public|localhost/
+    /not public|localhost|公网|本地域名/
   );
   await assert.rejects(
     () => assertPublicHttpUrl('https://example.test/story', resolver(['10.0.0.8'])),
-    /non-public|内网/
+    /non-public|非公网|内网/
   );
 });
 
@@ -78,9 +78,9 @@ test('web source import fetches public text and validates redirects', async () =
     () => fetchWebSource('https://example.com/redirect', {
       resolver: async (host) => [{ address: host === 'example.com' ? '93.184.216.34' : '127.0.0.1' }],
       downloadImpl: async () => {
-        throw new Error('Media URL resolves to a non-public address.');
+        throw new Error('媒体 URL 解析到非公网地址');
       },
     }),
-    /non-public|内网|回环|链路本地/
+    /非公网|non-public|内网|回环|链路本地/
   );
 });

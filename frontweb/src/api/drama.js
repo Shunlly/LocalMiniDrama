@@ -1,14 +1,14 @@
 import request from '@/utils/request'
 
 export const dramaAPI = {
-  list(params) {
-    return request.get('/dramas', { params: params || {} })
+  list(params, options = {}) {
+    return request.get('/dramas', { params: params || {}, ...options })
   },
   create(data) {
     return request.post('/dramas', data)
   },
-  get(id) {
-    return request.get(`/dramas/${id}`)
+  get(id, options) {
+    return request.get(`/dramas/${id}`, options || {})
   },
   update(id, data) {
     return request.put(`/dramas/${id}`, data)
@@ -35,11 +35,12 @@ export const dramaAPI = {
   saveProgress(id, data) {
     return request.put(`/dramas/${id}/progress`, data)
   },
-  saveCanvasLayout(id, canvasLayout, workflowGroups) {
+  saveCanvasLayout(id, canvasLayout, workflowGroups, freeCanvas) {
     const body = {}
     if (canvasLayout != null) body.canvas_layout = canvasLayout
     if (workflowGroups !== undefined) body.workflow_groups = workflowGroups
-    return request.put(`/dramas/${id}/canvas-layout`, body)
+    if (freeCanvas !== undefined) body.free_canvas = freeCanvas
+    return request.put(`/dramas/${id}/canvas-layout`, body, { timeout: 30000 })
   },
   getStoryboards(episodeId) {
     return request.get(`/episodes/${episodeId}/storyboards`)

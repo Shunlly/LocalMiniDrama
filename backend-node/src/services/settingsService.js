@@ -8,10 +8,12 @@ let configCache = null;
 
 function setConfigPath(cfg) {
   configPath = null;
+  const explicitPath = String(process.env.LOCALMINIDRAMA_CONFIG_PATH || '').trim();
   const paths = [
+    explicitPath ? path.resolve(explicitPath) : null,
     path.join(process.cwd(), 'configs', 'config.yaml'),
     path.join(process.cwd(), 'config.yaml'),
-  ];
+  ].filter(Boolean);
   for (const p of paths) {
     if (fs.existsSync(p)) {
       configPath = p;
@@ -69,11 +71,11 @@ function writeFileAtomicSync(targetPath, contents) {
 
 function updateLanguage(cfg, log, language) {
   if (language !== 'zh' && language !== 'en') {
-    return { ok: false, error: '只支持 zh 或 en' };
+    return { ok: false, error: '只支持中文或英文' };
   }
   const targetPath = setConfigPath(cfg);
   if (!targetPath) {
-    const error = new Error('Config file not found; language setting was not persisted');
+    const error = new Error('配置文件不存在，语言设置未保存');
     error.code = 'CONFIG_FILE_NOT_FOUND';
     log.warnw('Failed to write config file', { error: error.message });
     throw error;

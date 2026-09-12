@@ -11,6 +11,10 @@ function mediaQueryErrorMessage(error) {
   return message || '媒体查询失败'
 }
 
+function isAbortError(error, signal) {
+  return error?.name === 'AbortError' || signal?.aborted
+}
+
 export async function fetchStoryboardMediaSnapshot(
   storyboards,
   {
@@ -19,6 +23,7 @@ export async function fetchStoryboardMediaSnapshot(
     mediaStatusBySbId = {},
     imagesAPIImpl = imagesAPI,
     videosAPIImpl = videosAPI,
+    requestOptions = {},
   } = {},
 ) {
   const boards = Array.isArray(storyboards) ? storyboards.filter((storyboard) => storyboard?.id != null) : []
@@ -32,8 +37,8 @@ export async function fetchStoryboardMediaSnapshot(
       const storyboardId = storyboard.id
       try {
         const [imgRes, vidRes] = await Promise.all([
-          imagesAPIImpl.list({ storyboard_id: storyboardId, page: 1, page_size: 100 }),
-          videosAPIImpl.list({ storyboard_id: storyboardId, page: 1, page_size: 50 }),
+          imagesAPIImpl.list({ storyboard_id: storyboardId, page: 1, page_size: 100 }, requestOptions),
+          videosAPIImpl.list({ storyboard_id: storyboardId, page: 1, page_size: 50 }, requestOptions),
         ])
         nextImages[storyboardId] = imgRes?.items || []
         nextVideos[storyboardId] = vidRes?.items || []
@@ -44,6 +49,7 @@ export async function fetchStoryboardMediaSnapshot(
           preservedData: false,
         }
       } catch (error) {
+        if (isAbortError(error, requestOptions.signal)) throw error
         failedStoryboardIds.push(storyboardId)
         nextMediaStatus[storyboardId] = {
           state: 'unknown',
@@ -75,7 +81,7 @@ export function useCanvasStoryboardMedia() {
   const mediaLoading = ref(false)
   let mediaRequestId = 0
 
-  async function loadForStoryboards(storyboards, { prune = true } = {}) {
+  async function loadForStoryboards(storyboards, { prune = true, requestOptions = {} } = {}) {
     const boards = storyboards || []
     if (!boards.length) {
       imagesBySbId.value = {}
@@ -91,6 +97,7 @@ export function useCanvasStoryboardMedia() {
         imagesBySbId: imagesBySbId.value,
         videosBySbId: videosBySbId.value,
         mediaStatusBySbId: mediaStatusBySbId.value,
+        requestOptions,
       })
       if (requestId !== mediaRequestId) return { ...snapshot, stale: true }
 
@@ -117,12 +124,12 @@ export function useCanvasStoryboardMedia() {
     }
   }
 
-  async function loadForDrama(drama, episodeId = null) {
+  async function loadForDrama(drama, episodeId = null, requestOptions = {}) {
     const episodes = episodeId
       ? (drama?.episodes || []).filter((ep) => ep.id === episodeId)
       : (drama?.episodes || [])
     const boards = episodes.flatMap((ep) => ep.storyboards || [])
-    return loadForStoryboards(boards, { prune: true })
+    return loadForStoryboards(boards, { prune: true, requestOptions })
   }
 
   return {

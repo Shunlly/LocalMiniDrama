@@ -1,10 +1,35 @@
 // 与 Go ImageGenerationService.ExtractBackgroundsForEpisode + processBackgroundExtraction 对齐
 const taskService = require('./taskService');
+const { createOperationCancelledError } = require('./operationRegistry');
 const aiClient = require('./aiClient');
 const promptI18n = require('./promptI18n');
 const sceneService = require('./sceneService');
 const { scheduleLegacyAsync } = require('./legacyAsyncSchedulerService');
 const { safeParseAIJSON, extractFirstArray } = require('../utils/safeJson');
+const { toUserFacingProcessError } = require('./providerErrorSanitizer');
+
+function waitForTaskSignal(promise, signal) {
+  if (!signal) return promise;
+  if (signal.aborted) {
+    return Promise.reject(createOperationCancelledError(signal.reason));
+  }
+  return new Promise((resolve, reject) => {
+    const onAbort = () => {
+      reject(createOperationCancelledError(signal.reason));
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+    Promise.resolve(promise).then(
+      (value) => {
+        signal.removeEventListener('abort', onAbort);
+        resolve(value);
+      },
+      (error) => {
+        signal.removeEventListener('abort', onAbort);
+        reject(error);
+      }
+    );
+  });
+}
 
 function normalizeLanguage(language) {
   const lang = (language || '').toString().trim().toLowerCase();
@@ -23,20 +48,24 @@ function withLanguage(cfg, language) {
   };
 }
 
-async function translatePromptToChinese(db, log, model, prompt) {
+async function translatePromptToChinese(db, log, model, prompt, signal) {
   const userPrompt =
     '请将以下场景图像提示词翻译为中文，保留风格词或比例（如 realistic、16:9）原样，直接返回翻译后的中文提示词，不要解释：\n' +
     prompt;
-  const text = await aiClient.generateText(db, log, 'text', userPrompt, '', {
-    scene_key: 'scene_extraction',
-    model: model || undefined,
-    temperature: 0.2,
-    max_tokens: 400,
-  });
+  const text = await waitForTaskSignal(
+    aiClient.generateText(db, log, 'text', userPrompt, '', {
+      scene_key: 'scene_extraction',
+      model: model || undefined,
+      temperature: 0.2,
+      max_tokens: 400,
+      signal,
+    }),
+    signal,
+  );
   return (text || '').toString().trim();
 }
 
-async function extractBackgroundsFromScript(db, cfg, log, scriptContent, dramaId, model, style) {
+async function extractBackgroundsFromScript(db, cfg, log, scriptContent, dramaId, model, style, signal) {
   if (!scriptContent || !scriptContent.trim()) return [];
   const systemPrompt = promptI18n.getSceneExtractionPrompt(cfg, style);
   const prompt = (promptI18n.getLanguage(cfg) === 'en' ? '[Script Content]\n' : '【剧本内容】\n') + scriptContent;
@@ -44,7 +73,15 @@ async function extractBackgroundsFromScript(db, cfg, log, scriptContent, dramaId
     system_prompt_length: String(systemPrompt || '').length,
     prompt_length: String(prompt || '').length,
   });
-  const text = await aiClient.generateText(db, log, 'text', prompt, systemPrompt, { scene_key: 'scene_extraction', model: model || undefined, temperature: 0.7 });
+  const text = await waitForTaskSignal(
+    aiClient.generateText(db, log, 'text', prompt, systemPrompt, {
+      scene_key: 'scene_extraction',
+      model: model || undefined,
+      temperature: 0.7,
+      signal,
+    }),
+    signal,
+  );
   let list = [];
   try {
     const parsed = safeParseAIJSON(text, null, log);
@@ -61,6 +98,7 @@ async function extractBackgroundsFromScript(db, cfg, log, scriptContent, dramaId
 }
 
 async function processBackgroundExtraction(db, cfg, log, taskID, episodeId, model, style, language) {
+  const signal = taskService.ensureTaskOperation(taskID).signal;
   taskService.updateTaskStatus(db, taskID, 'processing', 0, '正在提取场景信息...');
   const episode = db.prepare('SELECT id, drama_id, script_content FROM episodes WHERE id = ? AND deleted_at IS NULL').get(Number(episodeId));
   if (!episode) {
@@ -69,7 +107,7 @@ async function processBackgroundExtraction(db, cfg, log, taskID, episodeId, mode
   }
   const scriptContent = episode.script_content;
   if (!scriptContent || !String(scriptContent).trim()) {
-    taskService.updateTaskStatus(db, taskID, 'failed', 0, '剧本内容为空');
+    taskService.updateTaskStatus(db, taskID, 'failed', 0, '当前集还没有剧本，请先编写或导入剧本');
     return;
   }
 
@@ -114,11 +152,13 @@ async function processBackgroundExtraction(db, cfg, log, taskID, episodeId, mode
       String(scriptContent),
       episode.drama_id,
       model,
-      style  // 作为 prompt 追加（extractBackgroundsFromScript 内部会用到）
+      style,  // 作为 prompt 追加（extractBackgroundsFromScript 内部会用到）
+      signal
     );
   } catch (err) {
+    if (err?.code === 'OPERATION_CANCELLED' || signal.aborted) return;
     log.error('Background extraction AI failed', { error: err.message, task_id: taskID });
-    taskService.updateTaskStatus(db, taskID, 'failed', 0, 'AI提取场景失败: ' + err.message);
+    taskService.updateTaskError(db, taskID, toUserFacingProcessError(err, 'AI 提取场景失败，请稍后重试'));
     return;
   }
   if (effectiveLanguage === 'zh') {
@@ -127,7 +167,7 @@ async function processBackgroundExtraction(db, cfg, log, taskID, episodeId, mode
         const original = (bg.prompt || '').toString().trim();
         if (!original || hasChinese(original)) return bg;
         try {
-          const translatedPrompt = await translatePromptToChinese(db, log, model, original);
+          const translatedPrompt = await translatePromptToChinese(db, log, model, original, signal);
           if (!translatedPrompt) return bg;
           return { ...bg, prompt: translatedPrompt };
         } catch (err) {
@@ -138,41 +178,51 @@ async function processBackgroundExtraction(db, cfg, log, taskID, episodeId, mode
     );
     backgroundsInfo = translated;
   }
-  sceneService.deleteScenesByEpisodeId(db, log, episodeId);
-  const scenes = [];
-  for (const bg of backgroundsInfo) {
-    const scene = sceneService.createSceneForEpisode(db, log, episode.drama_id, episodeId, {
-      location: bg.location,
-      time: bg.time,
-      prompt: bg.prompt,
-    });
-    if (scene) {
-      scenes.push(scene);
-      // polished_prompt 是完整四视图图片提示词，提取后始终为空，需要异步预生成
-      if (effectiveCfg) {
-        const capturedStyle = style;
-        scheduleLegacyAsync(log, 'scene_prompt_prefill', () => {
-          sceneService.generateScenePromptOnly(db, log, effectiveCfg, scene.id, undefined, capturedStyle).catch((err) => {
-            log.warn('[提取场景] 预生成polished_prompt失败', { scene_id: scene.id, error: err.message });
-          });
-        }, { scene_id: scene.id, episode_id: episodeId });
+  let scenes;
+  try {
+    scenes = taskService.runTaskMutation(db, taskID, signal, () => {
+      sceneService.deleteScenesByEpisodeId(db, log, episodeId);
+      const persisted = [];
+      for (const bg of backgroundsInfo) {
+        const scene = sceneService.createSceneForEpisode(db, log, episode.drama_id, episodeId, {
+          location: bg.location,
+          time: bg.time,
+          prompt: bg.prompt,
+        });
+        if (scene) persisted.push(scene);
       }
+      taskService.updateTaskResult(db, taskID, {
+        scenes: persisted,
+        count: persisted.length,
+        episode_id: episodeId,
+        drama_id: episode.drama_id,
+      });
+      return persisted;
+    });
+  } catch (err) {
+    if (err?.code === 'OPERATION_CANCELLED' || signal.aborted) return;
+    throw err;
+  }
+
+  // 仅在主事务提交后安排提示词预生成，避免回滚后仍访问不存在的场景。
+  if (effectiveCfg) {
+    const capturedStyle = style;
+    for (const scene of scenes) {
+      scheduleLegacyAsync(log, 'scene_prompt_prefill', () => {
+        sceneService.generateScenePromptOnly(db, log, effectiveCfg, scene.id, undefined, capturedStyle).catch((err) => {
+          log.warn('[提取场景] 预生成polished_prompt失败', { scene_id: scene.id, error: err.message });
+        });
+      }, { scene_id: scene.id, episode_id: episodeId });
     }
   }
-  taskService.updateTaskResult(db, taskID, {
-    scenes,
-    count: scenes.length,
-    episode_id: episodeId,
-    drama_id: episode.drama_id,
-  });
   log.info('Background extraction completed', { task_id: taskID, episode_id: episodeId, count: scenes.length });
 }
 
 function extractBackgroundsForEpisode(db, cfg, log, episodeId, model, style, language) {
   const episode = db.prepare('SELECT id, drama_id, script_content FROM episodes WHERE id = ? AND deleted_at IS NULL').get(Number(episodeId));
-  if (!episode) throw new Error('episode not found');
+  if (!episode) throw new Error('剧集不存在，无法提取场景');
   if (!episode.script_content || !String(episode.script_content).trim()) {
-    throw new Error('episode has no script content');
+    throw new Error('当前集还没有剧本，无法提取场景。请先编写或导入剧本');
   }
   // 读取项目的 aspect_ratio，覆盖全局 cfg 中的 default_image_ratio，使 promptI18n 生成正确比例的提示词
   let runCfg = cfg;
@@ -202,7 +252,7 @@ function extractBackgroundsForEpisode(db, cfg, log, episodeId, model, style, lan
   scheduleLegacyAsync(log, 'background_extraction', () => {
     processBackgroundExtraction(db, runCfg, log, task.id, episodeId, model, style, language).catch((err) => {
       log.error('processBackgroundExtraction fatal', { error: err.message, task_id: task.id });
-      taskService.updateTaskError(db, task.id, err.message || '场景提取失败');
+      taskService.updateTaskError(db, task.id, toUserFacingProcessError(err, '场景提取失败，请稍后重试'));
     });
   }, { task_id: task.id, episode_id: episodeId });
   return task.id;

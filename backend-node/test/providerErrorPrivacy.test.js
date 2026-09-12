@@ -111,9 +111,10 @@ describe('provider error sanitizer', () => {
       responseBody: malformed,
     });
 
-    assert.match(error.message, /HTTP 502/);
-    assert.match(error.message, /response_bytes=/);
-    assert.match(error.message, /temporarily unavailable/);
+    assert.match(error.message, /暂时不可用/);
+    assert.doesNotMatch(error.message, /\bHTTP\s+\d+|response_bytes=/);
+    assert.equal(error.status, 502);
+    assert.ok(error.responseBytes > 0);
     assert.doesNotMatch(error.message, LEAK_PATTERN);
   });
 });
@@ -144,9 +145,10 @@ describe('text and image provider boundaries', () => {
     assert.ok(error);
     assert.equal(received.authorization, `Bearer ${REQUEST_SECRET}`);
     assert.equal(received.body.messages[1].content, PRIVATE_PROMPT);
-    assert.match(error.message, /HTTP 401/);
-    assert.match(error.message, /AUTH_DENIED/);
-    assert.match(error.message, /response_bytes=/);
+    assert.match(error.message, /认证失败|失败/);
+    assert.doesNotMatch(error.message, /\bHTTP\s+\d+|response_bytes=|AUTH_DENIED/i);
+    assert.equal(error.status, 401);
+    assert.equal(error.providerCode, 'AUTH_DENIED');
     assert.doesNotMatch(error.message, LEAK_PATTERN);
     assert.doesNotMatch(JSON.stringify(log.entries), LEAK_PATTERN);
   });
@@ -174,9 +176,8 @@ describe('text and image provider boundaries', () => {
 
     assert.equal(received.authorization, `Bearer ${REQUEST_SECRET}`);
     assert.equal(received.body.prompt, PRIVATE_PROMPT);
-    assert.match(result.error, /HTTP 401/);
-    assert.match(result.error, /AUTH_DENIED/);
-    assert.match(result.error, /response_bytes=/);
+    assert.match(result.error, /认证失败|失败/);
+    assert.doesNotMatch(result.error, /\bHTTP\s+\d+|response_bytes=|AUTH_DENIED/i);
     assert.doesNotMatch(result.error, LEAK_PATTERN);
     assert.doesNotMatch(JSON.stringify(log.entries), LEAK_PATTERN);
   });
@@ -227,8 +228,8 @@ describe('text and image provider boundaries', () => {
     const task = db.prepare('SELECT status, error FROM async_tasks WHERE id = ?').get(generation.task_id);
 
     assert.equal(task.status, 'failed');
-    assert.match(generation.error_msg, /HTTP 403/);
-    assert.match(generation.error_msg, /AUTH_DENIED/);
+    assert.match(generation.error_msg, /请求被禁止|失败/);
+    assert.doesNotMatch(generation.error_msg, /\bHTTP\s+\d+|response_bytes=|AUTH_DENIED/i);
     assert.equal(task.error, generation.error_msg);
     assert.doesNotMatch(generation.error_msg, LEAK_PATTERN);
     assert.doesNotMatch(task.error, LEAK_PATTERN);

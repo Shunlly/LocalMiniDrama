@@ -4,10 +4,14 @@ import { readFileSync } from 'node:fs'
 
 import { buildDramaCanvasGraph } from '../src/utils/dramaCanvasAdapter.js'
 import { getStoryboardMediaAvailability } from '../src/utils/storyboardMedia.js'
+import { readCanvasStoryboardPanelSource } from './helpers/canvasStoryboardPanelSource.js'
+import { readDramaCanvasRuntimeSource } from './helpers/dramaCanvasPageSource.js'
 
 function read(path) {
   return readFileSync(new URL(path, import.meta.url), 'utf8')
 }
+
+const canvasRuntimeSource = readDramaCanvasRuntimeSource()
 
 const expandableNodeSources = [
   read('../src/components/dramaCanvas/CanvasAssetNode.vue'),
@@ -31,7 +35,7 @@ test('canvas disabled actions associate reasons with aria-describedby', () => {
   const gate = read('../src/components/dramaCanvas/CanvasActionGate.vue')
   const toolbar = read('../src/components/dramaCanvas/CanvasDesktopToolbar.vue')
   const workflowToolbar = read('../src/components/dramaCanvas/CanvasWorkflowToolbarGroup.vue')
-  const storyboardPanel = read('../src/components/dramaCanvas/CanvasStoryboardPanel.vue')
+  const storyboardPanel = readCanvasStoryboardPanelSource()
   const mediaPanel = read('../src/components/dramaCanvas/CanvasMediaPanel.vue')
 
   assert.match(gate, /v-bind="\{ 'aria-describedby': descriptionId \}"/)
@@ -40,19 +44,35 @@ test('canvas disabled actions associate reasons with aria-describedby', () => {
   assert.match(gate, /前往 AI 配置/)
   assert.match(gate, /openAiConfigHandler\?\.\(props\.configServiceType\)/)
   assert.match(toolbar, /description-id="canvas-reason-batch-videos"/)
+  assert.match(toolbar, /aria-label="编辑剧本"/)
+  assert.match(toolbar, /aria-label="新建剧集"/)
+  assert.match(toolbar, /aria-label="新建素材"/)
+  assert.match(toolbar, /aria-label="AI 生成分镜"/)
+  assert.match(toolbar, />\s*AI 分镜\s*</)
+  assert.match(toolbar, /:title="actionReasons.generateStoryboards \|\| 'AI 生成分镜'"/)
+  assert.match(toolbar, /:title="actionReasons.batchImages \|\| '批量生成图片'"/)
+  assert.match(toolbar, /:title="actionReasons.batchVideos \|\| '批量生成视频'"/)
+  assert.match(toolbar, /aria-label="批量生成图片"/)
+  assert.match(toolbar, /aria-label="批量生成视频"/)
+  assert.match(toolbar, /description-id="canvas-reason-align-nodes"/)
+  assert.match(toolbar, /正在对齐节点，请稍候/)
   assert.match(toolbar, /:config-service-type="actionConfigServices\.batchVideos"/)
   assert.match(workflowToolbar, /description-id="canvas-reason-run-workflow"/)
   assert.match(workflowToolbar, /config-service-type="video"/)
   assert.match(workflowToolbar, /config-service-type="tts"/)
+  assert.match(workflowToolbar, /:title="actionReasons.runWorkflow \|\| '执行工作流分组'"/)
   assert.match(storyboardPanel, /:reason="videoAction\.reason"/)
-  assert.match(storyboardPanel, /:reason="ttsAction\.reason"/)
+  assert.match(storyboardPanel, /:reason="audioActionDisabledReason"/)
+  assert.match(storyboardPanel, /:reason="narrationActionDisabledReason"/)
+  assert.match(storyboardPanel, /:title="audioActionDisabledReason \|\| undefined"/)
   assert.match(mediaPanel, /:reason="videoAction\.reason"/)
   assert.match(mediaPanel, /:reason="ttsAction\.reason"/)
+  assert.match(mediaPanel, /:title="audioActionDisabledReason \|\| undefined"/)
 })
 
 test('canvas production actions load authoritative readiness and guard execution entry points', () => {
-  const canvas = read('../src/views/DramaCanvas.vue')
-  const storyboardPanel = read('../src/components/dramaCanvas/CanvasStoryboardPanel.vue')
+  const canvas = canvasRuntimeSource
+  const storyboardPanel = readCanvasStoryboardPanelSource()
   const mediaPanel = read('../src/components/dramaCanvas/CanvasMediaPanel.vue')
 
   assert.match(canvas, /workflowRunsAPI\.getNovel2AnimeReadiness\(\{[\s\S]*?qa_mode: 'production'/)
@@ -107,14 +127,14 @@ test('real local media produces consistent image and video availability', () => 
 })
 
 test('Vue Flow mounts only after its container reports a non-zero size', () => {
-  const canvas = read('../src/views/DramaCanvas.vue')
-  assert.match(canvas, /v-if="nodes\.length && canvasViewportReady"/)
+  const canvas = canvasRuntimeSource
+  assert.match(canvas, /v-if="canvasViewportReady && \(nodes\.length \|\| canvasMode === 'free'\)"/)
   assert.match(canvas, /new ResizeObserver\(updateCanvasViewportReady\)/)
   assert.match(canvas, /rect\.width > 0 && rect\.height > 0/)
 })
 
 test('canvas viewport controls are named and initial fitting keeps nodes readable', () => {
-  const canvas = read('../src/views/DramaCanvas.vue')
+  const canvas = canvasRuntimeSource
   const aligner = read('../src/components/dramaCanvas/CanvasFlowAligner.vue')
 
   for (const label of ['放大画布', '缩小画布', '适配可读视图']) {
@@ -127,12 +147,15 @@ test('canvas viewport controls are named and initial fitting keeps nodes readabl
   assert.match(canvas, /minZoom: MIN_READABLE_CANVAS_ZOOM/)
   assert.match(canvas, /FOCUSED_NODE_MIN_ZOOM = 0\.9/)
   assert.match(canvas, /nodes: \[nodeId\]/)
-  assert.match(canvas, /void setFocusedCanvasNode\(node\.id\)/)
+  assert.match(canvas, /const changed = await setFocusedCanvasNode\(node\.id\)/)
+  assert.match(canvas, /if \(!changed\) \{[\s\S]*restoreFocusedNodeSelection\(\)/)
   assert.match(canvas, /setFocusedNode: setFocusedCanvasNode/)
   assert.match(canvas, /querySelector\('\.canvas-node-panel'\)\?\.focus/)
-  assert.match(canvas, /@nodes-initialized="onCanvasNodesInitialized"/)
+  assert.match(canvas, /@nodes-initialized="handleCanvasNodesInitialized"/)
   assert.match(canvas, /\.vue-flow__controls button:focus-visible/)
-  assert.match(aligner, /setInteractive, zoomIn, zoomOut/)
+  for (const name of ['setInteractive', 'setViewport', 'screenToFlowCoordinate', 'zoomIn', 'zoomOut']) {
+    assert.match(aligner, new RegExp(`\\b${name}\\b`))
+  }
 })
 
 test('canvas project header localizes stored style identifiers', () => {
@@ -148,4 +171,19 @@ test('video nodes hide the player until positive metadata is available', () => {
   assert.match(mediaNode, /@error="onVideoError"/)
   assert.match(mediaNode, /duration > 0 \? 'ready' : 'invalid'/)
   assert.match(mediaNode, /\.media-vid\.is-checking[\s\S]*visibility: hidden/)
+})
+
+test('删除工作流确认框使用中文按钮', () => {
+  const workflow = read('../src/composables/useDramaCanvasWorkflow.js')
+  assert.match(workflow, /确定删除该工作流？/)
+  assert.match(workflow, /confirmButtonText: '删除'/)
+  assert.match(workflow, /cancelButtonText: '取消'/)
+})
+
+test('画布新建弹窗取消和确定使用带类型的中文名称', () => {
+  const createDialog = read('../src/components/dramaCanvas/CanvasCreateDialog.vue')
+  assert.match(createDialog, /`取消\${dialogTitle}`/)
+  assert.match(createDialog, /`正在\${dialogTitle}`/)
+  assert.match(createDialog, /`确定\${dialogTitle}`/)
+  assert.doesNotMatch(createDialog, /aria-label="取消创建"/)
 })

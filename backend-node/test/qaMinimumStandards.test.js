@@ -62,6 +62,24 @@ test('optional effect/BGM/transition tracks may have zero items when explicitly 
   assert.deepEqual(manifestEffect.metadata, { optional: true, usage: 'unused' });
 });
 
+test('QA issues, recommendations, and remediation actions use user-facing Chinese copy', (t) => {
+  const fixture = createProductionQaFixture(t);
+  fixture.db.prepare("UPDATE storyboards SET movement = '' WHERE id = ?").run(fixture.storyboardId);
+
+  const result = evaluate(fixture);
+  const issue = result.issues.find((item) => item.code === 'storyboards_incomplete');
+  const action = result.remediation_actions.find((item) => item.code === 'repair_storyboards');
+
+  assert.match(issue.message, /正式制作分镜/);
+  assert.ok(result.recommendations.some((item) => /分镜/.test(item)));
+  assert.equal(action.label, '修复分镜草稿');
+  assert.match(action.reason, /分镜草稿/);
+  assert.doesNotMatch(
+    [issue.message, ...result.recommendations, action.label, action.reason].join('\n'),
+    /Production storyboards|Generate storyboard|Repair storyboards|Storyboard drafts/,
+  );
+});
+
 test('timeline API and manifest expose optional track status and metadata', async (t) => {
   const fixture = createProductionQaFixture(t);
   const handlers = timelineRoutes(fixture.db, { error() {} });

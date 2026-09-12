@@ -138,9 +138,9 @@ function sceneLibraryFields(scene, dramaId, imageUrl, now) {
 
 function addSceneToLibrary(db, log, sceneId) {
   const scene = sceneService.getSceneById(db, Number(sceneId));
-  if (!scene) return { ok: false, error: 'scene not found' };
+  if (!scene) return { ok: false, error: '场景不存在' };
   const drama = db.prepare('SELECT id FROM dramas WHERE id = ? AND deleted_at IS NULL').get(scene.drama_id);
-  if (!drama) return { ok: false, error: 'unauthorized' };
+  if (!drama) return { ok: false, error: '无权限' };
   if (!scene.image_url && !scene.local_path) return { ok: false, error: '场景还没有形象图片' };
   const now = new Date().toISOString();
   const imageUrl = resolveImageUrl(scene.image_url, scene.local_path);
@@ -164,7 +164,7 @@ function addSceneToLibrary(db, log, sceneId) {
 
 function addSceneToMaterialLibrary(db, log, sceneId) {
   const scene = sceneService.getSceneById(db, Number(sceneId));
-  if (!scene) return { ok: false, error: 'scene not found' };
+  if (!scene) return { ok: false, error: '场景不存在' };
   if (!scene.image_url && !scene.local_path) return { ok: false, error: '场景还没有形象图片' };
   const now = new Date().toISOString();
   const imageUrl = resolveImageUrl(scene.image_url, scene.local_path);

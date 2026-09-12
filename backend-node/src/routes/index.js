@@ -4,6 +4,7 @@ const os = require('os');
 const path = require('path');
 const { randomUUID } = require('crypto');
 const response = require('../response');
+const { sendCaughtRouteError, sendMappedServiceFailure, publicErrorMessage, uploadFormErrorMessage } = require('./serviceFailure');
 const dramaRoutes = require('./drama');
 const taskRoutes = require('./task');
 const settingsRoutes = require('./settings');
@@ -29,18 +30,19 @@ const workflowRoutes = require('./workflows');
 const storySourceRoutes = require('./storySources');
 const qaReportRoutes = require('./qaReports');
 const timelineRoutes = require('./timelines');
+const aiConfigService = require('../services/aiConfigService');
+const { validateHttpRequestTarget } = require('../services/secureHttpFetch');
 
-function createProviderNetworkBoundary(db) {
+function createProviderNetworkBoundary(db, options = {}) {
   return async (req, res, next) => {
     const body = req.body || {};
     const rawId = body.id ?? body.config_id;
     let saved = null;
-    let trustedOrigins = [];
     if (rawId != null && /^\d+$/.test(String(rawId))) {
       saved = db.prepare(
-        'SELECT base_url, is_active FROM ai_service_configs WHERE id = ? AND deleted_at IS NULL'
+        `SELECT base_url, is_active, provider, service_type, settings
+         FROM ai_service_configs WHERE id = ? AND deleted_at IS NULL`
       ).get(Number(rawId));
-      if (saved?.is_active) trustedOrigins = [saved.base_url].filter(Boolean);
     }
     const requestedBaseUrl = String(body.base_url || saved?.base_url || '').trim();
     if (!requestedBaseUrl) return next();
@@ -56,21 +58,24 @@ function createProviderNetworkBoundary(db) {
         res,
         400,
         'UNSAVED_PROVIDER_URL',
-        'Save and enable the provider configuration before making provider network requests.'
+        '请先保存并启用该 Provider 配置，再发起网络请求'
       );
     }
 
     try {
-      const uploadService = require('../services/uploadService');
-      await uploadService.validatePublicHttpUrl(requestedBaseUrl, { trustedOrigins });
-      req.providerNetworkTrustedOrigins = trustedOrigins;
+      const providerNetworkPolicy = aiConfigService.getProviderNetworkOptions(saved, {
+        lookup: options.lookup,
+      });
+      await validateHttpRequestTarget(requestedBaseUrl, providerNetworkPolicy);
+      req.providerNetworkPolicy = providerNetworkPolicy;
+      req.providerNetworkTrustedOrigins = providerNetworkPolicy.trustedOrigins;
       return next();
     } catch (error) {
       return response.error(
         res,
         400,
         error?.code || 'UNSAFE_PROVIDER_URL',
-        'Provider URL must match an enabled saved provider configuration.'
+        'Provider 地址必须与已保存且已启用的配置一致'
       );
     }
   };
@@ -136,6 +141,14 @@ function setupRouter(cfg, db, log) {
     }),
     limits: { fileSize: DEFAULT_IMPORT_LIMITS.maxArchiveBytes, files: 1, fields: 20 },
   });
+  const backupUploadTempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'localminidrama-backup-upload-'));
+  const backupUpload = multer({
+    storage: multer.diskStorage({
+      destination(_req, _file, callback) { callback(null, backupUploadTempRoot); },
+      filename(_req, _file, callback) { callback(null, `${randomUUID()}.zip`); },
+    }),
+    limits: { fileSize: 8 * 1024 * 1024 * 1024, files: 1, fields: 20 },
+  });
   const novelUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024, files: 1 } });
   const sourceUploadMaxBytes = 20 * 1024 * 1024;
   const sourceUpload = multer({
@@ -152,7 +165,7 @@ function setupRouter(cfg, db, log) {
     const contentLength = Number(req.headers?.['content-length']);
     const maxRequestBytes = DEFAULT_IMPORT_LIMITS.maxArchiveBytes + (2 * 1024 * 1024);
     if (Number.isFinite(contentLength) && contentLength > maxRequestBytes) {
-      return response.error(res, 413, 'IMPORT_ARCHIVE_TOO_LARGE', 'ZIP upload exceeds 256MB');
+      return response.error(res, 413, 'IMPORT_ARCHIVE_TOO_LARGE', 'ZIP 上传超过 256MB 上限，请压缩或拆分后重试');
     }
     try {
       uploadService.assertUploadDiskCapacity(
@@ -165,7 +178,7 @@ function setupRouter(cfg, db, log) {
           res,
           507,
           'INSUFFICIENT_STORAGE',
-          'Insufficient temporary disk space for ZIP upload'
+          '临时磁盘空间不足，无法接收 ZIP 上传。请清理磁盘后重试'
         );
       }
       return next(error);
@@ -174,9 +187,9 @@ function setupRouter(cfg, db, log) {
       if (err) {
         if (req.file?.path) fs.rmSync(req.file.path, { force: true });
         if (err.code === 'LIMIT_FILE_SIZE') {
-          return response.error(res, 413, 'IMPORT_ARCHIVE_TOO_LARGE', 'ZIP upload exceeds 256MB');
+          return response.error(res, 413, 'IMPORT_ARCHIVE_TOO_LARGE', 'ZIP 上传超过 256MB 上限，请压缩或拆分后重试');
         }
-        return response.badRequest(res, err.message || 'ZIP upload failed');
+        return response.badRequest(res, uploadFormErrorMessage(err, 'ZIP 上传失败，请更换文件后重试'));
       }
       if (req.file?.path) {
         const uploadedPath = req.file.path;
@@ -201,7 +214,7 @@ function setupRouter(cfg, db, log) {
         res,
         413,
         'SOURCE_UPLOAD_TOO_LARGE',
-        'Source Intake uploads are limited to 20MB.'
+        '素材导入文件不能超过 20MB，请拆分或压缩后重试'
       );
     }
     try {
@@ -218,7 +231,7 @@ function setupRouter(cfg, db, log) {
           res,
           507,
           'INSUFFICIENT_STORAGE',
-          'Insufficient storage capacity for the source original.'
+          '存储空间不足，无法保存原始素材。请清理磁盘后重试'
         );
       }
       return next(error);
@@ -230,10 +243,10 @@ function setupRouter(cfg, db, log) {
           res,
           413,
           'SOURCE_UPLOAD_TOO_LARGE',
-          'Source Intake uploads are limited to 20MB.'
+          '素材导入文件不能超过 20MB，请拆分或压缩后重试'
         );
       }
-      return response.badRequest(res, err.message || 'Source Intake upload failed');
+      return response.badRequest(res, uploadFormErrorMessage(err, '素材导入失败，请更换文件后重试'));
     });
   };
   r.post('/dramas/import', importUploadSingle, drama.importDrama);
@@ -246,7 +259,7 @@ function setupRouter(cfg, db, log) {
       } else if (req.body && req.body.text) {
         text = req.body.text;
       }
-      if (!text.trim()) return response.badRequest(res, '请上传小说文本文件或提供 text 参数');
+      if (!text.trim()) return response.badRequest(res, '请上传小说文本文件或填写文本');
       const title = req.body?.title || '';
       const maxChapters = Number(req.body?.max_chapters) || 20;
       const aiSummarize = req.body?.ai_summarize === 'true' || req.body?.ai_summarize === true;
@@ -285,8 +298,7 @@ function setupRouter(cfg, db, log) {
       response.success(res, result);
     } catch (err) {
       log.error('dramas import-novel', { error: err.message });
-      if (err.code === 'BAD_REQUEST') return response.badRequest(res, err.message);
-      response.internalError(res, err.message);
+      sendCaughtRouteError(res, err, '导入小说失败，请稍后重试');
     }
   });
   r.get('/dramas/examples', drama.listExamples);
@@ -300,6 +312,7 @@ function setupRouter(cfg, db, log) {
   r.put('/dramas/:id/outline', drama.saveOutline);
   r.get('/dramas/:id/characters', drama.getCharacters);
   r.put('/dramas/:id/characters', drama.saveCharacters);
+  r.get('/dramas/:id/scenes', scenes.list);
   r.put('/dramas/:id/episodes', drama.saveEpisodes);
   r.put('/dramas/:id/progress', drama.saveProgress);
   r.put('/dramas/:id/canvas-layout', drama.saveCanvasLayout);
@@ -331,6 +344,7 @@ function setupRouter(cfg, db, log) {
   r.get('/ai-configs', aiConfig.list);
   r.post('/ai-configs', aiConfig.create);
   r.post('/ai-configs/test', providerNetworkBoundary, aiConfig.testConnection);
+  r.post('/ai-configs/discover-models', aiConfig.discoverModels);
   r.post('/ai-configs/jimeng2-list-assets', providerNetworkBoundary, aiConfig.listJimeng2MaterialAssets);
   r.post('/ai-configs/model-ark-asset', providerNetworkBoundary, aiConfig.modelArkAsset);
   r.get('/ai-configs/vendor-lock', aiConfig.vendorLock);  // 必须在 /:id 之前
@@ -345,13 +359,14 @@ function setupRouter(cfg, db, log) {
     try {
       const body = req.body || {};
       if (!body.drama_id) {
-        return response.badRequest(res, 'drama_id 必填');
+        return response.badRequest(res, '项目 ID 必填');
       }
       const taskId = characterGenerationService.generateCharacters(db, cfg, log, body);
       response.success(res, { task_id: taskId, status: 'pending' });
     } catch (err) {
       log.error('generation/characters', { error: err.message });
-      response.internalError(res, err.message || '创建任务失败');
+      
+      sendCaughtRouteError(res, err, '创建任务失败');
     }
   });
 
@@ -368,10 +383,7 @@ function setupRouter(cfg, db, log) {
       response.success(res, result);
     } catch (err) {
       log.error('generation/story', { error: err.message });
-      if (err.message && (err.message.includes('未配置') || err.message.includes('必填') || err.message.includes('不存在'))) {
-        return response.badRequest(res, err.message);
-      }
-      response.internalError(res, err.message || '故事生成失败');
+      sendCaughtRouteError(res, err, '故事生成失败');
     }
   });
 
@@ -430,16 +442,19 @@ function setupRouter(cfg, db, log) {
   // ---------- vision: 从图片提取描述（不依赖已有实体 ID）----------
   r.post('/extract-description-from-image', async (req, res) => {
     const { image_url, entity_type, entity_name } = req.body || {};
-    if (!image_url) return response.badRequest(res, '缺少 image_url');
-    if (!['character', 'scene', 'prop'].includes(entity_type)) return response.badRequest(res, 'entity_type 需为 character/scene/prop');
+    if (!image_url) return response.badRequest(res, '缺少图片地址');
+    if (!['character', 'scene', 'prop'].includes(entity_type)) return response.badRequest(res, '提取类型需为角色、场景或道具');
     try {
       const { extractDescriptionFromImage } = require('../services/aiClient');
       const out = await extractDescriptionFromImage(db, log, entity_type, image_url, entity_name);
-      if (!out.ok) return response.badRequest(res, out.error);
+      if (!out.ok) {
+        sendMappedServiceFailure(res, out, { fallback: '从图片提取描述失败，请稍后重试' });
+        return;
+      }
       response.success(res, { description: out.description });
     } catch (err) {
       log.error('extract-description-from-image', { error: err.message });
-      response.internalError(res, err.message);
+      sendCaughtRouteError(res, err, '从图片提取描述失败，请稍后重试');
     }
   });
 
@@ -451,7 +466,31 @@ function setupRouter(cfg, db, log) {
   // 之前可能有部分路由指向了 storyboards.episodeStoryboardsGenerate，这可能导致参数解析不一致
   r.post('/episodes/:episode_id/storyboards', drama.generateStoryboard);
   r.post('/episodes/:episode_id/props/extract', prop.extractProps);
-  r.post('/episodes/:episode_id/characters/extract', stub.episodeCharactersExtract);
+  r.post('/episodes/:episode_id/characters/extract', (req, res) => {
+    const characterGenerationService = require('../services/characterGenerationService');
+    try {
+      const episodeId = Number(req.params.episode_id);
+      const episode = db.prepare(
+        'SELECT id, drama_id, script_content FROM episodes WHERE id = ? AND deleted_at IS NULL'
+      ).get(episodeId);
+      if (!episode) {
+        return response.notFound(res, '剧集不存在');
+      }
+      const outline = String(episode.script_content || '').trim();
+      if (!outline) {
+        return response.badRequest(res, '请先填写剧本内容');
+      }
+      const taskId = characterGenerationService.generateCharacters(db, cfg, log, {
+        drama_id: episode.drama_id,
+        episode_id: episode.id,
+        outline,
+      });
+      response.success(res, { task_id: taskId, status: 'pending' });
+    } catch (err) {
+      log.error('episodes/characters/extract', { error: err.message });
+      sendCaughtRouteError(res, err, '提取角色失败');
+    }
+  });
   r.get('/episodes/:episode_id/storyboards', storyboards.episodeStoryboardsGet);
   r.post('/episodes/:episode_id/finalize', drama.finalizeEpisode);
   r.get('/episodes/:episode_id/download', drama.downloadEpisodeVideo);
@@ -502,6 +541,9 @@ function setupRouter(cfg, db, log) {
 
   // ---------- assets ----------
   r.get('/assets', assets.list);
+  r.get('/assets/network-search', assets.networkSearch);
+  r.get('/assets/network-thumbnail', assets.networkThumbnail);
+  r.post('/assets/network-import', assets.networkImport);
   r.post('/assets/upload', uploadModule.multerMediaSingle, uploadHandlers.uploadAsset);
   r.post('/assets', assets.create);
   r.post('/assets/import/image/:image_gen_id', assets.importImage);
@@ -546,6 +588,9 @@ function setupRouter(cfg, db, log) {
   r.put('/settings/language', settings.updateLanguage);
   r.get('/settings/generation', settings.getGenerationSettings);
   r.put('/settings/generation', settings.updateGenerationSettings);
+  r.get('/settings/backups', settings.listBackups);
+  r.post('/settings/backups', settings.createBackup);
+  r.post('/settings/backups/restore', backupUpload.single('file'), settings.restoreBackup);
 
   // ---------- prompt overrides ----------
   r.get('/settings/prompts', promptOverrides.list);

@@ -1,5 +1,5 @@
 <template>
-  <el-dialog
+  <AccessibleDialog
     :model-value="modelValue"
     class="image-preview-dialog"
     :title="title"
@@ -14,7 +14,7 @@
     @update:model-value="updateVisible"
     @closed="emit('closed')"
   >
-    <div class="image-preview-stage">
+    <div class="image-preview-stage" :aria-busy="loadState === 'loading'">
       <div v-if="loadState === 'loading'" class="image-preview-status" role="status" aria-live="polite">
         正在验证图片…
       </div>
@@ -26,15 +26,16 @@
         class="image-preview-media"
         :class="{ 'is-checking': loadState === 'loading' }"
         :src="src"
-        :alt="resolvedAlt"
+        :alt="loadState === 'loading' ? '' : resolvedAlt"
+        :aria-hidden="loadState === 'loading'"
         @load="handleImageLoad"
         @error="handleImageError"
       />
     </div>
     <template #footer>
-      <el-button type="primary" @click="close">关闭预览</el-button>
+      <el-button type="primary" aria-label="关闭预览" @click="close">关闭预览</el-button>
     </template>
-  </el-dialog>
+  </AccessibleDialog>
 </template>
 
 <script setup>
@@ -50,7 +51,7 @@ const props = defineProps({
 
 const emit = defineEmits(['update:modelValue', 'closed'])
 
-const resolvedAlt = computed(() => props.alt.trim() || props.title)
+const resolvedAlt = computed(() => String(props.alt || '').trim() || props.title)
 const loadState = ref('loading')
 
 watch(

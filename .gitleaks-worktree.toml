@@ -1,0 +1,15 @@
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Untracked runtime, dependency, evidence, and build outputs are scanned by their artifact-specific gates"
+paths = [
+  '''(^|/)\.codex-audit/''',
+  '''(^|/)artifacts/''',
+  '''(^|/)node_modules/''',
+  '''(^|/)backend-node/data/''',
+  '''(^|/)desktop/backend-app/''',
+  '''(^|/)desktop/frontweb-dist/''',
+  '''(^|/)desktop/release(?:-[^/]+)?/''',
+  '''(^|/)frontweb/dist/''',
+]

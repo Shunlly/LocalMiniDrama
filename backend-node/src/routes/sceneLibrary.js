@@ -1,4 +1,6 @@
 const response = require('../response');
+const { sendCaughtRouteError } = require('./serviceFailure');
+
 const sceneLibraryService = require('../services/sceneLibraryService');
 
 function routes(db, cfg, log) {
@@ -10,7 +12,7 @@ function routes(db, cfg, log) {
         response.successWithPagination(res, items, total, page, pageSize);
       } catch (err) {
         log.error('scene-library list', { error: err.message });
-        response.internalError(res, err.message);
+        sendCaughtRouteError(res, err, '场景库操作失败，请稍后重试');
       }
     },
     create: (req, res) => {
@@ -19,7 +21,7 @@ function routes(db, cfg, log) {
         response.created(res, item);
       } catch (err) {
         log.error('scene-library create', { error: err.message });
-        response.internalError(res, err.message);
+        sendCaughtRouteError(res, err, '场景库操作失败，请稍后重试');
       }
     },
     get: (req, res) => {
@@ -29,7 +31,7 @@ function routes(db, cfg, log) {
         response.success(res, item);
       } catch (err) {
         log.error('scene-library get', { error: err.message });
-        response.internalError(res, err.message);
+        sendCaughtRouteError(res, err, '场景库操作失败，请稍后重试');
       }
     },
     update: (req, res) => {
@@ -39,7 +41,7 @@ function routes(db, cfg, log) {
         response.success(res, item);
       } catch (err) {
         log.error('scene-library update', { error: err.message });
-        response.internalError(res, err.message);
+        sendCaughtRouteError(res, err, '场景库操作失败，请稍后重试');
       }
     },
     delete: (req, res) => {
@@ -49,7 +51,7 @@ function routes(db, cfg, log) {
         response.success(res, { message: '删除成功' });
       } catch (err) {
         log.error('scene-library delete', { error: err.message });
-        response.internalError(res, err.message);
+        sendCaughtRouteError(res, err, '场景库操作失败，请稍后重试');
       }
     },
   };

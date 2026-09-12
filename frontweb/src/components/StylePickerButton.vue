@@ -29,7 +29,7 @@
     </button>
 
     <!-- 选择弹窗 -->
-    <el-dialog
+    <AccessibleDialog
       v-model="visible"
       title="选择生成风格"
       width="90vw"
@@ -43,6 +43,7 @@
           v-model="search"
           placeholder="搜索风格名称..."
           clearable
+          aria-label="搜索风格名称"
           style="width: 240px"
         >
           <template #prefix><el-icon><Search /></el-icon></template>
@@ -62,7 +63,7 @@
               type="button"
               class="spd-item"
               :class="{ 'is-active': modelValue === opt.value }"
-              :aria-pressed="modelValue === opt.value"
+              :aria-pressed="modelValue === opt.value" :aria-label="opt.label || opt.value"
               @click="select(opt)"
             >
               <span class="spd-thumb" :style="thumbStyle(opt)">
@@ -80,14 +81,17 @@
             </button>
           </div>
         </template>
-        <div v-if="filteredGroups.length === 0" class="spd-empty">没有匹配的风格</div>
+        <div v-if="filteredGroups.length === 0" class="spd-empty">
+          <p>没有匹配的风格</p>
+          <el-button size="small" aria-label="清除风格搜索" @click="search = ''">清除风格搜索</el-button>
+        </div>
       </div>
 
       <template #footer>
-        <el-button @click="clearAndClose">清除选择</el-button>
-        <el-button type="primary" @click="visible = false">完成</el-button>
+        <el-button aria-label="清除风格选择" @click="clearAndClose">清除风格选择</el-button>
+        <el-button type="primary" aria-label="完成风格选择" @click="visible = false">完成风格选择</el-button>
       </template>
-    </el-dialog>
+    </AccessibleDialog>
   </div>
 </template>
 
@@ -324,6 +328,9 @@ function clearAndClose() {
   padding: 40px;
   color: var(--el-text-color-placeholder);
   font-size: 13px;
+}
+.spd-empty p {
+  margin: 0 0 12px;
 }
 </style>
 

@@ -1,13 +1,15 @@
 'use strict';
 
 const { callModelArkAsset } = require('./modelArkAssetProxyService');
+const { toUserFacingProcessError } = require('./providerErrorSanitizer');
+const aiConfigService = require('./aiConfigService');
 
 function loadModelArkAssetRow(db) {
   if (!db) return null;
   try {
     return db
       .prepare(
-        `SELECT id, name, base_url, api_key, settings FROM ai_service_configs
+        `SELECT id, name, base_url, api_key, settings, provider, service_type FROM ai_service_configs
          WHERE deleted_at IS NULL AND service_type = ? AND is_active = 1
          ORDER BY is_default DESC, priority DESC, id ASC LIMIT 1`
       )
@@ -31,7 +33,7 @@ function parseSettingsJson(raw) {
 /**
  * @returns {{ ready: boolean, row?: object, settings?: object, callOpts?: object, assetGroupId?: string, diag?: object }}
  */
-function buildModelArkContext(db, log) {
+function buildModelArkContext(db, log, options = {}) {
   const row = loadModelArkAssetRow(db);
   if (!row) {
     return { ready: false, diag: { db_model_ark_row_found: false } };
@@ -41,12 +43,28 @@ function buildModelArkContext(db, log) {
   const baseUrl = (row.base_url || '').toString().trim();
   const assetGroupId = (settings.asset_group_id || '').toString().trim();
 
+  let networkPolicy;
+  try {
+    networkPolicy = aiConfigService.getProviderNetworkOptions(row, { lookup: options.lookup });
+  } catch (error) {
+    return {
+      ready: false,
+      row,
+      settings,
+      diag: {
+        db_model_ark_row_found: true,
+        network_policy_error: error?.code || 'INVALID_PROVIDER_URL',
+      },
+    };
+  }
+
   const callOpts = {
     base_url: baseUrl,
     path_mode: settings.path_mode || 'open_api_query',
     api_version: settings.api_version || '2024-01-01',
     auth_mode: authMode,
     project_name: settings.project_name || undefined,
+    network_policy: networkPolicy,
   };
 
   if (authMode === 'bearer') {
@@ -56,7 +74,7 @@ function buildModelArkContext(db, log) {
         ready: false,
         row,
         settings,
-        diag: { db_model_ark_row_found: true, missing: 'base_url 或 api_key' },
+        diag: { db_model_ark_row_found: true, missing: '接口地址或密钥' },
       };
     }
   } else {
@@ -68,7 +86,7 @@ function buildModelArkContext(db, log) {
         ready: false,
         row,
         settings,
-        diag: { db_model_ark_row_found: true, missing: 'base_url 或 AK/SK' },
+        diag: { db_model_ark_row_found: true, missing: '接口地址或访问密钥和签名密钥' },
       };
     }
   }
@@ -79,7 +97,7 @@ function buildModelArkContext(db, log) {
       row,
       settings,
       callOpts,
-      diag: { db_model_ark_row_found: true, missing: 'asset_group_id（默认资产组 Id）' },
+      diag: { db_model_ark_row_found: true, missing: '默认资产组编号' },
     };
   }
 
@@ -184,13 +202,12 @@ async function createImageAsset(ctx, params, log) {
   try {
     data = await callModelArkAsset({ ...callOpts, action: 'CreateAsset', body: payload }, log);
   } catch (err) {
-    return { ok: false, error: String(err.message || err).slice(0, 2000) };
+    return { ok: false, error: toUserFacingProcessError(err, '资产库请求失败，请稍后重试') };
   }
 
   const asset = unwrapModelArkAssetView(data);
   if (!asset?.id) {
-    const keys = data && typeof data === 'object' ? Object.keys(data).join(', ') : typeof data;
-    return { ok: false, error: `ModelArk 未返回资产 Id（响应字段：${keys || '空'}）` };
+    return { ok: false, error: '资产库未返回素材 ID' };
   }
   if (!asset.asset_url) asset.asset_url = assetUrlForVideo(asset);
   return { ok: true, data: asset };
@@ -198,12 +215,12 @@ async function createImageAsset(ctx, params, log) {
 
 async function getAsset(ctx, assetId, log) {
   const id = String(assetId || '').trim();
-  if (!id) return { ok: false, error: '缺少 asset id' };
+  if (!id) return { ok: false, error: '缺少素材 ID' };
   let data;
   try {
     data = await callModelArkAsset({ ...ctx.callOpts, action: 'GetAsset', body: { Id: id } }, log);
   } catch (err) {
-    return { ok: false, error: String(err.message || err).slice(0, 2000) };
+    return { ok: false, error: toUserFacingProcessError(err, '资产库请求失败，请稍后重试') };
   }
   const asset = unwrapModelArkAssetView(data);
   if (asset?.id) {

@@ -1,6 +1,6 @@
 const response = require('../response');
+const { sendCaughtRouteError } = require('./serviceFailure');
 const imageService = require('../services/imageService');
-const taskService = require('../services/taskService');
 const backgroundExtractionService = require('../services/backgroundExtractionService');
 
 function routes(db, cfg, log) {
@@ -12,7 +12,7 @@ function routes(db, cfg, log) {
         response.successWithPagination(res, items, total, page, pageSize);
       } catch (err) {
         log.error('images list', { error: err.message });
-        response.internalError(res, err.message);
+        sendCaughtRouteError(res, err, '图片操作失败，请稍后重试');
       }
     },
     create: (req, res) => {
@@ -22,7 +22,7 @@ function routes(db, cfg, log) {
         response.created(res, rec);
       } catch (err) {
         log.error('images create', { error: err.message });
-        response.internalError(res, err.message);
+        sendCaughtRouteError(res, err, '图片操作失败，请稍后重试');
       }
     },
     get: (req, res) => {
@@ -32,7 +32,7 @@ function routes(db, cfg, log) {
         response.success(res, item);
       } catch (err) {
         log.error('images get', { error: err.message });
-        response.internalError(res, err.message);
+        sendCaughtRouteError(res, err, '图片操作失败，请稍后重试');
       }
     },
     delete: (req, res) => {
@@ -42,26 +42,22 @@ function routes(db, cfg, log) {
         response.success(res, { message: '删除成功' });
       } catch (err) {
         log.error('images delete', { error: err.message });
-        response.internalError(res, err.message);
+        sendCaughtRouteError(res, err, '图片操作失败，请稍后重试');
       }
     },
-    scene: (req, res) => {
-      try {
-        const task = taskService.createTask(db, log, 'image_generation', req.params.scene_id);
-        setTimeout(() => taskService.updateTaskResult(db, task.id, []), 100);
-        response.success(res, { task_id: task.id });
-      } catch (err) {
-        log.error('images scene', { error: err.message });
-        response.internalError(res, err.message);
-      }
-    },
+    scene: (_req, res) => response.error(
+      res,
+      501,
+      'LEGACY_ENDPOINT_DISABLED',
+      '请改用场景生图接口，并传入场景 ID'
+    ),
     episodeBackgrounds: (req, res) => {
       try {
         const list = imageService.getBackgroundsForEpisode(db, req.params.episode_id);
         response.success(res, list);
       } catch (err) {
         log.error('images episode backgrounds', { error: err.message });
-        response.internalError(res, err.message);
+        sendCaughtRouteError(res, err, '图片操作失败，请稍后重试');
       }
     },
     episodeBackgroundsExtract: (req, res) => {
@@ -79,20 +75,15 @@ function routes(db, cfg, log) {
         response.success(res, { task_id: taskId, status: 'pending', message: '场景提取任务已创建，正在后台处理...' });
       } catch (err) {
         log.error('images episode backgrounds extract', { error: err.message });
-        if (err.message && (err.message.includes('script content') || err.message.includes('not found'))) {
-          return response.badRequest(res, err.message);
-        }
-        response.internalError(res, err.message || '任务创建失败');
+        sendCaughtRouteError(res, err, '场景提取任务创建失败');
       }
     },
-    episodeBatch: (req, res) => {
-      try {
-        response.success(res, []);
-      } catch (err) {
-        log.error('images episode batch', { error: err.message });
-        response.internalError(res, err.message);
-      }
-    },
+    episodeBatch: (_req, res) => response.error(
+      res,
+      501,
+      'LEGACY_ENDPOINT_DISABLED',
+      '请改为对每个分镜单独调用生图接口'
+    ),
     upload: (req, res) => {
       try {
         const body = req.body || {};
@@ -100,7 +91,7 @@ function routes(db, cfg, log) {
         response.created(res, item);
       } catch (err) {
         log.error('images upload', { error: err.message });
-        response.internalError(res, err.message);
+        sendCaughtRouteError(res, err, '图片操作失败，请稍后重试');
       }
     },
   };

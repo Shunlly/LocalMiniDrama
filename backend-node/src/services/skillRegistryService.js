@@ -93,7 +93,7 @@ function schemaMatches(schema, value) {
 function validateSkillPayload(skillName, direction, payload, schema) {
   const effectiveSchema = schema || schemaFor(skillName, direction);
   if (schemaMatches(effectiveSchema, payload)) return payload;
-  const error = new Error(`${skillName} ${direction} does not satisfy the registered minimum schema`);
+  const error = new Error(`${skillName} 的 ${direction} 不满足已注册的最低结构要求`);
   error.code = 'SKILL_SCHEMA_VALIDATION_FAILED';
   error.skill_name = skillName;
   error.direction = direction;
@@ -110,21 +110,21 @@ function loadSkillRuntime(db, skillName, options = {}) {
   ensureDefaultSkills(db);
   const definition = definitionFor(skillName);
   if (!definition?.template_path) {
-    const error = new Error(`Unknown or templated skill not found: ${skillName}`);
+    const error = new Error(`找不到技能或技能模板：${skillName}`);
     error.code = 'SKILL_NOT_FOUND';
     throw error;
   }
   const absolutePath = path.resolve(templateRoot(options), definition.template_path);
   const root = templateRoot(options);
   if (absolutePath !== root && !absolutePath.startsWith(`${root}${path.sep}`)) {
-    const error = new Error(`Skill template escapes the configured root: ${skillName}`);
+    const error = new Error(`技能模板路径超出配置根目录：${skillName}`);
     error.code = 'SKILL_TEMPLATE_INVALID';
     throw error;
   }
   const template = fs.readFileSync(absolutePath, 'utf8');
   const registry = db.prepare('SELECT * FROM skill_registry WHERE skill_name = ? AND enabled = 1').get(skillName);
   if (!registry) {
-    const error = new Error(`Skill is disabled or missing: ${skillName}`);
+    const error = new Error(`技能已禁用或不存在：${skillName}`);
     error.code = 'SKILL_NOT_FOUND';
     throw error;
   }

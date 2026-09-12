@@ -1,21 +1,32 @@
 #!/usr/bin/env node
 
 const path = require('node:path');
-const { loadConfig } = require('../src/config');
+const { loadConfig, assertSafeConfigDataPath } = require('../src/config');
 const {
   DataBackupError,
   restoreDataBackup,
+  resolveDataRoot,
 } = require('../src/services/dataBackupService');
+const { formatBackupCliError } = require('../src/services/backupSettingsService');
+const BACKUP_PUBLIC_MESSAGES = require('../src/services/backupPublicMessages');
 
 const PACKAGE_ROOT = path.resolve(__dirname, '..');
 
+function backupError(code, detail, cause) {
+  if (detail instanceof Error && cause === undefined) {
+    cause = detail;
+    detail = undefined;
+  }
+  return new DataBackupError(code, detail || BACKUP_PUBLIC_MESSAGES[code], cause);
+}
+
 function usage() {
   console.log([
-    'Usage: npm run restore:data -- --input <archive.zip> --yes [limits]',
+    '用法: npm run restore:data -- --input <archive.zip> --yes [--data-root <绝对路径>] [限制]',
     '',
-    'Restore refuses to run while the backend port or SQLite database is in use.',
+    '后端端口或 SQLite 数据库占用时，恢复会拒绝执行。',
     '',
-    'Limits:',
+    '限制:',
     '  --max-files <count>',
     '  --max-bytes <bytes>',
     '  --max-file-bytes <bytes>',
@@ -26,7 +37,7 @@ function usage() {
 function takeValue(argv, index, flag) {
   const value = argv[index + 1];
   if (!value || value.startsWith('--')) {
-    throw new DataBackupError('INVALID_ARGUMENT', `${flag} requires a value.`);
+    throw backupError('INVALID_ARGUMENT', `${flag} 缺少参数值。`);
   }
   return value;
 }
@@ -45,16 +56,17 @@ function parseArguments(argv) {
     }
     const valueFlags = {
       '--input': 'archivePath',
+      '--data-root': 'dataRoot',
       '--max-files': 'maxFiles',
       '--max-bytes': 'maxTotalBytes',
       '--max-file-bytes': 'maxFileBytes',
       '--max-archive-bytes': 'maxArchiveBytes',
     };
     const key = valueFlags[arg];
-    if (!key) throw new DataBackupError('INVALID_ARGUMENT', 'Unknown restore option.');
+    if (!key) throw backupError('INVALID_ARGUMENT', '未知恢复选项。');
     const value = takeValue(argv, index, arg);
     index += 1;
-    if (key === 'archivePath') parsed.archivePath = value;
+    if (key === 'archivePath' || key === 'dataRoot') parsed[key] = value;
     else parsed.limits[key] = value;
   }
   return parsed;
@@ -62,7 +74,24 @@ function parseArguments(argv) {
 
 function resolveConfiguredPath(value, fallback) {
   const configured = value || fallback;
+  assertSafeConfigDataPath(configured, 'data path');
   return path.isAbsolute(configured) ? configured : path.resolve(PACKAGE_ROOT, configured);
+}
+
+function resolveDataPaths(config, dataRootValue) {
+  if (dataRootValue) {
+    const dataRoot = resolveDataRoot(dataRootValue);
+    return {
+      databasePath: path.join(dataRoot, 'drama_generator.db'),
+      storagePath: path.join(dataRoot, 'storage'),
+      storySourcesPath: path.join(dataRoot, 'story_sources'),
+    };
+  }
+  return {
+    databasePath: resolveConfiguredPath(config.database?.path, './data/drama_generator.db'),
+    storagePath: resolveConfiguredPath(config.storage?.local_path, './data/storage'),
+    storySourcesPath: path.join(PACKAGE_ROOT, 'data', 'story_sources'),
+  };
 }
 
 async function main() {
@@ -72,33 +101,28 @@ async function main() {
     return;
   }
   if (!args.archivePath) {
-    throw new DataBackupError('INVALID_ARGUMENT', 'Restore requires --input <archive.zip>.');
+    throw backupError('INVALID_ARGUMENT', '恢复需要指定 --input <archive.zip>。');
   }
   const config = loadConfig();
+  const dataPaths = resolveDataPaths(config, args.dataRoot);
   const result = await restoreDataBackup({
     archivePath: path.resolve(process.cwd(), args.archivePath),
-    databasePath: resolveConfiguredPath(config.database?.path, './data/drama_generator.db'),
-    storagePath: resolveConfiguredPath(config.storage?.local_path, './data/storage'),
-    storySourcesPath: path.join(PACKAGE_ROOT, 'data', 'story_sources'),
+    ...dataPaths,
     confirmed: args.confirmed,
     serviceHost: process.env.HOST || config.server?.host || '127.0.0.1',
     servicePort: Number(process.env.PORT) || config.server?.port || 5679,
     limits: args.limits,
   });
-  console.log('Data restore completed.');
-  console.log(`Backup created: ${result.manifest.createdAt}`);
-  console.log(`Files restored: ${result.manifest.fileCount}`);
-  console.log(`Bytes restored: ${result.manifest.totalBytes}`);
+  console.log('数据恢复已完成。');
+  console.log(`备份创建时间：${result.manifest.createdAt}`);
+  console.log(`已恢复文件数：${result.manifest.fileCount}`);
+  console.log(`已恢复字节数：${result.manifest.totalBytes}`);
   if (result.rollback.databasePath || result.rollback.storagePath || result.rollback.storySourcesPath) {
-    console.log('A pre-restore rollback copy was retained.');
+    console.log('已保留恢复前的回退副本。');
   }
 }
 
 main().catch((error) => {
-  if (error instanceof DataBackupError) {
-    console.error(`[${error.code}] ${error.publicMessage}`);
-  } else {
-    console.error('[RESTORE_FAILED] The data restore could not be completed.');
-  }
+  console.error(formatBackupCliError(error));
   process.exitCode = 1;
 });

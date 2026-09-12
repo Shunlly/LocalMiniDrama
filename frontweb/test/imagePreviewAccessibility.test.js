@@ -2,41 +2,76 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
+import { useFilmCreateMediaPreview } from '../src/composables/filmCreate/useFilmCreateMediaPreview.js'
+import { remainingImportedFunctionSource } from './helpers/remainingSourceBetween.js'
+import { readFilmListLibrarySource } from './helpers/filmListLibrarySource.js'
+
+import { readDramaDetailResourceDialogSources } from './helpers/dramaDetailResourceDialogSources.js'
+import { readDramaCanvasPageSource } from './helpers/dramaCanvasPageSource.js'
+
 const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8')
 
 const dialogSource = read('../src/components/ImagePreviewDialog.vue')
 const filmListSource = read('../src/views/FilmList.vue')
-const freeCreateSource = read('../src/views/FreeCreate.vue')
-const filmCreateSource = read('../src/views/FilmCreate.vue')
+const filmListLibrarySource = readFilmListLibrarySource()
+const freeCreateSource = read('../src/views/FreeCreate.vue') + '\n' + read('../src/components/freeCreate/FreeCreateHeader.vue') + '\n' + read('../src/components/freeCreate/FreeCreateInputPanel.vue') + '\n' + read('../src/components/freeCreate/FreeCreateResultPanel.vue')
+const filmCreateSource = read('../src/views/FilmCreate.vue') + '\n' + read('../src/components/filmCreate/FilmCreateHeader.vue') + '\n' + read('../src/components/filmCreate/FilmCreateWorkspaceDialogs.vue')
+const resourceDialogsSource = [
+  read('../src/components/filmCreate/FilmCreateResourceDialogs.vue'),
+  read('../src/components/filmCreate/FilmCreateResourceRefImageField.vue'),
+  read('../src/components/filmCreate/FilmCreatePropEditDialog.vue'),
+  read('../src/components/filmCreate/FilmCreateSceneEditDialog.vue'),
+  read('../src/components/filmCreate/FilmCreateCharacterLibraryDialogs.vue'),
+  read('../src/components/filmCreate/FilmCreatePropLibraryDialogs.vue'),
+  read('../src/components/filmCreate/FilmCreateSceneLibraryDialogs.vue'),
+].join('\n')
+const characterEditDialogSource = read('../src/components/filmCreate/FilmCreateCharacterEditDialog.vue')
+const resourcePanelSource = [
+  read('../src/components/filmCreate/FilmCreateResourcePanel.vue'),
+  read('../src/components/filmCreate/FilmCreateCharacterBlock.vue'),
+  read('../src/components/filmCreate/FilmCreatePropBlock.vue'),
+  read('../src/components/filmCreate/FilmCreateSceneBlock.vue'),
+].join('\n')
 const dramaDetailSource = read('../src/views/DramaDetail.vue')
-const dramaCanvasSource = read('../src/views/DramaCanvas.vue')
+const dramaDetailDialogsSource = readDramaDetailResourceDialogSources(read)
+const dramaDetailUiSource = [
+  dramaDetailSource,
+  dramaDetailDialogsSource,
+  read('../src/components/dramaDetail/DramaDetailResourceLibrary.vue'),
+].join('\n')
+const dramaCanvasSource = readDramaCanvasPageSource()
 
 test('shared image preview uses an accessible Element Plus dialog', () => {
-  assert.match(dialogSource, /<el-dialog/)
+  assert.match(dialogSource, /<AccessibleDialog/)
   assert.match(dialogSource, /:title="title"/)
   assert.match(dialogSource, /append-to-body/)
   assert.match(dialogSource, /:show-close="true"/)
   assert.match(dialogSource, /:close-on-press-escape="true"/)
   assert.match(dialogSource, /@update:model-value="updateVisible"/)
-  assert.match(dialogSource, /:alt="resolvedAlt"/)
   assert.match(dialogSource, /imageHasRenderableDimensions\(event\.currentTarget\)/)
   assert.match(dialogSource, /@error="handleImageError"/)
   assert.match(dialogSource, /role="alert"/)
+  assert.match(dialogSource, /:aria-busy="loadState === 'loading'"/)
+  assert.match(dialogSource, /:aria-hidden="loadState === 'loading'"/)
+  assert.match(dialogSource, /:alt="loadState === 'loading' \? '' : resolvedAlt"/)
   assert.match(dialogSource, />关闭预览<\/el-button>/)
 })
 
 test('FilmList library previews are named native buttons with meaningful image alternatives', () => {
-  assert.match(filmListSource, /import ImagePreviewDialog from '@\/components\/ImagePreviewDialog\.vue'/)
-  assert.match(filmListSource, /<ImagePreviewDialog[\s\S]*v-model="showImagePreview"/)
-  assert.equal((filmListSource.match(/type="button"\s+class="library-item-cover"/g) || []).length, 3)
-  assert.equal((filmListSource.match(/type="button"\s+class="lib-img-thumb"/g) || []).length, 3)
-  assert.match(filmListSource, /角色素材「\$\{item\.name \|\| '未命名'\}」预览图/)
-  assert.match(filmListSource, /场景素材「\$\{item\.location \|\| item\.time \|\| '未命名'\}」预览图/)
-  assert.match(filmListSource, /道具素材「\$\{item\.name \|\| '未命名'\}」预览图/)
-  assert.equal((filmListSource.match(/role="img" aria-label="(?:角色|场景|道具)素材暂无图片"/g) || []).length, 3)
-  assert.doesNotMatch(filmListSource, /<div class="library-item-cover" @click=/)
-  assert.doesNotMatch(filmListSource, /<div class="lib-img-thumb" @click=/)
-  assert.doesNotMatch(filmListSource, /image-preview-overlay/)
+  assert.match(filmListLibrarySource, /import ImagePreviewDialog from '@\/components\/ImagePreviewDialog\.vue'/)
+  assert.match(filmListLibrarySource, /<ImagePreviewDialog[\s\S]*v-model="showImagePreview"/)
+  assert.equal((filmListLibrarySource.match(/type="button"\s+class="library-item-cover"/g) || []).length, 3)
+  assert.equal((filmListLibrarySource.match(/type="button"\s+class="lib-img-thumb"/g) || []).length, 3)
+  assert.match(filmListLibrarySource, /角色素材「\$\{item\.name \|\| '未命名'\}」预览图/)
+  assert.match(filmListLibrarySource, /场景素材「\$\{item\.location \|\| item\.time \|\| '未命名'\}」预览图/)
+  assert.match(filmListLibrarySource, /道具素材「\$\{item\.name \|\| '未命名'\}」预览图/)
+  assert.match(filmListLibrarySource, /角色素材「\$\{item\.name \|\| '未命名'\}」暂无图片/)
+  assert.match(filmListLibrarySource, /场景素材「\$\{item\.location \|\| item\.time \|\| '未命名'\}」暂无图片/)
+  assert.match(filmListLibrarySource, /道具素材「\$\{item\.name \|\| '未命名'\}」暂无图片/)
+  assert.equal((filmListLibrarySource.match(/role="img" aria-label="(?:角色|场景|道具)素材暂无图片"/g) || []).length, 3)
+  assert.doesNotMatch(filmListLibrarySource, /<div class="library-item-cover" @click=/)
+  assert.doesNotMatch(filmListLibrarySource, /<div class="lib-img-thumb" @click=/)
+  assert.doesNotMatch(filmListLibrarySource, /image-preview-overlay/)
 })
 
 test('FreeCreate keeps drag-and-drop while all image actions remain keyboard operable', () => {
@@ -55,30 +90,36 @@ test('FreeCreate keeps drag-and-drop while all image actions remain keyboard ope
 })
 
 test('FilmCreate and DramaDetail use the shared focus-managed preview for every thumbnail family', () => {
-  for (const source of [filmCreateSource, dramaDetailSource]) {
+  for (const source of [filmCreateSource, dramaDetailUiSource]) {
     assert.match(source, /import ImagePreviewDialog from '@\/components\/ImagePreviewDialog\.vue'/)
     assert.match(source, /<ImagePreviewDialog/)
     assert.doesNotMatch(source, /image-preview-overlay/)
     assert.doesNotMatch(source, /<img\b[^>]*@click/)
   }
 
-  assert.equal((dramaDetailSource.match(/type="button" class="library-item-cover"/g) || []).length, 4)
-  assert.equal((dramaDetailSource.match(/type="button" class="drama-res-cover"/g) || []).length, 3)
-  assert.equal((dramaDetailSource.match(/type="button" class="lib-img-thumb"/g) || []).length, 6)
-  assert.equal((filmCreateSource.match(/type="button" class="library-item-cover"/g) || []).length, 6)
-  assert.equal((filmCreateSource.match(/class="ref-image-box" aria-label=/g) || []).length, 4)
-  assert.match(filmCreateSource, /await probeImageSource\(source\)/)
-  assert.match(filmCreateSource, /hasSbDraftImagePlaceholder\(sb\)/)
-  assert.match(filmCreateSource, /草稿占位/)
+  assert.equal((dramaDetailUiSource.match(/type="button"\s+class="library-item-cover"/g) || []).length, 4)
+  assert.equal((dramaDetailUiSource.match(/type="button"\s+class="drama-res-cover"/g) || []).length, 3)
+  assert.equal((dramaDetailUiSource.match(/class="library-item-cover library-item-cover--empty"/g) || []).length, 4)
+  assert.equal((dramaDetailUiSource.match(/class="drama-res-cover drama-res-cover--empty"/g) || []).length, 3)
+  assert.equal((dramaDetailUiSource.match(/type="button" class="lib-img-thumb"/g) || []).length, 1)
+  assert.equal((dramaDetailUiSource.match(/<DramaDetailResourceImageEditor\b/g) || []).length, 6)
+  assert.equal((resourceDialogsSource.match(/type="button" class="library-item-cover"/g) || []).length, 6)
+  assert.match(resourceDialogsSource, /class="ref-image-box"/)
+  assert.match(resourceDialogsSource, /:aria-label="selectAriaLabel"/)
+  assert.equal((resourceDialogsSource.match(/<FilmCreateResourceRefImageField/g) || []).length, 3)
+  assert.equal((characterEditDialogSource.match(/class="ref-image-box" aria-label=/g) || []).length, 1)
+  assert.match(remainingImportedFunctionSource(useFilmCreateMediaPreview), /await probeImageSource\(source\)/)
+  assert.match(filmCreateSource, /hasSbDraftImagePlaceholder/)
+  assert.match(remainingImportedFunctionSource(useFilmCreateMediaPreview), /草稿占位/)
 })
 
 test('custom canvas and asset controls expose native or complete keyboard semantics', () => {
-  assert.match(dramaCanvasSource, /<button type="button" class="logo" aria-label="返回项目列表"/)
+  assert.match(dramaCanvasSource, /<button type="button" class="logo" aria-label="本地短剧助手，返回项目列表"/)
   assert.equal((dramaCanvasSource.match(/class="sidebar-item"/g) || []).length, 3)
-  assert.match(filmCreateSource, /<button type="button" class="logo" aria-label="返回项目列表"/)
-  assert.equal((filmCreateSource.match(/\n\s+role="button"\r?\n/g) || []).length, 3)
-  assert.equal((filmCreateSource.match(/@keydown\.enter\.prevent=/g) || []).length, 3)
-  assert.equal((filmCreateSource.match(/@keydown\.space\.prevent=/g) || []).length, 3)
+  assert.match(filmCreateSource, /<button type="button" class="logo" aria-label="本地短剧助手，返回项目列表"/)
+  assert.equal((resourcePanelSource.match(/:role="hasAssetImage\(/g) || []).length, 3)
+  assert.equal((resourcePanelSource.match(/@keydown\.enter\.prevent=/g) || []).length, 3)
+  assert.equal((resourcePanelSource.match(/@keydown\.space\.prevent=/g) || []).length, 3)
   assert.doesNotMatch(dramaCanvasSource, /<h1\b[^>]*@click/)
   assert.doesNotMatch(filmCreateSource, /<h1\b[^>]*@click/)
   assert.doesNotMatch(dramaDetailSource, /<h1\b[^>]*@click/)

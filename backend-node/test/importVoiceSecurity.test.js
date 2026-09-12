@@ -68,6 +68,12 @@ function createAudioFixture(directory, filename = 'voice.wav') {
 function createCharacterDb(previousAsset = null) {
   const db = new Database(':memory:');
   db.exec(`
+    CREATE TABLE dramas (
+      id INTEGER PRIMARY KEY,
+      deleted_at TEXT,
+      trash_state TEXT,
+      recycle_phase TEXT
+    );
     CREATE TABLE characters (
       id INTEGER PRIMARY KEY,
       drama_id INTEGER NOT NULL,
@@ -76,6 +82,7 @@ function createCharacterDb(previousAsset = null) {
       deleted_at TEXT
     );
   `);
+  db.prepare('INSERT INTO dramas (id) VALUES (11)').run();
   db.prepare(
     'INSERT INTO characters (id, drama_id, seedance2_voice_asset) VALUES (?, ?, ?)'
   ).run(7, 11, previousAsset ? JSON.stringify(previousAsset) : null);

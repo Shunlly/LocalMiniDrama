@@ -4,10 +4,89 @@ import assert from 'node:assert/strict'
 import {
   createCanvasEpisodeDraft,
   getCanvasEmptyStateActions,
+  getStoryboardInspectorNavigation,
   getCanvasWorkflowUiState,
+  getStoryboardInspectorMediaSummary,
   reconcileCanvasEpisodeDraft,
   resolveCanvasEpisodeId,
+  storyboardShotTypeLabel,
 } from '../src/utils/canvasUiState.js'
+
+test('storyboard shot types are localized without exposing storage enums', () => {
+  assert.equal(storyboardShotTypeLabel('medium'), '中景')
+  assert.equal(storyboardShotTypeLabel('close_up'), '特写')
+  assert.equal(storyboardShotTypeLabel('wide'), '远景')
+  assert.equal(storyboardShotTypeLabel('大远景'), '大远景')
+  assert.equal(storyboardShotTypeLabel('vendor_specific'), '其他景别')
+  assert.equal(storyboardShotTypeLabel(''), '')
+})
+
+test('storyboard inspector media summary never counts unusable cache records', () => {
+  assert.deepEqual(getStoryboardInspectorMediaSummary({
+    imageRecords: [{ id: 1 }],
+    videoRecords: [{ id: 2 }],
+    imageReady: false,
+    videoReady: false,
+    audioReady: false,
+  }), {
+    imageCount: 0,
+    videoCount: 0,
+    audioReady: false,
+  })
+  assert.deepEqual(getStoryboardInspectorMediaSummary({
+    imageRecords: [
+      { id: 1, status: 'completed', local_path: 'images/shot-1.webp' },
+      { id: 2, status: 'completed', image_url: 'placeholder://shot-2' },
+      { id: 3, status: 'failed', image_url: 'https://example.test/failed.webp' },
+    ],
+    videoRecords: [
+      { id: 4, status: 'completed', local_path: 'videos/shot-1.mp4' },
+      { id: 5, status: 'completed', video_url: 'mock://shot-2' },
+    ],
+    imageReady: true,
+    videoReady: true,
+    audioRecords: ['placeholder://dialogue', 'audio/narration.wav'],
+  }), {
+    imageCount: 1,
+    videoCount: 1,
+    audioReady: true,
+  })
+  assert.equal(getStoryboardInspectorMediaSummary({
+    audioRecords: ['placeholder://dialogue', 'mock://narration'],
+  }).audioReady, false)
+})
+
+test('storyboard inspector navigation stays within the current episode and reports progress', () => {
+  const episodes = [
+    { id: 1, storyboards: [{ id: 11 }, { id: 12 }, { id: 13 }] },
+    { id: 2, storyboards: [{ id: 21 }] },
+  ]
+
+  assert.deepEqual(getStoryboardInspectorNavigation(episodes, 1, 12), {
+    index: 2,
+    total: 3,
+    previousId: 11,
+    nextId: 13,
+  })
+  assert.deepEqual(getStoryboardInspectorNavigation(episodes, '1', '11'), {
+    index: 1,
+    total: 3,
+    previousId: null,
+    nextId: 12,
+  })
+  assert.deepEqual(getStoryboardInspectorNavigation(episodes, 2, 21), {
+    index: 1,
+    total: 1,
+    previousId: null,
+    nextId: null,
+  })
+  assert.deepEqual(getStoryboardInspectorNavigation(episodes, 1, 99), {
+    index: 0,
+    total: 3,
+    previousId: null,
+    nextId: null,
+  })
+})
 
 test('workflow toolbar hides controls until selection or saved workflow state makes them useful', () => {
   const idle = getCanvasWorkflowUiState({

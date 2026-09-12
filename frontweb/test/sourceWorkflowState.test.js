@@ -5,6 +5,32 @@ import {
   buildSourceWorkflowState,
   getNewWorkflowRunReason,
   getSourceWorkflowActionReasons,
+  getSourceWorkflowBusyReason,
+  resolveInspectedWorkflowStep,
+  MEDIA_AUTO_EXTRACTION_EXTENSIONS,
+  SOURCE_FILE_FORMAT_UNSUPPORTED_MESSAGE,
+  SOURCE_INTAKE_MEDIA_HELP,
+  SOURCE_MEDIA_EXTRACTION_CONFIG_GUIDANCE,
+  SOURCE_OCR_CONFIG_GUIDANCE,
+  SOURCE_OCR_LOCAL_NEXT_STEP_HINT,
+  SOURCE_OCR_NEXT_STEP_LABEL,
+  SOURCE_OCR_TIMEOUT_GUIDANCE,
+  SOURCE_TRANSCRIPTION_CONFIG_GUIDANCE,
+  SOURCE_TRANSCRIPTION_NEXT_STEP_LABEL,
+  SOURCE_WORKFLOW_CANCEL_REASON,
+  SOURCE_WORKFLOW_PAUSE_REASON,
+  SOURCE_WORKFLOW_FAILURE_FALLBACK,
+  isDeferredAutoExtractionSource,
+  localizeSourceIntakeFailure,
+  extractionConfigServiceTypeFromMessage,
+  resolveSourceIntakeExtractionNextStep,
+  resolveSourceIntakeGenericFailureNextHint,
+  sourceWorkflowStepAriaLabel,
+  SOURCE_FORMAT_RETRY_NEXT_HINT,
+  SOURCE_GENERIC_IMPORT_RETRY_NEXT_HINT,
+  SOURCE_LIST_REFRESH_NEXT_HINT,
+  SOURCE_PROCESS_RETRY_NEXT_HINT,
+  SOURCE_READINESS_RETRY_NEXT_HINT,
 } from '../src/utils/sourceWorkflowState.js'
 
 test('workflow state marks intake as active draft and exposes source empty-state CTAs', () => {
@@ -50,7 +76,7 @@ test('workflow state promotes process, qa, remediation and delivery in sequence'
     sourceCount: 1,
     hasSourceInput: false,
     run: { id: 'run-2', status: 'completed' },
-    qa: { id: 3, passed: false, issueCount: 2, canRemediate: true, remediationActions: [{ code: 'retry' }] },
+    qa: { id: 3, run_id: 'run-2', passed: false, issueCount: 2, canRemediate: true, remediationActions: [{ code: 'retry' }] },
     timeline: null,
     episodeCount: 1,
     actionReasons: {},
@@ -62,7 +88,7 @@ test('workflow state promotes process, qa, remediation and delivery in sequence'
     sourceCount: 1,
     hasSourceInput: false,
     run: { id: 'run-3', status: 'completed', mode: 'draft' },
-    qa: { id: 4, passed: true, score: 92, mode: 'draft', remediationActions: [] },
+    qa: { id: 4, run_id: 'run-3', passed: true, score: 92, mode: 'draft', remediationActions: [] },
     timeline: { episodeCount: 2, trackCount: 8 },
     episodeCount: 2,
     actionReasons: {},
@@ -70,6 +96,44 @@ test('workflow state promotes process, qa, remediation and delivery in sequence'
   assert.equal(delivered.activeStepId, 'delivery')
   assert.equal(delivered.complete, true)
   assert.equal(delivered.steps.find((step) => step.id === 'qa').summary, '草稿结构检查 通过，评分 92')
+})
+
+test('workflow state ignores an older QA report for processing, failed and completed runs', () => {
+  const oldQa = {
+    id: 10,
+    run_id: 'run-old',
+    passed: false,
+    score: 17,
+    issueCount: 3,
+    canRemediate: true,
+    remediationActions: [{ code: 'retry-old-step' }],
+  }
+  const cases = [
+    { status: 'processing', process: 'active', qa: 'pending' },
+    { status: 'failed', process: 'error', qa: 'pending' },
+    { status: 'completed', process: 'done', qa: 'ready' },
+  ]
+
+  for (const expected of cases) {
+    const state = buildSourceWorkflowState({
+      sourceCount: 1,
+      hasSourceInput: false,
+      run: { id: `run-new-${expected.status}`, status: expected.status },
+      qa: oldQa,
+      timeline: null,
+      episodeCount: 0,
+      actionReasons: {},
+    })
+    const processStep = state.steps.find((step) => step.id === 'process')
+    const qaStep = state.steps.find((step) => step.id === 'qa')
+    const remediationStep = state.steps.find((step) => step.id === 'remediation')
+
+    assert.equal(processStep.status, expected.process, expected.status)
+    assert.equal(qaStep.status, expected.qa, expected.status)
+    assert.equal(remediationStep.status, 'pending', expected.status)
+    assert.doesNotMatch(qaStep.summary, /17|3 个问题/, expected.status)
+    assert.equal(state.complete, false, expected.status)
+  }
 })
 
 test('workflow action reasons explain disabled controls', () => {
@@ -90,7 +154,7 @@ test('workflow action reasons explain disabled controls', () => {
   const qaPassed = getSourceWorkflowActionReasons({
     hasSourceInput: true,
     runState: { id: 'run-5', status: 'completed' },
-    qa: { id: 9, passed: true, canRemediate: false },
+    qa: { id: 9, run_id: 'run-5', passed: true, canRemediate: false },
   })
   assert.match(qaPassed.remediate, /无需自动修复/)
 
@@ -100,5 +164,344 @@ test('workflow action reasons explain disabled controls', () => {
     qa: {},
   })
   assert.match(activeRun.start, /已有处理流程运行中/)
-  assert.match(getNewWorkflowRunReason({ status: 'paused' }), /恢复或取消/)
+  assert.match(getNewWorkflowRunReason({ id: 'run-paused', status: 'paused' }), /恢复或取消/)
+  assert.equal(getNewWorkflowRunReason({}), '')
+  assert.equal(getNewWorkflowRunReason({ active: true, status: 'pending' }), '')
+  assert.equal(getNewWorkflowRunReason({ id: 'run-6', active: true, status: 'processing' }), '当前已有处理流程运行中，请等待完成或先取消。')
+})
+
+test('automatic remediation requires a completed run and a matching QA owner', () => {
+  const matchingFailedQa = {
+    id: 12,
+    run_id: 'run-current',
+    passed: false,
+    canRemediate: true,
+  }
+
+  for (const runState of [
+    { id: 'run-current', status: 'processing', active: true },
+    { id: 'run-current', status: 'paused' },
+    { id: 'run-current', status: 'failed' },
+    { id: 'run-current', status: 'cancelled' },
+  ]) {
+    const reasons = getSourceWorkflowActionReasons({
+      hasSourceInput: true,
+      runState,
+      qa: matchingFailedQa,
+    })
+    assert.notEqual(reasons.remediate, '', runState.status)
+  }
+
+  const wrongOwner = getSourceWorkflowActionReasons({
+    hasSourceInput: true,
+    runState: { id: 'run-current', status: 'completed' },
+    qa: { ...matchingFailedQa, run_id: 'run-old' },
+  })
+  assert.match(wrongOwner.remediate, /当前运行/)
+
+  const idTypeMismatch = getSourceWorkflowActionReasons({
+    hasSourceInput: true,
+    runState: { id: 42, status: 'completed' },
+    qa: { ...matchingFailedQa, run_id: '42' },
+  })
+  assert.match(idTypeMismatch.remediate, /当前运行/)
+
+  const matchingOwner = getSourceWorkflowActionReasons({
+    hasSourceInput: true,
+    runState: { id: 'run-current', status: 'completed' },
+    qa: matchingFailedQa,
+  })
+  assert.equal(matchingOwner.remediate, '')
+})
+
+test('workflow state reads current and failed steps from raw run payloads', () => {
+  const processing = buildSourceWorkflowState({
+    sourceCount: 1,
+    hasSourceInput: false,
+    run: {
+      id: 'run-raw',
+      status: 'processing',
+      current_step: 'storyboard_draft',
+      steps: [
+        { step_key: 'source_intake', status: 'completed' },
+        { step_key: 'adaptation_plan', status: 'completed' },
+        { step_key: 'storyboard_draft', status: 'processing' },
+      ],
+    },
+    qa: null,
+    timeline: null,
+    episodeCount: 0,
+    actionReasons: {},
+  })
+  assert.equal(processing.activeStepId, 'process')
+  assert.match(processing.activeStep.summary, /分镜草稿/)
+
+  const listedOnly = buildSourceWorkflowState({
+    sourceCount: 1,
+    hasSourceInput: false,
+    run: {
+      id: 'run-list',
+      status: 'processing',
+      current_step: 'video_generation',
+    },
+    qa: null,
+    timeline: null,
+    episodeCount: 0,
+    actionReasons: {},
+  })
+  assert.match(listedOnly.activeStep.summary, /分镜视频/)
+
+  const failed = buildSourceWorkflowState({
+    sourceCount: 1,
+    hasSourceInput: false,
+    run: {
+      id: 'run-failed',
+      status: 'failed',
+      current_step: 'video_generation',
+      steps: [
+        { step_key: 'image_generation', status: 'completed' },
+        { step_key: 'video_generation', status: 'failed' },
+      ],
+    },
+    qa: null,
+    timeline: null,
+    episodeCount: 0,
+    actionReasons: {},
+  })
+  assert.equal(failed.activeStepId, 'process')
+  assert.match(failed.steps.find((step) => step.id === 'process').summary, /分镜视频/)
+})
+
+test('inspected workflow step stays on history unless the user was following the live stage', () => {
+  const delivered = buildSourceWorkflowState({
+    sourceCount: 1,
+    hasSourceInput: false,
+    run: { id: 'run-complete', status: 'completed', mode: 'draft' },
+    qa: { id: 8, run_id: 'run-complete', passed: true, score: 95, mode: 'draft', remediationActions: [] },
+    timeline: { episodeCount: 2, trackCount: 8 },
+    episodeCount: 2,
+    actionReasons: {},
+  })
+  assert.equal(
+    resolveInspectedWorkflowStep(delivered, {
+      selectedStepId: 'intake',
+      previousActiveStepId: 'delivery',
+      requestedStepId: 'intake',
+    }),
+    'intake',
+  )
+  assert.equal(
+    resolveInspectedWorkflowStep(delivered, {
+      selectedStepId: 'delivery',
+      previousActiveStepId: 'qa',
+    }),
+    'delivery',
+  )
+  assert.equal(
+    resolveInspectedWorkflowStep(delivered, {
+      selectedStepId: 'process',
+      previousActiveStepId: 'delivery',
+    }),
+    'process',
+  )
+})
+
+test('PDF/图片/音视频可识别，英文抽取失败落成中文并引导 AI 配置', () => {
+  assert.equal(isDeferredAutoExtractionSource({ name: 'a.pdf', type: 'application/pdf' }), true)
+  assert.equal(isDeferredAutoExtractionSource({ name: 'a.png', type: 'image/png' }), true)
+  assert.equal(isDeferredAutoExtractionSource({ name: 'a.mp3', type: 'audio/mpeg' }), true)
+  assert.equal(isDeferredAutoExtractionSource({ name: 'a.mp4', type: 'video/mp4' }), true)
+  assert.equal(isDeferredAutoExtractionSource({ name: 'story.txt', type: 'text/plain' }), false)
+  assert.ok(MEDIA_AUTO_EXTRACTION_EXTENSIONS.includes('.pdf'))
+  assert.ok(MEDIA_AUTO_EXTRACTION_EXTENSIONS.includes('.png'))
+  assert.ok(MEDIA_AUTO_EXTRACTION_EXTENSIONS.includes('.mp3'))
+  assert.ok(MEDIA_AUTO_EXTRACTION_EXTENSIONS.includes('.mp4'))
+  assert.match(SOURCE_INTAKE_MEDIA_HELP, /图片识别/)
+  assert.match(SOURCE_INTAKE_MEDIA_HELP, /语音转写/)
+  assert.doesNotMatch(SOURCE_INTAKE_MEDIA_HELP, /service_type=ocr/)
+  assert.equal(
+    localizeSourceIntakeFailure(new Error('Tesseract OCR failed'), { filename: 'scan.png' }),
+    SOURCE_OCR_CONFIG_GUIDANCE,
+  )
+  assert.equal(
+    localizeSourceIntakeFailure('extracted video audio is empty', { filename: 'clip.mp4' }),
+    SOURCE_TRANSCRIPTION_CONFIG_GUIDANCE,
+  )
+  assert.equal(
+    localizeSourceIntakeFailure('未配置 OCR 服务，且 Tesseract 不可用。请添加启用的 service_type=ocr AI 配置，或安装 Tesseract CLI。', { filename: 'scan.png' }),
+    SOURCE_OCR_CONFIG_GUIDANCE,
+  )
+  assert.doesNotMatch(
+    localizeSourceIntakeFailure('未配置 OCR 服务，且 Tesseract 不可用。请添加启用的 service_type=ocr AI 配置，或安装 Tesseract CLI。', { filename: 'scan.png' }),
+    /service_type=ocr/,
+  )
+  assert.equal(
+    localizeSourceIntakeFailure(Object.assign(new Error('timeout of 15000ms exceeded'), { code: 'ECONNABORTED', isTimeout: true }), { filename: 'scan.png' }),
+    SOURCE_OCR_TIMEOUT_GUIDANCE,
+  )
+  assert.equal(localizeSourceIntakeFailure('素材列表加载失败'), '素材列表加载失败')
+})
+
+test('取消的流程不当成失败，失败才可重试', () => {
+  const cancelled = buildSourceWorkflowState({
+    sourceCount: 1,
+    hasSourceInput: false,
+    run: { id: 'run-cancelled', status: 'canceled' },
+    qa: null,
+    timeline: null,
+    episodeCount: 0,
+    actionReasons: {},
+  })
+  const processStep = cancelled.steps.find((step) => step.id === 'process')
+  assert.equal(processStep.status, 'ready')
+  assert.match(processStep.summary, /已取消/)
+  assert.notEqual(processStep.status, 'error')
+
+  const failedReasons = getSourceWorkflowActionReasons({
+    hasSourceInput: true,
+    runState: { id: 'run-4', status: 'failed' },
+  })
+  assert.equal(failedReasons.retry, '')
+  assert.match(failedReasons.pause, /仅运行中的处理可以暂停/)
+  assert.match(failedReasons.cancel, /仅运行中的处理可以取消/)
+
+  const busy = getSourceWorkflowBusyReason({ pausing: true })
+  assert.match(busy, /正在暂停处理/)
+  assert.equal(localizeSourceIntakeFailure('User cancelled from Source Intake panel'), SOURCE_WORKFLOW_CANCEL_REASON)
+  assert.equal(localizeSourceIntakeFailure('User paused from Source Intake panel'), SOURCE_WORKFLOW_PAUSE_REASON)
+  const aborted = Object.assign(new Error('canceled'), { name: 'AbortError', code: 'ERR_CANCELED' })
+  assert.equal(localizeSourceIntakeFailure(aborted), '')
+})
+
+test('英文失败会落成中文，空错误保持空白', () => {
+  assert.equal(localizeSourceIntakeFailure(''), '')
+  assert.equal(localizeSourceIntakeFailure('provider rejected request'), SOURCE_WORKFLOW_FAILURE_FALLBACK)
+  assert.equal(localizeSourceIntakeFailure(new Error('Failed to fetch')), SOURCE_MEDIA_EXTRACTION_CONFIG_GUIDANCE)
+  assert.equal(
+    localizeSourceIntakeFailure(new Error('Failed to fetch'), { filename: 'scan.png' }),
+    SOURCE_OCR_CONFIG_GUIDANCE,
+  )
+  assert.equal(
+    localizeSourceIntakeFailure(new Error('Failed to fetch'), { filename: 'talk.mp3' }),
+    SOURCE_TRANSCRIPTION_CONFIG_GUIDANCE,
+  )
+  assert.equal(
+    localizeSourceIntakeFailure('whisper transcription failed'),
+    SOURCE_TRANSCRIPTION_CONFIG_GUIDANCE,
+  )
+  assert.equal(
+    localizeSourceIntakeFailure('unsupported source intake file type'),
+    SOURCE_FILE_FORMAT_UNSUPPORTED_MESSAGE,
+  )
+  assert.equal(
+    localizeSourceIntakeFailure({
+      message: 'Request failed with status code 400',
+      response: { data: { error: { message: '该 PDF 没有可抽取文本或可供 OCR 识别的页面。请更换文件或检查 OCR 配置。' } } },
+    }, { filename: 'scan.pdf' }),
+    '该 PDF 没有可抽取文本或可供 OCR 识别的页面。请更换文件或检查 OCR 配置。',
+  )
+})
+
+test('未知失败步骤不会把英文 step_key 直接展示给用户', () => {
+  const failed = buildSourceWorkflowState({
+    sourceCount: 1,
+    hasSourceInput: false,
+    run: {
+      id: 'run-mystery',
+      status: 'failed',
+      current_step: 'mystery_step',
+      steps: [{ step_key: 'mystery_step', status: 'failed' }],
+    },
+    qa: null,
+    timeline: null,
+    episodeCount: 0,
+    actionReasons: {},
+  })
+  assert.equal(failed.activeStepId, 'process')
+  assert.equal(failed.steps.find((step) => step.id === 'process').summary, '流程失败：请重试')
+  assert.equal(failed.steps.find((step) => step.id === 'process').statusLabel, '需处理')
+})
+
+test('空素材状态保持中文引导', () => {
+  const state = buildSourceWorkflowState({
+    sourceCount: 0,
+    hasSourceInput: false,
+    run: null,
+    qa: null,
+    timeline: null,
+    episodeCount: 0,
+    actionReasons: getSourceWorkflowActionReasons({ hasSourceInput: false, runState: {}, qa: {} }),
+  })
+  assert.match(state.sourceEmptyState.title, /还没有已导入/)
+  assert.match(state.sourceEmptyState.description, /网页、文件和文本/)
+  assert.match(state.sourceEmptyState.description, /图片识别/)
+  assert.match(state.sourceEmptyState.description, /语音转写/)
+  assert.doesNotMatch(state.sourceEmptyState.description, /service_type=ocr/)
+  assert.equal(state.sourceEmptyState.primaryAction.label, '仅导入素材')
+  assert.match(state.sourceEmptyState.primaryAction.disabledReason, /先粘贴网页 URL/)
+})
+
+
+test('抽取失败文案能指向图片识别或语音转写配置', () => {
+  assert.equal(extractionConfigServiceTypeFromMessage(SOURCE_OCR_CONFIG_GUIDANCE), 'ocr')
+  assert.equal(extractionConfigServiceTypeFromMessage(SOURCE_TRANSCRIPTION_CONFIG_GUIDANCE), 'transcription')
+  assert.equal(extractionConfigServiceTypeFromMessage('素材列表加载失败'), '')
+  assert.equal(
+    extractionConfigServiceTypeFromMessage(SOURCE_MEDIA_EXTRACTION_CONFIG_GUIDANCE, { filename: 'scan.png' }),
+    'ocr',
+  )
+  assert.equal(extractionConfigServiceTypeFromMessage(SOURCE_MEDIA_EXTRACTION_CONFIG_GUIDANCE), '')
+})
+
+test('流程步骤读屏名用质量检查，不把 qa 暴露给用户', () => {
+  assert.equal(sourceWorkflowStepAriaLabel({ id: 'qa', label: '质量检查' }), '质量检查')
+  assert.equal(sourceWorkflowStepAriaLabel({ id: 'qa' }), '质量检查')
+  assert.equal(sourceWorkflowStepAriaLabel({ id: 'qa', label: 'QA' }), '质量检查')
+  assert.equal(sourceWorkflowStepAriaLabel('qa'), '质量检查')
+  assert.equal(sourceWorkflowStepAriaLabel({ id: 'intake' }), '导入素材')
+  assert.doesNotMatch(sourceWorkflowStepAriaLabel({ id: 'qa', label: '' }), /qa/i)
+})
+
+test('非抽取失败也给出中文下一步提示', () => {
+  assert.equal(resolveSourceIntakeGenericFailureNextHint('素材列表加载失败'), SOURCE_LIST_REFRESH_NEXT_HINT)
+  assert.equal(resolveSourceIntakeGenericFailureNextHint(SOURCE_FILE_FORMAT_UNSUPPORTED_MESSAGE), SOURCE_FORMAT_RETRY_NEXT_HINT)
+  assert.equal(
+    resolveSourceIntakeGenericFailureNextHint('暂时无法检查正式制作能力，请稍后重试。'),
+    SOURCE_READINESS_RETRY_NEXT_HINT,
+  )
+  assert.equal(resolveSourceIntakeGenericFailureNextHint('启动失败'), SOURCE_GENERIC_IMPORT_RETRY_NEXT_HINT)
+  assert.match(SOURCE_PROCESS_RETRY_NEXT_HINT, /重试失败步骤/)
+})
+
+test('PDF/图片/音视频失败会给出可点击的中文下一步，且不把内部服务类型写进文案', () => {
+  assert.deepEqual(
+    resolveSourceIntakeExtractionNextStep('未配置图片识别服务，且本机 Tesseract 不可用。请在「AI 配置」中添加并启用「图片识别」，或安装 Tesseract 命令行工具。', { filename: 'scan.png' }),
+    {
+      kind: 'ocr',
+      serviceType: 'ocr',
+      actionLabel: SOURCE_OCR_NEXT_STEP_LABEL,
+      extraHint: SOURCE_OCR_LOCAL_NEXT_STEP_HINT,
+    },
+  )
+  assert.deepEqual(
+    resolveSourceIntakeExtractionNextStep('未配置语音转写服务。请在「AI 配置」中添加并启用兼容的「语音转写」服务。', { filename: 'talk.mp3' }),
+    {
+      kind: 'transcription',
+      serviceType: 'transcription',
+      actionLabel: SOURCE_TRANSCRIPTION_NEXT_STEP_LABEL,
+      extraHint: '',
+    },
+  )
+  assert.equal(resolveSourceIntakeExtractionNextStep('导入失败', { filename: 'scan.pdf' }).serviceType, 'ocr')
+  assert.equal(resolveSourceIntakeExtractionNextStep('启动失败', { filename: 'clip.mp4' }).serviceType, 'transcription')
+  assert.equal(resolveSourceIntakeExtractionNextStep(SOURCE_WORKFLOW_FAILURE_FALLBACK, { filename: 'scan.png' }).serviceType, 'ocr')
+  assert.equal(resolveSourceIntakeExtractionNextStep(SOURCE_WORKFLOW_FAILURE_FALLBACK, { filename: 'talk.mp3' }).serviceType, 'transcription')
+  assert.equal(resolveSourceIntakeExtractionNextStep(SOURCE_FILE_FORMAT_UNSUPPORTED_MESSAGE, { filename: 'scan.png' }), null)
+  assert.equal(resolveSourceIntakeExtractionNextStep('暂时无法检查正式制作能力，请稍后重试。', { filename: 'scan.png' }), null)
+  assert.equal(resolveSourceIntakeExtractionNextStep('素材已导入，但处理流程未启动。启动失败', { filename: 'scan.png' }), null)
+  assert.equal(resolveSourceIntakeExtractionNextStep('素材列表加载失败'), null)
+  assert.match(SOURCE_OCR_NEXT_STEP_LABEL, /AI 配置/)
+  assert.match(SOURCE_OCR_LOCAL_NEXT_STEP_HINT, /Tesseract/)
+  assert.doesNotMatch(SOURCE_OCR_NEXT_STEP_LABEL, /service_type=ocr/)
+  assert.doesNotMatch(SOURCE_TRANSCRIPTION_NEXT_STEP_LABEL, /service_type=transcription/)
 })

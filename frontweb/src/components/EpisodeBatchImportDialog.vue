@@ -1,24 +1,41 @@
 <template>
   <div class="episode-batch-import-trigger">
-    <el-button size="small" @click="openDialog">
+    <el-button size="small" aria-label="批量导入剧集" @click="openDialog">
       <el-icon><Upload /></el-icon>批量导入剧集
     </el-button>
 
-    <el-dialog
+    <AccessibleDialog
       v-model="visible"
       title="批量导入剧集"
       width="920px"
       append-to-body
       destroy-on-close
+      :close-on-click-modal="false"
+      :close-on-press-escape="true"
+      :before-close="requestClose"
       @close="resetState"
     >
       <div class="batch-import-dialog">
         <el-tabs v-model="activeTab" class="batch-import-tabs">
           <el-tab-pane label="1. 导入设置" name="config">
             <div class="batch-import-panel">
+              <div v-if="previewTabDisabledReason" class="batch-import-disabled-reason">{{ previewTabDisabledReason }}</div>
               <div class="batch-import-toolbar">
-                <input ref="fileInputRef" type="file" accept=".txt,text/plain" style="display:none" @change="onFileChange" />
-                <el-button @click="fileInputRef?.click()">
+                <input
+                  ref="fileInputRef"
+                  type="file"
+                  accept=".txt,text/plain"
+                  class="hidden-file-input"
+                  aria-hidden="true"
+                  tabindex="-1"
+                  @change="onFileChange"
+                />
+                <el-button
+                  aria-label="选择 TXT 剧本文件"
+                  :disabled="importing"
+                  :title="importing ? '正在导入剧集，请完成后再选择文件。' : ''"
+                  @click="fileInputRef?.click()"
+                >
                   <el-icon><Upload /></el-icon>选择 TXT 文件
                 </el-button>
                 <span class="batch-import-file" :class="{ 'is-empty': !fileName }">
@@ -28,15 +45,15 @@
 
               <el-form label-width="120px" class="batch-import-form">
                 <el-form-item label="章节正则">
-                  <el-input v-model="chapterPattern" placeholder="例如：^\s*(第\d+章[^\n]*)" />
+                  <el-input v-model="chapterPattern" placeholder="例如：^\s*(第\d+章[^\n]*)" aria-label="章节正则" />
                 </el-form-item>
                 <el-form-item label="每集章节数">
-                  <el-input-number v-model="chaptersPerEpisode" :min="1" :max="100" />
+                  <el-input-number v-model="chaptersPerEpisode" :min="1" :max="100" aria-label="每集章节数" />
                 </el-form-item>
               </el-form>
 
               <div class="batch-import-tip-block">
-                <div class="batch-import-tip">将提前准备好的小说原文或者剧本内容的.txt文件导入系统</div>
+                <div class="batch-import-tip">将提前准备好的小说原文或剧本内容的 TXT 文件导入系统</div>
                 <div class="batch-import-tip">请正确输入用于匹配章节标题的正则表达式。</div>
                 <div class="batch-import-tip">示例：<code class="batch-import-code">^\s*(第\d+章[^\n]*)</code>、<code class="batch-import-code">^\s*(第\d+集[^\n]*)</code></div>
                 <div class="batch-import-tip">点击“确认导入配置”后，会先解析章节并切换到预览页。</div>
@@ -45,63 +62,63 @@
           </el-tab-pane>
 
           <el-tab-pane label="2. 预览确认" name="preview" :disabled="!previewReady">
-            <div class="batch-import-panel">
-              <template v-if="previewEpisodes.length">
-                <div class="batch-import-preview-header">
-                  <span>共识别 {{ previewChapters.length }} 章，预计导入 {{ previewEpisodes.length }} 集</span>
-                </div>
-                <el-table :data="previewEpisodes" border stripe height="420" class="batch-import-preview-table">
-                  <el-table-column prop="episode_number" label="集数" width="80" align="center" />
-                  <el-table-column prop="title" label="集标题" min-width="220" show-overflow-tooltip />
-                  <el-table-column label="包含章节" min-width="260" show-overflow-tooltip>
-                    <template #default="scope">
-                      {{ scope.row.chapter_titles.join('、') || '未识别章节标题' }}
-                    </template>
-                  </el-table-column>
-                  <el-table-column label="内容预览" min-width="320" show-overflow-tooltip>
-                    <template #default="scope">
-                      <div class="batch-import-preview-cell batch-import-preview-cell--single-line">
-                        {{ scope.row.script_content || '暂无内容' }}
-                      </div>
-                    </template>
-                  </el-table-column>
-                </el-table>
-              </template>
-              <div v-else class="batch-import-empty">请先在上一步确认导入配置</div>
-            </div>
+            <template #label>
+              <span :title="previewTabDisabledReason">2. 预览确认</span>
+            </template>
+            <EpisodeBatchImportPreviewPanel
+              :preview-chapters="previewChapters"
+              :preview-episodes="previewEpisodes"
+              @back="activeTab = 'config'"
+            />
           </el-tab-pane>
         </el-tabs>
       </div>
       <template #footer>
-        <el-button @click="visible = false">取消</el-button>
-        <el-button v-if="activeTab === 'preview'" @click="activeTab = 'config'">上一步</el-button>
-        <el-button
-          v-if="activeTab === 'config'"
-          type="primary"
-          :disabled="!rawText.trim()"
-          @click="confirmConfig"
-        >确认导入配置</el-button>
-        <el-button
-          v-else
-          type="primary"
-          :disabled="!previewEpisodes.length"
-          :loading="importing"
-          @click="confirmImport"
-        >确认导入集数</el-button>
+        <EpisodeBatchImportFooter
+          :active-tab="activeTab"
+          :importing="importing"
+          :close-disabled-reason="closeDisabledReason"
+          :config-confirm-disabled-reason="configConfirmDisabledReason"
+          :import-confirm-disabled-reason="importConfirmDisabledReason"
+          @cancel="requestClose()"
+          @back="activeTab = 'config'"
+          @confirm-config="confirmConfig"
+          @confirm-import="confirmImport"
+        />
       </template>
-    </el-dialog>
+    </AccessibleDialog>
   </div>
 </template>
 
 <script setup>
-import { ref } from 'vue'
-import { ElMessage } from 'element-plus'
+import { toUserFacingError, isUserFacingAbort } from '@/utils/userFacingError'
+import { computed, onBeforeUnmount, ref } from 'vue'
+import { ElMessage as RawElMessage, ElMessageBox } from '@/utils/elementPlusFeedback.js'
 import { Upload } from '@element-plus/icons-vue'
+import {
+  createProjectInstanceLifecycle,
+  isProjectInstanceDisposedError,
+} from '@/utils/projectInstanceLifecycle.js'
+import {
+  DEFAULT_CHAPTER_PATTERN,
+  splitNovelChapters,
+  buildEpisodesFromChapters,
+} from './episodeBatchImport/episodeBatchImportChapters.js'
+import EpisodeBatchImportPreviewPanel from './episodeBatchImport/EpisodeBatchImportPreviewPanel.vue'
+import EpisodeBatchImportFooter from './episodeBatchImport/EpisodeBatchImportFooter.vue'
+
+const batchImportLifecycle = createProjectInstanceLifecycle()
+const ElMessage = batchImportLifecycle.guardNotifier(RawElMessage)
 
 const props = defineProps({
   startEpisodeNumber: {
     type: Number,
     default: 1,
+  },
+  // Vue 事件监听是即发即忘；该回调让弹窗等待父级异步落盘后再关闭或提示成功。
+  importHandler: {
+    type: Function,
+    default: null,
   },
 })
 
@@ -114,18 +131,84 @@ const importing = ref(false)
 const fileInputRef = ref(null)
 const fileName = ref('')
 const rawText = ref('')
-const chapterPattern = ref('^\\s*(第[0-9０-９零一二三四五六七八九十百千万]+[章回节][^\\n\\r]*)')
+const chapterPattern = ref(DEFAULT_CHAPTER_PATTERN)
 const chaptersPerEpisode = ref(1)
 const previewChapters = ref([])
 const previewEpisodes = ref([])
+let closeConfirmOpen = false
+
+const closeDisabledReason = computed(() => (
+  importing.value ? '正在导入剧集，请完成后再关闭。' : ''
+))
+const configConfirmDisabledReason = computed(() => {
+  if (importing.value) return '正在导入剧集，请完成后再关闭。'
+  if (!rawText.value.trim()) return '请先选择包含章节文本的 TXT 文件'
+  return ''
+})
+const importConfirmDisabledReason = computed(() => {
+  if (importing.value) return '正在导入剧集，请稍候。'
+  if (!previewEpisodes.value.length) return '请先完成预览确认'
+  return ''
+})
+const previewTabDisabledReason = computed(() => (
+  previewReady.value ? '' : '请先选择文件并确认导入配置'
+))
 
 function openDialog() {
   visible.value = true
   activeTab.value = 'config'
 }
 
+function hasUnsavedWork() {
+  return importing.value || Boolean(rawText.value.trim() || fileName.value || previewEpisodes.value.length)
+}
+
+function isImporting() {
+  return importing.value
+}
+
+async function requestClose(done) {
+  if (importing.value) {
+    ElMessage.warning('正在导入剧集，请完成后再关闭。')
+    return false
+  }
+  if (!rawText.value.trim() && !fileName.value && !previewEpisodes.value.length) {
+    if (typeof done === 'function') done()
+    else resetState()
+    return true
+  }
+  if (closeConfirmOpen) return false
+  closeConfirmOpen = true
+  try {
+    await ElMessageBox.confirm(
+      '已选择的剧本文件和预览结果尚未导入，关闭后会丢失。',
+      '关闭批量导入？',
+      {
+        confirmButtonText: '放弃并关闭',
+        cancelButtonText: '继续导入',
+        type: 'warning',
+        distinguishCancelAndClose: true,
+      },
+    )
+    if (typeof done === 'function') done()
+    else resetState()
+    return true
+  } catch {
+    return false
+  } finally {
+    closeConfirmOpen = false
+  }
+}
+
 defineExpose({
   openDialog,
+  hasUnsavedWork,
+  isImporting,
+  requestClose,
+})
+
+onBeforeUnmount(() => {
+  batchImportLifecycle.dispose()
 })
 
 function resetState() {
@@ -135,7 +218,7 @@ function resetState() {
   importing.value = false
   fileName.value = ''
   rawText.value = ''
-  chapterPattern.value = '^\\s*(第[0-9０-９零一二三四五六七八九十百千万]+[章回节][^\\n\\r]*)'
+  chapterPattern.value = DEFAULT_CHAPTER_PATTERN
   chaptersPerEpisode.value = 1
   previewChapters.value = []
   previewEpisodes.value = []
@@ -145,73 +228,33 @@ function resetState() {
 function onFileChange(event) {
   const file = event.target?.files?.[0]
   if (!file) return
+  if (!/\.txt$/i.test(file.name || '')) {
+    ElMessage.warning('请选择 TXT 文本文件')
+    event.target.value = ''
+    return
+  }
   fileName.value = file.name
+  rawText.value = ''
   previewReady.value = false
   previewChapters.value = []
   previewEpisodes.value = []
   const reader = new FileReader()
   reader.onload = (ev) => {
     rawText.value = String(ev.target?.result || '')
+    if (!rawText.value.trim()) {
+      fileName.value = ''
+      rawText.value = ''
+      event.target.value = ''
+      ElMessage.error('文件内容为空，请选择包含章节文本的 TXT 文件')
+    }
   }
   reader.onerror = () => {
-    ElMessage.error('读取文件失败')
+    fileName.value = ''
+    rawText.value = ''
+    event.target.value = ''
+    ElMessage.error('读取文件失败，请重新选择 TXT 文件')
   }
   reader.readAsText(file, 'utf-8')
-}
-
-function createChapterRegex(pattern) {
-  const source = String(pattern || '').trim()
-  if (!source) throw new Error('请输入章节正则')
-  try {
-    return new RegExp(source, 'gm')
-  } catch {
-    throw new Error('章节正则格式不正确')
-  }
-}
-
-function splitNovelChapters(text, pattern) {
-  const normalized = String(text || '').replace(/\r\n/g, '\n').trim()
-  if (!normalized) return []
-  const regex = createChapterRegex(pattern)
-  const matches = [...normalized.matchAll(regex)]
-  if (!matches.length) throw new Error('未匹配到任何章节，请调整章节正则')
-  return matches.map((match, index) => {
-    const title = String(match[1] || match[0] || '').trim()
-    const titleStart = match.index ?? 0
-    const contentStart = titleStart + String(match[0] || '').length
-    const nextTitleStart = index + 1 < matches.length
-      ? (matches[index + 1].index ?? normalized.length)
-      : normalized.length
-    const content = normalized.slice(contentStart, nextTitleStart).trim()
-    return {
-      title: title || `第${index + 1}章`,
-      content,
-    }
-  }).filter((chapter) => chapter.title || chapter.content)
-}
-
-function buildEpisodesFromChapters(chapters, sizeValue) {
-  const size = Math.max(1, Number(sizeValue) || 1)
-  return chapters.reduce((list, chapter, index) => {
-    const groupIndex = Math.floor(index / size)
-    if (!list[groupIndex]) {
-      list[groupIndex] = {
-        title: '',
-        script_content: '',
-        chapter_titles: [],
-      }
-    }
-    list[groupIndex].chapter_titles.push(chapter.title)
-    list[groupIndex].script_content = [list[groupIndex].script_content, `${chapter.title}\n${chapter.content}`].filter(Boolean).join('\n\n')
-    return list
-  }, []).map((episode, index) => ({
-    episode_number: props.startEpisodeNumber + index,
-    title: episode.chapter_titles.length === 1
-      ? episode.chapter_titles[0]
-      : `${episode.chapter_titles[0]} - ${episode.chapter_titles[episode.chapter_titles.length - 1]}`,
-    script_content: episode.script_content,
-    chapter_titles: episode.chapter_titles,
-  }))
 }
 
 function confirmConfig() {
@@ -221,7 +264,7 @@ function confirmConfig() {
   }
   try {
     const chapters = splitNovelChapters(rawText.value, chapterPattern.value)
-    const episodes = buildEpisodesFromChapters(chapters, chaptersPerEpisode.value)
+    const episodes = buildEpisodesFromChapters(chapters, chaptersPerEpisode.value, props.startEpisodeNumber)
     if (!episodes.length) {
       ElMessage.warning('未生成可导入的集数')
       return
@@ -232,10 +275,11 @@ function confirmConfig() {
     activeTab.value = 'preview'
     ElMessage.success(`已识别 ${chapters.length} 章，可导入 ${episodes.length} 集`)
   } catch (e) {
+    if (isUserFacingAbort(e)) return
     previewReady.value = false
     previewChapters.value = []
     previewEpisodes.value = []
-    ElMessage.error(e.message || '章节预览失败')
+    ElMessage.error(toUserFacingError(e, '章节预览失败'))
   }
 }
 
@@ -246,19 +290,27 @@ async function confirmImport() {
   }
   importing.value = true
   try {
-    await emit('import', previewEpisodes.value.map((episode) => ({
+    const payload = previewEpisodes.value.map((episode) => ({
       episode_number: episode.episode_number,
       title: episode.title,
       script_content: episode.script_content,
       description: null,
       duration: 0,
-    })))
-    ElMessage.success(`已导入 ${previewEpisodes.value.length} 集`)
-    resetState()
+    }))
+    await batchImportLifecycle.execute(() => (
+      props.importHandler
+        ? props.importHandler(payload)
+        : emit('import', payload)
+    ))
+    batchImportLifecycle.run(() => {
+      ElMessage.success(`已导入 ${previewEpisodes.value.length} 集`)
+      resetState()
+    })
   } catch (e) {
-    ElMessage.error(e.message || '批量导入失败')
+    if (isUserFacingAbort(e) || isProjectInstanceDisposedError(e)) return
+    ElMessage.error(toUserFacingError(e, '批量导入失败'))
   } finally {
-    importing.value = false
+    batchImportLifecycle.run(() => { importing.value = false })
   }
 }
 </script>
@@ -275,12 +327,8 @@ async function confirmImport() {
 .batch-import-tip-block { display: flex; flex-direction: column; gap: 8px; }
 .batch-import-tip { font-size: 0.82rem; color: #71717a; }
 .batch-import-code { color: #c084fc; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, Liberation Mono, Courier New, monospace; }
-.batch-import-empty { min-height: 320px; display: flex; align-items: center; justify-content: center; color: #71717a; border: 1px dashed #3f3f46; border-radius: 12px; }
-.batch-import-preview-header { display: flex; align-items: center; justify-content: flex-end; gap: 12px; margin-bottom: 12px; color: #c084fc; font-size: 0.85rem; flex-wrap: wrap; }
-.batch-import-preview-table :deep(.el-table) { --el-table-bg-color: transparent; --el-table-tr-bg-color: transparent; --el-table-border-color: #3f3f46; --el-table-header-bg-color: rgba(39, 39, 42, 0.9); --el-table-row-hover-bg-color: rgba(139, 92, 246, 0.08); color: #e4e4e7; }
-.batch-import-preview-table :deep(.el-table__inner-wrapper::before) { display: none; }
-.batch-import-preview-table :deep(th.el-table__cell) { color: #fafafa; }
-.batch-import-preview-table :deep(td.el-table__cell) { vertical-align: top; }
-.batch-import-preview-cell { line-height: 1.6; white-space: pre-wrap; color: #d4d4d8; }
-.batch-import-preview-cell--single-line { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.4; }
+.batch-import-disabled-reason { font-size: 12px; color: #a1a1aa; line-height: 1.4; }
+.hidden-file-input {
+  display: none;
+}
 </style>

@@ -9,16 +9,12 @@ const {
   isGloballyRoutableIp,
   validatePublicHttpUrl,
 } = require('./uploadService');
+const { isSensitiveFieldKey } = require('./sensitiveFieldPolicy');
+const { secureHttpsRequestOptions } = require('./tlsPolicy');
 
 const DEFAULT_MAX_RESPONSE_BYTES = 64 * 1024 * 1024;
 const DEFAULT_MAX_REDIRECTS = 5;
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
-const SENSITIVE_REDIRECT_HEADERS = new Set([
-  'authorization',
-  'cookie',
-  'cookie2',
-  'proxy-authorization',
-]);
 const SENSITIVE_REDIRECT_OPTION_NAMES = [
   'auth',
   'credentials',
@@ -37,10 +33,20 @@ function boundedNonNegativeInteger(value, fallback) {
   return Number.isInteger(parsed) && parsed >= 0 ? parsed : fallback;
 }
 
+function hasCjk(value) {
+  return /[\u4e00-\u9fff]/.test(String(value || ''));
+}
+
 function abortError(signal) {
-  if (signal?.reason instanceof Error) return signal.reason;
-  const error = new Error('The operation was aborted.');
+  const reason = signal?.reason;
+  if (reason instanceof Error && reason.name === 'TimeoutError') return reason;
+  if (reason instanceof Error && reason.name === 'AbortError' && hasCjk(reason.message)) {
+    return reason;
+  }
+  const error = new Error('\u64cd\u4f5c\u5df2\u53d6\u6d88');
   error.name = 'AbortError';
+  error.code = reason?.code || 'OPERATION_CANCELLED';
+  if (reason instanceof Error) error.cause = reason;
   return error;
 }
 
@@ -64,9 +70,7 @@ function deleteHeader(headers, expected) {
 }
 
 function isSensitiveRedirectHeader(name) {
-  const normalized = String(name || '').trim().toLowerCase();
-  if (SENSITIVE_REDIRECT_HEADERS.has(normalized)) return true;
-  return /(?:^|-)(?:auth(?:entication)?|api-?key|access-?key|client-?(?:key|secret)|private-?key|secret|token|credential|password|signature|signed)(?:-|$)/i.test(normalized);
+  return isSensitiveFieldKey(name);
 }
 
 function stripCrossOriginCredentials(options) {
@@ -94,13 +98,13 @@ async function validateHttpRequestTarget(url, networkOptions = {}) {
   try {
     parsed = new URL(String(url));
   } catch (_) {
-    throw new UnsafeMediaReferenceError('Remote URL is invalid.');
+    throw new UnsafeMediaReferenceError('远程地址无效。');
   }
 
   const requireHttpsForPublic = networkOptions.requireHttpsForPublic === true;
   const explicitPrivateOrigin = originMatches(parsed, networkOptions.allowPrivateOrigins);
   if (requireHttpsForPublic && parsed.protocol === 'http:' && !explicitPrivateOrigin) {
-    throw new UnsafeMediaReferenceError('Public provider endpoints must use HTTPS.');
+    throw new UnsafeMediaReferenceError('公网厂商地址必须使用 HTTPS。');
   }
 
   const validated = await validatePublicHttpUrl(parsed, {
@@ -111,7 +115,7 @@ async function validateHttpRequestTarget(url, networkOptions = {}) {
   if (requireHttpsForPublic && validated.parsed.protocol === 'http:') {
     const privateOnly = validated.addresses.every((record) => !isGloballyRoutableIp(record.address));
     if (!explicitPrivateOrigin || !privateOnly) {
-      throw new UnsafeMediaReferenceError('HTTP provider endpoints must remain on an explicitly allowed private origin.');
+      throw new UnsafeMediaReferenceError('HTTP 厂商地址必须位于已允许的私有来源。');
     }
   }
   return validated;
@@ -139,7 +143,7 @@ async function serializeBody(body, headers) {
     if (contentType && !hasHeader(headers, 'content-type')) headers['content-type'] = contentType;
     return Buffer.from(await encoded.arrayBuffer());
   }
-  throw new TypeError('Unsupported request body type for secure HTTP fetch.');
+  throw new TypeError('\u4e0d\u652f\u6301\u7684\u5b89\u5168 HTTP \u8bf7\u6c42\u4f53\u7c7b\u578b\u3002');
 }
 
 function responseHeaders(rawHeaders) {
@@ -198,7 +202,7 @@ async function requestOnce(url, options, networkOptions) {
     const onAbort = () => request?.destroy(abortError(signal));
     const transport = parsed.protocol === 'https:' ? https : http;
 
-    request = transport.request({
+    request = transport.request(secureHttpsRequestOptions({
       protocol: parsed.protocol,
       hostname: parsed.hostname,
       port: parsed.port || (parsed.protocol === 'https:' ? 443 : 80),
@@ -207,10 +211,10 @@ async function requestOnce(url, options, networkOptions) {
       headers,
       servername: net.isIP(parsed.hostname) ? undefined : parsed.hostname,
       lookup: createPinnedDnsLookup(selected),
-    }, (res) => {
+    }), (res) => {
       const contentLength = Number(res.headers['content-length'] || 0);
       if (Number.isFinite(contentLength) && contentLength > maxBytes) {
-        const error = new UnsafeMediaReferenceError('Remote response exceeds the size limit.');
+        const error = new UnsafeMediaReferenceError('远程响应超过大小限制。');
         res.destroy(error);
         fail(error);
         return;
@@ -220,7 +224,7 @@ async function requestOnce(url, options, networkOptions) {
       res.on('data', (chunk) => {
         bytes += chunk.length;
         if (bytes > maxBytes) {
-          const error = new UnsafeMediaReferenceError('Remote response exceeds the size limit.');
+          const error = new UnsafeMediaReferenceError('远程响应超过大小限制。');
           res.destroy(error);
           fail(error);
           return;
@@ -239,7 +243,7 @@ async function requestOnce(url, options, networkOptions) {
     request.on('error', fail);
     signal?.addEventListener('abort', onAbort, { once: true });
     timer = setTimeout(() => {
-      const error = new Error(`Secure HTTP request timed out after ${timeoutMs}ms.`);
+      const error = new Error('\u5b89\u5168 HTTP \u8bf7\u6c42\u8d85\u65f6');
       error.name = 'TimeoutError';
       request.destroy(error);
     }, timeoutMs);
@@ -277,19 +281,19 @@ async function secureHttpFetch(url, options = {}, networkOptions = {}) {
 
     const response = toResponse(result, currentUrl, redirectCount > 0);
     if (redirectMode === 'manual') return response;
-    if (redirectMode === 'error') throw new TypeError('Redirects are not allowed for this request.');
+    if (redirectMode === 'error') throw new TypeError('\u5f53\u524d\u8bf7\u6c42\u4e0d\u5141\u8bb8\u8ddf\u968f\u91cd\u5b9a\u5411\u3002');
     const location = response.headers.get('location');
     if (!location) return response;
-    if (redirectCount >= maxRedirects) throw new TypeError('Too many redirects.');
+    if (redirectCount >= maxRedirects) throw new TypeError('\u91cd\u5b9a\u5411\u6b21\u6570\u8fc7\u591a\u3002');
 
     const nextUrl = new URL(location, currentUrl).toString();
     if (new URL(currentUrl).protocol === 'https:' && new URL(nextUrl).protocol !== 'https:') {
-      throw new UnsafeMediaReferenceError('HTTPS requests cannot redirect to HTTP.');
+      throw new UnsafeMediaReferenceError('HTTPS 请求不能重定向到 HTTP。');
     }
     const crossOrigin = new URL(currentUrl).origin !== new URL(nextUrl).origin;
     const currentMethod = String(currentOptions.method || (currentOptions.body == null ? 'GET' : 'POST')).toUpperCase();
     if (crossOrigin && !['GET', 'HEAD'].includes(currentMethod)) {
-      throw new UnsafeMediaReferenceError('Cross-origin redirects cannot replay request bodies.');
+      throw new UnsafeMediaReferenceError('跨源重定向不能重放请求体。');
     }
     currentOptions = redirectRequestOptions(currentOptions, result.statusCode, currentUrl, nextUrl);
     currentUrl = nextUrl;

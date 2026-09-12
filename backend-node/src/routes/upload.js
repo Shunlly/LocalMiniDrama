@@ -4,6 +4,7 @@ const path = require('path');
 const { randomUUID } = require('crypto');
 const multer = require('multer');
 const response = require('../response');
+const { sendCaughtRouteError, publicErrorMessage } = require('./serviceFailure');
 const assetService = require('../services/assetService');
 const uploadService = require('../services/uploadService');
 const storageLayout = require('../services/storageLayout');
@@ -115,13 +116,17 @@ function requestReservationBytes(req, maxBytes) {
 }
 
 function sendUploadFailure(res, err, expectedMediaType = null, maxSizeMb = null) {
+  if (err?.code === 'BAD_REQUEST') {
+    response.error(res, 400, 'BAD_REQUEST', publicErrorMessage(err, '上传请求参数无效'));
+    return true;
+  }
   if (err?.code === 'LIMIT_FILE_SIZE') {
     const target = expectedMediaType === 'image' ? '图片' : '文件';
     response.error(res, 413, 'FILE_TOO_LARGE', `${target}大小不能超过 ${maxSizeMb}MB，请压缩后重试`);
     return true;
   }
   if (err?.code === 'UPLOAD_BUSY') {
-    response.error(res, 429, err.code, err.message);
+    response.error(res, 429, err.code, publicErrorMessage(err, '上传繁忙，请稍后重试'));
     return true;
   }
   if (uploadService.isUploadStorageError(err)) {
@@ -129,11 +134,11 @@ function sendUploadFailure(res, err, expectedMediaType = null, maxSizeMb = null)
     return true;
   }
   if (err?.code === 'MEDIA_VALIDATION_UNAVAILABLE') {
-    response.error(res, 503, err.code, err.message);
+    response.error(res, 503, err.code, publicErrorMessage(err, '媒体校验服务暂不可用'));
     return true;
   }
   if (uploadService.isUploadValidationError(err)) {
-    response.error(res, 400, err.code, err.message);
+    response.error(res, 400, err.code, publicErrorMessage(err, '文件校验失败'));
     return true;
   }
   return false;
@@ -293,7 +298,7 @@ function routes(cfg, log, db) {
         const sent = sendUploadFailure(res, err, 'image', MAX_SIZE_MB);
         if (sent) return sent;
         log.error('upload image', { error: err.message });
-        response.internalError(res, err.message || '上传失败');
+        sendCaughtRouteError(res, err, '上传失败');
       }
     },
     uploadAsset: async (req, res) => {
@@ -322,7 +327,7 @@ function routes(cfg, log, db) {
         const sent = sendUploadFailure(res, err, null, MEDIA_MAX_SIZE_MB);
         if (sent) return sent;
         log.error('upload asset', { error: err.message });
-        response.internalError(res, err.message || '素材上传失败');
+        sendCaughtRouteError(res, err, '素材上传失败');
       } finally {
         cleanupTemporaryUpload(req.file, log);
         if (result && !assetCreated) uploadService.removeFile(result.absolute_path, log);

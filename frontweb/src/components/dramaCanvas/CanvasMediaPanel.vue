@@ -1,5 +1,6 @@
 <template>
   <div
+    ref="panelRef"
     class="canvas-node-panel media-panel nodrag nopan nowheel"
     tabindex="-1"
     :class="['kind-' + kind, { unknown: showMediaQueryBlocker }]"
@@ -8,13 +9,19 @@
     @click.stop
     @mouseup.stop
     @wheel.stop
+    @keydown.esc.stop.prevent="closePanel"
   >
     <div class="panel-head">
       <span>{{ kindTitle }}</span>
       <div class="head-right">
         <span v-if="busyLabel" class="busy-tag">{{ busyLabel }}</span>
-        <el-button link size="small" @click.stop="closePanel">收起</el-button>
+        <el-button link size="small" aria-label="收起面板" @click.stop="closePanel">收起</el-button>
       </div>
+    </div>
+    <div v-if="audioOutcomeUnknown" class="media-query-blocker" role="alert">
+      <p class="media-query-title">配音结果待确认</p>
+      <p class="media-query-note">服务端可能仍在合成并产生费用，请刷新分镜状态后再决定是否重试。</p>
+      <el-button size="small" type="warning" plain aria-label="刷新分镜状态" @click.stop="refreshAfterUnknownAudio">刷新分镜状态</el-button>
     </div>
 
     <div
@@ -32,22 +39,24 @@
         type="button"
         class="media-query-retry"
         :disabled="retryingMedia"
+        :title="retryingMedia ? '正在重试媒体查询，请稍候' : undefined"
+        :aria-label="retryingMedia ? '正在重试媒体查询' : '重试媒体查询'"
         @click.stop="retryMedia"
       >
-        {{ retryingMedia ? '重试中...' : '重试媒体查询' }}
+        {{ retryingMedia ? '重试中…' : '重试媒体查询' }}
       </button>
     </div>
 
     <div class="panel-body">
       <template v-if="kind === 'text'">
         <p class="summary">{{ summary || '暂无脚本内容' }}</p>
-        <el-button size="small" type="primary" plain @click.stop="focusStoryboard">编辑脚本</el-button>
+        <el-button size="small" type="primary" plain aria-label="编辑分镜脚本" @click.stop="focusStoryboard">编辑脚本</el-button>
       </template>
 
       <template v-else-if="kind === 'universal'">
         <p class="summary">{{ summary || '暂无全能分镜词' }}</p>
         <div class="panel-actions">
-          <el-button size="small" plain @click.stop="focusStoryboard">编辑</el-button>
+          <el-button size="small" plain aria-label="编辑分镜" @click.stop="focusStoryboard">编辑</el-button>
           <CanvasActionGate
             :reason="videoAction.reason"
             label="重新生成单镜视频"
@@ -59,7 +68,8 @@
               type="primary"
               :loading="busy"
               :disabled="Boolean(videoAction.reason)"
-              @click.stop="runStep('video')"
+              :title="videoAction.reason || undefined"
+              :aria-label="busy ? '正在生成视频' : (videoAction.reason || '重新生成视频')" @click.stop="runStep('video')"
             >重新生成视频</el-button>
           </CanvasActionGate>
         </div>
@@ -67,18 +77,18 @@
 
       <template v-else-if="kind === 'image'">
         <div class="preview-wrap">
-          <img v-if="url && !busy" :src="url" alt="" class="preview-img" />
-          <div v-else-if="!busy" class="preview-empty">无分镜图</div>
-          <div v-if="busy" class="preview-loading"><span class="spinner" />生图中...</div>
+          <img v-if="url && !busy" :src="url" :alt="frameTitle ? `${frameTitle}预览` : ''" class="preview-img" />
+          <div v-else-if="!busy" class="preview-empty">{{ imageEmptyLabel }}</div>
+          <div v-if="busy" class="preview-loading"><span class="spinner" />{{ frameBusyLabel }}</div>
         </div>
-        <el-button size="small" type="primary" :loading="busy" @click.stop="runStep('image')">重新生成图</el-button>
+        <el-button size="small" type="primary" :loading="busy" :aria-label="frameActionLabel" @click.stop="runStep('image')">{{ frameActionLabel }}</el-button>
       </template>
 
       <template v-else-if="kind === 'video'">
         <div class="preview-wrap">
-          <video v-if="url && !busy" :src="url" class="preview-vid" controls playsinline />
+          <video v-if="url && !busy" :src="url" class="preview-vid" controls playsinline aria-label="画布分镜视频预览" />
           <div v-else-if="!busy" class="preview-empty">无视频</div>
-          <div v-if="busy" class="preview-loading"><span class="spinner" />生视频中...</div>
+          <div v-if="busy" class="preview-loading"><span class="spinner" />生视频中…</div>
         </div>
         <CanvasActionGate
           :reason="videoAction.reason"
@@ -91,7 +101,8 @@
             type="primary"
             :loading="busy"
             :disabled="Boolean(videoAction.reason)"
-            @click.stop="runStep('video')"
+            :title="videoAction.reason || undefined"
+            :aria-label="busy ? '正在生成视频' : (videoAction.reason || '重新生成视频')" @click.stop="runStep('video')"
           >重新生成视频</el-button>
         </CanvasActionGate>
       </template>
@@ -99,9 +110,10 @@
       <template v-else-if="kind === 'audio'">
         <div class="audio-label">{{ audioType === 'narration' ? '旁白音频' : '对白音频' }}</div>
         <audio v-if="url" :src="url" controls class="preview-aud" />
+        <div v-else-if="!busy" class="preview-empty">暂无配音</div>
         <CanvasActionGate
           :reason="ttsAction.reason"
-          label="重新生成单镜配音"
+          :label="audioType === 'narration' ? '重新生成旁白配音' : '重新生成对白配音'"
           :description-id="ttsReasonId"
           :config-service-type="ttsAction.serviceType"
         >
@@ -109,9 +121,10 @@
             size="small"
             type="warning"
             :loading="busy"
-            :disabled="Boolean(ttsAction.reason)"
-            @click.stop="runStep('audio')"
-          >重新配音</el-button>
+            :disabled="Boolean(audioActionDisabledReason)"
+            :title="audioActionDisabledReason || undefined"
+            :aria-label="busy ? (audioType === 'narration' ? '正在生成旁白配音' : '正在生成对白配音') : (audioActionDisabledReason || (audioType === 'narration' ? '重新生成旁白配音' : '重新生成对白配音'))" @click.stop="runStep('audio')"
+          >{{ audioType === 'narration' ? '旁白配音' : '对白配音' }}</el-button>
         </CanvasActionGate>
       </template>
     </div>
@@ -119,9 +132,11 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue'
-import { ElMessage } from 'element-plus'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { ElMessage } from '@/utils/elementPlusFeedback.js'
 import { useCanvasContext } from '@/composables/useCanvasContext'
+import { canvasUserError } from '@/composables/useCanvasUserError'
+import { toCanvasChineseMessage, toCanvasChineseStatus } from './canvasExperienceCopy.js'
 import { CANVAS_NODE_STATUS_LABELS } from '@/composables/useCanvasNodeStatus'
 import { runImageStep, runFrameImageStep, runVideoStep, runAudioStep } from '@/composables/useCanvasWorkflowRunner'
 import { findStoryboardInDrama, getDramaGenerationOptions } from '@/utils/canvasWorkflow'
@@ -138,8 +153,16 @@ const props = defineProps({
 })
 
 const ctx = useCanvasContext()
+const panelRef = ref(null)
 const busy = ref(false)
 const retryingMedia = ref(false)
+const audioOutcomeUnknown = ref(false)
+let generationRun = null
+
+onBeforeUnmount(() => {
+  generationRun?.abort()
+  generationRun = null
+})
 
 const sbNodeId = computed(() => (props.storyboard?.id ? `sb:${props.storyboard.id}` : ''))
 const unavailableProductionAction = Object.freeze({
@@ -151,23 +174,48 @@ const videoAction = computed(() => ctx?.productionActions?.value?.video || unava
 const ttsAction = computed(() => ctx?.productionActions?.value?.tts || unavailableProductionAction)
 const videoReasonId = computed(() => `canvas-media-video-reason-${props.nodeId || props.storyboard?.id || 'unknown'}`)
 const ttsReasonId = computed(() => `canvas-media-tts-reason-${props.nodeId || props.storyboard?.id || 'unknown'}`)
+const audioActionDisabledReason = computed(() => (
+  ttsAction.value.reason
+  || (audioOutcomeUnknown.value ? '请先刷新分镜状态，确认上一次配音结果后再重试' : '')
+))
 const mediaQueryStatus = computed(() => ctx?.getStoryboardMediaQueryStatus?.(props.storyboard?.id) || {})
 const mediaQueryUnknown = computed(() => mediaQueryStatus.value?.state === 'unknown')
-const mediaQueryMessage = computed(() => mediaQueryStatus.value?.error || '媒体查询失败，请重试。')
+const mediaQueryMessage = computed(() => toCanvasChineseMessage(mediaQueryStatus.value?.error, '媒体查询失败，请重试。'))
 const mediaQueryPreservedData = computed(() => Boolean(mediaQueryStatus.value?.preservedData))
 const showMediaQueryBlocker = computed(() => (
   mediaQueryUnknown.value && ['image', 'video', 'universal'].includes(props.kind)
 ))
 
+const frameTitle = computed(() => {
+  if (props.frameKind === 'first') return '首帧'
+  if (props.frameKind === 'last') return '尾帧'
+  return ''
+})
 const kindTitle = computed(() => {
+  if (frameTitle.value) return frameTitle.value
   const map = { text: '脚本摘要', universal: '全能分镜词', image: '分镜图', video: '视频', audio: '音频' }
   return map[props.kind] || '媒体'
 })
+const imageEmptyLabel = computed(() => {
+  if (props.frameKind === 'first') return '待生成首帧'
+  if (props.frameKind === 'last') return '待生成尾帧'
+  return '无分镜图'
+})
+const imageEmpty = computed(() => !String(props.url || '').trim())
+const frameActionLabel = computed(() => {
+  if (props.frameKind === 'first') return imageEmpty.value ? '生成首帧' : '重新生成首帧'
+  if (props.frameKind === 'last') return imageEmpty.value ? '生成尾帧' : '重新生成尾帧'
+  return imageEmpty.value ? '生成分镜图' : '重新生成分镜图'
+})
+const frameBusyLabel = computed(() => (
+  frameTitle.value ? `${frameTitle.value}生成中…` : '生图中…'
+))
 
 const busyLabel = computed(() => {
   const map = ctx?.nodeStatus?.map
   const id = props.nodeId || sbNodeId.value
-  return id && map ? map[id]?.message : ''
+  const raw = id && map ? map[id]?.message : ''
+  return toCanvasChineseStatus(raw, '处理中…')
 })
 
 function focusStoryboard() {
@@ -177,6 +225,10 @@ function focusStoryboard() {
 function closePanel() {
   ctx?.clearFocusedNode?.()
 }
+
+onMounted(() => {
+  panelRef.value?.focus?.()
+})
 
 async function runStep(step) {
   const drama = ctx?.drama?.value
@@ -193,32 +245,62 @@ async function runStep(step) {
       return
     }
   }
+  if (step === 'audio' && audioOutcomeUnknown.value) {
+    ElMessage.warning('请先刷新分镜状态，确认上一次配音结果后再重试')
+    return
+  }
+  const nextRun = ctx?.beginNodeGeneration?.({ nodeId: props.nodeId || sbNodeId.value, step }) || null
+  if (!nextRun) {
+    ElMessage.warning('已有单节点生成正在执行，请等待完成后再试')
+    return
+  }
+  generationRun = nextRun
   busy.value = true
-  const statusMsg = CANVAS_NODE_STATUS_LABELS[step] || '处理中...'
+  const statusMsg = CANVAS_NODE_STATUS_LABELS[step] || '处理中…'
   ctx?.nodeStatus?.set(props.nodeId, { step, message: statusMsg })
   ctx?.nodeStatus?.set(sbNodeId.value, { step, message: statusMsg })
   try {
     const found = findStoryboardInDrama(drama, sbId)
     const sb = found?.storyboard || props.storyboard
     const genOpts = ctx?.getGenerationOptions?.() || getDramaGenerationOptions(drama)
-    if (step === 'image' && props.frameKind) await runFrameImageStep(drama, sb, genOpts, props.frameKind)
-    else if (step === 'image') await runImageStep(drama, sb, genOpts)
-    else if (step === 'video') await runVideoStep(drama, sb, genOpts)
+    if (step === 'image' && props.frameKind) {
+      await runFrameImageStep(drama, sb, genOpts, props.frameKind, {
+        signal: generationRun.signal,
+        onWarning: (warning) => ElMessage.warning(canvasUserError(warning, '已改用本地帧提示词')),
+      })
+    }
+    else if (step === 'image') await runImageStep(drama, sb, genOpts, { signal: generationRun.signal })
+    else if (step === 'video') await runVideoStep(drama, sb, genOpts, { signal: generationRun.signal })
     else if (step === 'audio') {
-      const res = await runAudioStep(sb)
+      const res = await runAudioStep(sb, { signal: generationRun.signal, kind: props.audioType === 'narration' ? 'narration' : 'dialogue' })
       if (res?.skipped) {
-        ElMessage.info(res.reason || '已跳过')
+        ElMessage.info(canvasUserError(res.reason, '已跳过'))
         return
       }
     }
     ElMessage.success('生成完成')
     await ctx?.refresh?.()
   } catch (error) {
-    ElMessage.error(error?.message || '生成失败')
+    if (error?.code === 'SUBMISSION_OUTCOME_UNKNOWN') audioOutcomeUnknown.value = true
+    if (error?.name !== 'AbortError' && !generationRun?.signal.aborted) {
+      ElMessage.error(canvasUserError(error, '生成失败'))
+    }
   } finally {
+    generationRun?.finish()
+    generationRun = null
     busy.value = false
     ctx?.nodeStatus?.clear(props.nodeId)
     ctx?.nodeStatus?.clear(sbNodeId.value)
+  }
+}
+
+async function refreshAfterUnknownAudio() {
+  try {
+    await ctx?.refresh?.()
+    audioOutcomeUnknown.value = false
+    ElMessage.success('分镜状态已刷新')
+  } catch (error) {
+    ElMessage.error(canvasUserError(error, '刷新失败，请稍后重试'))
   }
 }
 
@@ -230,7 +312,7 @@ async function retryMedia() {
     if (ok) ElMessage.success('媒体查询已刷新')
     else ElMessage.warning('媒体查询仍未恢复，请稍后重试')
   } catch (error) {
-    ElMessage.error(error?.message || '媒体查询重试失败')
+    ElMessage.error(canvasUserError(error, '媒体查询重试失败'))
   } finally {
     retryingMedia.value = false
   }

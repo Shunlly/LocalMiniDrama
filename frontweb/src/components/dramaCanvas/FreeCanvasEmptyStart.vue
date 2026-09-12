@@ -1,0 +1,104 @@
+<template>
+  <section
+    class="free-canvas-empty-state"
+    aria-labelledby="free-canvas-empty-title"
+    aria-describedby="free-canvas-empty-desc"
+  >
+    <h2 id="free-canvas-empty-title">开始自由创作</h2>
+    <p id="free-canvas-empty-desc">{{ emptyDescription }}</p>
+    <div class="free-canvas-empty-actions">
+      <el-button
+        v-if="hideProductionNodes"
+        autofocus
+        aria-label="显示制作节点"
+        @click="setHideProductionNodes(false)"
+      >
+        <el-icon><View /></el-icon>
+        显示制作节点
+      </el-button>
+      <el-button type="primary" :autofocus="!hideProductionNodes" aria-label="新建文本节点" @click="createFreeCanvasNode('text')">
+        <el-icon><Document /></el-icon>
+        新建文本
+      </el-button>
+      <el-button aria-label="新建配置节点" @click="createFreeCanvasNode('config')">
+        <el-icon><Setting /></el-icon>
+        新建配置
+      </el-button>
+      <el-button aria-label="导入媒体" @click="openFreeCanvasMediaPicker">
+        <el-icon><FolderOpened /></el-icon>
+        导入媒体
+      </el-button>
+    </div>
+  </section>
+</template>
+
+<script setup>
+import { computed } from 'vue'
+import { Document, FolderOpened, Setting, View } from '@element-plus/icons-vue'
+
+const props = defineProps({
+  createFreeCanvasNode: { type: Function, required: true },
+  openFreeCanvasMediaPicker: { type: Function, required: true },
+  hideProductionNodes: { type: Boolean, default: false },
+  setHideProductionNodes: { type: Function, default: () => {} },
+})
+
+const emptyDescription = computed(() => (
+  props.hideProductionNodes
+    ? '还没有自由节点。制作节点已隐藏，可先显示回来，或新建文本、配置、导入媒体开始编排。'
+    : '还没有自由节点。可以新建文本、配置，或导入媒体开始编排。'
+))
+</script>
+
+<style scoped>
+.free-canvas-empty-state {
+  box-sizing: border-box;
+  position: absolute;
+  inset: 22% 24px auto;
+  z-index: 1050;
+  display: grid;
+  justify-items: center;
+  gap: 14px;
+  min-width: 0;
+  max-width: calc(100% - 48px);
+  color: var(--canvas-text-primary);
+  text-align: center;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+}
+
+.free-canvas-empty-state h2 {
+  margin: 0;
+  font-size: 18px;
+  line-height: 24px;
+}
+
+.free-canvas-empty-state p {
+  margin: 0;
+  max-width: min(420px, 100%);
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--canvas-text-muted, #a1a1aa);
+  overflow-wrap: anywhere;
+}
+
+.free-canvas-empty-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+  pointer-events: auto;
+}
+
+.free-canvas-empty-actions :deep(.el-button) {
+  max-width: 100%;
+  white-space: normal;
+}
+
+.free-canvas-empty-actions :deep(.el-button:focus-visible) {
+  outline: 2px solid var(--canvas-focus-ring, #818cf8);
+  outline-offset: 2px;
+}
+</style>
