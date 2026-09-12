@@ -44,11 +44,11 @@ test('FreeCreate blocks navigation while a reference image upload is in flight',
 
   assert.match(
     freeCreateSource,
-    /onBeforeRouteLeave\(async \(\) => \{[\s\S]*return confirmFreeCreateLeave\(\)/,
+    /onBeforeRouteLeave\(async \(to\) => \{[\s\S]*return confirmFreeCreateLeave\(to\)/,
   )
   assert.match(
     freeCreateSource,
-    /async function confirmFreeCreateLeave\(\) \{[\s\S]*if \(refImageUploadStatus\.value === 'uploading'\) \{[\s\S]*ElMessage\.warning\([\s\S]*return false[\s\S]*if \(!freeCreateTaskOwner\.hasActive\(\)\) return true/,
+    /async function confirmFreeCreateLeave\(to\) \{[\s\S]*if \(refImageUploadStatus\.value === 'uploading'\) \{[\s\S]*ElMessage\.warning\([\s\S]*return false[\s\S]*if \(isAiConfigRoundTrip\(to\)\) return true[\s\S]*if \(!freeCreateTaskOwner\.hasActive\(\)\) return true/,
   )
   const confirmStart = freeCreateSource.indexOf('async function confirmFreeCreateLeave')
   const uploadingIndex = freeCreateSource.indexOf("refImageUploadStatus.value === 'uploading'", confirmStart)

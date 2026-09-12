@@ -96,9 +96,9 @@ test('hosted storyboard inspector keeps theme tokens outside the canvas scope', 
 test('every canvas inspector exit uses the shared dirty guard', () => {
   assert.match(
     dramaCanvasSource,
-    /function runCanvasNavigationBarrier\(\)[\s\S]*?ensureFreeCanvasUploadFinished\(\)[\s\S]*?confirmFocusedNodeLeave\(\)[\s\S]*?flushCanvasSaveBeforeLeave\(projectId\)/,
+    /function runCanvasNavigationBarrier\(to\)[\s\S]*?ensureFreeCanvasUploadFinished\(\)[\s\S]*?confirmFocusedNodeLeave\(\)[\s\S]*?flushCanvasSaveBeforeLeave\(projectId\)/,
   )
-  assert.match(dramaCanvasSource, /onBeforeRouteLeave\(\(\) => runCanvasNavigationBarrier\(\)\)/)
+  assert.match(dramaCanvasSource, /onBeforeRouteLeave\(\(to\) => runCanvasNavigationBarrier\(to\)\)/)
   assert.match(dramaCanvasSource, /async function guardCanvasRouteUpdate\(to\)[\s\S]*?return runCanvasNavigationBarrier\(\)/)
   assert.match(dramaCanvasSource, /onBeforeRouteUpdate\(guardCanvasRouteUpdate\)/)
   assert.match(dramaCanvasSource, /window\.addEventListener\('beforeunload', handleCanvasBeforeUnload\)/)

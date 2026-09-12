@@ -145,8 +145,8 @@ onBeforeUnmount(() => {
   unmount()
 })
 
-onBeforeRouteLeave(async () => {
-  return confirmFreeCreateLeave()
+onBeforeRouteLeave(async (to) => {
+  return confirmFreeCreateLeave(to)
 })
 
 </script>

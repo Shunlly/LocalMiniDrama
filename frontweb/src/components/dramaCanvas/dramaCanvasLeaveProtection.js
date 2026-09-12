@@ -66,7 +66,7 @@ export function createDramaCanvasLeaveProtection(ctx = {}) {
     return true
   }
 
-  async function flushCanvasSaveBeforeLeave(targetProjectId = canvasProjectId.value) {
+  async function flushCanvasSaveBeforeLeave(targetProjectId = canvasProjectId.value, options = {}) {
     if (
       !layoutDirty.value
       && !failedCanvasSaveOperation.value
@@ -83,6 +83,7 @@ export function createDramaCanvasLeaveProtection(ctx = {}) {
     }
     if (result.ok) return true
     if (result.cancelled && !layoutDirty.value && !failedCanvasSaveOperation.value) return true
+    if (options.ignoreSaveFailure) return true
     try {
       await ElMessageBox.confirm(
         '最近的画布修改还没有保存成功，继续离开会丢失这些修改。',
@@ -99,11 +100,19 @@ export function createDramaCanvasLeaveProtection(ctx = {}) {
     }
   }
 
-  function runCanvasNavigationBarrier() {
+  function runCanvasNavigationBarrier(to) {
     const projectId = canvasProjectId.value
+    const path = String(to?.path || '')
+    const aiConfigRoundTrip = to?.name === 'ai-config' || path === '/ai-config' || path.startsWith('/ai-config/')
     return canvasSaveCoordinator.runNavigationBarrier(
       Number(projectId),
       async () => {
+        if (aiConfigRoundTrip) {
+          if (!ensureFreeCanvasUploadFinished()) return false
+          if (!await confirmFocusedNodeLeave()) return false
+          await flushCanvasSaveBeforeLeave(projectId, { ignoreSaveFailure: true })
+          return true
+        }
         if (!await ensureNodeGenerationFinished()) return false
         if (!await ensureEpisodeGenerationFinished()) return false
         if (!await ensureWorkflowFinished()) return false

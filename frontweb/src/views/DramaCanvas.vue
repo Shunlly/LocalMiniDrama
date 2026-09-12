@@ -823,7 +823,7 @@ const {
   canvasRouteContext,
   route,
 })
-onBeforeRouteLeave(() => runCanvasNavigationBarrier())
+onBeforeRouteLeave((to) => runCanvasNavigationBarrier(to))
 onBeforeRouteUpdate(guardCanvasRouteUpdate)
 
 const {

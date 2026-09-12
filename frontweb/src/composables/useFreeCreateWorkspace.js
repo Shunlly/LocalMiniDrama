@@ -18,6 +18,7 @@ import {
   saveFreeCreateResultToAssets,
   writeFreeCreateHistory,
 } from '@/components/freeCreate/freeCreateAssetSave.js'
+import { isAiConfigRoundTrip } from '@/components/sourceIntake/sourceIntakeDraft.js'
 import { getServiceConfigReadiness } from '@/utils/aiServiceReadiness'
 import {
   buildFreeCreateGenerationPayload,
@@ -332,11 +333,12 @@ export function useFreeCreateWorkspace({
     event.returnValue = ''
   }
 
-  async function confirmFreeCreateLeave() {
+  async function confirmFreeCreateLeave(to) {
     if (refImageUploadStatus.value === 'uploading') {
       ElMessage.warning(FREE_CREATE_UPLOAD_LEAVE_MESSAGE)
       return false
     }
+    if (isAiConfigRoundTrip(to)) return true
     if (!freeCreateTaskOwner.hasActive()) return true
     if (leaveConfirmPending) return leaveConfirmPending
     leaveConfirmPending = (async () => {

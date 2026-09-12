@@ -244,7 +244,7 @@ test('FreeCreate owns, cancels, and releases exactly one remote generation task'
   )
   assert.match(
     freeCreateSource,
-    /onBeforeRouteLeave\(async \(\) =>[\s\S]*return confirmFreeCreateLeave\(\)/,
+    /onBeforeRouteLeave\(async \(to\) =>[\s\S]*return confirmFreeCreateLeave\(to\)/,
   )
   assert.match(freeCreateSource, /window\.addEventListener\('beforeunload', handleBeforeUnload\)/)
   assert.match(freeCreateSource, /window\.removeEventListener\('beforeunload', handleBeforeUnload\)/)
@@ -364,7 +364,7 @@ test('离开保护会确认取消生成，并登记到应用级卸载拦截', ()
   assert.match(freeCreateSource, /unregisterLeaveProtection\?\.\(\)/)
   assert.match(
     freeCreateSource,
-    /onBeforeRouteLeave\(async \(\) =>[\s\S]*return confirmFreeCreateLeave\(\)/,
+    /onBeforeRouteLeave\(async \(to\) =>[\s\S]*return confirmFreeCreateLeave\(to\)/,
   )
   assert.match(freeCreateSource, /window\.addEventListener\('beforeunload', handleBeforeUnload\)/)
 })
@@ -514,6 +514,11 @@ test('确认离开会取消任务，点取消不取消', async () => {
     assert.equal(confirms[0].options.confirmButtonText, FREE_CREATE_LEAVE_CONFIRM_BUTTON_TEXT)
     assert.equal(confirms[0].options.cancelButtonText, FREE_CREATE_LEAVE_STAY_BUTTON_TEXT)
     assert.equal(confirms[0].options.type, 'warning')
+
+    assert.equal(await workspace.confirmFreeCreateLeave({ name: 'ai-config', path: '/ai-config' }), true)
+    assert.equal(cancelCalls.length, 0)
+    assert.equal(workspace.generating.value, true)
+    assert.equal(confirms.length, 1)
 
     confirmImpl = async () => {}
     const leavePromise = workspace.confirmFreeCreateLeave()

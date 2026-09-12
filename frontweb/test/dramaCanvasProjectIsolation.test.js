@@ -1569,6 +1569,33 @@ test('a failed canvas flush blocks navigation when discard is cancelled', async 
   assert.equal(confirmations, 1)
 })
 
+test('去 AI 配置时保存失败也不再弹出丢弃确认', async () => {
+  let confirmations = 0
+  const flushCanvasSaveBeforeLeave = loadCanvasFunction('flushCanvasSaveBeforeLeave', {
+    canvasProjectId: { value: 101 },
+    layoutDirty: { value: true },
+    failedCanvasSaveOperation: { value: null },
+    hasPendingCanvasSaves: () => false,
+    waitForCanvasSaveSettlement: async () => {},
+    cancelScheduledCanvasSave: () => {},
+    retryCanvasSave: async () => ({ ok: true }),
+    persistCanvasState: async () => ({
+      ok: false,
+      cancelled: false,
+      error: new Error('save failed'),
+    }),
+    ElMessageBox: {
+      async confirm() {
+        confirmations += 1
+        throw new Error('stay on page')
+      },
+    },
+  })
+
+  assert.equal(await flushCanvasSaveBeforeLeave(101, { ignoreSaveFailure: true }), true)
+  assert.equal(confirmations, 0)
+})
+
 test('confirming discard clears pending save intent before component teardown', async () => {
   const layoutDirty = { value: true }
   const failedCanvasSaveOperation = { value: { targetDramaId: 101, writesLayout: true } }
@@ -2184,6 +2211,35 @@ test('navigation barrier awaits the workflow detach decision before continuing',
 
   assert.equal(await runCanvasNavigationBarrier(), false)
   assert.equal(uploadChecks, 0)
+})
+
+test('去 AI 配置时导航屏障只拦上传，不询问工作流', async () => {
+  let uploadChecks = 0
+  let workflowChecks = 0
+  let nodeChecks = 0
+  let focusChecks = 0
+  const flushCalls = []
+  const runCanvasNavigationBarrier = loadCanvasFunction('runCanvasNavigationBarrier', {
+    canvasProjectId: { value: 101 },
+    canvasSaveCoordinator: {
+      runNavigationBarrier(_projectId, barrier) { return barrier() },
+    },
+    ensureWorkflowFinished: async () => { workflowChecks += 1; return false },
+    ensureNodeGenerationFinished: async () => { nodeChecks += 1; return true },
+    ensureEpisodeGenerationFinished: async () => true,
+    ensureFreeCanvasUploadFinished: () => { uploadChecks += 1; return true },
+    confirmFocusedNodeLeave: async () => { focusChecks += 1; return true },
+    flushCanvasSaveBeforeLeave: async (...args) => { flushCalls.push(args); return false },
+    Number,
+  })
+
+  assert.equal(await runCanvasNavigationBarrier({ name: 'ai-config', path: '/ai-config' }), true)
+  assert.equal(uploadChecks, 1)
+  assert.equal(focusChecks, 1)
+  assert.equal(workflowChecks, 0)
+  assert.equal(nodeChecks, 0)
+  assert.equal(flushCalls.length, 1)
+  assert.deepEqual(flushCalls[0][1], { ignoreSaveFailure: true })
 })
 
 test('auto-align never reports success after its layout save fails', async () => {
