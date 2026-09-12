@@ -281,7 +281,7 @@ test('project-list return actions keep list-mode and project-list destinations d
   assert.match(dramaCanvasSource, /<CanvasPageHeader/)
   assert.match(dramaCanvasSource, /:go-project-list="goProjectList"/)
   assert.match(dramaCanvasSource, /:go-list-mode="goListMode"/)
-  assert.match(dramaCanvasSource, /<button type="button" class="logo" aria-label="返回项目列表" title="返回项目列表" @click="goProjectList">/)
+  assert.match(dramaCanvasSource, /<button type="button" class="logo" aria-label="本地短剧助手，返回项目列表" title="返回项目列表" @click="goProjectList">/)
   assert.match(dramaCanvasSource, /canvas-load-actions[\s\S]*@click="goProjectList">返回项目列表/)
   assert.match(dramaCanvasSource, /free-canvas-version-warning[\s\S]*@click="goListMode">列表模式/)
   assert.match(dramaCanvasSource, /function goProjectList\(\)[\s\S]*projectListReturnTo\.value \|\| '\/'/)

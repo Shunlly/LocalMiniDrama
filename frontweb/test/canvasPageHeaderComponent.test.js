@@ -75,7 +75,7 @@ test('页头展示品牌、集数筛选，工具栏槽位仍能挂上 AI 分镜'
     assert.match(pageText, /本地短剧助手/)
     assert.match(pageText, /画布模式/)
     assert.match(pageText, /演示短剧/)
-    const logo = buttonByAriaLabel(harness.root, '返回项目列表')
+    const logo = buttonByAriaLabel(harness.root, '本地短剧助手，返回项目列表')
     assert.ok(logo)
     assert.match(logo.props.class, /logo/)
     click(logo)
