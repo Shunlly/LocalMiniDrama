@@ -139,7 +139,7 @@ test('搜索无结果与加载失败保留中文空态，清除搜索会重试',
     await nextTick()
     assert.match(textContent(searchEmpty.root), /没有匹配的角色/)
     assert.match(textContent(searchEmpty.root), /试试其他关键词/)
-    click(buttonByText(searchEmpty.root, '清除搜索'))
+    click(buttonByText(searchEmpty.root, '清除角色搜索'))
     await nextTick()
     assert.equal(searchEmpty.charKw.value, '')
     assert.deepEqual(searchEmpty.events, [['loadCharList']])

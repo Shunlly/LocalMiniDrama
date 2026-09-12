@@ -48,8 +48,8 @@
         </div>
         <div v-if="!sceneLibraryLoading && !sceneLibraryError && sceneLibraryList.length === 0" class="library-empty" role="status" aria-live="polite">
           <p>{{ sceneLibraryKeyword.trim() ? '没有匹配的场景，试试其他关键词。' : '素材库暂无场景，可在项目中将场景「加入素材库」后在此查看' }}</p>
-          <el-button v-if="sceneLibraryKeyword.trim()" size="small" aria-label="清除场景素材搜索" @click="clearSceneLibraryKeyword">清除搜索</el-button>
-          <el-button v-else size="small" aria-label="关闭场景库并回到项目列表" @click="showSceneLibrary = false">关闭并回到项目列表</el-button>
+          <el-button v-if="sceneLibraryKeyword.trim()" size="small" aria-label="清除场景素材搜索" @click="clearSceneLibraryKeyword">清除场景素材搜索</el-button>
+          <el-button v-else size="small" aria-label="关闭场景库并回到项目列表" @click="showSceneLibrary = false">关闭场景库并回到项目列表</el-button>
         </div>
       </div>
       <div class="library-pagination">

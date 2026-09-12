@@ -89,7 +89,7 @@
                 :title="charKw.trim() ? '没有匹配的角色' : '暂无本剧角色库记录'"
                 :copy="charKw.trim() ? '试试其他关键词，或清除搜索后重新查看。' : '可以从公共素材库导入角色，或先在制作页提取后再入库。'"
               >
-                <el-button v-if="charKw.trim()" size="small" aria-label="清除角色搜索" @click="charKw = ''; loadCharList()">清除搜索</el-button>
+                <el-button v-if="charKw.trim()" size="small" aria-label="清除角色搜索" @click="charKw = ''; loadCharList()">清除角色搜索</el-button>
                 <el-button v-else size="small" type="primary" plain aria-label="从素材库导入角色" @click="openImport('char')">从素材库导入角色</el-button>
               </DramaDetailResourceEmptyState>
             </template>
@@ -154,7 +154,7 @@
                 :title="sceneKw.trim() ? '没有匹配的场景' : '暂无本剧场景库记录'"
                 :copy="sceneKw.trim() ? '试试其他关键词，或清除搜索后重新查看。' : '可以从公共素材库导入场景，或先在制作页提取后再入库。'"
               >
-                <el-button v-if="sceneKw.trim()" size="small" aria-label="清除场景搜索" @click="sceneKw = ''; loadSceneList()">清除搜索</el-button>
+                <el-button v-if="sceneKw.trim()" size="small" aria-label="清除场景搜索" @click="sceneKw = ''; loadSceneList()">清除场景搜索</el-button>
                 <el-button v-else size="small" type="primary" plain aria-label="从素材库导入场景" @click="openImport('scene')">从素材库导入场景</el-button>
               </DramaDetailResourceEmptyState>
             </template>
@@ -219,7 +219,7 @@
                 :title="propKw.trim() ? '没有匹配的道具' : '暂无本剧道具库记录'"
                 :copy="propKw.trim() ? '试试其他关键词，或清除搜索后重新查看。' : '可以从公共素材库导入道具，或先在制作页提取后再入库。'"
               >
-                <el-button v-if="propKw.trim()" size="small" aria-label="清除道具搜索" @click="propKw = ''; loadPropList()">清除搜索</el-button>
+                <el-button v-if="propKw.trim()" size="small" aria-label="清除道具搜索" @click="propKw = ''; loadPropList()">清除道具搜索</el-button>
                 <el-button v-else size="small" type="primary" plain aria-label="从素材库导入道具" @click="openImport('prop')">从素材库导入道具</el-button>
               </DramaDetailResourceEmptyState>
             </template>

@@ -114,6 +114,10 @@ defineExpose({ focusEpisodeSelect })
 
 <style scoped>
 .header {
+  box-sizing: border-box;
+  width: calc(100% - var(--film-nav-width));
+  max-width: calc(100% - var(--film-nav-width));
+  min-width: 0;
   background: rgba(20, 21, 28, 0.78);
   backdrop-filter: blur(20px) saturate(1.2);
   -webkit-backdrop-filter: blur(20px) saturate(1.2);
@@ -285,6 +289,9 @@ html.light .page-title {
   }
 }
 @media (min-width: 769px) and (max-width: 960px) {
+  .header {
+    padding: 10px 16px;
+  }
   .workspace-actions {
     grid-template-columns: minmax(0, 1fr) auto auto;
     grid-template-areas:
@@ -326,4 +333,11 @@ html.light .btn-theme {
   outline-offset: 2px;
 }
 .logo:focus-visible { outline-offset: 4px; }
+@media (max-width: 768px) {
+  .header {
+    margin-left: 48px;
+    width: calc(100% - 48px);
+    max-width: calc(100% - 48px);
+  }
+}
 </style>

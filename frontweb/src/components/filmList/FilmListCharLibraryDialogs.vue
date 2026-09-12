@@ -48,8 +48,8 @@
         </div>
         <div v-if="!charLibraryLoading && !charLibraryError && charLibraryList.length === 0" class="library-empty" role="status" aria-live="polite">
           <p>{{ charLibraryKeyword.trim() ? '没有匹配的角色，试试其他关键词。' : '素材库暂无角色，可在项目中将角色「加入素材库」后在此查看' }}</p>
-          <el-button v-if="charLibraryKeyword.trim()" size="small" aria-label="清除角色素材搜索" @click="clearCharLibraryKeyword">清除搜索</el-button>
-          <el-button v-else size="small" aria-label="关闭角色库并回到项目列表" @click="showCharLibrary = false">关闭并回到项目列表</el-button>
+          <el-button v-if="charLibraryKeyword.trim()" size="small" aria-label="清除角色素材搜索" @click="clearCharLibraryKeyword">清除角色素材搜索</el-button>
+          <el-button v-else size="small" aria-label="关闭角色库并回到项目列表" @click="showCharLibrary = false">关闭角色库并回到项目列表</el-button>
         </div>
       </div>
       <div class="library-pagination">

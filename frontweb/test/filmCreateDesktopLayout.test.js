@@ -1,10 +1,25 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { createServer as createViteServer } from 'vite'
 
 const frontendRoot = fileURLToPath(new URL('..', import.meta.url))
+const layoutStoryboards = [
+  {
+    id: 401,
+    storyboard_number: 1,
+    title: '开场：林间长镜头对白',
+    script_content: '角色走进林间。',
+    movement: 'dolly_in',
+  },
+  {
+    id: 402,
+    storyboard_number: 2,
+    title: '第二镜：近景反应',
+    script_content: '角色停住。',
+  },
+]
 
 async function launchChromium(chromium) {
   try {
@@ -43,12 +58,13 @@ function layoutFixtureResponse(pathname) {
       episodes: [{
         id: 4,
         episode_number: 1,
-        title: 'Episode 1',
-        script_content: '',
-        storyboards: [],
+        title: '第1集 林间开场',
+        script_content: '角色走进林间。',
+        storyboards: layoutStoryboards,
       }],
     }
   }
+  if (pathname === '/api/v1/episodes/4/storyboards') return layoutStoryboards
   if (pathname === '/api/v1/settings/generation') return { concurrency: 3, video_concurrency: 3 }
   if (pathname === '/api/v1/workflows/novel2anime/readiness') {
     return { ready: false, missing_capabilities: [] }
@@ -56,6 +72,23 @@ function layoutFixtureResponse(pathname) {
   if (pathname === '/api/v1/images' || pathname === '/api/v1/videos') return { items: [] }
   return []
 }
+
+
+test('制作页窄桌面布局合同让分镜工具条和流程条换行，而不是撑开页面', () => {
+  const toolbarCss = readFileSync(new URL('../src/components/filmCreate/FilmCreateStoryboardToolbar.css', import.meta.url), 'utf8')
+  const filmCss = readFileSync(new URL('../src/views/FilmCreate.css', import.meta.url), 'utf8')
+  const headerSource = readFileSync(new URL('../src/components/filmCreate/FilmCreateHeader.vue', import.meta.url), 'utf8')
+  const pipelineSource = readFileSync(new URL('../src/components/filmCreate/FilmCreatePipelinePanel.vue', import.meta.url), 'utf8')
+  const toolbarRule = toolbarCss.slice(toolbarCss.indexOf('.sb-ctrl-bar {'), toolbarCss.indexOf('.sb-ctrl-reorder-wrap'))
+  assert.match(toolbarRule, /flex-wrap:\s*wrap;/)
+  assert.doesNotMatch(toolbarRule, /flex-wrap:\s*nowrap;/)
+  assert.match(toolbarRule, /max-width:\s*100%;/)
+  assert.match(filmCss, /\.header \{[\s\S]*?box-sizing:\s*border-box;[\s\S]*?width:\s*calc\(100% - var\(--film-nav-width\)\)/)
+  assert.match(filmCss, /\.main \{\s*box-sizing:\s*border-box;\s*width:\s*calc\(100% - var\(--film-nav-width\)\)/)
+  assert.match(headerSource, /\.header \{[\s\S]*?box-sizing:\s*border-box;[\s\S]*?width:\s*calc\(100% - var\(--film-nav-width\)\)/)
+  assert.match(pipelineSource, /\.pipeline-compact-actions \{[\s\S]*?flex-wrap:\s*wrap;/)
+  assert.match(pipelineSource, /@media \(max-width: 1100px\) \{[\s\S]*\.pipeline-disclosure-head \{[\s\S]*grid-template-columns:\s*minmax\(0, 1fr\) auto;/)
+})
 
 test('desktop FilmCreate layout assertion rejects header overlap after expanding the 180px sidebar', async () => {
   const { assertFilmCreateDesktopLayout } = await import('../scripts/e2e-production.cjs')
@@ -136,6 +169,7 @@ test('real FilmCreate layout is stable and collision-free at 769px with an expan
   const baseUrl = vite.resolvedUrls.local[0]
   await page.goto(`${baseUrl}film/24?episode=4`, { waitUntil: 'domcontentloaded' })
   await page.locator('#film-create-quick-nav').waitFor({ state: 'visible' })
+  await page.locator('.sb-ctrl-bar').first().waitFor({ state: 'visible', timeout: 30000 })
   await page.waitForFunction(() => document.querySelector('#film-create-quick-nav')?.getBoundingClientRect().width === 48)
   const initialClassHistory = await page.evaluate(() => window.__filmCreateClassHistory)
 
@@ -154,11 +188,28 @@ test('real FilmCreate layout is stable and collision-free at 769px with an expan
       const rect = document.querySelector(selector)?.getBoundingClientRect()
       return rect ? { x: rect.x, y: rect.y, width: rect.width, height: rect.height } : null
     }
+    const viewportWidth = document.documentElement.clientWidth
+    const overflowing = []
+    for (const el of document.querySelectorAll('.film-create *, .sb-ctrl-bar')) {
+      const rect = el.getBoundingClientRect()
+      if (rect.width < 1 || rect.height < 1) continue
+      if (rect.right > viewportWidth + 0.5) {
+        overflowing.push({
+          className: String(el.className || '').slice(0, 120),
+          right: Math.round(rect.right),
+          width: Math.round(rect.width),
+        })
+      }
+      if (overflowing.length >= 12) break
+    }
     return {
       header: box('.film-create > .header'),
+      toolbar: box('.sb-ctrl-bar'),
+      pipeline: box('.pipeline-disclosure-head'),
       controls: Object.fromEntries(controlSelectors.map((selector) => [selector, box(selector)])),
-      viewport: { width: document.documentElement.clientWidth, height: window.innerHeight },
+      viewport: { width: viewportWidth, height: window.innerHeight },
       scrollWidth: document.documentElement.scrollWidth,
+      overflowing,
     }
   }, selectors)
 
@@ -191,8 +242,15 @@ test('real FilmCreate layout is stable and collision-free at 769px with an expan
       }
     }
   }
+  if (!geometry.toolbar) issues.push('sb-ctrl-bar did not render')
+  if (geometry.toolbar && geometry.toolbar.x + geometry.toolbar.width > geometry.viewport.width + 0.5) {
+    issues.push(`sb-ctrl-bar overflows viewport: ${JSON.stringify(geometry.toolbar)}`)
+  }
+  if (geometry.pipeline && geometry.pipeline.x + geometry.pipeline.width > geometry.viewport.width + 0.5) {
+    issues.push(`pipeline head overflows viewport: ${JSON.stringify(geometry.pipeline)}`)
+  }
   if (geometry.scrollWidth > geometry.viewport.width) {
-    issues.push(`horizontal overflow: ${geometry.scrollWidth} > ${geometry.viewport.width}`)
+    issues.push(`horizontal overflow: ${geometry.scrollWidth} > ${geometry.viewport.width}; overflowing=${JSON.stringify(geometry.overflowing)}`)
   }
 
   assert.deepEqual(issues, [], JSON.stringify({ initialClassHistory, geometry }, null, 2))

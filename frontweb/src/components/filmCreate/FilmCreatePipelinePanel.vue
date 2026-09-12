@@ -304,11 +304,13 @@ function updateSetting(name, value) {
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 14px;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .pipeline-compact-copy {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) minmax(180px, auto);
+  grid-template-columns: auto minmax(0, 1fr) minmax(0, auto);
   align-items: baseline;
   min-width: 0;
   gap: 6px 12px;
@@ -348,7 +350,10 @@ function updateSetting(name, value) {
 .pipeline-compact-actions {
   display: flex;
   align-items: center;
-  flex-shrink: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  min-width: 0;
+  flex-shrink: 1;
   gap: 8px;
 }
 
@@ -435,6 +440,7 @@ function updateSetting(name, value) {
 
 .pipeline-heading {
   gap: 7px;
+  min-width: 0;
   color: var(--el-text-color-primary);
   font-size: 14px;
   font-weight: 650;
@@ -607,6 +613,22 @@ function updateSetting(name, value) {
 .pipeline-empty :deep(.el-button:focus-visible) {
   outline: 2px solid #818cf8;
   outline-offset: 2px;
+}
+
+@media (max-width: 1100px) {
+  .pipeline-disclosure-head {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "heading actions"
+      "copy copy";
+    align-items: start;
+  }
+  .pipeline-heading { grid-area: heading; }
+  .pipeline-compact-copy {
+    grid-area: copy;
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .pipeline-compact-actions { grid-area: actions; }
 }
 
 </style>

@@ -2,6 +2,10 @@
   --film-nav-width: 180px;
   --film-empty-copy: #a1a1aa;
   --film-focus-ring: #818cf8;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
   min-height: 100vh;
   background: #16171e;
   background-image:
@@ -21,6 +25,10 @@ html.light .film-create {
   color: #1e1b4b;
 }
 .header {
+  box-sizing: border-box;
+  width: calc(100% - var(--film-nav-width));
+  max-width: calc(100% - var(--film-nav-width));
+  min-width: 0;
   background: rgba(20, 21, 28, 0.78);
   backdrop-filter: blur(20px) saturate(1.2);
   -webkit-backdrop-filter: blur(20px) saturate(1.2);
@@ -195,6 +203,12 @@ html.light .page-title {
   .film-create {
     --film-create-sticky-offset: 144px;
   }
+  .header {
+    padding: 10px 16px;
+  }
+  .main {
+    padding: 16px 16px 40px;
+  }
   .workspace-actions {
     grid-template-columns: minmax(0, 1fr) auto auto;
     grid-template-areas:
@@ -264,7 +278,11 @@ html.light .quick-nav {
   .quick-nav .nav-steps, .quick-nav .nav-group { display: none; }
   .quick-nav .nav-sidebar-title { display: none; }
   .quick-nav .nav-sidebar-header { justify-content: center; padding: 0 4px 8px; }
-  .header, .main { margin-left: 48px !important; }
+  .header, .main {
+    margin-left: 48px !important;
+    width: calc(100% - 48px);
+    max-width: calc(100% - 48px);
+  }
   .main { padding: 16px 12px 48px; }
   .asset-list-two { grid-template-columns: 1fr; }
 }
@@ -656,6 +674,10 @@ html.light .nav-sub-item:hover { color: #1e1b4b; background: rgba(99,102,241,0.0
 .logo:focus-visible { outline: 2px solid #818cf8; outline-offset: 4px; }
 
 .main {
+  box-sizing: border-box;
+  width: calc(100% - var(--film-nav-width));
+  max-width: calc(100% - var(--film-nav-width));
+  min-width: 0;
   margin-left: var(--film-nav-width);
   margin-right: 0;
   padding: 24px 32px 48px;
@@ -671,9 +693,11 @@ html.light .nav-sub-item:hover { color: #1e1b4b; background: rgba(99,102,241,0.0
   }
 }
 
-.project-state-active .header,
-.project-state-active .main {
+.film-create.project-state-active > .header,
+.film-create.project-state-active > .main {
   margin-left: 0;
+  width: 100%;
+  max-width: 100%;
 }
 .project-state-active.sidebar-collapsed .main { margin-left: 0; }
 .project-state-main {
@@ -1014,6 +1038,8 @@ html.light .segment-shot-range { color: #9ca3af; }
   display: flex;
   align-items: flex-start;
   gap: 0;
+  min-width: 0;
+  max-width: 100%;
   margin-bottom: 16px;
   background: #1e1f28;
   border-radius: 12px;
