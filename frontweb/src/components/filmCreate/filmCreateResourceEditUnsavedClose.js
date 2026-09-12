@@ -23,6 +23,12 @@ export function captureResourceEditDraft(form, refImage) {
   })
 }
 
+/** 未打开的编辑弹窗不能算未保存，否则制作页同步剧集 query 也会弹出离开确认。 */
+export function isVisibleEditorDraftDirty(isOpen, currentDraft, baseline) {
+  if (!isOpen) return false
+  return currentDraft !== baseline
+}
+
 export function createResourceEditUnsavedCloser({ message, confirmBox }) {
   if (typeof confirmBox !== 'function') {
     throw new Error('场景/道具未保存关闭确认缺少 confirmBox')

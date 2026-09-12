@@ -104,6 +104,7 @@ import FilmCreateResourceRefImageField from './FilmCreateResourceRefImageField.v
 import {
   captureResourceEditDraft,
   createResourceEditUnsavedCloser,
+  isVisibleEditorDraftDirty,
   PROP_EDIT_UNSAVED_CLOSE_MESSAGE,
 } from './filmCreateResourceEditUnsavedClose.js'
 
@@ -173,11 +174,19 @@ function resetAddPropDialog() {
 }
 
 function hasUnsavedAddPropDraft() {
-  return captureResourceEditDraft(addPropForm.value, addPropAddRefImage.value) !== addPropDraftBaseline.value
+  return isVisibleEditorDraftDirty(
+    showAddProp.value,
+    captureResourceEditDraft(addPropForm.value, addPropAddRefImage.value),
+    addPropDraftBaseline.value,
+  )
 }
 
 function hasUnsavedPropDraft() {
-  return captureResourceEditDraft(props.editPropForm, addPropRefImage.value) !== propDraftBaseline.value
+  return isVisibleEditorDraftDirty(
+    showEditProp.value,
+    captureResourceEditDraft(props.editPropForm, addPropRefImage.value),
+    propDraftBaseline.value,
+  )
 }
 
 function handleAddPropDialogBeforeClose(done) {

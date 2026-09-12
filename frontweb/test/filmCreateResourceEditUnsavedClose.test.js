@@ -10,6 +10,7 @@ import {
   SCENE_EDIT_UNSAVED_CLOSE_MESSAGE,
   captureResourceEditDraft,
   createResourceEditUnsavedCloser,
+  isVisibleEditorDraftDirty,
 } from '../src/components/filmCreate/filmCreateResourceEditUnsavedClose.js'
 
 function read(rel) {
@@ -92,4 +93,22 @@ test('场景和道具弹窗把取消接到未保存确认', () => {
   assert.doesNotMatch(propSource, /window\.confirm/)
   assert.match(SCENE_EDIT_UNSAVED_CLOSE_MESSAGE, /场景编辑还没有保存/)
   assert.match(PROP_EDIT_UNSAVED_CLOSE_MESSAGE, /道具编辑还没有保存/)
+})
+
+test('未打开的编辑弹窗不算未保存，打开后才比较草稿', () => {
+  const draft = captureResourceEditDraft({ name: '茶杯' }, null)
+  assert.equal(isVisibleEditorDraftDirty(false, draft, ''), false)
+  assert.equal(isVisibleEditorDraftDirty(false, draft, draft), false)
+  assert.equal(isVisibleEditorDraftDirty(true, draft, ''), true)
+  assert.equal(isVisibleEditorDraftDirty(true, draft, draft), false)
+})
+
+test('角色场景道具未保存判定都先看弹窗是否打开', () => {
+  const characterSource = read('../src/components/filmCreate/FilmCreateCharacterEditDialog.vue')
+  const sceneSource = read('../src/components/filmCreate/FilmCreateSceneEditDialog.vue')
+  const propSource = read('../src/components/filmCreate/FilmCreatePropEditDialog.vue')
+  assert.match(characterSource, /function hasUnsavedCharacterDraft\(\) \{\s*if \(!showEditCharacter\.value\) return false/)
+  assert.match(sceneSource, /isVisibleEditorDraftDirty\(\s*showEditScene\.value,/)
+  assert.match(propSource, /isVisibleEditorDraftDirty\(\s*showAddProp\.value,/)
+  assert.match(propSource, /isVisibleEditorDraftDirty\(\s*showEditProp\.value,/)
 })

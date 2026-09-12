@@ -213,6 +213,7 @@ function captureCharacterDraft(form, refImage) {
 }
 
 function hasUnsavedCharacterDraft() {
+  if (!showEditCharacter.value) return false
   return captureCharacterDraft(props.editCharacterForm, addCharRefImage.value) !== characterDraftBaseline.value
 }
 

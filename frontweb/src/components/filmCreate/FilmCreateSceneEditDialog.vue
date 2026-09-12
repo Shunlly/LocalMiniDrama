@@ -91,6 +91,7 @@ import FilmCreateResourceRefImageField from './FilmCreateResourceRefImageField.v
 import {
   captureResourceEditDraft,
   createResourceEditUnsavedCloser,
+  isVisibleEditorDraftDirty,
   SCENE_EDIT_UNSAVED_CLOSE_MESSAGE,
 } from './filmCreateResourceEditUnsavedClose.js'
 
@@ -138,7 +139,11 @@ const sceneCloser = createResourceEditUnsavedCloser({
 })
 
 function hasUnsavedSceneDraft() {
-  return captureResourceEditDraft(props.editSceneForm, addSceneRefImage.value) !== sceneDraftBaseline.value
+  return isVisibleEditorDraftDirty(
+    showEditScene.value,
+    captureResourceEditDraft(props.editSceneForm, addSceneRefImage.value),
+    sceneDraftBaseline.value,
+  )
 }
 
 function handleSceneDialogBeforeClose(done) {
