@@ -338,6 +338,7 @@ const productionReadiness = useFilmCreateProductionReadiness({
   videoCapabilityLoading,
   videoCapabilityFailed,
   videoCapabilityConfigs,
+  aiConfigWorkspaceOpen: showAiConfigDialog,
 })
 const {
   invalidateActiveVideoAiConfigCache,

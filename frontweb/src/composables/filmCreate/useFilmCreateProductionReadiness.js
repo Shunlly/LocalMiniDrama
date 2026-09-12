@@ -147,7 +147,14 @@ export function useFilmCreateProductionReadiness(deps = {}) {
     )
   }
 
+  function isAiConfigWorkspaceOpen() {
+    return Boolean(deps.aiConfigWorkspaceOpen?.value)
+  }
+
+  // 工作台打开时由关闭回流做权威检查，避免保存广播抢先打 readiness。
+
   function refreshCapabilitiesFromAiConfigChange() {
+    if (isAiConfigWorkspaceOpen()) return Promise.resolve([])
     invalidateActiveVideoAiConfigCache()
     return Promise.allSettled([
       refreshVideoGenerationCapability(),

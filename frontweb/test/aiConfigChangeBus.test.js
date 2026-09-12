@@ -148,7 +148,7 @@ function createFormActions(overrides = {}) {
   return { api, emits, published, form, list, saved }
 }
 
-function createProductionReadiness() {
+function createProductionReadiness(overrides = {}) {
   return useFilmCreateProductionReadiness({
     dramaId: ref(DRAMA_ID),
     productionReadinessLoading: ref(false),
@@ -158,6 +158,7 @@ function createProductionReadiness() {
     videoCapabilityFailed: ref(false),
     videoCapabilityConfigs: ref([]),
     listenToAiConfigChanges: true,
+    ...overrides,
   })
 }
 
@@ -390,5 +391,49 @@ test('保存成功通知仍留在表单 actions，页面继续自己负责 loadL
   assert.match(canvasGatesSource, /refreshProductionReadiness\(\),\s*refreshFreeCanvasVideoCapability\(\)/)
   assert.match(aiConfigContentSource, /async function loadList\(\)/)
   assert.match(aiConfigContentSource, /async function openTest\(row\)/)
+  assert.match(productionReadinessSource, /aiConfigWorkspaceOpen/)
   assert.match(filmCreateSource, /useFilmCreateProductionReadiness\(/)
+  assert.match(filmCreateSource, /aiConfigWorkspaceOpen:\s*showAiConfigDialog/)
+})
+
+test('制作页 AI 配置工作台打开时，保存广播不抢先检查正式能力', async () => {
+  const fetchCalls = []
+  const originalFetch = globalThis.fetch
+  const aiConfigWorkspaceOpen = ref(true)
+  globalThis.fetch = async (url, options = {}) => {
+    const target = String(url)
+    fetchCalls.push({ url: target, body: options.body })
+    if (target.includes('/workflows/novel2anime/readiness')) {
+      return jsonOk({
+        ready: true,
+        qa_mode: 'production',
+        missing_capabilities: [],
+        capabilities: [],
+      })
+    }
+    if (target.includes('/ai-configs?service_type=video')) {
+      return jsonOk([])
+    }
+    throw new Error(`不应请求 ${target}`)
+  }
+  const readiness = createProductionReadiness({ aiConfigWorkspaceOpen })
+  try {
+    publishAiConfigChanged({ action: 'save' })
+    await new Promise((resolve) => setTimeout(resolve, 30))
+    assert.deepEqual(fetchCalls, [])
+    aiConfigWorkspaceOpen.value = false
+    publishAiConfigChanged({ action: 'save' })
+    await waitFor(
+      () => fetchCalls.some((item) => item.url.includes('/workflows/novel2anime/readiness'))
+        && fetchCalls.some((item) => item.url.includes('/ai-configs?service_type=video')),
+      '工作台关闭后应恢复广播刷新正式能力与视频能力',
+    )
+    const readinessBody = JSON.parse(fetchCalls.find((item) => item.url.includes('/readiness')).body)
+    assert.equal(readinessBody.drama_id, DRAMA_ID)
+    assert.equal(readinessBody.episode_id, undefined)
+    assert.notEqual(readinessBody.drama_id, EPISODE_ID)
+  } finally {
+    readiness.stopAiConfigChangeListener()
+    globalThis.fetch = originalFetch
+  }
 })
