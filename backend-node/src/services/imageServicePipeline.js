@@ -7,6 +7,7 @@
  */
 
 const path = require('path');
+const { isUserFacingAbort } = require('./providerErrorSanitizer');
 const taskService = require('./taskService');
 const uploadService = require('./uploadService');
 const {
@@ -23,7 +24,7 @@ const {
 } = require('./imageServicePipelineNormalize');
 
 function imageTaskCancelled(error, signal) {
-  return signal?.aborted || error?.code === 'OPERATION_CANCELLED' || error?.name === 'AbortError';
+  return isUserFacingAbort(error, signal);
 }
 
 function removeUncommittedImage(storagePath, localPath, log) {

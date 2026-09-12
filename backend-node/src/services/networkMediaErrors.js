@@ -1,6 +1,7 @@
 'use strict';
 
 // 网络素材错误文案：统一错误工厂与用户可见中文，避免服务主文件散落提示语。
+const { isTimeoutLikeError, isUserFacingAbort } = require('./providerErrorSanitizer');
 
 function serviceError(code, message, statusCode = 400) {
   const error = new Error(message);
@@ -54,6 +55,7 @@ const NETWORK_MEDIA_MESSAGES = Object.freeze({
   HASH_MISMATCH: '网络素材内容与 Wikimedia Commons 哈希不一致',
   UNSAFE_URL: '网络素材地址未通过公网安全校验',
   TIMEOUT: '网络素材服务请求超时',
+  CANCELLED: '网络素材请求已取消',
   INVALID_RESPONSE: '网络素材服务返回了无效内容',
   DEFAULT_UPSTREAM: '网络素材服务',
   COMMONS_UPSTREAM: 'Wikimedia Commons 服务',
@@ -91,6 +93,10 @@ function invalidNetworkMediaResponse() {
 
 function networkMediaTimeout() {
   return serviceError('NETWORK_MEDIA_TIMEOUT', NETWORK_MEDIA_MESSAGES.TIMEOUT, 504);
+}
+
+function networkMediaCancelled() {
+  return serviceError('NETWORK_MEDIA_CANCELLED', NETWORK_MEDIA_MESSAGES.CANCELLED, 400);
 }
 
 function unsafeNetworkMediaUrl(message = NETWORK_MEDIA_MESSAGES.UNSAFE_URL) {
@@ -139,7 +145,8 @@ function thumbnailDownloadFailed() {
 
 function translateFetchFailure(error, upstreamName = NETWORK_MEDIA_MESSAGES.DEFAULT_UPSTREAM) {
   if (error?.code === 'UNSAFE_MEDIA_REFERENCE') return unsafeNetworkMediaUrl();
-  if (error?.name === 'AbortError' || error?.name === 'TimeoutError') return networkMediaTimeout();
+  if (isTimeoutLikeError(error) || error?.name === 'TimeoutError') return networkMediaTimeout();
+  if (isUserFacingAbort(error) || error?.name === 'AbortError') return networkMediaCancelled();
   return upstreamTemporarilyUnavailable(upstreamName);
 }
 
@@ -157,6 +164,7 @@ module.exports = {
   licenseMissing,
   networkMediaNotFound,
   networkMediaTimeout,
+  networkMediaCancelled,
   openverseSearchFailed,
   serviceError,
   storageUnsafe,

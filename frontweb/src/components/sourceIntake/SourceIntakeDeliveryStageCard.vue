@@ -20,7 +20,10 @@
       <span>{{ dramaEpisodeCount }} 集已生成</span>
       <span>时间线尚未生成</span>
     </div>
-    <div v-else class="stage-empty">完成素材处理后，这里会显示剧集与时间线摘要。</div>
+    <div v-else class="stage-empty stage-empty--actionable">
+      <span>完成素材处理后，这里会显示剧集与时间线摘要。</span>
+      <el-button type="primary" plain aria-label="去启动处理" @click="$emit('select-step', 'process')">去启动处理</el-button>
+    </div>
     <div class="stage-action-row delivery-actions">
       <el-button type="primary" plain aria-label="去导入素材" @click="$emit('select-step', 'intake')">继续导入故事素材</el-button>
     </div>
@@ -83,6 +86,12 @@ defineEmits(['select-step'])
   color: var(--source-text-muted, #a1a1aa);
   font-size: 12px;
   line-height: 1.5;
+}
+.stage-empty--actionable {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 12px;
 }
 .stage-action-row {
   display: flex;

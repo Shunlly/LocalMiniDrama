@@ -12,6 +12,8 @@ export function recordBatchPollFailure(errorsRef, progressRef, sb, pollRes, stop
   else if (status === 'timeout') message = toUserFacingError(pollRes.error, '生成超时，请稍后重试')
   else if (isCancelledPollStatus(status)) message = toUserFacingError(pollRes.error, '操作已取消')
   errorsRef.value.push(`#${sb.storyboard_number ?? sb.id}: ${message}`)
-  progressRef.value = { ...progressRef.value, failed: progressRef.value.failed + 1 }
+  const current = progressRef.value && typeof progressRef.value === 'object' ? progressRef.value : {}
+  current.failed = Number(current.failed || 0) + 1
+  progressRef.value = current
   return true
 }

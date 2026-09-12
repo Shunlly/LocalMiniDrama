@@ -17,10 +17,14 @@ import {
 } from './helpers/vueComponentHarness.js'
 
 const headerUrl = new URL('../src/components/dramaCanvas/CanvasPageHeader.vue', import.meta.url)
+const canvasExperienceCopyUrl = new URL('../src/components/dramaCanvas/canvasExperienceCopy.js', import.meta.url)
 const CanvasPageHeader = await loadCompiledSfc(
   headerUrl,
   'canvas-page-header-component',
-  new Map([['vue', vueUrl]]),
+  new Map([
+    ['vue', vueUrl],
+    ['./canvasExperienceCopy.js', canvasExperienceCopyUrl.href],
+  ]),
 )
 
 const renderer = createHostRenderer()

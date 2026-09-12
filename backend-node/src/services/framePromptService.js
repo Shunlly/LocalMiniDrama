@@ -12,7 +12,7 @@ const {
   parseNamesFromAnchorLines,
   sanitizeFramePrompt,
 } = require('../utils/framePromptSanitize');
-const { toUserFacingProcessError } = require('./providerErrorSanitizer');
+const { toUserFacingProcessError, isUserFacingAbort } = require('./providerErrorSanitizer');
 const { FRAME_PROMPT_MESSAGES, frameKindDescription } = require('./framePromptErrors');
 const {
   assertSupportedFrameType,
@@ -51,7 +51,7 @@ function waitForTaskWork(work, signal) {
 }
 
 function taskWasCancelled(signal, error) {
-  return signal?.aborted || error?.code === 'OPERATION_CANCELLED' || error?.name === 'AbortError';
+  return isUserFacingAbort(error, signal);
 }
 
 function parseFramePromptJSON(log, aiResponse) {

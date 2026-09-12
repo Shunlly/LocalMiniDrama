@@ -55,7 +55,10 @@
         <div v-else class="stage-empty">暂无可以展示的修复建议。</div>
       </details>
     </template>
-    <div v-else class="stage-empty">还没有 QA 结果。完成处理后点击「执行 QA 审计」，问题和建议会显示在这里。</div>
+    <div v-else class="stage-empty stage-empty--actionable">
+      <span>还没有 QA 结果。完成处理后点击「执行 QA 审计」，问题和建议会显示在这里。</span>
+      <el-button type="primary" plain aria-label="去启动处理" @click="$emit('select-step', 'process')">去启动处理</el-button>
+    </div>
   </div>
 </template>
 
@@ -72,7 +75,7 @@ defineProps({
   displayedQaRecommendations: { type: Array, default: () => [] },
 })
 
-defineEmits(['run-qa'])
+defineEmits(['run-qa', 'select-step'])
 </script>
 
 <style scoped>
@@ -152,6 +155,12 @@ defineEmits(['run-qa'])
 .stage-empty {
   padding: 10px 0;
   line-height: 1.5;
+}
+.stage-empty--actionable {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 12px;
 }
 .qa-detail {
   margin-top: 10px;

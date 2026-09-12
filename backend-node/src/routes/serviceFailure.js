@@ -1,6 +1,6 @@
 const response = require('../response');
 const logger = require('../logger');
-const { isTimeoutLikeError, isTrustedChineseUserError } = require('../services/providerErrorSanitizer');
+const { isTimeoutLikeError, isTrustedChineseUserError, isCancelLikeError } = require('../services/providerErrorSanitizer');
 
 const NOT_FOUND_MESSAGES = Object.freeze({
   'character not found': '角色不存在',
@@ -104,6 +104,8 @@ function logCaughtRouteError(log, operation, err, extra = {}) {
   const technical = logger.sanitizeLogString(String((err && err.message) || err || ''));
   const userError = extra.fallback || extra.userFallback || publicErrorMessage(err, fallback) || fallback;
   const requestId = extra.request_id || logger.getRequestId();
+  const cancelled = isCancelLikeError(err);
+  const phase = cancelled ? 'cancel' : 'error';
   const payload = {
     error: technical,
   };
@@ -114,15 +116,17 @@ function logCaughtRouteError(log, operation, err, extra = {}) {
     if (key === 'fallback' || key === 'userFallback' || key === 'request_id' || key === 'userError' || key === 'operationId') continue;
     payload[key] = value;
   }
-  const logFn = typeof log.error === 'function'
-    ? log.error.bind(log)
-    : (typeof log.errorw === 'function' ? log.errorw.bind(log) : null);
-  if (logFn) logFn(operation, payload);
+  const logFn = cancelled
+    ? (typeof log.warn === 'function' ? log.warn.bind(log) : (typeof log.warnw === 'function' ? log.warnw.bind(log) : null))
+    : (typeof log.error === 'function' ? log.error.bind(log) : (typeof log.errorw === 'function' ? log.errorw.bind(log) : null));
+  if (!logFn && typeof log.error === 'function') {
+    log.error(operation, payload);
+  } else if (logFn) logFn(operation, payload);
   if (typeof log.operation === 'function') {
     log.operation({
       operation,
       operationId: extra.operationId || logger.createOperationId(operation),
-      phase: 'error',
+      phase,
       error: technical,
       ...(payload.userError ? { userError: payload.userError } : {}),
       ...(payload.code ? { code: payload.code } : {}),

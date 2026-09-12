@@ -295,3 +295,9 @@ test('parent only commits a validated confirmation event', () => {
   assert.match(canvasSource, /async function requestEpisodeFilterChange\([\s\S]*?router\.replace\(\{ query \}\)/)
   assert.match(canvasSource, /async function confirmEpisodeSelection\([\s\S]*?await requestEpisodeFilterChange\(episodeId\)/)
 })
+
+test('空态下一步入口带 autofocus，方便键盘直接开始', () => {
+  assert.match(componentSource, /autofocus/)
+  assert.match(componentSource, /aria-label="新建第一集"/)
+  assert.match(componentSource, /aria-label="进入这一集"|请先选择要进入的剧集/)
+})

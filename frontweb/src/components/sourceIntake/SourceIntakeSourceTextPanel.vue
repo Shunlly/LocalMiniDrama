@@ -5,7 +5,7 @@
       type="textarea"
       :rows="8"
       aria-label="原始素材"
-      placeholder="粘贴小说、梗概、剧本、分镜表、漫画文字说明或转写文本"
+      placeholder="粘贴小说、梗概、剧本、分镜表、漫画文字说明或转写文本。PDF/图片需要图片识别，音视频需要语音转写。"
     />
   </el-form-item>
 </template>

@@ -357,7 +357,16 @@ function isTimeoutLikeError(error, raw) {
   if (error?.isTimeout === true || error?.name === 'TimeoutError') return true;
   const code = String(error?.code || '');
   if (/(?:^|_)TIME(?:D)?OUT$/i.test(code) || code === 'ETIMEDOUT' || code === 'ECONNABORTED') return true;
-  return /timeout after|silence timeout|timed?\s*out|请求超时/i.test(String(raw || error?.message || ''));
+  // 中文「超时」也要认，避免 AbortError + 超时文案被当成取消。
+  return /timeout after|silence timeout|timed?\s*out|请求超时|超时/i.test(String(raw || error?.message || ''));
+}
+
+function isUserFacingAbort(error, signal) {
+  if (isTimeoutLikeError(error, error && error.message) || isTimeoutLikeError(signal && signal.reason) || error?.isTimeout === true) {
+    return false;
+  }
+  if (isCancelLikeError(error)) return true;
+  return signal?.aborted === true;
 }
 
 function toSafeProviderErrorMessage(error, options = {}) {
@@ -446,7 +455,7 @@ function toUserFacingProcessError(error, fallback = '处理失败，请稍后重
   if (isTimeoutLikeError(error, raw)) {
     return isTrustedChineseUserError(raw) ? raw : '请求超时，请稍后重试';
   }
-  if (error?.code === 'OPERATION_CANCELLED' || error?.name === 'AbortError') {
+  if (isUserFacingAbort(error)) {
     return isTrustedChineseUserError(raw) ? raw : '操作已取消';
   }
   if (isSqliteLikeError(error, raw)) return fallback;
@@ -643,6 +652,7 @@ module.exports = {
   summarizeProviderResponse,
   isTimeoutLikeError,
   isCancelLikeError,
+  isUserFacingAbort,
   isNetworkLikeError,
   isTrustedChineseUserError,
   labeledProvider,

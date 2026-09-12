@@ -1,7 +1,7 @@
 // 连接探测：失败时 fail-closed，不把供应商原文或密钥回传给用户。
 
 const { secureHttpFetch, validateHttpRequestTarget } = require('./secureHttpFetch');
-const { isTrustedChineseUserError } = require('./providerErrorSanitizer');
+const { isTrustedChineseUserError, isTimeoutLikeError, isUserFacingAbort } = require('./providerErrorSanitizer');
 
 function normalizedProviderId(value) {
   return String(value || '').trim().toLowerCase().replace(/-/g, '_');
@@ -88,8 +88,19 @@ async function fetchConnectionProbe(url, options = {}, networkOptions = {}) {
     });
   } catch (error) {
     const reason = controller.signal.reason || parentSignal?.reason || error;
-    if (timedOut || error?.isTimeout === true || reason?.isTimeout === true) {
-      throw new Error('连接测试超时，请检查服务地址或网络');
+    // 先看用户取消，再看超时：取消不得收成超时，AbortError 也不得把超时当取消。
+    if (isUserFacingAbort(error, controller.signal) || isUserFacingAbort(reason, parentSignal)) {
+      const cancel = new Error('连接测试已取消');
+      cancel.code = 'ERR_CANCELED';
+      cancel.name = 'AbortError';
+      throw cancel;
+    }
+    if (timedOut || isTimeoutLikeError(error) || isTimeoutLikeError(reason) || isTimeoutLikeError(controller.signal.reason)) {
+      throw Object.assign(new Error('连接测试超时，请检查服务地址或网络'), {
+        code: 'ETIMEDOUT',
+        name: 'TimeoutError',
+        isTimeout: true,
+      });
     }
     if (error?.name === 'AbortError' || reason?.name === 'AbortError' || error?.code === 'ERR_CANCELED' || reason?.code === 'ERR_CANCELED') {
       const cancel = new Error('连接测试已取消');

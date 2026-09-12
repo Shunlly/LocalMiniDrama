@@ -91,3 +91,20 @@ test('没有选中 run 或忙时直接返回', async () => {
   await busy.controls.pauseRun()
   assert.deepEqual(busy.messages, [])
 })
+
+test('取消处理在用户放弃确认时不会真正取消', async () => {
+  const cancelled = createControls({
+    confirmCancel: async () => false,
+    cancelRunApi: async () => {
+      throw new Error('should not cancel')
+    },
+  })
+  await cancelled.controls.cancelRun()
+  assert.deepEqual(cancelled.messages, [])
+
+  const confirmed = createControls({
+    confirmCancel: async () => true,
+  })
+  await confirmed.controls.cancelRun()
+  assert.deepEqual(confirmed.messages[0], ['success', '已取消'])
+})

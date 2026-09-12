@@ -20,10 +20,14 @@ const viewSource = readFileSync(new URL('../src/views/DramaCanvas.vue', import.m
 const bindingsSource = readFileSync(new URL('../src/components/dramaCanvas/dramaCanvasControlBindings.js', import.meta.url), 'utf8')
 const cardSource = readFileSync(cardUrl, 'utf8')
 
+const canvasExperienceCopyUrl = new URL('../src/components/dramaCanvas/canvasExperienceCopy.js', import.meta.url)
 const CanvasLoadFailureCard = await loadCompiledSfc(
   cardUrl,
   'canvas-load-failure-card',
-  new Map([['vue', vueUrl]]),
+  new Map([
+    ['vue', vueUrl],
+    ['./canvasExperienceCopy.js', canvasExperienceCopyUrl.href],
+  ]),
 )
 
 const renderer = createHostRenderer()
@@ -113,6 +117,18 @@ test('组件 focus 会转发到失败主区域，兼容加载 composable 的焦�
     assert.equal(typeof harness.cardRef.value?.focus, 'function')
     harness.cardRef.value.focus()
     assert.equal(focused, 1)
+  } finally {
+    harness.app.unmount()
+  }
+})
+
+test('英文技术错误不会直接展示，回落到中文下一步', async () => {
+  const harness = mountCard({ error: 'Failed to fetch' })
+  try {
+    await nextTick()
+    const copy = textContent(harness.root)
+    assert.match(copy, /当前画布暂时无法打开/)
+    assert.doesNotMatch(copy, /Failed to fetch/)
   } finally {
     harness.app.unmount()
   }

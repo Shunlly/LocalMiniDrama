@@ -66,7 +66,8 @@ async function requestBounded(url, init, options) {
   const timeoutMs = clampInteger(options.timeoutMs, 60000, 1000, 120000);
   const maxResponseBytes = clampInteger(options.maxResponseBytes, MAX_PROVIDER_RESPONSE_BYTES, 1024, MAX_PROVIDER_RESPONSE_BYTES);
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const timeoutReason = providerTimeoutError(options.label);
+  const timer = setTimeout(() => controller.abort(timeoutReason), timeoutMs);
   timer.unref?.();
   try {
     let response;
@@ -92,7 +93,7 @@ async function requestBounded(url, init, options) {
         });
       }
     } catch (err) {
-      if (controller.signal.aborted || err?.name === 'AbortError' || err?.name === 'TimeoutError') {
+      if (controller.signal.aborted || err?.name === 'TimeoutError' || err?.isTimeout === true || err?.name === 'AbortError') {
         throw providerTimeoutError(options.label, err);
       }
       throw providerUnreachableError(options.label, err);

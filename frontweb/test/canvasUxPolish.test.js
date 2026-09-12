@@ -311,3 +311,11 @@ test('画布反馈按需引入，禁用按钮带中文 title，工作流步骤�
   assert.match(workflowSidebarSource, /audio: '配音'/)
   assert.doesNotMatch(workflowSidebarSource, /\(group\.pipeline \|\| \[\]\)\.join\(' → '\)/)
 })
+
+test('媒体节点未知类型和全景失败都回落到中文', () => {
+  assert.match(mediaNodeSource, /return map\[props\.data\.kind\] \|\| '媒体'/)
+  assert.match(assetPanelSource, /function panoramaTaskError/)
+  assert.match(assetPanelSource, /return canvasUserError\(task\.error, fallback\)/)
+  assert.doesNotMatch(assetPanelSource, /if \(task\?\.error\?\.message\) return task\.error\.message/)
+})
+

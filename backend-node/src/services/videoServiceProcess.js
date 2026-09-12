@@ -8,7 +8,7 @@
 const fs = require('fs');
 const path = require('path');
 const videoClient = require('./videoClient');
-const { toUserFacingProcessError } = require('./providerErrorSanitizer');
+const { toUserFacingProcessError, isUserFacingAbort, isTimeoutLikeError } = require('./providerErrorSanitizer');
 const taskService = require('./taskService');
 const storageLayout = require('./storageLayout');
 const uploadService = require('./uploadService');
@@ -46,9 +46,8 @@ function createVideoServiceProcess({ providerMessages, processMessages }) {
     return code === 'ETIMEDOUT' || code === 'ECONNABORTED' || code === 'TIMEOUT';
   }
 
-  function isTaskCancellation(error) {
-    if (isTimeoutError(error) || isTimeoutError(error?.cause)) return false;
-    return error?.code === 'OPERATION_CANCELLED' || error?.name === 'AbortError';
+  function isTaskCancellation(error, signal) {
+    return isUserFacingAbort(error, signal);
   }
 
   function runVideoTaskMutation(db, row, signal, mutation) {
@@ -163,12 +162,12 @@ function createVideoServiceProcess({ providerMessages, processMessages }) {
       }
       maybeNormalizeVideoAfterDownload(storagePath, localPath, rowForAspect, videoGenId, log);
     } catch (error) {
-      if (isTimeoutError(error) || isTimeoutError(signal?.reason)) {
+      if (isTimeoutLikeError(error) || isTimeoutLikeError(signal && signal.reason)) {
         removeUncommittedVideo(storagePath, localPath, videoGenId, log);
         await persistVideoFailure(db, { ...row, id: videoGenId }, error);
         return;
       }
-      if (isTaskCancellation(error) || signal?.aborted) {
+      if (isTaskCancellation(error, signal)) {
         removeUncommittedVideo(storagePath, localPath, videoGenId, log);
         throw error;
       }
@@ -410,12 +409,12 @@ function createVideoServiceProcess({ providerMessages, processMessages }) {
         return;
       }
     } catch (err) {
-      if (isTimeoutError(err) || isTimeoutError(signal?.reason)) {
+      if (isTimeoutLikeError(err) || isTimeoutLikeError(signal && signal.reason)) {
         await persistVideoFailure(db, row, err);
         log.error('Video generation timed out', { id: videoGenId, error: err.message });
         return;
       }
-      if (isTaskCancellation(err) || signal?.aborted) {
+      if (isTaskCancellation(err, signal)) {
         log.info('Video generation cancelled; skipping late writes', { id: videoGenId });
         return;
       }

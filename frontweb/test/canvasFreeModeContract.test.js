@@ -46,7 +46,7 @@ test('free canvas toolbar names every icon-only action and exposes mode selectio
   assert.match(toolbarSource, /:aria-pressed="mode === 'free'"/)
   assert.match(toolbarSource, /:aria-pressed="mode === 'production'"/)
   assert.match(toolbarSource, /v-if="isFreeMode"/)
-  assert.match(toolbarSource, /if \(!isFreeMode\.value\) return/)
+  assert.match(toolbarSource, /if \(!isFreeMode\.value \|\| atNodeLimit\.value\) return/)
   for (const event of ['create-node', 'undo', 'redo', 'fit-view', 'set-background', 'toggle-library']) {
     assert.match(toolbarSource, new RegExp(`'${event}'`))
   }
@@ -55,7 +55,7 @@ test('free canvas toolbar names every icon-only action and exposes mode selectio
 test('free canvas create menu keeps the button as the dropdown trigger', () => {
   assert.match(
     toolbarSource,
-    /<el-tooltip[^>]+content="新建自由节点"[\s\S]*?<el-dropdown trigger="click" @command="createNode">\s*<el-button[^>]+aria-label="新建自由节点"/,
+    /<el-tooltip[^>]+:content="createActionLabel"[\s\S]*?<el-dropdown trigger="click" :disabled="atNodeLimit" @command="createNode">\s*<el-button[^>]+createActionLabel/,
   )
   assert.doesNotMatch(
     toolbarSource,
@@ -212,7 +212,7 @@ test('multi-selection has stable copy and delete actions wired to shared command
 
 test('save failures remain visible with retry until a successful save clears them', () => {
   assert.match(dramaCanvasSource, /const layoutSaveError = ref\(''\)/)
-  assert.match(dramaCanvasSource, /class="layout-save-error"[\s\S]*?\{\{ layoutSaveError \}\}/)
+  assert.match(dramaCanvasSource, /class="layout-save-error"[\s\S]*?\{\{ displayLayoutSaveError \}\}/)
   assert.match(dramaCanvasSource, /const saveError = safeFreeCanvasError[\s\S]*?layoutError: saveOperation\.writesLayout \? saveError/)
   assert.match(dramaCanvasSource, /layoutSaveError\.value = canvasSaveOperationError\(failedCanvasSaveOperation\.value\)/)
   assert.match(dramaCanvasSource, /const remainingError = canvasSaveOperationError\(remainingFailure\)/)

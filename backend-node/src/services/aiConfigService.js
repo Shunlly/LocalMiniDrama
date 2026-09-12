@@ -1,6 +1,6 @@
 // AI 配置 CRUD，与 Go application/services/ai_service.go 对齐
 const { sanitizeProviderText } = require('./comfyUiClient');
-const { isTrustedChineseUserError } = require('./providerErrorSanitizer');
+const { isTrustedChineseUserError, isTimeoutLikeError, isUserFacingAbort } = require('./providerErrorSanitizer');
 const {
   aiConfigValidationError,
   normalizeConfigModels,
@@ -291,21 +291,24 @@ async function testConnection(opts) {
   } catch (error) {
     const secrets = collectConnectionSecrets(opts);
     const sanitized = sanitizeProviderText(error?.message, secrets) || CONNECTION_TEST_FAILED_MESSAGE;
-    const message = isTrustedChineseUserError(sanitized) ? sanitized : CONNECTION_TEST_FAILED_MESSAGE;
-    let cause;
-    if (sanitized && sanitized !== message) {
-      if (error instanceof Error) {
-        try { error.message = sanitized; } catch (_) {}
-        cause = error;
-      } else {
-        cause = new Error(sanitized);
-      }
+    const timedOut = isTimeoutLikeError(error, sanitized) || error?.isTimeout === true;
+    const cancelled = isUserFacingAbort(error, opts.signal);
+    if (cancelled) {
+      const message = isTrustedChineseUserError(sanitized) && /取消/.test(sanitized)
+        ? sanitized
+        : '连接测试已取消';
+      throw connectionTestUserError(message, { code: 'ERR_CANCELED', name: 'AbortError' });
     }
+    if (timedOut) {
+      const message = isTrustedChineseUserError(sanitized) && /超时/.test(sanitized)
+        ? sanitized
+        : '连接测试超时，请检查服务地址或网络';
+      throw connectionTestUserError(message, { code: 'ETIMEDOUT', name: 'TimeoutError', isTimeout: true });
+    }
+    const message = isTrustedChineseUserError(sanitized) ? sanitized : CONNECTION_TEST_FAILED_MESSAGE;
     const safeError = connectionTestUserError(message, {
       code: error?.code || 'CONNECTION_TEST_FAILED',
-      name: error?.name,
-      isTimeout: error?.isTimeout === true,
-      cause,
+      isTimeout: false,
     });
     if (error?.details) safeError.details = error.details;
     const status = Number(error?.status);

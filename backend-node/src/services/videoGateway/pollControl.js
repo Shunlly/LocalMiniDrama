@@ -24,7 +24,11 @@ function throwVideoTaskCancelled() {
 }
 
 function throwIfVideoPollAborted(signal) {
-  if (signal?.aborted) throwVideoTaskCancelled();
+  if (!signal?.aborted) return;
+  if (isRequestTimeout(signal.reason, signal)) {
+    throw signal.reason;
+  }
+  throwVideoTaskCancelled();
 }
 
 function delayVideoPoll(intervalMs, signal) {
@@ -37,6 +41,10 @@ function delayVideoPoll(intervalMs, signal) {
     const onAbort = () => {
       clearTimeout(timer);
       signal.removeEventListener('abort', onAbort);
+      if (isRequestTimeout(signal.reason, signal)) {
+        reject(signal.reason);
+        return;
+      }
       reject(operationCancelledError(VIDEO_TASK_CANCELLED_MESSAGE));
     };
     const timer = setTimeout(finish, intervalMs);

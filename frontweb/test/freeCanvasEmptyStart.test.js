@@ -88,3 +88,8 @@ test('隐藏制作节点后空态下一步可显示回来', () => {
     harness.app.unmount()
   }
 })
+
+test('空态主操作可自动聚焦，隐藏制作节点时优先显示回来', () => {
+  assert.match(componentSource, /:autofocus="!hideProductionNodes"/)
+  assert.match(componentSource, /autofocus\s+aria-label="显示制作节点"/)
+})

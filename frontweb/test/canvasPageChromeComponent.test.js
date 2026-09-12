@@ -24,6 +24,7 @@ const workflowToolbarUrl = new URL('../src/components/dramaCanvas/CanvasWorkflow
 const actionGateUrl = new URL('../src/components/dramaCanvas/CanvasActionGate.vue', import.meta.url)
 const freeCanvasUxUrl = new URL('../src/components/dramaCanvas/freeCanvasUx.js', import.meta.url)
 const canvasUiStateUrl = new URL('../src/utils/canvasUiState.js', import.meta.url)
+const canvasExperienceCopyUrl = new URL('../src/components/dramaCanvas/canvasExperienceCopy.js', import.meta.url)
 
 const iconStubUrl = compileIconStub([
   'ArrowDown',
@@ -78,7 +79,10 @@ const compiledDesktopToolbarUrl = compileSfc(
 const compiledHeaderUrl = compileSfc(
   headerUrl,
   'canvas-page-chrome-header',
-  new Map([['vue', vueUrl]]),
+  new Map([
+    ['vue', vueUrl],
+    ['./canvasExperienceCopy.js', canvasExperienceCopyUrl.href],
+  ]),
 )
 const CanvasPageChrome = await loadCompiledSfc(
   chromeUrl,
@@ -87,6 +91,7 @@ const CanvasPageChrome = await loadCompiledSfc(
     ['vue', vueUrl],
     ['./CanvasPageHeader.vue', compiledHeaderUrl],
     ['./CanvasDesktopToolbar.vue', compiledDesktopToolbarUrl],
+    ['./canvasExperienceCopy.js', canvasExperienceCopyUrl.href],
   ]),
 )
 const CanvasDesktopToolbar = await loadCompiledSfc(
@@ -221,4 +226,42 @@ test('工具条源码合同保持 AI 分镜可见名', () => {
   assert.match(toolbarSource, /aria-label="AI 生成分镜"/)
   assert.match(toolbarSource, />\s*AI 分镜\s*</)
   assert.match(chromeSource, /@generate-storyboards="aiGenerateStoryboards"/)
+})
+
+test('选中空集时工具条给出中文下一步，有分镜后不再提示', async () => {
+  const empty = mountChrome({
+    drama: {
+      title: '演示短剧',
+      episodes: [{ id: 11, title: '开场', episode_number: 1, script_content: '', storyboards: [] }],
+    },
+    filterEpisodeId: 11,
+  })
+  try {
+    await nextTick()
+    assert.match(textContent(empty.root), /这一集还是空的，下一步可先写剧本或新建分镜/)
+    assert.match(textContent(empty.root), /AI 分镜/)
+  } finally {
+    empty.app.unmount()
+  }
+
+  const filled = mountChrome({
+    drama: {
+      title: '演示短剧',
+      episodes: [{
+        id: 11,
+        title: '开场',
+        episode_number: 1,
+        script_content: '对白',
+        storyboards: [{ id: 101, title: '镜1' }],
+      }],
+    },
+    filterEpisodeId: 11,
+  })
+  try {
+    await nextTick()
+    assert.doesNotMatch(textContent(filled.root), /这一集还是空的/)
+    assert.doesNotMatch(textContent(filled.root), /还没有分镜，下一步/)
+  } finally {
+    filled.app.unmount()
+  }
 })

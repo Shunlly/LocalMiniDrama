@@ -1,6 +1,6 @@
 <template>
   <el-drawer v-model="visible" title="素材详情" size="46%">
-    <div v-if="loading" class="empty-line">加载中…</div>
+    <div v-if="loading" class="empty-line" role="status" aria-live="polite">加载中…</div>
     <template v-else-if="sourceDetail">
       <div class="detail-meta">
         <div><strong>{{ sourceDetail.source.title }}</strong></div>
@@ -16,7 +16,7 @@
             <p>{{ item.summary }}</p>
           </div>
         </div>
-        <div v-else class="empty-line">暂无素材片段</div>
+        <div v-else class="empty-line" role="status" aria-live="polite">暂无素材片段</div>
       </div>
 
       <div class="detail-section">
@@ -27,7 +27,7 @@
             <p>{{ event.detail }}</p>
           </div>
         </div>
-        <div v-else class="empty-line">暂无故事事件</div>
+        <div v-else class="empty-line" role="status" aria-live="polite">暂无故事事件</div>
       </div>
 
       <div class="detail-section">
@@ -37,10 +37,10 @@
             {{ sourceRelationLabel(edge.relation_type) }}：{{ sourceEventLabel(edge.from_event_id) }} → {{ sourceEventLabel(edge.to_event_id) }}
           </div>
         </div>
-        <div v-else class="empty-line">暂无事件关系</div>
+        <div v-else class="empty-line" role="status" aria-live="polite">暂无事件关系</div>
       </div>
     </template>
-    <div v-else class="empty-line">未找到素材详情，请稍后重试。</div>
+    <div v-else class="empty-line" role="status" aria-live="polite">未找到素材详情，请稍后重试。</div>
   </el-drawer>
 </template>
 

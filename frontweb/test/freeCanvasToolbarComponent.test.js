@@ -195,3 +195,44 @@ test('隐藏制作节点后工具条露出可点的显示制作节点', () => {
     hidden.app.unmount()
   }
 })
+
+test('节点较多时提示可见区域，达到上限后禁用新建', async () => {
+  setFreeCanvasUxState({ nodeCount: 120, readonly: false, selectionCount: 0 })
+  const density = mountToolbar({ selectionCount: 0 })
+  try {
+    await nextTick()
+    assert.match(textContent(density.root), /节点较多（120\/500），当前只渲染可见区域/)
+    const create = buttonByAriaLabel(density.root, '新建自由节点')
+    assert.ok(create)
+    assert.notEqual(create.props.disabled, true)
+  } finally {
+    density.app.unmount()
+  }
+
+  setFreeCanvasUxState({ nodeCount: 400, readonly: false, selectionCount: 0 })
+  const warning = mountToolbar({ selectionCount: 0 })
+  try {
+    await nextTick()
+    assert.match(textContent(warning.root), /自由画布节点较多（400\/500），继续添加可能影响操作流畅度/)
+    const create = buttonByAriaLabel(warning.root, '新建自由节点')
+    assert.ok(create)
+    assert.notEqual(create.props.disabled, true)
+  } finally {
+    warning.app.unmount()
+  }
+
+  setFreeCanvasUxState({ nodeCount: 500, readonly: false, selectionCount: 0 })
+  const limit = mountToolbar({ selectionCount: 0 })
+  try {
+    await nextTick()
+    assert.match(textContent(limit.root), /自由画布已达到 500 个节点上限，请先整理后再添加/)
+    const create = buttonByAriaLabel(limit.root, '自由画布已达到 500 个节点上限，请先整理后再添加')
+    assert.ok(create)
+    assert.equal(create.props.disabled, true)
+    create.props.onClick?.()
+    assert.deepEqual(limit.events, [])
+  } finally {
+    limit.app.unmount()
+    setFreeCanvasUxState({ nodeCount: 0 })
+  }
+})

@@ -2,6 +2,8 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import {
+  SOURCE_INTAKE_CANCEL_COPY,
+  SOURCE_INTAKE_LEAVE_COPY,
   confirmUnsavedSourceIntakeLeave,
   createSourceIntakeLeaveController,
   shouldBlockSourceIntakeUnload,
@@ -69,4 +71,23 @@ test('进行中的素材操作会先拦截离开，未保存输入才弹出确�
   const event = { preventDefault() { messages.push('prevent') }, returnValue: 'keep' }
   clean.handleBeforeUnload(event)
   assert.equal(event.returnValue, 'keep')
+})
+
+test('离开和取消处理文案都是中文', () => {
+  for (const copy of [
+    SOURCE_INTAKE_LEAVE_COPY.busyMessage,
+    SOURCE_INTAKE_LEAVE_COPY.title,
+    SOURCE_INTAKE_LEAVE_COPY.message,
+    SOURCE_INTAKE_LEAVE_COPY.confirmButtonText,
+    SOURCE_INTAKE_LEAVE_COPY.cancelButtonText,
+    SOURCE_INTAKE_CANCEL_COPY.title,
+    SOURCE_INTAKE_CANCEL_COPY.message,
+    SOURCE_INTAKE_CANCEL_COPY.confirmButtonText,
+    SOURCE_INTAKE_CANCEL_COPY.cancelButtonText,
+  ]) {
+    assert.match(copy, /[\u4e00-\u9fff]/)
+    assert.doesNotMatch(copy, /\bCancel\b|\bLeave\b|\bDiscard\b/)
+  }
+  assert.equal(SOURCE_INTAKE_LEAVE_COPY.cancelButtonText, '继续编辑')
+  assert.equal(SOURCE_INTAKE_CANCEL_COPY.cancelButtonText, '继续处理')
 })

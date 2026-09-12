@@ -10,6 +10,7 @@ const {
   sanitizeProviderException,
   isTrustedChineseUserError,
   createProviderHttpError,
+  isTimeoutLikeError,
 } = require('./providerErrorSanitizer');
 
 const JSON_REQUEST_MAX_BYTES = 128 * 1024 * 1024;
@@ -20,8 +21,22 @@ function providerNetworkOptions(config, lookup, signal) {
   return aiConfigService.getProviderNetworkOptions(config, { lookup, signal });
 }
 
+function createTimeoutError(operation) {
+  const error = new Error(operation + '超时，请稍后重试。');
+  error.name = 'TimeoutError';
+  error.isTimeout = true;
+  error.code = 'ETIMEDOUT';
+  const safe = safeRequestError(error, operation);
+  safe.name = 'TimeoutError';
+  safe.isTimeout = true;
+  return safe;
+}
+
 function createAbortError(signal) {
   const reason = signal?.reason;
+  if (isTimeoutLikeError(reason) || reason?.isTimeout === true) {
+    return createTimeoutError('AI 请求');
+  }
   if (reason?.name === 'AbortError' && isTrustedChineseUserError(reason.message)) {
     return reason;
   }
@@ -85,17 +100,6 @@ function safeRequestError(error, operation) {
     provider: 'AI 服务',
     operation,
   });
-}
-
-function createTimeoutError(operation) {
-  const error = new Error(operation + '超时，请稍后重试。');
-  error.name = 'TimeoutError';
-  error.isTimeout = true;
-  error.code = 'ETIMEDOUT';
-  const safe = safeRequestError(error, operation);
-  safe.name = 'TimeoutError';
-  safe.isTimeout = true;
-  return safe;
 }
 
 /**
@@ -187,7 +191,10 @@ async function postJSONNonStream(url, headers, body, timeoutMs = 120000, network
  * @returns {Promise<{ statusCode: number, raw: string }>}
  */
 async function postJSONWithTimeout(url, headers, body, timeoutMs = 600000, networkOptions = {}) {
+  const signal = networkOptions.signal;
+  throwIfAborted(signal);
   const target = await pinnedRequestTarget(url, networkOptions);
+  throwIfAborted(signal);
   return new Promise((resolve, reject) => {
     const mod = target.parsed.protocol === 'https:' ? https : http;
     const bodyStr = typeof body === 'string' ? body : JSON.stringify(body);
@@ -203,24 +210,45 @@ async function postJSONWithTimeout(url, headers, body, timeoutMs = 600000, netwo
       headers: reqHeaders,
     };
 
-    const req = mod.request(options, (res) => {
+    let settled = false;
+    let timer = null;
+    let req = null;
+    const finish = (callback, value) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      signal?.removeEventListener('abort', onAbort);
+      callback(value);
+    };
+    const succeed = (value) => finish(resolve, value);
+    const fail = (error) => finish(reject, error);
+    const onAbort = () => {
+      const error = createAbortError(signal);
+      req?.destroy(error);
+      fail(error);
+    };
+
+    req = mod.request(options, (res) => {
       collectResponse(res, networkOptions.maxResponseBytes || JSON_RESPONSE_MAX_BYTES, (raw) => {
-        clearTimeout(timer);
-        resolve({ statusCode: res.statusCode || 0, raw });
+        succeed({ statusCode: res.statusCode || 0, raw });
       }, (e) => {
-        clearTimeout(timer);
-        reject(safeRequestError(e, '图片请求'));
+        fail(signal?.aborted ? createAbortError(signal) : safeRequestError(e, '图片请求'));
       });
     });
 
-    const timer = setTimeout(() => {
+    timer = setTimeout(() => {
       req.destroy();
-      reject(createTimeoutError('图片生成请求'));
+      fail(createTimeoutError('图片生成请求'));
     }, timeoutMs);
+    if (typeof timer.unref === 'function') timer.unref();
     req.on('error', (e) => {
-      clearTimeout(timer);
-      reject(safeRequestError(e, '图片请求'));
+      fail(signal?.aborted ? createAbortError(signal) : safeRequestError(e, '图片请求'));
     });
+    signal?.addEventListener('abort', onAbort, { once: true });
+    if (signal?.aborted) {
+      onAbort();
+      return;
+    }
     req.write(bodyStr);
     req.end();
   });

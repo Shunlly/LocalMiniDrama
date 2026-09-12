@@ -145,3 +145,26 @@ test('媒体处理失败按文件类型给出抽取下一步，纯文本不给',
   })
   assert.equal(unref(plain.extractionNextStep), null)
 })
+
+test('导入失败会按 PDF/图片/音视频给出 AI 配置下一步', () => {
+  const ocr = createComputeds({
+    sourceOperationError: ref(SOURCE_OCR_CONFIG_GUIDANCE),
+    selectedFilename: ref('scan.png'),
+    sourceFile: ref({ name: 'scan.png', type: 'image/png' }),
+  })
+  assert.equal(unref(ocr.intakeExtractionNextStep).serviceType, 'ocr')
+
+  const transcription = createComputeds({
+    sourceOperationError: ref(SOURCE_TRANSCRIPTION_CONFIG_GUIDANCE),
+    selectedFilename: ref('talk.mp3'),
+    sourceFile: ref({ name: 'talk.mp3', type: 'audio/mpeg' }),
+  })
+  assert.equal(unref(transcription.intakeExtractionNextStep).serviceType, 'transcription')
+
+  const clean = createComputeds({
+    sourceOperationError: ref(''),
+    selectedFilename: ref('scan.png'),
+    sourceFile: ref({ name: 'scan.png', type: 'image/png' }),
+  })
+  assert.equal(unref(clean.intakeExtractionNextStep), null)
+})

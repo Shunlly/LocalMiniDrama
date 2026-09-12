@@ -1,7 +1,7 @@
 // 模型目录发现：失败时 fail-closed，不把供应商原文或密钥回传给用户。
 
 const { sanitizeProviderText } = require('./comfyUiClient');
-const { isTrustedChineseUserError } = require('./providerErrorSanitizer');
+const { isTrustedChineseUserError, isTimeoutLikeError, isUserFacingAbort } = require('./providerErrorSanitizer');
 const { requireCompleteProviderNetworkPolicy } = require('./providerNetworkPolicy');
 const {
   getProviderNetworkOptions,
@@ -87,9 +87,8 @@ function mapProviderUrlDiscoverMessage(message) {
 }
 
 function collectDiscoverSecrets(opts = {}) {
-  return [opts.api_key, opts.access_key_id, opts.secret_access_key, opts.session_token]
-    .filter((value) => value != null && String(value).length >= 3)
-    .map(String);
+  // 与连接测试共用：自定义请求头和 settings 里的密钥也要洗掉。
+  return require('./aiConfigConnection').collectConnectionSecrets(opts);
 }
 
 function toDiscoverModelsError(error, secrets = []) {
@@ -97,11 +96,11 @@ function toDiscoverModelsError(error, secrets = []) {
     return discoverModelsUserError(UNSUPPORTED_MODEL_DISCOVERY_MESSAGE, 'UNSUPPORTED_MODEL_DISCOVERY');
   }
   const sanitized = sanitizeProviderText(error?.message, secrets) || '';
-  if (error?.code === 'ERR_CANCELED' || error?.name === 'AbortError') {
-    return discoverModelsUserError('读取模型目录已取消', 'ERR_CANCELED', { name: 'AbortError' });
+  if (isTimeoutLikeError(error, sanitized) || error?.isTimeout === true || /超时/.test(sanitized)) {
+    return discoverModelsUserError('读取模型目录超时，请检查服务地址或网络', 'ETIMEDOUT', { isTimeout: true, name: 'TimeoutError' });
   }
-  if (error?.isTimeout === true || error?.name === 'TimeoutError' || error?.code === 'ETIMEDOUT' || /超时/.test(sanitized)) {
-    return discoverModelsUserError('读取模型目录超时，请检查服务地址或网络', 'ETIMEDOUT', { isTimeout: true });
+  if (isUserFacingAbort(error) || error?.code === 'ERR_CANCELED') {
+    return discoverModelsUserError('读取模型目录已取消', 'ERR_CANCELED', { name: 'AbortError' });
   }
   if (error?.code === 'INVALID_PROVIDER_URL') {
     return discoverModelsUserError(mapProviderUrlDiscoverMessage(sanitized), 'INVALID_PROVIDER_URL');

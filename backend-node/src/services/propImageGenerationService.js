@@ -7,7 +7,7 @@ const uploadService = require('./uploadService');
 const storageLayout = require('./storageLayout');
 const { scheduleLegacyAsync } = require('./legacyAsyncSchedulerService');
 const { aspectRatioToSize } = require('./imageService');
-const { toUserFacingProcessError } = require('./providerErrorSanitizer');
+const { toUserFacingProcessError, isUserFacingAbort } = require('./providerErrorSanitizer');
 
 function waitForTaskWork(work, signal) {
   if (!signal) return Promise.resolve(work);
@@ -27,7 +27,7 @@ function waitForTaskWork(work, signal) {
 }
 
 function taskWasCancelled(signal, error) {
-  return signal?.aborted || error?.code === 'OPERATION_CANCELLED' || error?.name === 'AbortError';
+  return isUserFacingAbort(error, signal);
 }
 
 function removeDownloadedImage(storagePath, localPath, log) {

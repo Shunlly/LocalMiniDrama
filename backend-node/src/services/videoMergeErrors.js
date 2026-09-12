@@ -3,14 +3,18 @@
 // 视频合成错误装配：取消、严格生产失败和后处理哨兵码转成用户可见中文。
 
 function operationCancelledError(reason) {
+  if (reason && typeof reason === 'object' && isTimeoutError(reason)) return reason;
   const error = reason instanceof Error ? reason : new Error(String(reason || '视频合成已取消'));
+  if (isTimeoutError(error)) return error;
   error.name = 'AbortError';
   error.code = 'OPERATION_CANCELLED';
   return error;
 }
 
 function throwIfAborted(signal) {
-  if (signal?.aborted) throw operationCancelledError(signal.reason);
+  if (!signal?.aborted) return;
+  if (isTimeoutError(signal.reason)) throw signal.reason;
+  throw operationCancelledError(signal.reason);
 }
 
 function describePostProcessFailure(error) {

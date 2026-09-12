@@ -1,6 +1,6 @@
 const aiConfigService = require('../services/aiConfigService');
 const { collectConnectionSecrets } = require('../services/aiConfigConnection');
-const { sanitizeProviderText, toSafeProviderErrorMessage } = require('../services/providerErrorSanitizer');
+const { sanitizeProviderText, toSafeProviderErrorMessage, isTimeoutLikeError, isUserFacingAbort } = require('../services/providerErrorSanitizer');
 const response = require('../response');
 const { publicErrorMessage, logCaughtRouteError } = require('./serviceFailure');
 
@@ -224,15 +224,18 @@ function cloneErrorWithMessage(err, message) {
   const cloned = new Error(message);
   if (err && err.code) cloned.code = err.code;
   if (err && err.name) cloned.name = err.name;
+  if (err && err.isTimeout === true) cloned.isTimeout = true;
   return cloned;
 }
 
-function sanitizeConnectionTestLogError(err, opts, reconstructedMessage) {
+function sanitizeConnectionTestLogError(err, opts, reconstructedMessage, options = {}) {
   const technical = (err && err.cause) || err;
   const secrets = collectConnectionSecrets(opts);
   const markedSafe = !!(err && err[SAFE_PROVIDER_ERROR]);
-  // 未标记安全的厂商原文可能夹带请求外密钥，日志只保留重建后的安全文案。
-  const raw = markedSafe ? String((technical && technical.message) || technical || '') : reconstructedMessage;
+  // 连接测试未标记安全时只留重建文案；模型目录可保留洗过密钥的技术原文。
+  const raw = (markedSafe || options.keepTechnical)
+    ? String((technical && technical.message) || technical || '')
+    : reconstructedMessage;
   const logMessage = sanitizeProviderText(raw, secrets) || reconstructedMessage;
   return cloneErrorWithMessage(technical, logMessage);
 }
@@ -286,16 +289,17 @@ function testConnection(db, log) {
           provider: opts.provider || 'AI 服务',
           operation: '连接测试',
         });
-      const userMessage = (err?.code === 'ERR_CANCELED' || err?.name === 'AbortError')
-        ? (safeMessage || '连接测试已取消')
-        : (trustedMessage && markedSafe ? safeMessage : ('连接测试失败: ' + safeMessage));
+      const cancelled = isUserFacingAbort(err, clientAbort.signal);
+      const timedOut = isTimeoutLikeError(err) || err?.isTimeout === true;
+      let userMessage;
+      if (cancelled) userMessage = safeMessage || '连接测试已取消';
+      else if (timedOut) userMessage = safeMessage;
+      else if (trustedMessage && markedSafe) userMessage = safeMessage;
+      else userMessage = '连接测试失败: ' + safeMessage;
       logCaughtRouteError(log, 'AI config test connection failed', sanitizeConnectionTestLogError(err, opts, safeMessage), {
         provider: opts.provider || null,
         fallback: userMessage,
       });
-      if (err?.code === 'ERR_CANCELED' || err?.name === 'AbortError') {
-        return response.badRequest(res, userMessage);
-      }
       response.badRequest(res, userMessage);
     } finally {
       clientAbort.dispose();
@@ -308,8 +312,9 @@ function modelArkAsset(db, log) {
   return async (req, res) => {
     const body = req.body || {};
     const action = (body.action || '').toString().trim();
+    let opts = body;
     try {
-      const opts = applySavedConfigSecrets(getSavedConfigFromBody(db, body), body);
+      opts = applySavedConfigSecrets(getSavedConfigFromBody(db, body), body);
       const modelArkAssetProxyService = require('../services/modelArkAssetProxyService');
       const data = await modelArkAssetProxyService.callModelArkAsset(
         {
@@ -335,7 +340,7 @@ function modelArkAsset(db, log) {
     } catch (err) {
       const { toSafeProviderErrorMessage } = require('../services/providerErrorSanitizer');
       const safeMessage = toSafeProviderErrorMessage(err, { provider: 'ModelArk', operation: action || 'request' });
-      logCaughtRouteError(log, 'model-ark-asset proxy failed', err, { action, fallback: safeMessage || '请求失败' });
+      logCaughtRouteError(log, 'model-ark-asset proxy failed', sanitizeConnectionTestLogError(err, opts, safeMessage || '请求失败'), { action, fallback: safeMessage || '请求失败' });
       const status = err.status >= 400 && err.status < 600 ? err.status : 400;
       return response.error(res, status, 'MODEL_ARK_ASSET', safeMessage || '请求失败');
     }
@@ -466,12 +471,22 @@ function discoverModels(db, log, cfg) {
       if (!res.writableEnded) response.success(res, result);
     } catch (err) {
       if (res.writableEnded) return;
-      const safeMessage = publicErrorMessage(err, '读取模型目录失败，请检查接口地址和密钥');
-      logCaughtRouteError(log, 'AI config discover models failed', err, {
+      const trustedMessage = publicErrorMessage(err, '');
+      const markedSafe = !!err?.[SAFE_PROVIDER_ERROR];
+      const safeMessage = trustedMessage && markedSafe
+        ? trustedMessage
+        : (publicErrorMessage(err, '读取模型目录失败，请检查接口地址和密钥'));
+      const cancelled = isUserFacingAbort(err, clientAbort.signal);
+      const timedOut = isTimeoutLikeError(err) || err?.isTimeout === true;
+      let userMessage = safeMessage;
+      if (cancelled) userMessage = trustedMessage || '读取模型目录已取消';
+      else if (timedOut) userMessage = trustedMessage || '读取模型目录超时，请检查服务地址或网络';
+      else if (!trustedMessage) userMessage = '读取模型目录失败，请检查接口地址和密钥';
+      logCaughtRouteError(log, 'AI config discover models failed', sanitizeConnectionTestLogError(err, opts, userMessage, { keepTechnical: true }), {
         provider: opts.provider || null,
-        fallback: safeMessage,
+        fallback: userMessage,
       });
-      response.badRequest(res, safeMessage);
+      response.badRequest(res, userMessage);
     } finally {
       clientAbort.dispose();
     }

@@ -18,6 +18,7 @@ import {
   inspectNovelIntakeText,
   novelIntakeHasDraft,
   novelIntakeLeaveReason,
+  novelIntakeUnsupportedMessage,
   utf8ByteLength,
 } from '../src/components/filmCreate/novelIntakeUx.js'
 
@@ -117,16 +118,30 @@ test('非 UTF-8 编码和二进制文件失败，UTF-8 BOM 可以导入', async 
 test('图片和 PDF 被拒绝，并说明需要图片识别或语音转写', async () => {
   assert.equal(
     inspectNovelIntakeBytes(utf8('scan'), { filename: 'scan.png' }).error,
-    NOVEL_INTAKE_MESSAGES.unsupportedType,
+    NOVEL_INTAKE_MESSAGES.unsupportedPdfOrImage,
+  )
+  assert.equal(novelIntakeUnsupportedMessage('scan.png'), NOVEL_INTAKE_MESSAGES.unsupportedPdfOrImage)
+  assert.match(NOVEL_INTAKE_MESSAGES.unsupportedPdfOrImage, /图片识别/)
+  assert.match(NOVEL_INTAKE_MESSAGES.unsupportedPdfOrImage, /AI 配置/)
+  assert.doesNotMatch(NOVEL_INTAKE_MESSAGES.unsupportedPdfOrImage, /当前没有 OCR|service_type=ocr/)
+  assert.equal(
+    (await inspectNovelIntakeFile(new File([utf8('x')], 'scan.pdf', { type: 'application/pdf' }))).error,
+    NOVEL_INTAKE_MESSAGES.unsupportedPdfOrImage,
+  )
+  assert.equal(
+    inspectNovelIntakeBytes(utf8('talk'), { filename: 'talk.mp3' }).error,
+    NOVEL_INTAKE_MESSAGES.unsupportedAudioOrVideo,
+  )
+  assert.match(NOVEL_INTAKE_MESSAGES.unsupportedAudioOrVideo, /语音转写/)
+  assert.match(NOVEL_INTAKE_MESSAGES.unsupportedAudioOrVideo, /AI 配置/)
+  assert.doesNotMatch(NOVEL_INTAKE_MESSAGES.unsupportedAudioOrVideo, /Tesseract|service_type=ocr/)
+  assert.equal(
+    (await inspectNovelIntakeFile(new File([utf8('x')], 'clip.mp4', { type: 'video/mp4' }))).error,
+    NOVEL_INTAKE_MESSAGES.unsupportedAudioOrVideo,
   )
   assert.match(NOVEL_INTAKE_MESSAGES.unsupportedType, /图片识别/)
   assert.match(NOVEL_INTAKE_MESSAGES.unsupportedType, /语音转写/)
   assert.match(NOVEL_INTAKE_MESSAGES.unsupportedType, /AI 配置/)
-  assert.doesNotMatch(NOVEL_INTAKE_MESSAGES.unsupportedType, /当前没有 OCR|service_type=ocr/)
-  assert.equal(
-    (await inspectNovelIntakeFile(new File([utf8('x')], 'scan.pdf', { type: 'application/pdf' }))).error,
-    NOVEL_INTAKE_MESSAGES.unsupportedType,
-  )
 })
 
 test('有效 UTF-8 文本和文件可以通过校验', async () => {

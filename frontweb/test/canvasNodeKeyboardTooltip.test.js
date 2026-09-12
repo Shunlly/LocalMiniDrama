@@ -50,7 +50,7 @@ test('制作节点加载层始终露出中文状态，不只转圈', () => {
   assert.match(overlaySource, /class="msg"/)
   assert.match(overlaySource, /处理中…/)
   assert.match(overlaySource, /fallbackMessage/)
-  assert.match(overlaySource, /fromStatus \|\| fallbackText\.value \|\| '处理中…'/)
+  assert.match(overlaySource, /toCanvasChineseMessage\(fromStatus, fallback\)/)
 })
 
 test('制作节点在生成或加载时把中文状态交给 overlay，并标明 Enter/空格', () => {
@@ -105,12 +105,14 @@ test('制作/自由短文案保留，无障碍名区分剧集画布和自由画�
   }
 })
 
+const canvasExperienceCopyUrl = new URL('../src/components/dramaCanvas/canvasExperienceCopy.js', import.meta.url)
 const CanvasNodeStatusOverlay = await loadCompiledSfc(
   overlayUrl,
   'canvas-node-status-overlay',
   new Map([
     ['vue', vueUrl],
     ['@/composables/useCanvasContext', contextUrl.href],
+    ['./canvasExperienceCopy.js', canvasExperienceCopyUrl.href],
   ]),
 )
 
@@ -197,7 +199,10 @@ const CanvasDesktopToolbar = await loadCompiledSfc(
 const CanvasPageHeader = await loadCompiledSfc(
   headerUrl,
   'canvas-tooltip-page-header',
-  new Map([['vue', vueUrl]]),
+  new Map([
+    ['vue', vueUrl],
+    ['./canvasExperienceCopy.js', canvasExperienceCopyUrl.href],
+  ]),
 )
 
 test('桌面工具条按钮 title 与模式切换无障碍名可在真实入口读到', async () => {
@@ -277,3 +282,28 @@ test('禁用原因会覆盖默认 title，页头列表模式仍叫返回列表�
     header.app.unmount()
   }
 })
+
+test('剧集节点可键盘到达，Enter 打开第一个分镜或新建分镜', () => {
+  const episodeNodeSource = read('../src/components/dramaCanvas/CanvasEpisodeNode.vue')
+  assert.match(episodeNodeSource, /tabindex="0"/)
+  assert.match(episodeNodeSource, /role="button"/)
+  assert.match(episodeNodeSource, /@keydown\.enter\.stop\.prevent="activateEpisode"/)
+  assert.match(episodeNodeSource, /@keydown\.space\.stop\.prevent="activateEpisode"/)
+  assert.match(episodeNodeSource, /按 Enter 或空格/)
+  assert.match(episodeNodeSource, /canvas-episode-node:focus-visible/)
+})
+
+test('overlay 英文技术原文回落到中文处理中', async () => {
+  const harness = mountOverlay({
+    map: { 'sb:1': { step: 'image', message: 'Failed to fetch' } },
+  })
+  try {
+    await nextTick()
+    const copy = textContent(harness.root)
+    assert.match(copy, /处理中…/)
+    assert.doesNotMatch(copy, /Failed to fetch/)
+  } finally {
+    harness.app.unmount()
+  }
+})
+

@@ -7,6 +7,7 @@ import {
   SOURCE_FILE_ACCEPT,
   SOURCE_FILE_EXTENSIONS,
   createSourceIntakeFileSelectController,
+  sourceIntakeSelectedFileStatus,
 } from '../src/components/sourceIntake/sourceIntakeFileSelect.js'
 
 function ref(value) {
@@ -74,4 +75,21 @@ test('接受列表覆盖文本与媒体扩展名', () => {
   assert.match(SOURCE_FILE_ACCEPT, /\.pdf/)
   assert.match(SOURCE_FILE_ACCEPT, /\.mp4/)
   assert.ok(SOURCE_FILE_EXTENSIONS.includes('.webp'))
+})
+
+test('PDF/图片/音视频选择后给出中文引导，并指向 AI 配置', async () => {
+  assert.match(sourceIntakeSelectedFileStatus({ name: 'scan.pdf', type: 'application/pdf' }), /图片识别/)
+  assert.match(sourceIntakeSelectedFileStatus({ name: 'scan.pdf', type: 'application/pdf' }), /AI 配置/)
+  assert.match(sourceIntakeSelectedFileStatus({ name: 'page.png', type: 'image/png' }), /图片识别/)
+  assert.match(sourceIntakeSelectedFileStatus({ name: 'talk.mp3', type: 'audio/mpeg' }), /语音转写/)
+  assert.match(sourceIntakeSelectedFileStatus({ name: 'clip.mp4', type: 'video/mp4' }), /语音转写/)
+  assert.doesNotMatch(sourceIntakeSelectedFileStatus({ name: 'talk.mp3', type: 'audio/mpeg' }), /Tesseract/)
+  assert.doesNotMatch(sourceIntakeSelectedFileStatus({ name: 'story.txt', type: 'text/plain' }), /AI 配置/)
+
+  const pdf = createController({ title: '已有标题', source_type: 'novel', text: '旧文本' })
+  await pdf.handleSourceFile({
+    target: { files: [fakeFile('scan.pdf', { type: 'application/pdf', size: 2048, text: 'should-not-read' })] },
+  })
+  assert.match(pdf.messages.find((item) => item[0] === 'success')[1], /已选择 scan.pdf/)
+  assert.match(sourceIntakeSelectedFileStatus({ name: 'scan.pdf', type: 'application/pdf' }), /失败时/)
 })

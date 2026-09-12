@@ -5,7 +5,7 @@ const promptI18n = require('./promptI18n');
 const propService = require('./propService');
 const { scheduleLegacyAsync } = require('./legacyAsyncSchedulerService');
 const { safeParseAIJSON, extractFirstArray } = require('../utils/safeJson');
-const { toUserFacingProcessError } = require('./providerErrorSanitizer');
+const { toUserFacingProcessError, isUserFacingAbort } = require('./providerErrorSanitizer');
 let _cfg = null; // 由 extractPropsForEpisode 注入，供异步任务使用
 
 function waitForTaskWork(work, signal) {
@@ -26,7 +26,7 @@ function waitForTaskWork(work, signal) {
 }
 
 function taskWasCancelled(signal, error) {
-  return signal?.aborted || error?.code === 'OPERATION_CANCELLED' || error?.name === 'AbortError';
+  return isUserFacingAbort(error, signal);
 }
 
 async function processPropExtraction(db, log, taskId, episodeId) {
