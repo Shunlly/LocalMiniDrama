@@ -56,7 +56,7 @@
         title="取消批量生成"
         @click="cancelEpisodeGenerate"
       >
-        取消
+        取消批量生成
       </el-button>
     </div>
     <slot name="toolbar" />

@@ -130,6 +130,10 @@ const router = useRouter()
 const initialNetworkRoute = normalizeMediaLibraryNetworkRoute(route.query)
 const loading = ref(false)
 const libraryMode = ref(initialNetworkRoute.mode)
+function goSearchNetwork() {
+  libraryMode.value = 'network'
+}
+
 const uploading = ref(false)
 const uploadProgress = ref({ current: 0, total: 0 })
 const uploadFeedback = ref(null)
@@ -469,6 +473,7 @@ const localGridBindings = computed(() => ({
   loadMedia,
   triggerUpload,
   goSourceImport,
+  goSearchNetwork,
   goBack,
   returnTo: returnTo.value,
   itemUrl,

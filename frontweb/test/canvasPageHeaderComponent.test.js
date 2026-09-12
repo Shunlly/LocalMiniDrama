@@ -126,7 +126,7 @@ test('保存失败展示中文错误和重试，批量生成可取消', async ()
     click(retry)
     const cancel = buttonByAriaLabel(failed.root, '取消批量生成')
     assert.ok(cancel)
-    assert.equal(textContent(cancel).trim(), '取消')
+    assert.equal(textContent(cancel).trim(), '取消批量生成')
     click(cancel)
     assert.deepEqual(failed.events, [['retry-save'], ['cancel-generate']])
   } finally {

@@ -122,6 +122,7 @@
         :clear-filters="clearFilters"
         :trigger-upload="triggerUpload"
         :go-source-import="goSourceImport"
+        :go-search-network="goSearchNetwork"
       />
     </div>
 
@@ -179,6 +180,7 @@ defineProps({
   loadMedia: { type: Function, required: true },
   triggerUpload: { type: Function, required: true },
   goSourceImport: { type: Function, required: true },
+  goSearchNetwork: { type: Function, required: true },
   goBack: { type: Function, required: true },
   returnTo: { type: String, default: '' },
   itemUrl: { type: Function, required: true },

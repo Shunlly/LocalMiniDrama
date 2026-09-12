@@ -23,6 +23,7 @@
         >
           <el-icon><Upload /></el-icon>上传素材
         </el-button>
+        <el-button aria-label="去搜网络素材" @click="goSearchNetwork">去搜网络素材</el-button>
       </template>
     </div>
     <template v-if="!hasActiveFilters">
@@ -55,6 +56,7 @@ defineProps({
   clearFilters: { type: Function, required: true },
   triggerUpload: { type: Function, required: true },
   goSourceImport: { type: Function, required: true },
+  goSearchNetwork: { type: Function, required: true },
 })
 </script>
 

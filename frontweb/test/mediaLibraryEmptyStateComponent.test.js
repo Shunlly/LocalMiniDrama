@@ -42,6 +42,7 @@ function mountEmpty(initial = {}) {
     clearFilters: () => events.push(['clear']),
     triggerUpload: () => events.push(['upload']),
     goSourceImport: () => events.push(['import']),
+    goSearchNetwork: () => events.push(['network']),
   }))
   return { ...mounted, events }
 }
@@ -55,7 +56,8 @@ test('\u7d20\u6750\u4e2d\u5fc3\u7a7a\u6001\u662f\u4e2d\u6587\u4e0b\u4e00\u6b65\u
     assert.match(copy, /\u4e0a\u4f20\u56fe\u7247\u6216\u89c6\u9891/)
     assert.doesNotMatch(copy, /No data|empty|Upload files|Network Error/i)
     click(buttonByAriaLabel(harness.root, '\u4e0a\u4f20\u56fe\u7247\u6216\u89c6\u9891\u5230\u7d20\u6750\u4e2d\u5fc3'))
-    assert.deepEqual(harness.events, [['upload']])
+    click(buttonByAriaLabel(harness.root, '去搜网络素材'))
+    assert.deepEqual(harness.events, [['upload'], ['network']])
   } finally {
     harness.app.unmount()
   }

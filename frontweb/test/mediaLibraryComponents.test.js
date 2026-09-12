@@ -56,6 +56,10 @@ test('素材中心页把头、筛选、网格、卡片、空态和预览抽成�
   assert.match(combined, /async function loadMedia\(/)
   assert.match(combined, /async function deleteItem\(/)
   assert.match(combined, /async function batchDelete\(/)
+  assert.match(page, /function goSearchNetwork\(\)/)
+  assert.match(page, /goSearchNetwork,/)
+  assert.match(emptyState, /去搜网络素材/)
+  assert.match(localGrid, /:go-search-network="goSearchNetwork"/)
   assert.match(combined, /async function searchNetworkMedia\(/)
   assert.match(combined, /async function importNetworkItem\(/)
   for (const [name, source] of Object.entries({

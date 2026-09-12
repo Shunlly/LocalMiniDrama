@@ -78,6 +78,7 @@ function mountGrid(initial = {}) {
     loadMedia: noop,
     triggerUpload: () => events.push(['upload']),
     goSourceImport: () => events.push(['source-import']),
+    goSearchNetwork: () => events.push(['search-network']),
     goBack: () => events.push(['go-back']),
     itemUrl: noop,
     thumbnailAlt: () => '',
