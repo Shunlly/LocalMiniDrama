@@ -197,9 +197,9 @@ test('批量生成、素材参考图和剧本提取都有可点的取消按钮',
   assert.match(chromeSource, /@click="cancelEpisodeGenerate"/)
   assert.match(canvasSource, /abortEpisodeGenerate/)
   assert.match(assetPanelSource, /aria-label="取消生成参考图"/)
-  assert.match(assetPanelSource, />取消<\/el-button>/)
+  assert.match(assetPanelSource, />取消生成参考图<\/el-button>/)
   assert.match(scriptPanelSource, /aria-label="取消提取"/)
-  assert.match(scriptPanelSource, />取消<\/el-button>/)
+  assert.match(scriptPanelSource, />取消提取<\/el-button>/)
   assert.match(scriptPanelSource, /isCanvasUserAbort/)
 })
 

@@ -65,7 +65,7 @@
         plain
         aria-label="取消生成参考图"
         @click.stop="abortGenerate"
-      >取消</el-button>
+      >取消生成参考图</el-button>
       <el-button size="small" plain aria-label="关联分镜" @click.stop="highlightRelated">关联分镜</el-button>
       <el-button size="small" type="danger" plain aria-label="删除资产" @click.stop="deleteAsset">删除</el-button>
     </div>

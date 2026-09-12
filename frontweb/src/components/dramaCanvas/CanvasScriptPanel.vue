@@ -84,7 +84,7 @@
         plain
         aria-label="取消提取"
         @click.stop="abortExtract"
-      >取消</el-button>
+      >取消提取</el-button>
     </div>
   </div>
 </template>
