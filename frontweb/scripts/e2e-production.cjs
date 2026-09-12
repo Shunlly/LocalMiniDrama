@@ -2913,18 +2913,16 @@ async function verifyFocusedDesktopAcceptance(browser, {
     await workflow.waitFor({ state: 'visible', timeout: 30000 })
     const sourceUrlInput = workflow.getByRole('textbox', { name: UI.sourceUrlLabel, exact: true })
     await sourceUrlInput.waitFor({ state: 'visible', timeout: 30000 })
-    await page.waitForFunction(() => {
+    await page.waitForFunction((label) => {
       const active = document.activeElement
       if (!active) return false
       if (!active.closest?.('#source-intake-workflow')) return false
-      return active.getAttribute('aria-label') === '网页 URL'
-        || Boolean(active.closest?.('[aria-label="网页 URL"]'))
-    }, { timeout: 30000 })
+      return active.getAttribute('aria-label') === label
+        || Boolean(active.closest?.(`[aria-label="${label}"]`))
+    }, UI.sourceUrlLabel, { timeout: 30000 })
     assert.equal(
-      await sourceUrlInput.evaluate((element) => {
-        const active = element.ownerDocument.activeElement
-        return active === element || Boolean(element.contains(active)) || Boolean(active?.closest?.('[aria-label="网页 URL"]'))
-      }),
+      await sourceUrlInput.evaluate((element) => element.ownerDocument.activeElement === element
+        || Boolean(element.contains(element.ownerDocument.activeElement))),
       true,
       'completed source-import workflow must focus the URL input',
     )
