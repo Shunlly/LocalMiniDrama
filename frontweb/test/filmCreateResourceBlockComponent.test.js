@@ -104,6 +104,8 @@ test('角色区块空剧本时提取按钮禁用，列表卡片仍可渲染', as
     assert.ok(extract)
     assert.equal(extract.props.disabled, true)
     assert.equal(extract.props.title, EMPTY_SCRIPT_REASON)
+    assert.equal(extract.props['data-variant'], 'primary')
+    assert.equal(extract.props['aria-label'], `剧本自动提取角色不可用：${EMPTY_SCRIPT_REASON}`)
     assert.match(textContent(mounted.root), /李华/)
     assert.match(textContent(mounted.root), /黑发/)
     assert.deepEqual(events, [])
@@ -123,3 +125,38 @@ test('三个资源区块组件都可以编译', () => {
     assert.doesNotThrow(() => compileScript(parsed.descriptor, { id }))
   }
 })
+
+test('\u6ca1\u6709\u89d2\u8272\u65f6\u533a\u5757\u5934\u63d0\u53d6\u4e0d\u518d\u662f primary\uff0c\u8bfb\u5c4f\u540d\u4ecd\u5305\u542b\u53ef\u89c1\u6587\u6848', async () => {
+  const mounted = mountHarness(renderer, () => h(FilmCreateCharacterBlock, {
+    characters: [],
+    characterGenerationDisabledReason: EMPTY_SCRIPT_REASON,
+    ...requiredFns(),
+  }))
+  try {
+    await nextTick()
+    const extract = buttonByText(mounted.root, '\u5267\u672c\u81ea\u52a8\u63d0\u53d6\u89d2\u8272')
+    assert.ok(extract)
+    assert.notEqual(extract.props['data-variant'], 'primary')
+    assert.equal(extract.props['aria-label'], `\u5267\u672c\u81ea\u52a8\u63d0\u53d6\u89d2\u8272\u4e0d\u53ef\u7528\uff1a${EMPTY_SCRIPT_REASON}`)
+    assert.match(textContent(extract), /\u5267\u672c\u81ea\u52a8\u63d0\u53d6\u89d2\u8272/)
+  } finally {
+    mounted.app.unmount()
+  }
+})
+
+test('\u89d2\u8272\u751f\u6210\u5931\u8d25\u4e0d\u518d\u628a HTTP \u72b6\u6001\u7801\u7ed9\u7528\u6237', async () => {
+  const mounted = mountHarness(renderer, () => h(FilmCreateCharacterBlock, {
+    characters: [{ id: 3, name: '\u674e\u534e', appearance: '\u9ed1\u53d1', error_msg: '\u751f\u6210\u5931\u8d25\uff08HTTP 503\uff09' }],
+    ...requiredFns(),
+    assetErrorText: () => '\u751f\u6210\u5931\u8d25\uff08HTTP 503\uff09',
+  }))
+  try {
+    await nextTick()
+    const pageText = textContent(mounted.root)
+    assert.match(pageText, /\u751f\u6210\u5931\u8d25/)
+    assert.doesNotMatch(pageText, /HTTP\s*503/i)
+  } finally {
+    mounted.app.unmount()
+  }
+})
+

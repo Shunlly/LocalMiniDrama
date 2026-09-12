@@ -107,6 +107,7 @@
       :reorder-pending="workflowOrderSaving"
       @select-group="setActiveGroupId"
       @reorder-storyboards="reorderWorkflowStoryboards"
+      @create-workflow="onCreateWorkflowGroup"
     />
   </aside>
 </template>
@@ -131,6 +132,7 @@ const props = defineProps({
   selectSidebarAsset: { type: Function, required: true },
   setActiveGroupId: { type: Function, required: true },
   reorderWorkflowStoryboards: { type: Function, required: true },
+  onCreateWorkflowGroup: { type: Function, default: () => {} },
 })
 
 function forceIndexByPrefix(items, prefix) {

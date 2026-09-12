@@ -72,6 +72,7 @@ function mountSidebar(initialProps = {}) {
     selectSidebarAsset: (id) => events.push(['select', id]),
     setActiveGroupId: (id) => events.push(['select-group', id]),
     reorderWorkflowStoryboards: (payload) => events.push(['reorder', payload]),
+    onCreateWorkflowGroup: () => events.push(['create-workflow']),
     ...initialProps,
   }
   const mounted = mountHarness(renderer, () => h(CanvasProductionSidebar, props))
@@ -96,11 +97,13 @@ test('制作侧栏空态展示暂无角色、场景、道具，并可新建', ()
     click(buttonByAriaLabel(harness.root, '新建角色'))
     click(buttonByAriaLabel(harness.root, '新建场景'))
     click(buttonByAriaLabel(harness.root, '新建道具'))
+    click(buttonByAriaLabel(harness.root, '去创建分组'))
     assert.deepEqual(harness.events, [
       ['focus-script'],
       ['create', 'character'],
       ['create', 'scene'],
       ['create', 'prop'],
+      ['create-workflow'],
     ])
   } finally {
     harness.app.unmount()

@@ -33,6 +33,7 @@
       :select-sidebar-asset="selectSidebarAsset"
       :set-active-group-id="setActiveGroupId"
       :reorder-workflow-storyboards="reorderWorkflowStoryboards"
+      :on-create-workflow-group="onCreateWorkflowGroup"
     />
 
     <div ref="canvasMainRef" class="canvas-main" @dragover="handleFreeCanvasDragOver" @drop="handleFreeCanvasDrop">
@@ -158,6 +159,7 @@ defineProps({
   selectSidebarAsset: { type: Function, required: true },
   setActiveGroupId: { type: Function, required: true },
   reorderWorkflowStoryboards: { type: Function, required: true },
+  onCreateWorkflowGroup: { type: Function, default: () => {} },
   handleFreeCanvasDragOver: { type: Function, required: true },
   handleFreeCanvasDrop: { type: Function, required: true },
   canvasViewportReady: { type: Boolean, default: false },

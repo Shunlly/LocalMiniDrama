@@ -53,6 +53,7 @@ export function createDramaCanvasWorkspaceBindings(ctx = {}) {
     selectSidebarAsset: ctx.selectSidebarAsset,
     setActiveGroupId: ctx.setActiveGroupId,
     reorderWorkflowStoryboards: ctx.reorderWorkflowStoryboards,
+    onCreateWorkflowGroup: ctx.onCreateWorkflowGroup,
     handleFreeCanvasDragOver: ctx.onFreeCanvasDragOver,
     handleFreeCanvasDrop: ctx.onFreeCanvasDrop,
     canvasViewportReady: ctx.canvasViewportReady,

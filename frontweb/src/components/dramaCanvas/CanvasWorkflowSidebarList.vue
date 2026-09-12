@@ -86,9 +86,15 @@
         </li>
       </ol>
     </section>
-    <div v-if="!workflowGroups.length" class="sidebar-workflow-empty">
+    <div v-if="!workflowGroups.length" class="sidebar-workflow-empty" role="status">
       <div class="workflow-empty-title">尚未创建工作流</div>
-      <p>从顶部工作流工具中框选分镜后创建分组，分组会显示在这里。</p>
+      <p>先框选分镜，再创建分组。分组会显示在这里。</p>
+      <button
+        type="button"
+        class="workflow-empty-action"
+        aria-label="去创建分组"
+        @click="emit('create-workflow')"
+      >去创建分组</button>
     </div>
   </div>
 </template>
@@ -105,7 +111,7 @@ const props = defineProps({
   reorderPending: { type: Boolean, default: false },
 })
 
-const emit = defineEmits(['select-group', 'reorder-storyboards'])
+const emit = defineEmits(['select-group', 'reorder-storyboards', 'create-workflow'])
 const draggedItem = ref(null)
 const dragTarget = ref(null)
 
@@ -395,5 +401,23 @@ function moveByKeyboard(groupId, index, delta, total) {
   color: var(--canvas-text-subtle, var(--text-subtle, #71717a));
   font-size: 10px;
   line-height: 1.5;
+}
+
+.workflow-empty-action {
+  display: inline-flex;
+  margin-top: 8px;
+  padding: 4px 8px;
+  border: 1px solid var(--canvas-indigo-strong, #818cf8);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--canvas-indigo-text, #a5b4fc);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.workflow-empty-action:focus-visible {
+  outline: 2px solid var(--canvas-focus-ring, #818cf8);
+  outline-offset: 2px;
 }
 </style>

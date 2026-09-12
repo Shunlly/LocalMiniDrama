@@ -161,6 +161,7 @@ export function createDramaCanvasPageBindings(ctx = {}) {
     selectSidebarAsset: ctx.selectSidebarAsset,
     setActiveGroupId: ctx.setActiveGroupId,
     reorderWorkflowStoryboards: ctx.reorderWorkflowStoryboards,
+    onCreateWorkflowGroup: ctx.onCreateWorkflowGroup,
     onFreeCanvasDragOver: ctx.onFreeCanvasDragOver,
     onFreeCanvasDrop: ctx.onFreeCanvasDrop,
     canvasViewportReady: ctx.canvasViewportReady,
