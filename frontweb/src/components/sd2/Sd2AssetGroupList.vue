@@ -2,8 +2,8 @@
   <div class="sd2-asset-group-list">
     <div class="panel-title">资产组</div>
     <div class="panel-actions">
-      <el-button type="primary" size="small" :loading="loadingGroups" :disabled="Boolean(refreshGroupsLockReason)" :title="refreshGroupsLockReason" :aria-label="loadingGroups ? '正在刷新资产组' : (refreshGroupsLockReason || '刷新资产组列表')" @click="refreshGroups">刷新列表</el-button>
-      <el-button type="success" size="small" :disabled="mutationLocked" :title="mutationLocked ? mutationLockReason : undefined" :aria-label="mutationLocked ? mutationLockReason : '新建资产组'" @click="openCreateGroup">新建组</el-button>
+      <el-button type="primary" size="small" :loading="loadingGroups" :disabled="Boolean(refreshGroupsLockReason)" :title="refreshGroupsLockReason" :aria-label="loadingGroups ? '正在刷新资产组' : (refreshGroupsLockReason || '刷新资产组列表')" @click="refreshGroups">刷新资产组列表</el-button>
+      <el-button type="success" size="small" :disabled="mutationLocked" :title="mutationLocked ? mutationLockReason : undefined" :aria-label="mutationLocked ? mutationLockReason : '新建资产组'" @click="openCreateGroup">新建资产组</el-button>
     </div>
     <el-table
       :data="groupRows"

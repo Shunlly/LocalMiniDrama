@@ -3,7 +3,7 @@
     <div class="panel-title">资产（需组编号）</div>
     <div class="panel-actions row-gap">
       <Sd2AssetFilter v-model="assetGroupIdInput" />
-      <el-button type="primary" size="small" :loading="loadingAssets" :disabled="Boolean(refreshAssetsLockReason)" :title="refreshAssetsLockReason" :aria-label="loadingAssets ? '正在刷新资产列表' : (refreshAssetsLockReason || '刷新资产列表')" @click="refreshAssets">刷新</el-button>
+      <el-button type="primary" size="small" :loading="loadingAssets" :disabled="Boolean(refreshAssetsLockReason)" :title="refreshAssetsLockReason" :aria-label="loadingAssets ? '正在刷新资产列表' : (refreshAssetsLockReason || '刷新资产列表')" @click="refreshAssets">刷新资产列表</el-button>
       <el-button type="success" size="small" :disabled="mutationLocked" :title="mutationLocked ? mutationLockReason : undefined" :aria-label="mutationLocked ? mutationLockReason : '新建资产'" @click="openCreateAsset">新建资产</el-button>
     </div>
     <el-table :data="assetRows" size="small" stripe max-height="320">
