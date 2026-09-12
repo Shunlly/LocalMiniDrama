@@ -66,6 +66,7 @@ const gitignoreSource = readFileSync(new URL('../../.gitignore', import.meta.url
 const pipelinePanelSource = readFileSync(new URL('../src/components/filmCreate/FilmCreatePipelinePanel.vue', import.meta.url), 'utf8')
 const deliveryStageSource = normalizeNewlines(readFileSync(new URL('../src/components/sourceIntake/SourceIntakeDeliveryStageCard.vue', import.meta.url), 'utf8'))
 const processStageSource = normalizeNewlines(readFileSync(new URL('../src/components/sourceIntake/SourceIntakeProcessStageCard.vue', import.meta.url), 'utf8'))
+const filmCreateHeaderSource = normalizeNewlines(readFileSync(new URL('../src/components/filmCreate/FilmCreateHeader.vue', import.meta.url), 'utf8'))
 
 function sourceFunction(name) {
   const value = productionE2e[name]
@@ -2788,6 +2789,10 @@ test('browser acceptance contract covers the full UI journey, recovery, download
   assert.match(productionSource, /getByText\(`\$\{expectedTrackCount\} \\u8f68`/)
   assert.match(productionSource, /expectedTrackCount: timelineEvidence\.tracks/)
   assert.match(productionSource, /getByRole\('button', \{ name: UI\.continueImport, exact: true \}\)\.click\(\)/)
+  assert.match(productionSource, /returnToDrama:\s*'\\u8fd4\\u56de\\u5267\\u96c6'/)
+  assert.match(productionSource, /getByRole\('button', \{ name: UI\.returnToDrama, exact: true \}\)\.click\(\)/)
+  assert.match(filmCreateHeaderSource, /aria-label="\u8fd4\u56de\u5267\u96c6"/)
+  assert.match(filmCreateHeaderSource, />\s*\u8fd4\u56de\u5267\u96c6\s*<\/el-button>/)
   assert.match(productionSource, /getByRole\('button', \{ name: UI\.enterProduction/)
   assert.match(productionSource, /getByTestId\('source-workflow-complete'\)/)
   assert.match(productionSource, /completion\.getByRole\('button', \{ name: UI\.enterProduction, exact: true \}\)/)

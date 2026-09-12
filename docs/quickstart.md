@@ -29,7 +29,7 @@
 - 生产也可先 `npm --prefix frontweb run build`，由后端在 5679 托管 `frontweb/dist`（`WEB_DIST_PATH` 可覆盖）。Docker 生产前端由 Nginx 提供静态页
 - 开发模式下回环 Origin 可通过；`config.yaml` 默认 CORS 白名单仍是 `http://localhost:3013` 与 `http://127.0.0.1:3013`。生产 Docker CORS 跟随前端宿主机端口（Compose 按 `LOCALMINIDRAMA_FRONTEND_HOST_PORT` 写入 `LOCALMINIDRAMA_CORS_ORIGINS`，宿主机再设同名变量盖不掉），不会自动放行任意回环端口
 - 官方 `docker compose up -d --build --wait` 默认映射 `127.0.0.1:3013` 和 `127.0.0.1:5679`，会和源码 `npm run dev` 抢端口，也会撞同一 `backend-node/data`。这两个端口已被占用时不要再起官方 Compose。并存请改 `LOCALMINIDRAMA_FRONTEND_HOST_PORT` / `LOCALMINIDRAMA_BACKEND_HOST_PORT`，并给 Docker 单独的 `LOCALMINIDRAMA_DATA_DIR`。Compose 会按前端宿主机端口写入 `LOCALMINIDRAMA_CORS_ORIGINS`（这是 Compose 字面量，宿主机再设同名变量盖不掉）。对改端口的实例跑 E2E 时还须设置 `FRONTEND_URL` / `BACKEND_URL`。官方默认仍是 `3013`/`5679`；`23013`/`25679` 只属于旧 candidate 覆盖，不是当前默认值。`npm run docker:e2e:up` 只隔离仓库外 `LOCALMINIDRAMA_DATA_DIR`，不换 `3013`/`5679`，另外占用 `127.0.0.1:5688`
-- 根目录、后端、前端、Docker 与通用 PR/分支门禁用 Node.js 20.x；桌面依赖安装、原生重建、打包和 Windows 制品安全扫描用 Node.js 22.12.0（`desktop/.npmrc` 启用 `engine-strict`）
+- 根目录、后端、前端、Docker 与通用 PR/分支门禁使用 Node.js 20.x；桌面依赖安装、原生重建、打包和 Windows 制品安全扫描用 Node.js 22.12.0（`desktop/.npmrc` 启用 `engine-strict`）
 - `configs/config.yaml` 已随仓库提供；启动时执行 `runMigrationsAndEnsure`，一般不必手动 `npm run migrate`
 - 未配置外部 API Key 也可以启动和开发界面；真正生成内容到「AI 配置」页填写。厂商预设填表不等于真实图片/视频/TTS 接入已跑通
 - 故事素材可上传 PDF/图片/音视频：文本可直接导入；PDF/图片需要图片识别（可本机 Tesseract 或 AI 配置 OCR）；音视频需要语音转写配置。OCR/转写是素材抽取扩展，不是成片就绪条件

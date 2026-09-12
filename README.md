@@ -47,7 +47,7 @@
 - 前端 `frontweb`：开发用 Vite，端口 **3013**，代理 `/api`、`/static`、`/ready` 与 `/health`；开发 Vite 没有 `/healthz`
 - 生产也可先构建前端，由后端在 **5679** 托管 `frontweb/dist`（可用 `WEB_DIST_PATH` 覆盖）；Docker 生产前端则由 Nginx 提供静态页
 - 语言：纯 JavaScript，无 TypeScript
-- 根目录、后端、前端、Docker 与通用 PR/分支门禁用 Node.js 20.x（`.nvmrc` 为 `20`）；桌面依赖安装、原生重建、打包和 Windows 制品安全扫描用 Node.js 22.12.0（`desktop/.npmrc` 启用 `engine-strict`）
+- 根目录、后端、前端、Docker 与通用 PR/分支门禁使用 Node.js 20.x（`.nvmrc` 为 `20`）；桌面依赖安装、原生重建、打包和 Windows 制品安全扫描用 Node.js 22.12.0（`desktop/.npmrc` 启用 `engine-strict`）
 - 日常 Docker：`docker compose up -d --build --wait`。Compose **不 bind-mount 应用源码**，改完代码必须重建镜像；容器级校验：根目录 `npm run verify:docker`
 - 官方 `docker compose up -d --build --wait` 默认映射 `127.0.0.1:3013` 和 `127.0.0.1:5679`，会和源码 `npm run dev` 抢端口，也会撞同一 `backend-node/data`。这两个端口已被占用时不要再起官方 Compose。并存请改 `LOCALMINIDRAMA_FRONTEND_HOST_PORT` / `LOCALMINIDRAMA_BACKEND_HOST_PORT`，并给 Docker 单独的 `LOCALMINIDRAMA_DATA_DIR`；Compose 会按前端宿主机端口写入 `LOCALMINIDRAMA_CORS_ORIGINS`（这是 Compose 字面量，宿主机再设同名变量盖不掉）。对改端口的实例跑 E2E 时，还须设置 `FRONTEND_URL` / `BACKEND_URL`。官方默认仍是 `3013`/`5679`；`23013`/`25679` 只属于旧 candidate 覆盖，不是当前默认值。`npm run docker:e2e:up` 只隔离仓库外 `LOCALMINIDRAMA_DATA_DIR`，不换 `3013`/`5679`，另外占用 `127.0.0.1:5688`
 - 开发模式下回环 Origin 可通过；生产 Docker CORS 跟随前端宿主机端口
