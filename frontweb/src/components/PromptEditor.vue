@@ -26,8 +26,20 @@
 
       <el-empty
         v-if="hasSuccessfulLoad && !loadError && !prompts.length"
-        description="暂无系统提示词"
-      />
+        description="暂无系统提示词。这些提示词来自系统预置，可重新加载后再试。"
+      >
+        <el-button
+          size="small"
+          plain
+          :loading="loading"
+          :disabled="loading"
+          :title="loading ? '正在重新加载提示词，请稍候' : undefined"
+          aria-label="重新加载提示词"
+          @click="load"
+        >
+          重新加载
+        </el-button>
+      </el-empty>
 
       <div v-else-if="hasSuccessfulLoad" class="editor-layout">
         <PromptEditorSidebar

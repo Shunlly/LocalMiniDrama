@@ -180,7 +180,7 @@
       </el-row>
 
       <el-form-item label="空间布局锚点（首尾帧人物站位合同）">
-        <div style="display:flex; gap:8px; align-items:flex-start; width:100%">
+        <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:flex-start; width:100%; min-width:0">
           <el-input
             v-model="sbLayoutDescription[videoParamsTarget.id]"
             type="textarea"
@@ -193,7 +193,7 @@
             size="small"
             :loading="regeneratingLayoutSbIds.has(videoParamsTarget.id)" :title="regeneratingLayoutSbIds.has(videoParamsTarget.id) ? '正在重新生成布局描述，请稍候' : undefined"
             :aria-label="regeneratingLayoutSbIds.has(videoParamsTarget.id) ? '正在重新生成布局描述，请稍候' : '重新生成布局描述'" @click="onRegenerateLayoutDescription(videoParamsTarget)"
-            style="margin-top:4px; white-space:nowrap"
+            style="margin-top:4px; white-space:normal"
           >
             AI 重新生成/优化
           </el-button>

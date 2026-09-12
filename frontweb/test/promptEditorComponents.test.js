@@ -203,7 +203,7 @@ test('提示词页加载失败显示重试，成功空列表才显示空态', as
     await Promise.resolve()
     await nextTick()
     assert.match(textContent(empty.root), /暂无系统提示词/)
-    assert.equal(buttonByAriaLabel(empty.root, '重新加载提示词'), undefined)
+    assert.ok(buttonByAriaLabel(empty.root, '重新加载提示词'))
   } finally {
     empty.app.unmount()
   }
