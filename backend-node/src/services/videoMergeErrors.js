@@ -19,7 +19,15 @@ function describePostProcessFailure(error) {
   return error || '未生成输出文件';
 }
 
+function isTimeoutError(error) {
+  if (!error || typeof error !== 'object') return false;
+  if (error.isTimeout === true || error.name === 'TimeoutError') return true;
+  const code = String(error.code || '');
+  return code === 'ETIMEDOUT' || code === 'ECONNABORTED' || code === 'TIMEOUT';
+}
+
 function isOperationCancelled(error, signal) {
+  if (isTimeoutError(error) || isTimeoutError(error?.cause) || isTimeoutError(signal?.reason)) return false;
   return signal?.aborted || error?.code === 'OPERATION_CANCELLED' || error?.name === 'AbortError';
 }
 

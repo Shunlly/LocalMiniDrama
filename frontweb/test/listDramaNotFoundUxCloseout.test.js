@@ -46,6 +46,8 @@ test('新建空白项目落到分集列表，0 集卡片只说去创建剧集', 
   assert.match(gridSource, /projectCardContinueLabel\(d, sourceImportIntent\)/)
   assert.match(gridSource, /projectCardOpenLabel\(d, sourceImportIntent\)/)
   assert.doesNotMatch(gridSource, /d\.episodes && d\.episodes\.length/)
+  assert.match(gridSource, /countProjectEpisodes\(d\)/)
+  assert.doesNotMatch(gridSource, /d\.episodes\?\.length/)
 })
 
 test('项目列表写锁禁用原因挂到 aria-describedby，空态可被读屏听到', () => {
@@ -61,4 +63,24 @@ test('项目列表写锁禁用原因挂到 aria-describedby，空态可被读屏
   assert.match(trashSource, /关闭后可回到项目列表新建或导入项目/)
   assert.match(episodeListSource, /role="status" aria-live="polite"/)
   assert.match(episodeListSource, /create_blank_episode/)
+  assert.match(dramaHeaderSource, /id="drama-header-episode-reason"/)
+  assert.match(dramaHeaderSource, /:aria-describedby="currentEpisodeId \? undefined : 'drama-header-episode-reason'"/)
+  assert.match(filmList.view, /确定新建项目不可用：\$\{newSubmitDisabledReason\}/)
+  assert.match(filmList.view, /保存项目不可用：\$\{editSubmitDisabledReason\}/)
+  assert.match(toolbarSource, /导入示例项目\$\{ex\.name\}不可用：\$\{listWriteLockReason\}/)
+  assert.match(filmList.banners, /重试导出不可用：正在导出其他项目，请稍候/)
+  assert.match(filmList.banners, /关闭导入失败提示不可用：正在导入项目包，请稍候/)
+  assert.match(trashSource, /恢复项目「\$\{item\.title \|\| '未命名项目'\}」不可用/)
+  assert.match(gridSource, /导出项目不可用：正在导出该项目，请稍候/)
+  assert.match(gridSource, /编辑项目不可用：\$\{listWriteLockReason\}/)
+  assert.match(gridSource, /移入回收站不可用：\$\{listWriteLockReason\}/)
+})
+
+test('剧集状态和项目卡片未知英文会收成中文', () => {
+  const dramaDetailSource = read('../src/views/DramaDetail.vue')
+  assert.match(dramaDetailSource, /未知状态/)
+  assert.match(dramaDetailSource, /generating: '生成中'/)
+  assert.match(filmList.formatters, /未知状态/)
+  assert.match(filmList.formatters, /未知风格/)
+  assert.match(filmList.formatters, /未知类型/)
 })

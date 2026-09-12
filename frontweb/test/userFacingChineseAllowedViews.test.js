@@ -329,7 +329,7 @@ test('素材中心、剧详情、剧本生成和任务轮询的反馈文案保�
   assert.match(dramaDetailCombinedSource, /aria-label="新增空白集"/)
   assert.match(dramaDetailSource, /ElMessage\.warning\('请先新增一集，再进入制作'\)/)
   assert.match(dramaDetailDialogsSource, /title="编辑制作角色"/)
-  assert.match(dramaDetailSource, /draft: '草稿', processing: '生成中', completed: '剧本已就绪', failed: '失败'/)
+  assert.match(dramaDetailSource, /draft: '草稿', processing: '生成中', generating: '生成中', completed: '剧本已就绪', failed: '失败', published: '已发布'/)
 
   assert.match(storyGenerationSource, /ElMessage\.warning\('请先输入故事梗概'\)/)
   assert.match(storyGenerationSource, /ElMessage\.error\('未能启动剧本生成任务'\)/)

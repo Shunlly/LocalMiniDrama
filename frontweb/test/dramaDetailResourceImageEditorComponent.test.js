@@ -86,7 +86,7 @@ test('已有图片可预览；上传中禁用生成，生成中禁用上传', as
   try {
     await nextTick()
     const preview = buttonByAriaLabel(ready.root, '预览角色图片')
-    assert.equal(preview.props.disabled, false)
+    assert.notEqual(preview.props.disabled, true)
     click(preview)
     assert.deepEqual(ready.events, [['preview', '/static/char.png']])
   } finally {

@@ -47,7 +47,7 @@ function assertDistinctScopeIds(dramaId, videoGenId, taskId) {
 
 describe('videoGateway 轮询取消控制', () => {
   it('取消/延迟辅助函数已从 videoClient 拆到 pollControl，即梦同步短路留在 pollTask', () => {
-    assert.ok(VIDEO_CLIENT_POLL_SRC.includes("require('./videoGateway/pollControl')"));
+    assert.ok(VIDEO_POLL_TASK_SRC.includes("require('./pollControl')"));
     assert.doesNotMatch(VIDEO_CLIENT_SRC, /function isVideoPollCancelled\s*\(/);
     assert.doesNotMatch(VIDEO_CLIENT_SRC, /function throwVideoTaskCancelled\s*\(/);
     assert.doesNotMatch(VIDEO_CLIENT_SRC, /function throwIfVideoPollAborted\s*\(/);

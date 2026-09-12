@@ -69,8 +69,7 @@ function createVideoServiceProcessNormalize(deps = {}) {
         }
       }
       log.warn('Download video error', { videoGenId, error: e.message });
-      if (isTaskCancellation(e) || networkOptions.signal?.aborted) throw e;
-      return null;
+      throw e;
     }
   }
 

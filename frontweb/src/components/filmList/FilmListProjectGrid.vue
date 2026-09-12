@@ -36,7 +36,7 @@
               <p class="project-desc">{{ d.description || '暂无描述' }}</p>
               <div class="project-card-stats" aria-label="项目概览">
                 <span class="project-stat">
-                  <strong>{{ d.episodes?.length || 0 }}</strong>
+                  <strong>{{ countProjectEpisodes(d) }}</strong>
                   <span>集</span>
                 </span>
                 <span class="project-stat">
@@ -106,6 +106,7 @@
 // 项目卡片网格：封面、继续制作入口和卡片操作菜单
 import { Edit, Delete, PictureFilled, Download, Files, MoreFilled, ArrowRight } from '@element-plus/icons-vue'
 import { projectCardContinueLabel, projectCardOpenLabel } from '@/utils/sourceImportNavigation.js'
+import { countProjectEpisodes } from './filmListFormatters.js'
 
 defineProps({
   filteredDramas: { type: Array, default: () => [] },

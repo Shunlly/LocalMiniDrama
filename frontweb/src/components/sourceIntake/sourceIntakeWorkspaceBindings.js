@@ -136,6 +136,7 @@ export function createSourceIntakeWorkspaceComputeds({
     if (!localized) return ''
     return toUserFacingError(localized, '处理失败，请稍后重试。')
   })
+  // 处理失败的抽取下一步必须随计算值返回，否则处理阶段绑定拿不到按钮。
   const extractionNextStep = computed(() => {
     const latestSource = Array.isArray(sources.value) ? sources.value[0] : null
     return resolveSourceIntakeExtractionNextStep(

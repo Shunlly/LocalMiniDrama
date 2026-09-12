@@ -97,6 +97,14 @@ export function totalStoryboards(d) {
   return (d.episodes || []).reduce((sum, ep) => sum + (ep.storyboards?.length || 0), 0)
 }
 
+export function countProjectEpisodes(project) {
+  const episodes = Array.isArray(project?.episodes) ? project.episodes : []
+  return episodes.filter((episode) => {
+    const id = Number(episode?.id)
+    return Number.isInteger(id) && id > 0
+  }).length
+}
+
 export function normalizeImportFailureFilename(name) {
   let fileName = String(name || '')
     .split(/[\\/]/)

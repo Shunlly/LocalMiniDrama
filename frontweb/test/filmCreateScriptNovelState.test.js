@@ -185,7 +185,7 @@ test('制作页把剧本状态交给 composable，并继续传给既有工作台
   )
   assert.match(
     filmCreateSource,
-    /useFilmCreateProjectLoad\(\{[\s\S]*scriptTitle,[\s\S]*selectedEpisodeId,[\s\S]*savedCurrentEpisodeNumber,[\s\S]*storyInput/,
+    /useFilmCreateProjectSession\(\{[\s\S]*scriptTitle,[\s\S]*selectedEpisodeId,[\s\S]*savedCurrentEpisodeNumber,[\s\S]*storyInput/,
   )
   assert.match(
     filmCreateSource,

@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import { defineComponent, h, nextTick } from 'vue'
+import { projectCardDestination as resolveProjectCardDestination } from '../src/utils/sourceImportNavigation.js'
 
 import {
   buttonByAriaLabel,
@@ -25,12 +26,14 @@ const iconStubUrl = compileIconStub([
   'MoreFilled',
   'PictureFilled',
 ])
+const formattersUrl = new URL('../src/components/filmList/filmListFormatters.js', import.meta.url).href
 const FilmListProjectGrid = await loadCompiledSfc(
   gridUrl,
   'film-list-project-grid-component',
   new Map([
     ['vue', vueUrl],
     ['@element-plus/icons-vue', iconStubUrl],
+    ['./filmListFormatters.js', formattersUrl],
   ]),
 )
 
@@ -55,8 +58,9 @@ const RouterLinkStub = defineComponent({
 const ElDropdownItemStub = defineComponent({
   name: 'ElDropdownItemStub',
   props: ['command', 'disabled', 'divided', 'title'],
-  setup(props, { slots }) {
+  setup(props, { slots, attrs }) {
     return () => h('button', {
+      ...attrs,
       type: 'button',
       'data-command': props.command,
       disabled: Boolean(props.disabled),
@@ -82,10 +86,11 @@ function mountGrid(initial = {}) {
     exportingId: initial.exportingId ?? null,
     listWriteLocked: Boolean(initial.listWriteLocked),
     listWriteLockReason: initial.listWriteLockReason ?? '',
-    projectCardDestination: initial.projectCardDestination ?? ((drama) => ({
-      name: drama.episodes?.length ? 'film' : 'drama-detail',
-      params: { id: drama.id },
-    })),
+    projectCardDestination: initial.projectCardDestination ?? ((drama) => resolveProjectCardDestination(
+      drama,
+      Boolean(initial.sourceImportIntent),
+      initial.projectListReturnTo ?? '/',
+    )),
     projectCoverUrl: (drama) => drama.cover_url || '',
     projectCoverAlt: (drama) => drama.title || '未命名项目',
     markProjectCoverError: (drama) => events.push(['cover-error', drama.id]),
@@ -170,6 +175,9 @@ test('写锁时编辑和移入回收站展示中文原因', async () => {
     assert.equal(trashed.props.disabled, true)
     assert.equal(edited.props.title, WRITE_LOCK_REASON)
     assert.equal(trashed.props.title, WRITE_LOCK_REASON)
+    assert.equal(exported.props['aria-label'], '导出项目不可用：正在导出该项目，请稍候')
+    assert.equal(edited.props['aria-label'], `编辑项目不可用：${WRITE_LOCK_REASON}`)
+    assert.equal(trashed.props['aria-label'], `移入回收站不可用：${WRITE_LOCK_REASON}`)
     assert.match(textContent(exported), /导出项目/)
     assert.match(textContent(edited), /编辑项目/)
     assert.match(textContent(trashed), /移入回收站/)
@@ -215,8 +223,13 @@ test('无效剧集编号的卡片仍显示去创建剧集，不误写成继续�
     await nextTick()
     assert.match(textContent(harness.root), /去创建剧集/)
     assert.doesNotMatch(textContent(harness.root), /继续制作/)
+    assert.match(textContent(harness.root), /0/)
+    assert.doesNotMatch(textContent(harness.root), /1 集/)
     const card = linkByAriaLabel(harness.root, '打开项目「残本」，去创建剧集')
     assert.ok(card, '缺少去创建剧集读屏名称')
+    assert.match(textContent(harness.root), /0\s*集/)
+    assert.doesNotMatch(textContent(harness.root), /1\s*集/)
+    assert.equal(JSON.parse(card.props['data-to']).hash, '#episode-list')
   } finally {
     harness.app.unmount()
   }

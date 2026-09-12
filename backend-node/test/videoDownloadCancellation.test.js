@@ -71,3 +71,42 @@ test('视频下载传播取消信号，并删除取消决议前已落盘但未�
     { status: 'processing', video_url: null, local_path: null }
   );
 });
+
+test('视频下载超时不得标成 completed', async (t) => {
+  const storageRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'lmd-video-timeout-'));
+  t.after(() => fs.rmSync(storageRoot, { recursive: true, force: true }));
+  const db = new Database(':memory:');
+  t.after(() => db.close());
+  db.exec(`
+    CREATE TABLE video_generations (
+      id INTEGER PRIMARY KEY, status TEXT, video_url TEXT, local_path TEXT,
+      completed_at TEXT, updated_at TEXT, error_message TEXT
+    );
+    CREATE TABLE storyboards (
+      id INTEGER PRIMARY KEY, video_url TEXT, video_local_path TEXT,
+      updated_at TEXT, deleted_at TEXT
+    );
+    INSERT INTO video_generations (id, status) VALUES (8, 'processing');
+  `);
+
+  t.mock.method(config, 'loadConfig', () => ({ storage: { local_path: storageRoot } }));
+  t.mock.method(storageLayout, 'getProjectStorageSubdir', () => 'projects/1');
+  t.mock.method(uploadService, 'validatePublicHttpUrl', async (url) => ({ url }));
+  t.mock.method(uploadService, 'downloadBufferViaNodeHttp', async () => {
+    const error = new Error('安全 HTTP 请求超时');
+    error.name = 'TimeoutError';
+    error.isTimeout = true;
+    throw error;
+  });
+
+  const row = { task_id: null, drama_id: 1, storyboard_id: null };
+  await videoService.finalizeSuccessfulVideo(
+    db, log, 8, row, row, 'https://provider.example/video.mp4', '',
+    { is_active: 1, base_url: 'https://provider.example' }
+  );
+
+  const saved = db.prepare('SELECT status, video_url, local_path FROM video_generations WHERE id = 8').get();
+  assert.equal(saved.status, 'failed');
+  assert.equal(saved.video_url, null);
+  assert.equal(saved.local_path, null);
+});

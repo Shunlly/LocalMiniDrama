@@ -16,6 +16,10 @@ import {
   createFilmCreateShellBindingSources,
   createFilmCreateShellBindings,
 } from '../src/components/filmCreate/filmCreateShellBindings.js'
+import { useFilmCreateProductionRuntime } from '../src/composables/filmCreate/useFilmCreateProductionRuntime.js'
+import { useFilmCreateProjectSession } from '../src/composables/filmCreate/useFilmCreateProjectSession.js'
+import { useFilmCreateResourceActions } from '../src/composables/filmCreate/useFilmCreateResourceActions.js'
+import { useFilmCreateStoryboardMediaAccess } from '../src/composables/filmCreate/useFilmCreateStoryboardMediaAccess.js'
 
 import { requestCoreJson } from '../src/utils/coreJsonRequest.js'
 import {
@@ -228,6 +232,13 @@ test('制作页页头/流水线/侧栏调用名仍在 vue，BindingSources 已�
   assert.match(filmCreateSource, /\.\.\.scriptNovelState,/)
   assert.match(filmCreateSource, /\.\.\.scriptActions,/)
   assert.doesNotMatch(filmCreateSource, /charLibraryList/)
+  assert.match(filmCreateSource, /useFilmCreateProductionRuntime\(/)
+  assert.match(filmCreateSource, /useFilmCreateProjectSession\(/)
+  assert.match(filmCreateSource, /useFilmCreateResourceActions\(/)
+  assert.match(filmCreateSource, /useFilmCreateStoryboardMediaAccess\(/)
+  assert.doesNotMatch(filmCreateSource, /useFilmCreatePipelineRun\(/)
+  assert.doesNotMatch(filmCreateSource, /useFilmCreateTaskPolling\(/)
+  assert.doesNotMatch(filmCreateSource, /useFilmCreateWorkspaceBootstrap\(/)
   assert.match(surfaceBindingsSource, /createFilmCreateSurfaceBindingSources\(ctx\)/)
   assert.match(shellBindingsSource, /createFilmCreateShellBindingSources\(ctx\)/)
   assert.match(closeoutBindingsSource, /useFilmCreateWorkspaceBootstrap\(\{/)
@@ -612,5 +623,211 @@ test('制作页把分镜预备、剧本动作、分镜动作和流水线接线�
   assert.doesNotMatch(scriptActionsSource, /loadList|openTest/)
   assert.doesNotMatch(storyboardActionsSource, /loadList|openTest/)
   assert.doesNotMatch(pipelineActionsSource, /loadList|openTest/)
+})
+
+test('制作页把生产运行时、资源动作、分镜媒体和项目会话交给独立模块', () => {
+  const filmCreateSource = readFileSync(new URL('../src/views/FilmCreate.vue', import.meta.url), 'utf8')
+  const runtimeSource = readFileSync(new URL('../src/composables/filmCreate/useFilmCreateProductionRuntime.js', import.meta.url), 'utf8')
+  const resourceSource = readFileSync(new URL('../src/composables/filmCreate/useFilmCreateResourceActions.js', import.meta.url), 'utf8')
+  const mediaSource = readFileSync(new URL('../src/composables/filmCreate/useFilmCreateStoryboardMediaAccess.js', import.meta.url), 'utf8')
+  const sessionSource = readFileSync(new URL('../src/composables/filmCreate/useFilmCreateProjectSession.js', import.meta.url), 'utf8')
+  const closeoutBindingsSource = readFileSync(new URL('../src/components/filmCreate/filmCreateCloseoutBindings.js', import.meta.url), 'utf8')
+  assert.match(filmCreateSource, /createFilmCreateCloseoutBindings\(/)
+  assert.match(filmCreateSource, /onMounted\(mountWorkspace\)/)
+  assert.match(filmCreateSource, /onBeforeUnmount\(unmountWorkspace\)/)
+  assert.match(filmCreateSource, /onBeforeRouteLeave\(allowNavigationAfterDraftFlush\)/)
+  assert.match(filmCreateSource, /useFilmCreateActionDisabledReasons\(\{[\s\S]*scriptContent/)
+  assert.match(filmCreateSource, /useFilmCreatePipelineActions\(\{[\s\S]*composeActionDisabledReason/)
+  assert.match(filmCreateSource, /useFilmCreateProductionRuntime\(/)
+  assert.match(filmCreateSource, /useFilmCreateResourceActions\(/)
+  assert.match(filmCreateSource, /useFilmCreateStoryboardMediaAccess\(/)
+  assert.match(filmCreateSource, /useFilmCreateProjectSession\(/)
+  assert.match(filmCreateSource, /get storyboardMediaActionReason\(\)/)
+  assert.doesNotMatch(filmCreateSource, /useFilmCreateWorkspaceBootstrap\(/)
+  assert.doesNotMatch(filmCreateSource, /useFilmCreateTaskPolling\(/)
+  assert.doesNotMatch(filmCreateSource, /useFilmCreatePipelineRun\(/)
+  assert.doesNotMatch(filmCreateSource, /useFilmCreateResourceGenerate\(/)
+  assert.doesNotMatch(filmCreateSource, /useFilmCreateResourceUpload\(/)
+  assert.doesNotMatch(filmCreateSource, /useFilmCreateStoryboardMedia\(/)
+  assert.doesNotMatch(filmCreateSource, /useFilmCreateStoryboardAccessors\(/)
+  assert.doesNotMatch(filmCreateSource, /useFilmCreateProjectLoad\(/)
+  assert.doesNotMatch(filmCreateSource, /createEpisodeSwitchController\(/)
+  assert.doesNotMatch(filmCreateSource, /useFilmCreateAiConfigDialogState\(\)[\s\S]{0,80}loadList/)
+  assert.doesNotMatch(filmCreateSource, /\bloadList\b|\bopenTest\b/)
+  assert.match(closeoutBindingsSource, /useFilmCreateWorkspaceBootstrap\(\{/)
+  assert.match(runtimeSource, /export function useFilmCreateProductionRuntime/)
+  assert.match(runtimeSource, /useFilmCreateTaskPolling\(ctx\)/)
+  assert.match(runtimeSource, /useFilmCreatePipelineRun\(\{/)
+  assert.match(runtimeSource, /get storyboardMediaActionReason\(\)/)
+  assert.match(resourceSource, /export function useFilmCreateResourceActions/)
+  assert.match(resourceSource, /useFilmCreateResourceGenerate\(ctx\)/)
+  assert.match(resourceSource, /useFilmCreateResourceUpload\(ctx\)/)
+  assert.match(mediaSource, /export function useFilmCreateStoryboardMediaAccess/)
+  assert.match(mediaSource, /useFilmCreateStoryboardMedia\(\{/)
+  assert.match(mediaSource, /useFilmCreateStoryboardAccessors\(\{/)
+  assert.match(sessionSource, /export function useFilmCreateProjectSession/)
+  assert.match(sessionSource, /createEpisodeSwitchController\(\{/)
+  assert.match(sessionSource, /useFilmCreateProjectLoad\(\{/)
+  assert.doesNotMatch(runtimeSource, /loadList|openTest/)
+  assert.doesNotMatch(resourceSource, /loadList|openTest/)
+  assert.doesNotMatch(mediaSource, /loadList|openTest/)
+  assert.doesNotMatch(sessionSource, /loadList|openTest/)
+})
+
+test('生产运行时只装配已有轮询和流水线，不提前读取媒体门闩', () => {
+  let getterCalls = 0
+  const reason = { value: '当前集还没有剧本，请先编写或导入剧本' }
+  const currentEpisodeId = ref(22)
+  const dramaId = ref(11)
+  const scope = effectScope()
+  try {
+    const api = scope.run(() => useFilmCreateProductionRuntime({
+      genStore: { pollTask() { return 'poll' } },
+      dramaId,
+      currentEpisodeId,
+      store: { drama: { title: '项目' }, currentEpisode: { episode_number: 1 } },
+      ElMessage: {},
+      loadDrama() {},
+      videoClipDuration: ref(5),
+      taskAPI: {},
+      trackFilmCreateAction() {},
+      getStoryboardCountForApi: () => 0,
+      get storyboardMediaActionReason() {
+        getterCalls += 1
+        return reason
+      },
+    }))
+    assert.equal(getterCalls, 0)
+    assert.equal(typeof api.pollTask, 'function')
+    assert.equal(typeof api.executeOwnedPipelineRun, 'function')
+    assert.equal(api.pipelineRunning.value, false)
+    assert.equal(currentEpisodeId.value, 22)
+    assert.notEqual(currentEpisodeId.value, dramaId.value)
+    assert.equal(reason.value, '当前集还没有剧本，请先编写或导入剧本')
+  } finally {
+    scope.stop()
+  }
+})
+
+test('资源动作只包装已有生成和上传，不改空剧本门闩', async () => {
+  const calls = []
+  const currentEpisodeId = ref(22)
+  const api = useFilmCreateResourceActions({
+    store: { currentEpisode: { characters: [], scenes: [] }, props: [] },
+    trackFilmCreateAction: (name) => calls.push(name),
+    onGenerateCharactersRaw: async () => { calls.push('raw-char') },
+    onExtractPropsRaw: async () => { calls.push('raw-prop') },
+    onExtractScenesRaw: async () => { calls.push('raw-scene') },
+    dramaId: ref(11),
+    uploadAPI: {},
+    characterAPI: {},
+    propAPI: {},
+    sceneAPI: {},
+    loadDrama: async () => {},
+    resourceUploadType: ref(null),
+    resourceUploadId: ref(null),
+    resourceImageFileInput: ref(null),
+    uploadingResourceId: ref(null),
+  })
+  await api.onGenerateCharacters()
+  assert.deepEqual(calls, ['generate_characters_click', 'raw-char', 'generate_characters_complete'])
+  assert.equal(typeof api.doUploadResourceImage, 'function')
+  assert.equal(currentEpisodeId.value, 22)
+})
+
+test('分镜媒体访问器只映射已有状态，不改 episodeId', () => {
+  const currentEpisodeId = ref(22)
+  const dramaId = ref(11)
+  const scope = effectScope()
+  try {
+    const api = scope.run(() => useFilmCreateStoryboardMediaAccess({
+      dramaId,
+      currentEpisodeId,
+      getStoryboards: () => [],
+      imagesAPI: { list: async () => ({ items: [] }) },
+      videosAPI: { list: async () => ({ items: [] }) },
+      loadDrama: async () => {},
+      store: { storyboards: [] },
+      sbVideoErrors: ref({}),
+      storyboardUseFirstLastFrame: ref(false),
+      isSbUniversalMode: () => false,
+      storyboardsAPI: {},
+      ElMessage: { error() {}, success() {} },
+      ElMessageBox: { confirm: async () => {} },
+      assetImageUrl: () => '',
+      assetVideoUrl: () => '',
+      recordHasPlayableVideoUrl: () => false,
+      toAbsoluteImageUrl: (url) => url,
+      userFacingVideoGenerationError: (error) => String(error),
+      sbVideoReferenceImageId: ref({}),
+    }))
+    assert.equal(typeof api.loadStoryboardMedia, 'function')
+    assert.equal(typeof api.hasSbDraftImagePlaceholder, 'function')
+    assert.equal(currentEpisodeId.value, 22)
+    assert.notEqual(currentEpisodeId.value, dramaId.value)
+  } finally {
+    scope.stop()
+  }
+})
+
+test('项目会话只装配已有加载和切集，不改 episodeId 和空剧本门闩', () => {
+  const currentEpisodeId = ref(22)
+  const dramaId = ref(11)
+  const selectedEpisodeId = ref(33)
+  const episodeSwitching = ref(false)
+  const scope = effectScope()
+  try {
+    const api = scope.run(() => useFilmCreateProjectSession({
+      store: { dramaId: 11, drama: { episodes: [{ id: 33 }] }, setDrama() {}, setCurrentEpisode() {}, setScriptContent() {}, reset() {} },
+      dramaId,
+      currentEpisodeId,
+      projectLifecycle: { guardApi: (api) => api },
+      flushDraft: async () => {},
+      resolveEpisode: () => ({ id: 33 }),
+      onBusyChange: (busy) => { episodeSwitching.value = busy },
+      syncEpisodeRouteQuery() {},
+      resetStoryboardMediaContext() {},
+      ensureStoryboardMediaContext() {},
+      storyboardMediaStateController: { isCurrentContext: () => true },
+      syncStoryboardStateFromEpisode() {},
+      markScriptDraftSaved() {},
+      loadStoryboardMedia: async () => ({ failedCount: 0 }),
+      recoverAndSyncEpisodeTasks: async () => {},
+      loadPipelineConcurrency: async () => {},
+      refreshVideoGenerationCapability: async () => {},
+      refreshProductionReadiness: async () => {},
+      scriptTitle: ref(''),
+      selectedEpisodeId,
+      savedCurrentEpisodeNumber: ref(1),
+      storyInput: ref(''),
+      storyStyle: ref(''),
+      storyType: ref(''),
+      generationStyle: ref(''),
+      projectAspectRatio: ref('16:9'),
+      videoClipDuration: ref(5),
+      storyboardIncludeNarration: ref(false),
+      storyboardUniversalOmni: ref(false),
+      storyboardUseFirstLastFrame: ref(false),
+      lastFrameUseFirstLayoutLock: ref(true),
+      gridMode: ref('single'),
+      projectLoadState: ref('ready'),
+      projectLoadPending: ref(false),
+      projectLoadError: ref(''),
+      projectLoadNotFound: ref(false),
+      projectDependencyWarning: ref(''),
+      projectDependencyLoading: ref(false),
+      projectLoadFailureRef: ref(null),
+      scriptDraftController: { dispose() {} },
+    }))
+    assert.equal(typeof api.loadDrama, 'function')
+    assert.equal(typeof api.onEpisodeSelect, 'function')
+    assert.equal(typeof api.episodeSwitchController.select, 'function')
+    assert.equal(currentEpisodeId.value, 22)
+    assert.equal(selectedEpisodeId.value, 33)
+    assert.notEqual(currentEpisodeId.value, dramaId.value)
+    assert.notEqual(selectedEpisodeId.value, currentEpisodeId.value)
+  } finally {
+    scope.stop()
+  }
 })
 

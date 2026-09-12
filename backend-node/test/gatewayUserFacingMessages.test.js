@@ -167,6 +167,10 @@ describe('图片/视频 gateway 用户错误为简体中文', () => {
       path.join(__dirname, '../src/services/imageGateway/runtime.js'),
       path.join(__dirname, '../src/services/videoGateway/helpers.js'),
       path.join(__dirname, '../src/services/videoGateway/jimengVideoAdapter.js'),
+      path.join(__dirname, '../src/services/imageGateway/imageApiCall.js'),
+      path.join(__dirname, '../src/services/imageGateway/protocol.js'),
+      path.join(__dirname, '../src/services/videoGateway/videoApiCall.js'),
+      path.join(__dirname, '../src/services/videoGateway/pollTask.js'),
       path.join(__dirname, '../src/services/videoGateway/providerRuntime.js'),
       path.join(__dirname, '../src/services/providerErrorSanitizer.js'),
     ];

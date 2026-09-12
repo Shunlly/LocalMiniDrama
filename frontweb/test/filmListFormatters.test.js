@@ -10,6 +10,7 @@ import {
   describeTrashRestoreAnnouncement,
   describeTrashRestoreBusyReason,
   formatDate,
+  countProjectEpisodes,
   formatGenre,
   formatStatus,
   formatStyle,
@@ -89,6 +90,11 @@ test('日期、状态、风格、类型和分镜数按原语义格式化', () =>
   assert.equal(totalStoryboards({}), 0)
   assert.equal(totalStoryboards({ episodes: [] }), 0)
   assert.equal(totalStoryboards({ episodes: [{}, { storyboards: [{ id: 1 }, { id: 2 }] }] }), 2)
+  assert.equal(countProjectEpisodes({}), 0)
+  assert.equal(countProjectEpisodes({ episodes: [] }), 0)
+  assert.equal(countProjectEpisodes({ episodes: [{ id: 'bad' }] }), 0)
+  assert.equal(countProjectEpisodes({ episodes: [{ id: 3 }, { id: 'bad' }] }), 1)
+  assert.equal(countProjectEpisodes({ episodes: [{ id: DRAMA_ID }, { id: OTHER_DRAMA_ID }] }), 2)
   assert.equal(
     totalStoryboards({
       episodes: [

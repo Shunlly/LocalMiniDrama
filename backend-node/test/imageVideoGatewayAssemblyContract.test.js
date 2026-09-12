@@ -19,6 +19,13 @@ const videoConfig = require('../src/services/videoGateway/config');
 const { assembleImageProtocolRequest } = require('../src/services/imageGateway/requestAssembly');
 const { assembleImageApiCall } = require('../src/services/imageGateway/imageApiAssembly');
 const { assembleVideoApiCall } = require('../src/services/videoGateway/videoApiAssembly');
+const { callImageApi } = require('../src/services/imageGateway/imageApiCall');
+const { callVideoApi } = require('../src/services/videoGateway/videoApiCall');
+const { pollVideoTask } = require('../src/services/videoGateway/pollTask');
+const {
+  isRequestCanceled,
+  isRequestTimeout,
+} = require('../src/services/imageGateway/requestError');
 const { assembleCompatibleVideoRequest } = require('../src/services/videoGateway/requestAssembly');
 const { callJimengAiApiVideo } = require('../src/services/videoGateway/jimengVideoAdapter');
 const {
@@ -104,6 +111,9 @@ describe('图/视频客户端装配合同', () => {
     assert.equal(typeof assembleImageProtocolRequest, 'function');
     assert.equal(typeof assembleImageApiCall, 'function');
     assert.equal(typeof assembleCompatibleVideoRequest, 'function');
+    assert.equal(imageClient.callImageApi, callImageApi);
+    assert.equal(videoClient.callVideoApi, callVideoApi);
+    assert.equal(videoClient.pollVideoTask, pollVideoTask);
   });
 
   it('未配置图/视频服务时错误文案不变', async (t) => {
@@ -203,5 +213,138 @@ describe('图/视频客户端装配合同', () => {
     assert.doesNotMatch(serialized, new RegExp(SECRET));
     assert.doesNotMatch(serialized, /完整私密提示词不得进日志/);
     assert.match(serialized, /REDACTED/);
+  });
+
+
+  it('空图片厂商名走图片服务，取消不当超时，也不会变成视频服务', async (t) => {
+    const dramaId = 91041;
+    const imageGenId = 81041;
+    assert.notEqual(dramaId, imageGenId);
+    t.mock.method(aiConfigService, 'listConfigs', () => [{
+      provider: '',
+      service_type: 'image',
+      api_protocol: 'openai',
+      base_url: 'https://image.example.com/v1',
+      api_key: 'secret',
+      is_active: 1,
+      is_default: 1,
+      model: ['demo-image'],
+      default_model: 'demo-image',
+      endpoint: '/images/generations',
+    }]);
+    const controller = new AbortController();
+    controller.abort();
+    let fetchCalls = 0;
+    await assert.rejects(
+      () => imageClient.callImageApi(null, createCapturingLogger(), {
+        prompt: '夜雨',
+        drama_id: dramaId,
+        image_gen_id: imageGenId,
+        preferred_provider: '',
+        signal: controller.signal,
+        provider_dns_lookup: async () => [{ address: '93.184.216.34', family: 4 }],
+        fetch_impl: async () => {
+          fetchCalls += 1;
+          return new Response(JSON.stringify({ data: [{ url: 'https://cdn.example/a.png' }] }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        },
+      }),
+      (error) => {
+        assert.equal(isRequestCanceled(error), true);
+        assert.equal(isRequestTimeout(error), false);
+        assert.match(String(error.message), /取消/);
+        assert.doesNotMatch(String(error.message), /超时|timeout|aborted|视频服务|\bImage\b/i);
+        return true;
+      }
+    );
+    assert.equal(fetchCalls, 0);
+  });
+
+  it('Image 别名超时仍是图片服务，Video 别名与空厂商名走视频服务', async (t) => {
+    t.mock.method(aiConfigService, 'listConfigs', (db, serviceType) => {
+      if (serviceType === 'image') {
+        return [{
+          provider: 'Image',
+          service_type: 'image',
+          api_protocol: 'openai',
+          base_url: 'https://image.example.com/v1',
+          api_key: 'secret',
+          is_active: 1,
+          is_default: 1,
+          model: ['demo-image'],
+          default_model: 'demo-image',
+          endpoint: '/images/generations',
+        }];
+      }
+      return [{
+        provider: '',
+        service_type: 'video',
+        api_protocol: 'openai',
+        base_url: 'https://video.example.com/v1',
+        api_key: 'secret',
+        is_active: 1,
+        is_default: 1,
+        model: ['demo-video'],
+        default_model: 'demo-video',
+        endpoint: '/videos',
+      }];
+    });
+    const providerDnsLookup = async () => [{ address: '93.184.216.34', family: 4 }];
+    const timeoutFetch = async () => {
+      const error = Object.assign(new Error('timeout of 20ms exceeded'), {
+        name: 'TimeoutError',
+        code: 'ETIMEDOUT',
+        isTimeout: true,
+        retryable: true,
+      });
+      throw error;
+    };
+    await assert.rejects(
+      () => imageClient.callImageApi(null, createCapturingLogger(), {
+        prompt: '夜雨',
+        preferred_provider: 'Image',
+        provider_dns_lookup: providerDnsLookup,
+        fetch_impl: timeoutFetch,
+      }),
+      (error) => {
+        assert.equal(isRequestTimeout(error) || /超时/.test(String(error.message)), true);
+        assert.equal(isRequestCanceled(error), false);
+        assert.match(String(error.message), /图片服务/);
+        assert.match(String(error.message), /超时/);
+        assert.doesNotMatch(String(error.message), /视频服务|\bImage\b|timed out/i);
+        return true;
+      }
+    );
+    await assert.rejects(
+      () => videoClient.callVideoApi(null, createCapturingLogger(), {
+        prompt: '夜雨',
+        preferred_provider: 'Video',
+        provider_dns_lookup: providerDnsLookup,
+        fetch_impl: timeoutFetch,
+      }),
+      (error) => {
+        assert.match(String(error.message), /视频服务/);
+        assert.doesNotMatch(String(error.message), /\bVideo\b|\bImage\b|图片服务/i);
+        return true;
+      }
+    );
+    await assert.rejects(
+      () => videoClient.callVideoApi(null, createCapturingLogger(), {
+        prompt: '夜雨',
+        preferred_provider: '',
+        provider_dns_lookup: providerDnsLookup,
+        fetch_impl: timeoutFetch,
+      }),
+      (error) => {
+        assert.equal(isRequestTimeout(error) || /超时/.test(String(error.message)), true);
+        assert.equal(isRequestCanceled(error), false);
+        assert.match(String(error.message), /视频服务/);
+        assert.match(String(error.message), /超时/);
+        assert.doesNotMatch(String(error.message), /\bVideo\b|\bImage\b|图片服务/i);
+        return true;
+      }
+    );
   });
 });

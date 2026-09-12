@@ -39,7 +39,15 @@ function createVideoServiceProcess({ providerMessages, processMessages }) {
     }
   }
 
+  function isTimeoutError(error) {
+    if (!error || typeof error !== 'object') return false;
+    if (error.isTimeout === true || error.name === 'TimeoutError') return true;
+    const code = String(error.code || '');
+    return code === 'ETIMEDOUT' || code === 'ECONNABORTED' || code === 'TIMEOUT';
+  }
+
   function isTaskCancellation(error) {
+    if (isTimeoutError(error) || isTimeoutError(error?.cause)) return false;
     return error?.code === 'OPERATION_CANCELLED' || error?.name === 'AbortError';
   }
 
@@ -155,10 +163,22 @@ function createVideoServiceProcess({ providerMessages, processMessages }) {
       }
       maybeNormalizeVideoAfterDownload(storagePath, localPath, rowForAspect, videoGenId, log);
     } catch (error) {
+      if (isTimeoutError(error) || isTimeoutError(signal?.reason)) {
+        removeUncommittedVideo(storagePath, localPath, videoGenId, log);
+        await persistVideoFailure(db, { ...row, id: videoGenId }, error);
+        return;
+      }
       if (isTaskCancellation(error) || signal?.aborted) {
         removeUncommittedVideo(storagePath, localPath, videoGenId, log);
         throw error;
       }
+      removeUncommittedVideo(storagePath, localPath, videoGenId, log);
+      await persistVideoFailure(db, { ...row, id: videoGenId }, error);
+      return;
+    }
+    if (!localPath) {
+      await persistVideoFailure(db, { ...row, id: videoGenId }, '视频文件下载失败，请稍后重试');
+      return;
     }
     try {
       runVideoTaskMutation(db, row, signal, () => {
@@ -390,6 +410,11 @@ function createVideoServiceProcess({ providerMessages, processMessages }) {
         return;
       }
     } catch (err) {
+      if (isTimeoutError(err) || isTimeoutError(signal?.reason)) {
+        await persistVideoFailure(db, row, err);
+        log.error('Video generation timed out', { id: videoGenId, error: err.message });
+        return;
+      }
       if (isTaskCancellation(err) || signal?.aborted) {
         log.info('Video generation cancelled; skipping late writes', { id: videoGenId });
         return;

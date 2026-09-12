@@ -28,7 +28,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import {
   LIST_WINDOW_DEFAULT_ROW_HEIGHT,
   LIST_WINDOW_DEFAULT_VIEWPORT_HEIGHT,
@@ -92,7 +92,9 @@ function parsedForceIndex() {
 function applyScrollTop(nextTop) {
   const top = Math.max(0, Number(nextTop) || 0)
   scrollTop.value = top
-  if (rootRef.value) rootRef.value.scrollTop = top
+  nextTick(() => {
+    if (rootRef.value) rootRef.value.scrollTop = top
+  })
 }
 
 function revealIndex(index) {
