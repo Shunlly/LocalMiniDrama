@@ -28,9 +28,9 @@ export function describeConfigEmptyDescription({
   vendorLockEnabled = false,
 } = {}) {
   if (failed) {
-    const prefix = withPeriod(String(loadError || '').trim() || '请点击重试后再查看或添加配置。')
+    const prefix = withPeriod(String(loadError || '').trim() || '请点击「重新读取配置列表」后再查看或添加配置。')
     if (/下一步/.test(prefix)) return prefix
-    return `${prefix}下一步：点击下方「重试」后再查看或添加配置。`
+    return `${prefix}下一步：点击下方「重新读取配置列表」后再查看或添加配置。`
   }
   if (pending) return '正在从本地服务读取已保存的厂商配置。'
   if (vendorLockEnabled) {

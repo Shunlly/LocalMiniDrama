@@ -328,6 +328,11 @@ test('页面错误转义会吃掉英文技术信息，保留中文业务错误',
     toFreeCreateUserError({ response: { data: { error: { message: '当前模型额度不足' } } } }),
     '当前模型额度不足',
   )
+  assert.equal(
+    toFreeCreateUserError('远程媒体请求失败（HTTP 404）'),
+    '生成失败，请稍后重试',
+  )
+  
   assert.match(freeCreateSource, /failResultItem\(item, e\)/)
   assert.match(freeCreateSource, /lastPollError = toFreeCreateUserError\(error, '任务状态读取失败'\)/)
   assert.doesNotMatch(freeCreateSource, /newItem\.error = e\.message \|\| '生成失败'/)

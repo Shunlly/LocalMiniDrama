@@ -163,9 +163,12 @@ test('来源证据复制会写入剪贴板并反馈成功或失败', async () =>
 test('the initial empty state has one clearly named primary upload action', () => {
   const actions = initialEmptyActionsTemplate()
   const buttons = actions.match(/<el-button\b/g) || []
+  const primaryButtons = actions.match(/type="primary"/g) || []
 
-  assert.equal(buttons.length, 1)
+  assert.equal(buttons.length, 2)
+  assert.equal(primaryButtons.length, 1)
   assert.match(actions, /<el-button[\s\S]*?type="primary"/)
+  assert.match(actions, /aria-label="去搜网络素材"/)
   assert.match(actions, /aria-label="上传图片或视频到素材中心"/)
   assert.match(actions, /@click="triggerUpload"/)
   assert.doesNotMatch(actions, /goNewProject|goHome/)

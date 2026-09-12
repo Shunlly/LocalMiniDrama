@@ -104,7 +104,7 @@ export function useAiConfigImportExport(deps = {}) {
         else ElMessage.error(message)
       } else if (result.success > 0) {
         const refreshError = configLoadError.value
-        const unconfirmedMessage = '配置已导入但列表未确认，请勿重复导入。请点击“重试”刷新列表。'
+        const unconfirmedMessage = '配置已导入但列表未确认，请勿重复导入。请点击「重新读取配置列表」刷新列表。'
         configLoadError.value = refreshError ? `${unconfirmedMessage} ${refreshError}` : unconfirmedMessage
         ElMessage.error(unconfirmedMessage)
       } else {

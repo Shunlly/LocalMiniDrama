@@ -44,6 +44,17 @@ const OPERATION_LABELS = Object.freeze({
   speech: '配音',
   'tts request': '配音请求',
   'audio speech': '配音',
+  // ModelArk / 即梦资产库 OpenAPI Action，避免把英文 Action 原样拼进用户文案。
+  ListAssetGroups: '列出资产组',
+  CreateAssetGroup: '创建资产组',
+  UpdateAssetGroup: '更新资产组',
+  DeleteAssetGroup: '删除资产组',
+  ListAssets: '列出资产',
+  CreateAsset: '创建资产',
+  UpdateAsset: '更新资产',
+  DeleteAsset: '删除资产',
+  GetAsset: '查询资产',
+  GetAssetGroup: '查询资产组',
 });
 
 const PROVIDER_LABELS = Object.freeze({

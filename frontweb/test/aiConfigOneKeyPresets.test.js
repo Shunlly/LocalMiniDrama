@@ -104,7 +104,7 @@ test('列表确认后才关闭弹窗并通知变更，未确认则提示重试',
   assert.equal(unconfirmed.created.length, TONGYI_CONFIGS.length)
   assert.equal(unconfirmed.oneKeyTongyiVisible.value, true)
   assert.equal(unconfirmed.notifications.length, 0)
-  assert.match(unconfirmed.configLoadError.value, /请点击“重试”刷新列表/)
+  assert.match(unconfirmed.configLoadError.value, /请点击「重新读取配置列表」刷新列表/)
   assert.equal(unconfirmed.messages[0][0], 'error')
   assert.equal(unconfirmed.oneKeyTongyiSaving.value, false)
 

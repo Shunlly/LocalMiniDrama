@@ -101,7 +101,7 @@ export function useAiConfigOneKeyPresets(deps = {}) {
     const createdVisible = createdIds.length === result.success
       && createdIds.every((id) => list.value.some((item) => Number(item.id) === id))
     if (result.success > 0 && (!listConfirmed || !createdVisible)) {
-      const unconfirmedMessage = '预设配置已写入但列表尚未确认，请勿重复提交。请点击“重试”刷新列表。'
+      const unconfirmedMessage = '预设配置已写入但列表尚未确认，请勿重复提交。请点击「重新读取配置列表」刷新列表。'
       configLoadError.value = configLoadError.value
         ? `${unconfirmedMessage} ${configLoadError.value}`
         : unconfirmedMessage

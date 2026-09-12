@@ -18,6 +18,7 @@ test('生成设置面板是纯展示组件，loadList/openTest 仍留在页面',
   assert.match(paneSource, /:disabled="generationSettingsWriteLocked"/)
   assert.match(paneSource, /:title="generationSettingsWriteLocked \? generationSettingsWriteLockReason : undefined"/)
   assert.match(paneSource, /:aria-label="genSettingSaving \? '正在保存生成设置' : \(generationSettingsWriteLocked \? \(generationSettingsWriteLockReason \|\| '当前不能保存生成设置'\) : '保存生成设置'\)"/)
+  assert.match(paneSource, /aria-label="重试加载生成设置"[^>]*>重试加载生成设置<\/el-button>/)
 })
 
 test('生成设置保存成功展示中文反馈', () => {

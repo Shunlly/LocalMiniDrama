@@ -55,6 +55,7 @@ test('列表未就绪时表头不把五类服务标成已确认', async () => {
   assert.doesNotMatch(headerSource, /configWriteLocked/)
   assert.doesNotMatch(headerSource, /async function loadList\(/)
   assert.doesNotMatch(headerSource, /useAiConfigList/)
+  assert.match(headerSource, /aria-label="重新读取配置列表"[\s\S]*?>\s*重新读取配置列表\s*<\/el-button>/)
 
   const pending = mountHeader({ configListPendingEmpty: true })
   try {
@@ -63,7 +64,7 @@ test('列表未就绪时表头不把五类服务标成已确认', async () => {
     assert.match(textContent(pending.root), /正在读取 AI 配置/)
     assert.doesNotMatch(textContent(pending.root), /类可用/)
     assert.equal(findByClass(pending.root, 'coverage-summary-card').length, 0)
-    assert.equal(buttonByText(pending.root, '重试'), undefined)
+    assert.equal(buttonByText(pending.root, '重新读取配置列表'), undefined)
   } finally {
     pending.app.unmount()
   }
@@ -76,10 +77,11 @@ test('列表未就绪时表头不把五类服务标成已确认', async () => {
     await nextTick()
     assert.match(textContent(failed.root), /暂时无法确认服务状态/)
     assert.match(textContent(failed.root), /配置列表还没有成功加载/)
-    assert.match(textContent(failed.root), /下一步：点击重试/)
-    const retry = buttonByText(failed.root, '重试')
+    assert.match(textContent(failed.root), /下一步：点击重新读取配置列表/)
+    const retry = buttonByText(failed.root, '重新读取配置列表')
     assert.ok(retry)
     assert.equal(retry.props['aria-label'], '重新读取配置列表')
+    assert.equal(textContent(retry).replace(/\s+/g, ' ').trim(), retry.props['aria-label'])
     assert.notEqual(retry.props.disabled, true)
     assert.equal(retry.props['data-loading'], true)
     click(retry)
@@ -103,7 +105,7 @@ test('列表就绪后展示类可用统计和汇总条，重试入口不再出�
     assert.match(textContent(cards[2]), /测试失败/)
     assert.match(textContent(cards[3]), /待测试/)
     assert.equal(hasClass(cards[2], 'summary-danger'), true)
-    assert.equal(buttonByText(harness.root, '重试'), undefined)
+    assert.equal(buttonByText(harness.root, '重新读取配置列表'), undefined)
   } finally {
     harness.app.unmount()
   }

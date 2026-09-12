@@ -82,10 +82,10 @@
           </el-tooltip>
         </div>
         <div class="action-card-secondary">
-          <el-button class="action-btn-material" aria-label="打开素材中心" @click="goMaterialCenter">
+          <el-button class="action-btn-material" aria-label="前往素材中心" @click="goMaterialCenter">
             <el-icon><Files /></el-icon>前往素材中心
           </el-button>
-          <el-button class="action-btn-trash" aria-label="打开项目回收站" @click="openTrash">
+          <el-button class="action-btn-trash" aria-label="查看回收站" @click="openTrash">
             <el-icon><Delete /></el-icon>查看回收站
           </el-button>
         </div>

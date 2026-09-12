@@ -32,7 +32,7 @@ test('没有依赖错误时不渲染告警条', async () => {
   try {
     await nextTick()
     assert.doesNotMatch(textContent(harness.root), /AI 配置依赖加载失败|写操作已暂停/)
-    assert.equal(buttonByText(harness.root, '重试'), undefined)
+    assert.equal(buttonByText(harness.root, '重新读取 AI 配置依赖'), undefined)
   } finally {
     harness.app.unmount()
   }
@@ -47,9 +47,10 @@ test('依赖失败展示中文告警，可重试；有缓存时说明写操作�
     assert.match(textContent(fresh.root), /AI 配置依赖加载失败/)
     assert.match(textContent(fresh.root), /AI 配置列表加载失败/)
     assert.doesNotMatch(textContent(fresh.root), /当前显示的是上次成功加载的数据/)
-    const retry = buttonByText(fresh.root, '重试')
+    const retry = buttonByText(fresh.root, '重新读取 AI 配置依赖')
     assert.ok(retry)
     assert.equal(retry.props['aria-label'], '重新读取 AI 配置依赖')
+    assert.equal(textContent(retry).replace(/\s+/g, ' ').trim(), retry.props['aria-label'])
     click(retry)
     assert.deepEqual(fresh.events, ['retry'])
   } finally {
@@ -64,7 +65,7 @@ test('依赖失败展示中文告警，可重试；有缓存时说明写操作�
   try {
     await nextTick()
     assert.match(textContent(stale.root), /当前显示的是上次成功加载的数据，写操作已暂停/)
-    const retry = buttonByText(stale.root, '重试')
+    const retry = buttonByText(stale.root, '重新读取 AI 配置依赖')
     assert.ok(retry)
     assert.equal(retry.props['data-loading'], true)
   } finally {

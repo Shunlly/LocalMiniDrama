@@ -28,6 +28,7 @@ export function isSafeFreeCreateUserText(text) {
     && hasChineseText(value)
     && !SECRET_RE.test(value)
     && !/https?:\/\//i.test(value)
+    && !/\bHTTP\s*\d{3}\b/i.test(value)
     && !TECHNICAL_ENGLISH_RE.test(value)
 }
 

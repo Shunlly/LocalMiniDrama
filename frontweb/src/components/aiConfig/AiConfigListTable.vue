@@ -67,7 +67,7 @@
             :loading="loading || vendorLockLoading"
             @click="retryConfigDependencies"
           >
-            重试
+            重新读取配置列表
           </el-button>
           <el-button
             v-else-if="!vendorLock.enabled && !configListPendingEmpty"

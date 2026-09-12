@@ -340,7 +340,7 @@ test('AI config mutations emit one reliable change notification only after real 
 
   assert.match(oneKeySource, /runAiConfigCreateBatch\(configs, createOne\)/)
   assert.match(oneKeySource, /createdIds\.every\(\(id\) => list\.value\.some/)
-  assert.match(oneKeySource, /预设配置已写入但列表尚未确认，请勿重复提交。请点击“重试”刷新列表。/)
+  assert.match(oneKeySource, /预设配置已写入但列表尚未确认，请勿重复提交。请点击「重新读取配置列表」刷新列表。/)
   assert.match(
     oneKeySource,
     /if \(result\.success > 0\) \{\s*invalidateConnectionTestResults\(\)\s*notifyConfigurationChanged\(\)\s*revealSavedConfigs\?\.\(\)\s*closeDialog\(\)/,
@@ -356,7 +356,7 @@ test('AI config mutations emit one reliable change notification only after real 
   assert.match(vueSource, /async function openTest\(row\)/)
 
   assert.match(importExportSource, /if \(listConfirmed && \(result\.success === 0 \|\| createdVisible\)\)/)
-  assert.match(importExportSource, /配置已导入但列表未确认，请勿重复导入。请点击“重试”刷新列表。/)
+  assert.match(importExportSource, /配置已导入但列表未确认，请勿重复导入。请点击「重新读取配置列表」刷新列表。/)
   assert.match(pageRequestsSource, /async function retryConfigDependencies\(\) \{\s*await Promise\.all\(\[loadVendorLock\(\), loadList\(\)\]\)\s*\}/)
   assert.match(vueSource, /useAiConfigPageRequests\(/)
   assert.doesNotMatch(
@@ -650,7 +650,7 @@ test('AI config import keeps a successful server import unconfirmed until list r
   )
   assert.match(importExportSource, /createdIds\.every\(\(id\) => list\.value\.some\(\(item\) => Number\(item\.id\) === id\)\)/)
   assert.match(importExportSource, /if \(listConfirmed && \(result\.success === 0 \|\| createdVisible\)\)/)
-  assert.match(importExportSource, /配置已导入但列表未确认，请勿重复导入。请点击“重试”刷新列表。/)
+  assert.match(importExportSource, /配置已导入但列表未确认，请勿重复导入。请点击「重新读取配置列表」刷新列表。/)
   assert.match(vueSource, /useAiConfigImportExport\(/)
   assert.doesNotMatch(vueSource, /async function importConfigs\(event\)/)
   assert.doesNotMatch(vueSource, /async function exportConfigs\(\)/)

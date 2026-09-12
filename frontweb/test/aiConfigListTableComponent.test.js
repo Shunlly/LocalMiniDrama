@@ -267,7 +267,7 @@ test('失败空态只给重试，写锁空态禁用添加并保留查看全部',
     props: {
       configListFailedEmpty: true,
       configEmptyTitle: '暂时无法读取配置列表',
-      configEmptyDescription: '请点击重试后再查看或添加配置。',
+      configEmptyDescription: '请点击「重新读取配置列表」后再查看或添加配置。',
     },
   })
   try {
@@ -276,8 +276,9 @@ test('失败空态只给重试，写锁空态禁用添加并保留查看全部',
     const emptyState = findByClass(failed.root, 'config-empty-state')[0]
     assert.equal(emptyState.props.role, 'alert')
     assert.equal(emptyState.props['aria-live'], 'assertive')
-    const retry = buttonByText(failed.root, '重试')
+    const retry = buttonByText(failed.root, '重新读取配置列表')
     assert.equal(retry.props['aria-label'], '重新读取配置列表')
+    assert.equal(textContent(retry).replace(/\s+/g, ' ').trim(), retry.props['aria-label'])
     click(retry)
     assert.equal(failed.events.retry, 1)
     assert.equal(buttonByText(failed.root, '添加第一个配置'), undefined)
@@ -315,6 +316,7 @@ test('失败空态只给重试，写锁空态禁用添加并保留查看全部',
 
 test('读取中的空态是 status 区域，不给添加或查看全部', async () => {
   assert.match(tableSource, /aria-label="AI 服务配置列表"/)
+  assert.match(tableSource, /aria-label="重新读取配置列表"[\s\S]*?>\s*重新读取配置列表\s*<\/el-button>/)
   assert.match(tableSource, /:role="configListFailedEmpty \? 'alert' : 'status'"/)
   const pending = mountTable({
     rows: [],
@@ -337,7 +339,7 @@ test('读取中的空态是 status 区域，不给添加或查看全部', async 
     assert.match(textContent(pending.root), /正在读取配置列表/)
     assert.equal(buttonByText(pending.root, '添加文本配置'), undefined)
     assert.equal(buttonByText(pending.root, '查看全部'), undefined)
-    assert.equal(buttonByText(pending.root, '重试'), undefined)
+    assert.equal(buttonByText(pending.root, '重新读取配置列表'), undefined)
   } finally {
     pending.app.unmount()
   }

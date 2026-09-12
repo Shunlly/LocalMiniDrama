@@ -348,6 +348,56 @@ describe('剩余服务对用户返回中文错误', () => {
     assert.doesNotMatch(missingAsset.error, /asset id/i);
   });
 
+  it('资产库 OpenAPI Action 失败不把 Action 原名交给用户', () => {
+    const {
+      buildProviderErrorMessage,
+      toSafeProviderErrorMessage,
+      sanitizeProviderException,
+    } = require('../src/services/providerErrorSanitizer');
+    const actions = {
+      ListAssetGroups: '列出资产组',
+      CreateAssetGroup: '创建资产组',
+      UpdateAssetGroup: '更新资产组',
+      DeleteAssetGroup: '删除资产组',
+      ListAssets: '列出资产',
+      CreateAsset: '创建资产',
+      UpdateAsset: '更新资产',
+      DeleteAsset: '删除资产',
+      GetAsset: '查询资产',
+      GetAssetGroup: '查询资产组',
+    };
+    const actionNameRe = /\b(?:ListAssetGroups|CreateAssetGroup|UpdateAssetGroup|DeleteAssetGroup|ListAssets|CreateAsset|UpdateAsset|DeleteAsset|GetAsset|GetAssetGroup)\b/;
+    for (const [action, label] of Object.entries(actions)) {
+      const message = buildProviderErrorMessage({
+        provider: 'ModelArk',
+        operation: action,
+        status: 403,
+      });
+      assertUserFacingChinese(message);
+      assert.match(message, new RegExp(`ModelArk ${label}失败`));
+      assert.doesNotMatch(message, actionNameRe);
+      assert.equal(isTrustedChineseUserError(message), true);
+
+      const timeout = toSafeProviderErrorMessage(
+        Object.assign(new Error('timed out'), { code: 'ETIMEDOUT' }),
+        { provider: 'ModelArk', operation: action },
+      );
+      assertUserFacingChinese(timeout);
+      assert.match(timeout, new RegExp(`ModelArk ${label}超时`));
+      assert.doesNotMatch(timeout, /timed out|ETIMEDOUT/i);
+      assert.doesNotMatch(timeout, actionNameRe);
+
+      const classified = sanitizeProviderException(
+        Object.assign(new Error('Network Error'), { code: 'ERR_NETWORK' }),
+        { provider: 'ModelArk', operation: action },
+      );
+      assertUserFacingChinese(classified.message);
+      assert.match(classified.message, new RegExp(`ModelArk ${label}网络连接失败`));
+      assert.doesNotMatch(classified.message, /Network Error|ERR_NETWORK/i);
+      assert.doesNotMatch(classified.message, actionNameRe);
+    }
+  });
+
   it('批量换密钥缺密钥返回中文，不含 API Key 字段名', () => {
     const res = mockRes();
     aiConfigRoutes({}, { error() {} }, { vendor_lock: { enabled: true } }).bulkUpdateKey({ body: { api_key: '  ' } }, res);

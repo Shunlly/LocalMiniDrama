@@ -96,7 +96,14 @@ async function downloadBufferViaNodeHttp(url, timeoutMs = 30000, redirectCount =
     maxBytes,
     maxRedirects: Math.max(0, maxRedirects - redirectCount),
   });
-  if (!response.ok) throw new Error(`远程媒体请求失败（HTTP ${response.status}）`);
+  if (!response.ok) {
+    const status = Number(response.status);
+    if (status === 404) throw new Error('远程媒体不存在，请检查地址后重试');
+    if (status === 401 || status === 403) throw new Error('没有权限下载该远程媒体');
+    if (status === 429) throw new Error('远程媒体请求过于频繁，请稍后重试');
+    if (status >= 500) throw new Error('远程媒体暂时不可用，请稍后重试');
+    throw new Error('无法下载远程媒体，请稍后重试');
+  }
   return {
     buffer: Buffer.from(await response.arrayBuffer()),
     contentType: response.headers.get('content-type') || '',

@@ -786,6 +786,73 @@ test('Provider \u8131\u654f\u9519\u8bef\u548c\u9759\u6001 404 \u5bf9\u7528\u6237
   assert.equal(appSource.includes("send('Not Found')"), false);
 });
 
+test('ModelArk 资产库 OpenAPI Action 失败使用中文操作名，不把 Action 原文拼进用户文案', () => {
+  const { sanitizeProviderException } = require('../src/services/providerErrorSanitizer');
+  const actions = {
+    ListAssetGroups: '列出资产组',
+    CreateAssetGroup: '创建资产组',
+    UpdateAssetGroup: '更新资产组',
+    DeleteAssetGroup: '删除资产组',
+    ListAssets: '列出资产',
+    CreateAsset: '创建资产',
+    UpdateAsset: '更新资产',
+    DeleteAsset: '删除资产',
+    GetAsset: '查询资产',
+    GetAssetGroup: '查询资产组',
+  };
+  const actionNameRe = /\b(?:ListAssetGroups|CreateAssetGroup|UpdateAssetGroup|DeleteAssetGroup|ListAssets|CreateAsset|UpdateAsset|DeleteAsset|GetAsset|GetAssetGroup)\b/;
+  const sanitizerSource = fs.readFileSync(path.join(__dirname, '../src/services/providerErrorSanitizer.js'), 'utf8');
+  for (const [action, label] of Object.entries(actions)) {
+    assert.match(sanitizerSource, new RegExp(`${action}:\\s*'${label}'`));
+
+    const message = buildProviderErrorMessage({
+      provider: 'ModelArk',
+      operation: action,
+      status: 401,
+    });
+    assert.match(message, new RegExp(`ModelArk ${label}失败`));
+    assert.match(message, /认证失败/);
+    assert.doesNotMatch(message, actionNameRe);
+    assert.equal(isTrustedChineseUserError(message), true);
+    assert.equal(hasCjk(message), true);
+
+    const timeout = toSafeProviderErrorMessage(
+      Object.assign(new Error('timeout of 15000ms exceeded'), { code: 'ETIMEDOUT' }),
+      { provider: 'ModelArk', operation: action },
+    );
+    assert.match(timeout, new RegExp(`ModelArk ${label}超时`));
+    assert.doesNotMatch(timeout, /timeout of 15000ms|ETIMEDOUT/i);
+    assert.doesNotMatch(timeout, actionNameRe);
+    assert.equal(isTrustedChineseUserError(timeout), true);
+
+    const network = toSafeProviderErrorMessage(
+      Object.assign(new Error('connect ECONNREFUSED 10.0.0.1:443'), { code: 'ECONNREFUSED' }),
+      { provider: 'ModelArk', operation: action },
+    );
+    assert.match(network, new RegExp(`ModelArk ${label}网络连接失败`));
+    assert.doesNotMatch(network, /ECONNREFUSED|10\.0\.0\.1/i);
+    assert.doesNotMatch(network, actionNameRe);
+    assert.equal(isTrustedChineseUserError(network), true);
+
+    const classifiedTimeout = sanitizeProviderException(
+      Object.assign(new Error('The operation was aborted.'), { name: 'AbortError', isTimeout: true, code: 'ETIMEDOUT' }),
+      { provider: 'ModelArk', operation: action },
+    );
+    assert.match(classifiedTimeout.message, new RegExp(`ModelArk ${label}超时`));
+    assert.doesNotMatch(classifiedTimeout.message, actionNameRe);
+    assert.doesNotMatch(classifiedTimeout.message, /aborted|timeout of/i);
+
+    const classifiedHttp = sanitizeProviderException(
+      Object.assign(new Error('Unauthorized'), { status: 401 }),
+      { provider: 'ModelArk', operation: action },
+    );
+    assert.match(classifiedHttp.message, new RegExp(`ModelArk ${label}失败`));
+    assert.doesNotMatch(classifiedHttp.message, /Unauthorized|HTTP\s+401/i);
+    assert.doesNotMatch(classifiedHttp.message, actionNameRe);
+    assert.equal(isTrustedChineseUserError(classifiedHttp.message), true);
+  }
+});
+
 test('从图片提取描述时非法地址返回不含英文字段名的中文', async () => {
   const { extractDescriptionFromImage } = require('../src/services/aiClient');
   const { isTrustedChineseUserError } = require('../src/services/providerErrorSanitizer');

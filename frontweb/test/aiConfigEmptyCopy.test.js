@@ -84,7 +84,7 @@ test('空态下一步区分失败、厂商锁定和默认添加', () => {
     loadError: '暂时无法读取 AI 配置，请稍后重试。',
   })
   assert.match(failed, /暂时无法读取 AI 配置/)
-  assert.match(failed, /下一步：点击下方「重试」/)
+  assert.match(failed, /下一步：点击下方「重新读取配置列表」/)
   assert.equal(
     describeConfigEmptyDescription({ vendorLockEnabled: true }),
     '下一步：当前由管理员统一配置，请返回项目列表或联系管理员。',

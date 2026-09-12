@@ -13,7 +13,7 @@
       </span>
     </div>
     <el-button size="small" type="primary" plain aria-label="重新读取 AI 配置依赖" :loading="loading" @click="retryConfigDependencies">
-      重试
+      重新读取 AI 配置依赖
     </el-button>
   </div>
 </template>

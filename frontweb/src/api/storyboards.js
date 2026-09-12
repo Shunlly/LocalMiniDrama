@@ -42,7 +42,7 @@ async function postUniversalSegmentNdjsonStream(url, body, onDelta, options = {}
     throw error
   }
     if (!res.ok) {
-      let msg = `请求失败（${res.status}）`
+      let msg = '请求失败'
       try {
         const j = await res.json()
         if (j?.error?.message) msg = streamUserError(j.error.message, msg)

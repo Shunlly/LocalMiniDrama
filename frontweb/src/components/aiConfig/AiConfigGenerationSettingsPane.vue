@@ -13,7 +13,7 @@
         <strong>生成设置读取失败</strong>
         <span>{{ generationSettingsLoadError }}</span>
       </div>
-      <el-button size="small" type="primary" plain aria-label="重试加载生成设置" @click="loadGenerationSettings">重试</el-button>
+      <el-button size="small" type="primary" plain aria-label="重试加载生成设置" @click="loadGenerationSettings">重试加载生成设置</el-button>
     </div>
     <div
       v-else-if="generationSettingsLoadState === 'loading'"
