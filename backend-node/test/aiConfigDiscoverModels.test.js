@@ -144,6 +144,28 @@ describe('aiConfigService.discoverModels', () => {
     );
   });
 
+  it('maps AbortError timeout to a timeout instead of cancel', async () => {
+    await assert.rejects(
+      aiConfigService.discoverModels(discoverOpts({
+        api_key: 'sk-discover-abort-timeout-secret',
+        fetch_impl: async () => {
+          const error = new Error('The operation was aborted.');
+          error.name = 'AbortError';
+          error.code = 'ETIMEDOUT';
+          error.isTimeout = true;
+          throw error;
+        },
+      })),
+      (error) => {
+        assert.match(error.message, /超时/);
+        assert.doesNotMatch(error.message, /取消/);
+        assert.equal(error.code, 'ETIMEDOUT');
+        assert.equal(error.isTimeout, true);
+        return true;
+      }
+    );
+  });
+
   it('maps 401 to a Chinese auth error and strips echoed secrets', async () => {
     const secret = 'sk-discover-401-secret-123456';
     await assert.rejects(

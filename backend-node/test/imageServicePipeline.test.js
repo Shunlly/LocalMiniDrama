@@ -67,6 +67,10 @@ test('任务取消判定覆盖信号、错误码和 AbortError', () => {
   assert.equal(pipeline.imageTaskCancelled(null, controller.signal), true);
   assert.equal(pipeline.imageTaskCancelled({ code: 'OPERATION_CANCELLED' }, null), true);
   assert.equal(pipeline.imageTaskCancelled({ name: 'AbortError' }, null), true);
+  const timeoutAbort = Object.assign(new Error('图片请求超时'), { name: 'AbortError', isTimeout: true, code: 'ETIMEDOUT' });
+  const timeoutSignal = new AbortController();
+  timeoutSignal.abort(timeoutAbort);
+  assert.equal(pipeline.imageTaskCancelled(timeoutAbort, timeoutSignal.signal), false);
 });
 
 test('无任务编号时中止信号会让管线断言抛出取消错误', () => {

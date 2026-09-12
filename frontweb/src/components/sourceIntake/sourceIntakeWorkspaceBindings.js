@@ -209,7 +209,7 @@ export function createSourceIntakeWorkspaceComputeds({
       reasons.import = reasons.import || sourceUploadBusyReason.value
       reasons.start = reasons.start || sourceUploadBusyReason.value
     }
-    if (qaRunning.value) reasons.qa = reasons.qa || '正在执行 QA 审计，请稍候。'
+    if (qaRunning.value) reasons.qa = reasons.qa || '正在执行质量检查，请稍候。'
     if (remediating.value) reasons.remediate = reasons.remediate || '正在启动自动修复，请稍候。'
     if (sourceRefreshRecoveryReason.value) {
       reasons.import = sourceRefreshRecoveryReason.value

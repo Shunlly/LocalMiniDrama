@@ -32,11 +32,11 @@ export function createSourceIntakeQaActions({
       if (!isLifecycleActive()) return
       await refreshWorkflowSnapshot()
       if (!isLifecycleActive()) return
-      showWorkflowMessage('success', 'QA 审计已完成')
+      showWorkflowMessage('success', '质量检查已完成')
     } catch (e) {
       if (!isLifecycleActive()) return
       if (isUserFacingAbort(e)) return
-      showWorkflowMessage('error', toUserFacingError(e, 'QA 审计失败'))
+      showWorkflowMessage('error', toUserFacingError(e, '质量检查失败'))
     } finally {
       qaRunning.value = false
     }
@@ -76,7 +76,7 @@ export function createSourceIntakeQaActions({
             remediationStatus.value = refreshUnconfirmedMessage
             return
           }
-          remediationStatus.value = result.reason || '当前 QA 报告没有可自动执行的修复动作'
+          remediationStatus.value = result.reason || '当前质量检查报告没有可自动执行的修复动作'
           showWorkflowMessage('warning', remediationStatus.value)
         }
       },

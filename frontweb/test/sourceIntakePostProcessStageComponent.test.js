@@ -161,12 +161,12 @@ test('QA 卡片空态展示中文引导，并把审计动作交给父级', () =>
   try {
     const text = textContent(harness.root)
     assert.match(text, /草稿结构检查/)
-    assert.match(text, /还没有 QA 结果/)
-    assert.match(text, /执行 QA 审计/)
+    assert.match(text, /还没有质量检查结果/)
+    assert.match(text, /执行质量检查/)
     assert.doesNotMatch(text, /Invalid Date/)
     assert.equal(findByClass(harness.root, 'qa-line').length, 0)
     buttonByText(harness.root, '去启动处理').props.onClick()
-    const button = buttonByText(harness.root, '执行 QA 审计')
+    const button = buttonByText(harness.root, '执行质量检查')
     assert.equal(Boolean(button.props.disabled), false)
     button.props.onClick()
     assert.deepEqual(harness.events, [['select-step', 'process'], 'run-qa'])
@@ -203,7 +203,7 @@ test('QA 卡片展示草稿通知、问题、检查项和建议，未知检查�
     assert.match(text, /素材导入：通过/)
     assert.match(text, /其他检查：未通过/)
     assert.match(text, /补齐对白后再交付/)
-    assert.match(text, /完整 QA 明细/)
+    assert.match(text, /完整质量检查明细/)
     assert.deepEqual(tagTypes(harness.root), ['warning'])
     assert.doesNotMatch(text, /Invalid Date/)
     assert.doesNotMatch(text, /pass\/fail/)
@@ -212,7 +212,7 @@ test('QA 卡片展示草稿通知、问题、检查项和建议，未知检查�
   }
 })
 
-test('QA 已通过但没有可展示说明时保留中文空态，并通过 ActionGate 暴露禁用原因', () => {
+test('质量检查已通过但没有可展示说明时保留中文空态，并通过 ActionGate 暴露禁用原因', () => {
   const harness = mountQa({
     qa: { id: 9, passed: true, issueCount: 1, checks: [] },
     presentation: {
@@ -221,7 +221,7 @@ test('QA 已通过但没有可展示说明时保留中文空态，并通过 Acti
       statusLabel: '正式交付检查已通过',
       notice: '',
     },
-    qaReason: '正在执行 QA 审计，请稍候。',
+    qaReason: '正在执行质量检查，请稍候。',
     qaRunning: true,
   })
   try {
@@ -230,14 +230,14 @@ test('QA 已通过但没有可展示说明时保留中文空态，并通过 Acti
     assert.match(text, /暂无可以展示的修复建议/)
     assert.doesNotMatch(text, /该评分仅评估脚本与流程结构/)
     assert.deepEqual(tagTypes(harness.root), ['success'])
-    const button = buttonByText(harness.root, '执行 QA 审计')
+    const button = buttonByText(harness.root, '执行质量检查')
     assert.equal(Boolean(button.props.disabled), true)
     assert.equal(Boolean(button.props['data-loading']), true)
-    assert.deepEqual(actionGateReasons(harness.root), ['正在执行 QA 审计，请稍候。'])
+    assert.deepEqual(actionGateReasons(harness.root), ['正在执行质量检查，请稍候。'])
     const gate = disabledGates(harness.root)[0]
     assert.equal(gate.props.role, 'group')
     assert.equal(String(gate.props.tabindex), '0')
-    assert.equal(gate.props['aria-label'], '执行 QA 审计不可用：正在执行 QA 审计，请稍候。')
+    assert.equal(gate.props['aria-label'], '执行质量检查不可用：正在执行质量检查，请稍候。')
   } finally {
     harness.app.unmount()
   }
@@ -261,7 +261,7 @@ test('修复卡片列出自动与人工建议，并把一键修复交给父级',
     assert.match(text, /重跑媒体步骤：可自动执行/)
     assert.match(text, /核对文案：需要人工处理/)
     assert.match(text, /已提交自动修复，正在等待处理结果。/)
-    assert.doesNotMatch(text, /去执行 QA/)
+    assert.doesNotMatch(text, /去执行质量检查/)
     buttonByText(harness.root, '一键修复').props.onClick()
     assert.deepEqual(harness.events, ['remediate'])
   } finally {
@@ -269,12 +269,12 @@ test('修复卡片列出自动与人工建议，并把一键修复交给父级',
   }
 })
 
-test('修复卡片在 QA 已通过时提示无需修复，空态则回到 QA 步骤', () => {
+test('修复卡片在 质量检查已通过时提示无需修复，空态则回到 QA 步骤', () => {
   const passed = mountRemediation({ qa: { id: 4, passed: true, remediationActions: [] } })
   try {
     const text = textContent(passed.root)
-    assert.match(text, /QA 已通过，不需要修复/)
-    assert.equal(buttonByText(passed.root, '去执行 QA'), undefined)
+    assert.match(text, /质量检查已通过，不需要修复/)
+    assert.equal(buttonByText(passed.root, '去执行质量检查'), undefined)
   } finally {
     passed.app.unmount()
   }
@@ -287,7 +287,7 @@ test('修复卡片在 QA 已通过时提示无需修复，空态则回到 QA 步
   try {
     const text = textContent(empty.root)
     assert.match(text, /还没有可自动修复的建议/)
-    const retry = buttonByText(empty.root, '去执行 QA')
+    const retry = buttonByText(empty.root, '去执行质量检查')
     retry.props.onClick()
     assert.deepEqual(empty.events, [['select-step', 'qa']])
     const fixButton = buttonByText(empty.root, '一键修复')

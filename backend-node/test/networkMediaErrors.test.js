@@ -17,6 +17,7 @@ const {
   licenseMissing,
   networkMediaNotFound,
   networkMediaTimeout,
+  networkMediaCancelled,
   openverseSearchFailed,
   storageUnsafe,
   thumbnailDownloadFailed,
@@ -61,10 +62,13 @@ test('抓取失败按原因翻译，不把上游英文细节暴露给用户', ()
   assertChineseError(translateFetchFailure(unsafe), 'UNSAFE_NETWORK_MEDIA_URL', 400, NETWORK_MEDIA_MESSAGES.UNSAFE_URL);
 
   const aborted = Object.assign(new Error('aborted'), { name: 'AbortError' });
-  assertChineseError(translateFetchFailure(aborted), 'NETWORK_MEDIA_TIMEOUT', 504, NETWORK_MEDIA_MESSAGES.TIMEOUT);
+  assertChineseError(translateFetchFailure(aborted), 'NETWORK_MEDIA_CANCELLED', 400, NETWORK_MEDIA_MESSAGES.CANCELLED);
 
   const timedOut = Object.assign(new Error('timeout'), { name: 'TimeoutError' });
   assertChineseError(translateFetchFailure(timedOut, NETWORK_MEDIA_MESSAGES.COMMONS_UPSTREAM), 'NETWORK_MEDIA_TIMEOUT', 504, NETWORK_MEDIA_MESSAGES.TIMEOUT);
+
+  const timeoutAbort = Object.assign(new Error('The operation was aborted.'), { name: 'AbortError', isTimeout: true, code: 'ETIMEDOUT' });
+  assertChineseError(translateFetchFailure(timeoutAbort), 'NETWORK_MEDIA_TIMEOUT', 504, NETWORK_MEDIA_MESSAGES.TIMEOUT);
 
   const generic = new Error('connect ECONNREFUSED 127.0.0.1:443');
   const wrapped = translateFetchFailure(generic, NETWORK_MEDIA_MESSAGES.OPENVERSE_UPSTREAM);

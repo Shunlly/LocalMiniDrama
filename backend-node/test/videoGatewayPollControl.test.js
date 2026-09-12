@@ -120,6 +120,33 @@ describe('videoGateway 轮询取消控制', () => {
     assert.throws(() => throwIfVideoPollAborted(controller.signal), assertCancelledError);
   });
 
+  it('超时 abort 不得被 throwIfVideoPollAborted / delayVideoPoll 当成取消', async () => {
+    const timeout = Object.assign(new Error('视频请求超时'), {
+      isTimeout: true,
+      code: 'ETIMEDOUT',
+      retryable: true,
+    });
+    const controller = new AbortController();
+    controller.abort(timeout);
+    let thrown;
+    try {
+      throwIfVideoPollAborted(controller.signal);
+    } catch (error) {
+      thrown = error;
+    }
+    assert.equal(thrown, timeout);
+    assert.equal(thrown.isTimeout, true);
+    assert.doesNotMatch(String(thrown.message), /取消/);
+    let delayed;
+    try {
+      await delayVideoPoll(20, controller.signal);
+    } catch (error) {
+      delayed = error;
+    }
+    assert.equal(delayed, timeout);
+    assert.doesNotMatch(String(delayed.message), /取消/);
+  });
+
   it('delayVideoPoll 可被中途取消，且已 abort 时同步抛出', async () => {
     await delayVideoPoll(0);
     await delayVideoPoll(1, undefined);

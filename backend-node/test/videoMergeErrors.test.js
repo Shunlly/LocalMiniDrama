@@ -41,6 +41,13 @@ test('取消错误统一为 AbortError / OPERATION_CANCELLED', () => {
   assert.equal(isOperationCancelled({ name: 'AbortError' }, undefined), true);
   assert.equal(isOperationCancelled(new Error('other'), controller.signal), true);
   assert.equal(isOperationCancelled(new Error('other'), undefined), false);
+
+  const timeout = Object.assign(new Error('视频合成超时'), { name: 'TimeoutError', isTimeout: true, code: 'ETIMEDOUT' });
+  assert.equal(isOperationCancelled(timeout, undefined), false);
+  const timeoutController = new AbortController();
+  timeoutController.abort(timeout);
+  assert.throws(() => throwIfAborted(timeoutController.signal), (error) => error === timeout);
+  assert.equal(isOperationCancelled(new Error('other'), timeoutController.signal), false);
 });
 
 test('严格生产错误带固定错误码，无效成片探测优先使用缺音轨文案', () => {

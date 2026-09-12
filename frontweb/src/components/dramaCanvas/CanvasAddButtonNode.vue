@@ -3,12 +3,12 @@
     type="button"
     class="canvas-add-node"
     :class="'kind-' + data.assetType"
-    :aria-label="data.label || defaultLabel"
-    :title="data.label || defaultLabel"
+    :aria-label="visibleLabel"
+    :title="visibleLabel"
     @click.stop="onClick"
   >
     <span class="add-icon">+</span>
-    <span class="add-label">{{ data.label || defaultLabel }}</span>
+    <span class="add-label">{{ visibleLabel }}</span>
   </button>
 </template>
 
@@ -25,6 +25,11 @@ const ctx = useCanvasContext()
 const defaultLabel = computed(() => {
   const map = { character: '新建角色', scene: '新建场景', prop: '新建道具', storyboard: '新建分镜' }
   return map[props.data.assetType] || '新建'
+})
+
+const visibleLabel = computed(() => {
+  const raw = String(props.data?.label || '').replace(/^\+\s*/, '').trim()
+  return raw || defaultLabel.value
 })
 
 function onClick() {

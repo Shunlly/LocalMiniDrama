@@ -186,6 +186,14 @@ test('HTTP/CLI 备份错误映射不会回落英文', () => {
   assert.match(abortMapped.message, /[\u4e00-\u9fff]/)
   assert.doesNotMatch(abortMapped.message, /aborted/i)
 
+  const timeoutAbort = new Error('The operation was aborted.')
+  timeoutAbort.name = 'AbortError'
+  timeoutAbort.code = 'ETIMEDOUT'
+  timeoutAbort.isTimeout = true
+  const timeoutMapped = describeBackupHttpError(timeoutAbort)
+  assert.notEqual(timeoutMapped.code, 'OPERATION_ABORTED')
+  assert.doesNotMatch(timeoutMapped.message, /中断|取消|aborted/i)
+
   const missing = Object.assign(new Error('ENOENT: no such file or directory'), { code: 'ENOENT' })
   const missingMapped = describeBackupHttpError(missing)
   assert.equal(missingMapped.code, 'NOT_FOUND')

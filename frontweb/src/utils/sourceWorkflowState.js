@@ -9,7 +9,7 @@ export const SOURCE_WORKFLOW_FAILURE_FALLBACK = '处理失败，请稍后重试�
 const FLOW_STEPS = [
   { id: 'intake', label: '导入素材' },
   { id: 'process', label: '启动处理' },
-  { id: 'qa', label: 'QA' },
+  { id: 'qa', label: '质量检查' },
   { id: 'remediation', label: '修复' },
   { id: 'delivery', label: '剧集 / 时间线' },
 ]
@@ -111,17 +111,17 @@ function buildStepSummary(stepId, context) {
   }
 
   if (stepId === 'qa') {
-    if (!qa?.id) return normalizeWorkflowStatus(run?.status) === 'completed' ? '流程已完成，可执行 QA' : '等待流程完成'
+    if (!qa?.id) return normalizeWorkflowStatus(run?.status) === 'completed' ? '流程已完成，可执行质量检查' : '等待流程完成'
     const qaScope = (qa.mode || run?.mode) === 'production' ? '正式交付检查' : '草稿结构检查'
     if (qa.passed) return `${qaScope} 通过，评分 ${qa.score}`
     return `${qaScope} 未通过，${qa.issueCount} 个问题待处理`
   }
 
   if (stepId === 'remediation') {
-    if (!qa?.id) return '等待 QA 结果'
+    if (!qa?.id) return '等待质量检查结果'
     if (qa.passed) return '无需修复'
     if (qa.canRemediate) return `${qa.remediationActions.length} 项可自动修复`
-    return '需按 QA 建议人工处理'
+    return '需按质量检查建议人工处理'
   }
 
   if (timeline?.episodeCount) {
@@ -235,7 +235,7 @@ export function getSourceWorkflowActionReasons({ hasSourceInput, runState, qa } 
 
   let qaReason = ''
   if (!hasWorkflowId(state.id)) qaReason = '请先启动并完成素材处理。'
-  else if (state.active) qaReason = '素材处理仍在运行，完成后才能执行 QA。'
+  else if (state.active) qaReason = '素材处理仍在运行，完成后才能执行质量检查。'
   else if (status === 'paused') qaReason = '请先恢复并完成当前处理。'
   else if (status === 'failed') qaReason = '请先重试失败步骤并完成处理。'
   else if (status === 'cancelled') qaReason = '当前处理已取消，请重新启动处理。'
@@ -248,9 +248,9 @@ export function getSourceWorkflowActionReasons({ hasSourceInput, runState, qa } 
   else if (status === 'failed') remediationReason = '请先重试失败步骤并完成处理。'
   else if (status === 'cancelled') remediationReason = '当前处理已取消，请重新启动处理。'
   else if (status !== 'completed') remediationReason = '当前处理尚未完成。'
-  else if (!hasCurrentQa) remediationReason = '请先执行当前运行的 QA 审计。'
-  else if (report.passed) remediationReason = 'QA 已通过，无需自动修复。'
-  else if (!report.canRemediate) remediationReason = '当前问题没有可自动执行的修复动作，请按 QA 建议人工处理。'
+  else if (!hasCurrentQa) remediationReason = '请先执行当前运行的质量检查。'
+  else if (report.passed) remediationReason = '质量检查已通过，无需自动修复。'
+  else if (!report.canRemediate) remediationReason = '当前问题没有可自动执行的修复动作，请按质量检查建议人工处理。'
 
   return {
     import: sourceInputReason,

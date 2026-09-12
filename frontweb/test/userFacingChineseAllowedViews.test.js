@@ -406,7 +406,8 @@ test('AI 配置页按钮、占位、表单标签和错误提示改为简体中�
 test('404 页主标题是本地短剧助手，英文品牌只作次要标识', () => {
   assert.match(notFoundSource, /class="logo-main">本地短剧助手/)
   assert.match(notFoundSource, /class="logo-sub">LocalMiniDrama/)
-  assert.match(notFoundSource, /<h1[^>]*>页面不存在<\/h1>/)
+  assert.match(notFoundSource, /<h1 id="not-found-title"[^>]*>\{\{ copy.title \}\}<\/h1>/)
+  assert.match(read('../src/utils/notFoundNavigation.js'), /title: '页面不存在'/)
   assert.doesNotMatch(notFoundSource, /<p class="product-name">LocalMiniDrama<\/p>/)
 })
 

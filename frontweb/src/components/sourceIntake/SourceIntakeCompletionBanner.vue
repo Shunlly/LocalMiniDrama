@@ -4,7 +4,7 @@
     <span>{{ qaPresentation.scoreLabel }}</span>
   </div>
   <div v-if="completionSummaryReady" class="workflow-complete-metrics" aria-label="完成摘要">
-    <span><small>QA</small><strong>{{ qaPresentation.statusLabel }}</strong></span>
+    <span><small>质量检查</small><strong>{{ qaPresentation.statusLabel }}</strong></span>
     <span><small>分集</small><strong>{{ completionEpisodeCount }} 集</strong></span>
     <span><small>轨道</small><strong>{{ timelineSummary.trackCount }} 轨</strong></span>
     <span><small>时长</small><strong>{{ formatDuration(timelineSummary.durationSec) }}</strong></span>

@@ -49,7 +49,7 @@ function mountBanner(initial = {}) {
   const mounted = mountHarness(renderer, () => h(SourceIntakeCompletionBanner, {
     completionTitle: initial.title || '草稿结构已完成',
     qaPresentation: {
-      scoreLabel: initial.scoreLabel || 'QA 95',
+      scoreLabel: initial.scoreLabel || '质量检查 95',
       statusLabel: initial.statusLabel || '通过',
     },
     completionSummaryReady: initial.summaryReady ?? true,
@@ -72,7 +72,7 @@ function sampleSteps() {
     { id: 'intake', number: 1, label: '导入素材', status: 'done', statusLabel: '已完成', summary: '已导入 1 条' },
     { id: 'process', number: 2, label: '处理', status: 'active', statusLabel: '进行中', summary: '正在改编' },
     { id: 'qa', number: 3, label: '质量检查', status: 'ready', statusLabel: '可开始', summary: '等待处理完成' },
-    { id: 'remediation', number: 4, label: '修复', status: 'blocked', statusLabel: '未开始', summary: '等待 QA' },
+    { id: 'remediation', number: 4, label: '修复', status: 'blocked', statusLabel: '未开始', summary: '等待质量检查' },
     { id: 'delivery', number: 5, label: '交付', status: 'ready', statusLabel: '未开始', summary: '等待检查' },
   ]
 }
@@ -90,13 +90,13 @@ function mountStepper({ activeStepId = 'process', inspectedStepId = 'intake' } =
   return { ...mounted, events, flowState }
 }
 
-test('完成横幅展示 QA/分集/轨道/时长/占位，并交出制作与分集入口', async () => {
+test('完成横幅展示质量检查/分集/轨道/时长/占位，并交出制作与分集入口', async () => {
   const harness = mountBanner()
   try {
     const text = textContent(harness.root)
     assert.match(text, /草稿结构已完成/)
-    assert.match(text, /QA 95/)
-    assert.match(text, /QA/)
+    assert.match(text, /质量检查 95/)
+    assert.match(text, /质量检查/)
     assert.match(text, /通过/)
     assert.match(text, /分集/)
     assert.match(text, /3 集/)

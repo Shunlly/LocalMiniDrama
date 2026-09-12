@@ -86,7 +86,6 @@ onBeforeRouteLeave(leaveNavigation.allowRouteLeave)
 
 onMounted(() => {
   window.addEventListener('beforeunload', handleBeforeUnload)
-  void preloadProjectListPage()
 })
 
 onBeforeUnmount(() => {

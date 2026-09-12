@@ -97,6 +97,8 @@ test('备份页就绪文案说明是 /ready 而不是 SPA HTML', () => {
   assert.match(readinessSource, /data-testid="backup-readiness-ready-hint"/)
   assert.match(readinessSource, /data-testid="backup-readiness-spa-html"/)
   assert.match(readinessSource, /from '\.\/backupPageCopy\.js'/)
+  assert.match(backupPageSource, /returnTo.value === '\/ai-config' \? '返回 AI 配置' : '返回项目列表'/)
+  assert.doesNotMatch(backupPageSource, /返回首页/)
   assert.match(backupPageSource, /aria-label="取消恢复备份"/)
   assert.match(backupPageSource, />取消恢复备份<\/el-button>/)
   assert.match(backupPageSource, /正在备份或恢复，离开会中断当前操作/)

@@ -45,7 +45,7 @@ test('QA 审计成功后刷新快照并给出中文成功提示', async () => {
   })
   await actions.runQaAudit()
   assert.deepEqual(audits[0], { drama_id: 4, run_id: 'run-1', mode: 'draft' })
-  assert.deepEqual(messages, [['success', 'QA 审计已完成']])
+  assert.deepEqual(messages, [['success', '质量检查已完成']])
 })
 
 test('一键修复在确认到新运行后展示动作码', async () => {

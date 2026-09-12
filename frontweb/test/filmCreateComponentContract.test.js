@@ -814,7 +814,7 @@ test('pipeline compact action can add the first episode', async () => {
 
 test('FilmCreate 把视频配置交给独立面板并保留成片选项', () => {
   const panel = readFileSync(new URL('../src/components/filmCreate/FilmCreateVideoSettingsPanel.vue', import.meta.url), 'utf8')
-  const outputSection = readFileSync(new URL('../src/components/filmCreate/FilmCreateOutputSection.vue', import.meta.url), 'utf8')
+  const outputSection = readFileSync(new URL('../src/components/filmCreate/FilmCreateOutputSection.vue', import.meta.url), 'utf8') + '\n' + readFileSync(new URL('../src/components/filmCreate/filmCreateOutputSectionCopy.js', import.meta.url), 'utf8')
   assert.match(filmCreateSource, /<FilmCreateOutputSection/)
   assert.match(outputSection, /<FilmCreateVideoSettingsPanel/)
   assert.match(filmCreateSource, /v-bind="outputSectionBindings"/)
@@ -860,6 +860,7 @@ test('FilmCreate 把剧本工作台交给独立面板并保留空剧集入口', 
 
 test('交付面板为下载和导出提供可见的禁用原因', () => {
   const panel = readFileSync(new URL('../src/components/filmCreate/FilmCreateDeliveryPanel.vue', import.meta.url), 'utf8')
+    + readFileSync(new URL('../src/components/filmCreate/filmCreateDeliveryPanelCopy.js', import.meta.url), 'utf8')
   assert.match(panel, /<ActionGate :reason="downloadVideoDisabledReason" label="下载成片">/)
   assert.match(panel, /<ActionGate :reason="downloadSubtitleDisabledReason" label="下载字幕">/)
   assert.match(panel, /<ActionGate :reason="exportProjectDisabledReason" label="导出项目包">/)

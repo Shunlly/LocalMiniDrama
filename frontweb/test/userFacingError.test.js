@@ -132,7 +132,10 @@ test('流水线/批量生成失败不再直出 e.message', () => {
   assert.doesNotMatch(pipelineSource, /e\.message \|\| String\(e\)/)
   assert.doesNotMatch(pipelineSource, /addPipelineError\('润色全能分镜', `镜#[^`]*\$\{msg\}`\)/)
 
-  const batchSource = readFileSync(new URL(files[files.length - 1], import.meta.url), 'utf8')
+  const batchSource = [
+    files[files.length - 1],
+    '../src/composables/filmCreate/filmCreateBatchPoll.js',
+  ].map((rel) => readFileSync(new URL(rel, import.meta.url), 'utf8')).join('\n')
   assert.match(batchSource, /if \(isUserFacingAbort\(e\)\) continue/)
   assert.match(batchSource, /toUserFacingError\(pollRes\.error, '生成失败'\)/)
   assert.match(batchSource, /toUserFacingError\(pollRes\.error, '生成超时，请稍后重试'\)/)

@@ -48,7 +48,7 @@ const STEP_LABELS = {
   audio_generation: '对白与旁白配音',
   timeline_plan: '时间线',
   post_composite: '成片合成',
-  qa_audit: 'QA 审计',
+  qa_audit: '质量检查',
 }
 
 export function workflowTypeLabel(value) {

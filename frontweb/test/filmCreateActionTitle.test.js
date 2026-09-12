@@ -29,7 +29,7 @@ test('小说导入改走按需反馈，导入中给出中文 title', () => {
 })
 
 test('交付、全流程、分镜和资源禁用按钮带中文 title', () => {
-  const delivery = read('FilmCreateDeliveryPanel.vue')
+  const delivery = read('FilmCreateDeliveryPanel.vue') + read('filmCreateDeliveryPanelCopy.js')
   const pipeline = read('FilmCreatePipelinePanel.vue') + read('filmCreatePipelinePanelUx.js') + read('filmCreatePipelinePanelBindings.js') + read('FilmCreatePipelineActions.vue')
   const storyboard = read('FilmCreateStoryboardPanel.vue') + read('FilmCreateStoryboardEmptyState.vue')
   const configBar = read('FilmCreateStoryboardConfigBar.vue')

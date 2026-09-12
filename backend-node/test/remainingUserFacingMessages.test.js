@@ -1032,6 +1032,9 @@ test('视频后处理异常不会把英文堆栈返回给用户', () => {
   chineseCancel.name = 'AbortError';
   chineseCancel.code = 'OPERATION_CANCELLED';
   assert.equal(toUserFacingProcessError(chineseCancel, '处理失败'), '用户取消后处理');
+  const timeoutAbort = Object.assign(new Error('连接测试超时，请检查服务地址或网络'), { name: 'AbortError' });
+  assert.match(toUserFacingProcessError(timeoutAbort, '处理失败'), /超时/);
+  assert.doesNotMatch(toUserFacingProcessError(timeoutAbort, '处理失败'), /取消/);
   assert.doesNotMatch(
     toUserFacingProcessError(new Error('Invalid API key sk-secret-value'), '视频后处理失败，请确认已安装 ffmpeg 后重试'),
     /sk-secret/,

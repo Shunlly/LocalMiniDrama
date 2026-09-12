@@ -322,9 +322,7 @@ async function applyPendingRestoreFromConfig(cfg, options = {}) {
 
 function describeBackupHttpError(error) {
   let code = String(error?.code || '')
-  if (isTimeoutLikeError(error)) {
-    // 超时不得收成取消/中断
-  } else if (error?.name === 'AbortError' || ['ABORT_ERR', 'ERR_CANCELED', 'OPERATION_CANCELLED'].includes(code)) {
+  if (!isTimeoutLikeError(error) && (error?.name === 'AbortError' || ['ABORT_ERR', 'ERR_CANCELED', 'OPERATION_CANCELLED'].includes(code))) {
     code = 'OPERATION_ABORTED'
   }
   if (['EACCES', 'EPERM', 'EROFS'].includes(code)) code = 'PERMISSION_DENIED'

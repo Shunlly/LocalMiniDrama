@@ -59,3 +59,14 @@ test('剧集画布空下一步、节点上限和停止等待文案没有回退',
   assert.doesNotMatch(inspector, /取消生成/)
   assert.match(derived, /label: `分镜 · \$\{storyboard.label\}`/)
 })
+
+test('画布新建按钮可见文案不含重复加号', () => {
+  const adapter = read('../src/utils/dramaCanvasAdapter.js')
+  const addButton = read('../src/components/dramaCanvas/CanvasAddButtonNode.vue')
+  assert.match(adapter, /label: '新建'/)
+  assert.match(adapter, /label: '新建分镜'/)
+  assert.doesNotMatch(adapter, /label: '\+ 新建'/)
+  assert.match(addButton, /class="add-icon">\+</)
+  assert.match(addButton, /const visibleLabel = computed/)
+  assert.match(addButton, /replace\(\/\^\\\+\\s\*\//)
+})

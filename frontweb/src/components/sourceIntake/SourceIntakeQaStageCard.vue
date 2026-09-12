@@ -11,16 +11,16 @@
     </div>
 
     <div class="stage-action-row">
-      <ActionGate label="执行 QA 审计" :reason="qaReason">
+      <ActionGate label="执行质量检查" :reason="qaReason">
         <el-button
           size="small"
           type="primary"
           plain
           :disabled="Boolean(qaReason)"
           :loading="qaRunning"
-          :aria-label="qaRunning ? '正在执行 QA' : (qaReason || '执行 QA')" @click="$emit('run-qa')"
+          :aria-label="qaRunning ? '正在执行质量检查' : (qaReason || '执行质量检查')" @click="$emit('run-qa')"
         >
-          执行 QA 审计
+          执行质量检查
         </el-button>
       </ActionGate>
       <span v-if="qaReason" class="action-reason action-reason--inline">{{ qaReason }}</span>
@@ -41,7 +41,7 @@
       <div v-else-if="latestQa.issueCount" class="stage-empty">检查结果已记录，暂无可以展示的说明。</div>
 
       <details class="qa-detail">
-        <summary>完整 QA 明细</summary>
+        <summary>完整质量检查明细</summary>
         <div class="qa-detail-title">检查项</div>
         <div v-for="check in latestQa.checks" :key="check.key" class="qa-issue">
           {{ qaCheckLabel(check.key) }}：{{ check.passed ? '通过' : '未通过' }}
@@ -56,7 +56,7 @@
       </details>
     </template>
     <div v-else class="stage-empty stage-empty--actionable">
-      <span>还没有 QA 结果。完成处理后点击「执行 QA 审计」，问题和建议会显示在这里。</span>
+      <span>还没有质量检查结果。完成处理后点击「执行质量检查」，问题和建议会显示在这里。</span>
       <el-button type="primary" plain aria-label="去启动处理" @click="$emit('select-step', 'process')">去启动处理</el-button>
     </div>
   </div>

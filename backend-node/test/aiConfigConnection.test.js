@@ -409,6 +409,35 @@ describe('aiConfigService.testConnection', () => {
     assert.equal(sawSignal, true);
   });
 
+  it('maps probe timeout to a timeout error instead of cancel', async () => {
+    const fetchImpl = async () => {
+      const error = new Error('The operation was aborted.');
+      error.name = 'AbortError';
+      error.code = 'ETIMEDOUT';
+      error.isTimeout = true;
+      throw error;
+    };
+    await assert.rejects(
+      aiConfigService.testConnection({
+        base_url: 'https://provider.example.com/v1',
+        api_key: 'saved-secret',
+        provider: 'openai',
+        service_type: 'text',
+        model: 'text-model',
+        fetch_impl: fetchImpl,
+        provider_dns_lookup: async () => [{ address: '93.184.216.34', family: 4 }],
+      }),
+      (error) => {
+        assert.equal(error.isTimeout, true);
+        assert.equal(error.code, 'ETIMEDOUT');
+        assert.match(error.message, /超时/);
+        assert.doesNotMatch(error.message, /取消/);
+        assert.notEqual(error.name, 'AbortError');
+        return true;
+      }
+    );
+  });
+
   it('network failures return Chinese copy instead of fetch/ECONNREFUSED text', async () => {
     const fetchImpl = async () => {
       const error = new Error('fetch failed');

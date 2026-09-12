@@ -27,10 +27,10 @@
         {{ action.label }}：{{ action.automated ? '可自动执行' : '需要人工处理' }}
       </div>
     </div>
-    <div v-else-if="latestQa.passed" class="stage-success">QA 已通过，不需要修复。</div>
+    <div v-else-if="latestQa.passed" class="stage-success">质量检查已通过，不需要修复。</div>
     <div v-else class="stage-empty stage-empty--actionable">
-      <span>还没有可自动修复的建议。请先执行 QA 审计。</span>
-      <el-button type="primary" plain aria-label="去执行 QA" @click="$emit('select-step', 'qa')">去执行 QA</el-button>
+      <span>还没有可自动修复的建议。请先执行质量检查。</span>
+      <el-button type="primary" plain aria-label="去执行质量检查" @click="$emit('select-step', 'qa')">去执行质量检查</el-button>
     </div>
   </div>
 </template>

@@ -82,7 +82,7 @@ const {
 })
 
 const returnTo = computed(() => normalizeBackupReturnTo(route.query.returnTo))
-const backButtonText = computed(() => (returnTo.value === '/ai-config' ? '返回 AI 配置' : '返回首页'))
+const backButtonText = computed(() => (returnTo.value === '/ai-config' ? '返回 AI 配置' : '返回项目列表'))
 const backupWriteLockReason = computed(() => getBackupWriteLockReason({
   creating: creating.value,
   restoring: restoring.value,
