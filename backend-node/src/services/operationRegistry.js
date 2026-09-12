@@ -11,7 +11,11 @@ function isTimeoutReason(reason) {
 function createOperationCancelledError(reason) {
   if (reason instanceof Error && isTimeoutReason(reason)) return reason;
   if (reason instanceof Error && reason.code === 'OPERATION_CANCELLED') return reason;
-  const error = new Error(reason instanceof Error ? reason.message : String(reason || '操作已取消'));
+  const raw = reason instanceof Error ? String(reason.message || '') : (reason == null ? '' : String(reason));
+  const message = (!raw || /this operation was aborted|the operation was aborted|the user aborted|\baborted\b/i.test(raw))
+    ? '操作已取消'
+    : raw;
+  const error = new Error(message);
   error.name = 'AbortError';
   error.code = 'OPERATION_CANCELLED';
   return error;

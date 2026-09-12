@@ -29,6 +29,10 @@ test('超时 abort 原因不得被包装成取消', () => {
   assert.equal(cancelled.name, 'AbortError');
   assert.equal(cancelled.code, 'OPERATION_CANCELLED');
   assert.equal(cancelled.message, '用户已取消');
+
+  const aborted = createOperationCancelledError(Object.assign(new Error('This operation was aborted'), { name: 'AbortError' }));
+  assert.equal(aborted.code, 'OPERATION_CANCELLED');
+  assert.equal(aborted.message, '操作已取消');
 });
 
 let sequence = 0;
