@@ -48,7 +48,8 @@ test('空态新建自由节点后把焦点交给检查器，键盘 Enter 也打�
   const keydown = remainingExtractNamedFunction(clipboard, 'handleFreeCanvasKeydown')
   assert.match(create, /activateFreeCanvasNode\(node\.id\)/)
   assert.match(keydown, /event\.key === 'Enter' \|\| event\.key === ' '/)
-  assert.match(keydown, /activateFreeCanvasNode\(nodeId\)/)
+  assert.match(keydown, /activateFreeCanvasNode\(nodeId, \{ focusInspector: !retainFocus \}\)/)
+  assert.match(keydown, /classList\?\.contains\('free-canvas-node'\)/)
   assert.doesNotMatch(keydown, /focusInspector: false/)
 })
 

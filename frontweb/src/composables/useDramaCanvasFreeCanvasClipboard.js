@@ -1,6 +1,7 @@
 /**
  * 自由画布剪贴板与快捷键：复制粘贴、全选、对齐与转换。
  */
+import { nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from '@/utils/elementPlusFeedback.js'
 
 import {
@@ -190,7 +191,16 @@ export function useDramaCanvasFreeCanvasClipboard(deps = {}) {
         event.preventDefault()
         event.stopPropagation()
         finishFreeCanvasNodeEditing(nodeId)
-        activateFreeCanvasNode(nodeId)
+        const retainFocus = event.target?.classList?.contains('free-canvas-node')
+        activateFreeCanvasNode(nodeId, { focusInspector: !retainFocus })
+        if (retainFocus) {
+          const target = event.target
+          void nextTick(() => {
+            if (target?.isConnected && document.activeElement !== target) {
+              target.focus({ preventScroll: true })
+            }
+          })
+        }
         return
       }
     }
