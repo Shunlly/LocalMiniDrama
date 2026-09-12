@@ -527,10 +527,10 @@ watch(
   { immediate: true },
 )
 
-onBeforeRouteLeave(() => confirmInfoLeave())
+onBeforeRouteLeave((to) => confirmInfoLeave(to))
 onBeforeRouteUpdate((to, from) => {
   if (projectRouteInstanceKey(to) === projectRouteInstanceKey(from)) return true
-  return confirmInfoLeave()
+  return confirmInfoLeave(to)
 })
 
 let dramaDetailUnmounted = false

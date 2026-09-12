@@ -61,3 +61,9 @@ test('\u5267\u96c6\u4fe1\u606f\u81ea\u52a8\u4fdd\u5b58\u5199\u56de\u9879\u76ee I
   assert.equal(autosave.infoSaveState.value, 'saved')
   assert.equal(drama.value.title, '\u6539\u540e\u7684\u6807\u9898')
 })
+
+test('去 AI 配置时项目信息离开保护会先保存再放行', () => {
+  assert.match(helperSource, /async function confirmInfoLeave\(to\)/)
+  assert.match(helperSource, /if \(isAiConfigRoundTrip\(to\)\) return true/)
+  assert.match(pageSource, /onBeforeRouteLeave\(\(to\) => confirmInfoLeave\(to\)\)/)
+})

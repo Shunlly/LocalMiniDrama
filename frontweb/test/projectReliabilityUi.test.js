@@ -39,7 +39,7 @@ test('DramaDetail remains a valid SFC with explicit readiness dependency retry a
   assert.match(dramaDetailSource, /function scheduleInfoSave\(\{ immediate = false \} = \{\}\)/)
   assert.match(dramaDetailSource, /async function flushInfoSave\(\)/)
   assert.match(dramaDetailSource, /async function retryInfoSave\(\)/)
-  assert.match(dramaDetailSource, /onBeforeRouteLeave\(\(\) => confirmInfoLeave\(\)\)/)
+  assert.match(dramaDetailSource, /onBeforeRouteLeave\(\(to\) => confirmInfoLeave\(to\)\)/)
   assert.match(dramaDetailSource, /window\.addEventListener\('beforeunload', handleInfoBeforeUnload\)/)
   assert.match(dramaDetailInfoCardSource, /class="info-save-status"/)
   assert.match(dramaDetailSource, /class="dependency-status dependency-status--error"/)

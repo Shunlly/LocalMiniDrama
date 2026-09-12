@@ -49,7 +49,7 @@ test('角色场景道具编辑弹窗未保存关闭和离开都要中文确认',
   }
   assert.match(
     dramaDetailSource,
-    /async function confirmInfoLeave\(\) \{\s*if \(\(await confirmBatchImportLeave\(\)\) === false\) return false\s*if \(\(await confirmResourceEditLeave\(\)\) === false\) return false/,
+    /async function confirmInfoLeave\(to\) \{\s*if \(\(await confirmBatchImportLeave\(\)\) === false\) return false\s*if \(\(await confirmResourceEditLeave\(\)\) === false\) return false/,
   )
   assert.match(
     dramaDetailSource,

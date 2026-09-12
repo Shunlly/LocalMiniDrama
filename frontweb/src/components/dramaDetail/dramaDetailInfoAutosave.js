@@ -5,6 +5,7 @@
 import { computed, reactive, ref, watch } from 'vue'
 
 import { stylePromptMetadataForSave } from '@/constants/styleOptions'
+import { isAiConfigRoundTrip } from '@/components/sourceIntake/sourceIntakeDraft.js'
 
 export function createDramaDetailInfoAutosave({
   dramaId,
@@ -191,7 +192,7 @@ export function createDramaDetailInfoAutosave({
     return (await episodeBatchImportDialogRef.value.requestClose?.()) !== false
   }
 
-  async function confirmInfoLeave() {
+  async function confirmInfoLeave(to) {
     if ((await confirmBatchImportLeave()) === false) return false
     if ((await confirmResourceEditLeave()) === false) return false
     if (!shouldProtectInfoLeave.value) return true
@@ -199,6 +200,7 @@ export function createDramaDetailInfoAutosave({
       const saved = await flushInfoSave()
       if (saved && !shouldProtectInfoLeave.value) return true
     }
+    if (isAiConfigRoundTrip(to)) return true
     if (infoLeaveConfirmOpen) return false
     infoLeaveConfirmOpen = true
     try {

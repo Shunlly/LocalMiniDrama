@@ -19,7 +19,7 @@ test('App keys project workspaces by the normalized project route instance', () 
 })
 
 test('same-route project changes run both unsaved guards before the keyed remount', () => {
-  assert.match(dramaDetailSource, /onBeforeRouteUpdate\(\(to, from\) => \{[\s\S]*projectRouteInstanceKey\(to\)[\s\S]*projectRouteInstanceKey\(from\)[\s\S]*confirmInfoLeave\(\)/)
+  assert.match(dramaDetailSource, /onBeforeRouteUpdate\(\(to, from\) => \{[\s\S]*projectRouteInstanceKey\(to\)[\s\S]*projectRouteInstanceKey\(from\)[\s\S]*confirmInfoLeave\(to\)/)
   assert.match(sourcePanelSource, /onBeforeRouteUpdate\(\(to, from\) => \{[\s\S]*projectRouteInstanceKey\(to\)[\s\S]*projectRouteInstanceKey\(from\)[\s\S]*confirmSourceInputLeave\(to\)/)
 })
 
