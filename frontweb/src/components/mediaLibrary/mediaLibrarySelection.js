@@ -80,13 +80,32 @@ export function createMediaLibrarySelection(ctx = {}) {
     loadMedia()
   }
 
-  function confirmMediaLibraryLeave() {
+  let pendingMediaLibraryLeaveConfirm = null
+
+  async function confirmMediaLibraryLeave() {
     if (!hasPendingMediaLibraryOperations(uploading.value, networkImportingKeys)) return true
+    if (pendingMediaLibraryLeaveConfirm) return pendingMediaLibraryLeaveConfirm
     const message = uploading.value
       ? '素材正在上传，请完成后再离开。'
       : '网络素材正在导入，请完成后再离开。'
-    ElMessage.warning(message)
-    return false
+    pendingMediaLibraryLeaveConfirm = (async () => {
+      try {
+        await ElMessageBox.confirm(message, '确认离开？', {
+          type: 'warning',
+          confirmButtonText: '离开',
+          cancelButtonText: '继续留在本页',
+          distinguishCancelAndClose: true,
+        })
+        return true
+      } catch (_) {
+        return false
+      }
+    })()
+    try {
+      return await pendingMediaLibraryLeaveConfirm
+    } finally {
+      pendingMediaLibraryLeaveConfirm = null
+    }
   }
 
   function handleBeforeUnload(event) {

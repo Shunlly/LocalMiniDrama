@@ -1187,6 +1187,8 @@ const {
   ...taskCancel,
   resourceDialogsBindings, storyboardDialogsBindings,
   onGlobalMediaAssetSelected,
+  dramaId,
+  onGoToDrama: () => { if (dramaId.value) router.push('/drama/' + dramaId.value) },
 })
 
 onMounted(mountWorkspace)

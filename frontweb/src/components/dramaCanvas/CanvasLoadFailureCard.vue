@@ -15,6 +15,7 @@
       </p>
       <div class="canvas-load-actions">
         <el-button type="primary" :loading="loading" :aria-label="loading ? '正在重试加载' : '重试加载'" @click="retryCanvasProjectLoad">重试加载</el-button>
+        <el-button v-if="dramaId" aria-label="返回列表模式" @click="goListMode">返回列表模式</el-button>
         <el-button aria-label="返回项目列表" @click="goProjectList">返回项目列表</el-button>
       </div>
     </div>
@@ -31,6 +32,8 @@ const props = defineProps({
   notFound: { type: Boolean, default: false },
   retryCanvasProjectLoad: { type: Function, required: true },
   goProjectList: { type: Function, required: true },
+  goListMode: { type: Function, default: () => {} },
+  dramaId: { type: [String, Number], default: '' },
 })
 
 const displayError = computed(() => (

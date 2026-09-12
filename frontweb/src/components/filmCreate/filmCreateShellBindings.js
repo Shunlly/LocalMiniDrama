@@ -24,7 +24,7 @@ export function createFilmCreateShellBindingSources(ctx = {}) {
     storyboards, allActiveTaskItems, allActiveTaskLabels, pipelineStopping,
     toggleNav, scrollToAnchor, cancelActiveTask,
     projectLoadState, projectLoadError, projectLoadNotFound, projectLoadPending,
-    retryFilmProjectLoad, goList,
+    retryFilmProjectLoad, goList, dramaId, onGoToDrama,
     storyboardMediaLoadError, projectDependencyWarning, projectDependencyLoading,
     retryProjectDependencies,
     resourceDialogsBindings, storyboardDialogsBindings,
@@ -46,7 +46,7 @@ export function createFilmCreateShellBindingSources(ctx = {}) {
     projectLoadState: {
       state: projectLoadState, errorText: projectLoadError,
       notFound: projectLoadNotFound, pending: projectLoadPending,
-      onRetry: retryFilmProjectLoad, onGoList: goList,
+      dramaId, onRetry: retryFilmProjectLoad, onGoList: goList, onGoToDrama,
     },
     projectDependencyWarning: {
       mediaError: storyboardMediaLoadError, dependencyWarning: projectDependencyWarning,

@@ -88,6 +88,8 @@ test('项目加载失败只有一个 primary，读屏名包含可见重试加载
     pending: false,
     onRetry: () => events.push('retry'),
     onGoList: () => events.push('go-list'),
+    onGoToDrama: () => events.push('go-to-drama'),
+    dramaId: 9,
   }))
   try {
     await nextTick()
@@ -96,8 +98,10 @@ test('项目加载失败只有一个 primary，读屏名包含可见重试加载
     const primaries = buttons.filter((node) => node.props['data-variant'] === 'primary')
     assert.equal(primaries.length, 1)
     const retry = buttonByText(harness.root, '重试加载')
+    const drama = buttonByText(harness.root, '返回剧集')
     const back = buttonByText(harness.root, '返回项目列表')
     assert.ok(retry)
+    assert.ok(drama)
     assert.ok(back)
     assert.equal(retry.props['aria-label'], '重试加载')
     assert.ok(String(retry.props['aria-label']).includes(visibleButtonText(retry)))
@@ -105,7 +109,8 @@ test('项目加载失败只有一个 primary，读屏名包含可见重试加载
     assert.doesNotMatch(textContent(harness.root), /HTTP\s*\d{3}/i)
     assert.match(textContent(harness.root), /暂时无法打开制作项目/)
     click(retry)
-    assert.deepEqual(events, ['retry'])
+    click(drama)
+    assert.deepEqual(events, ['retry', 'go-to-drama'])
   } finally {
     harness.app.unmount()
   }

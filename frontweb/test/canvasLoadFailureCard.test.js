@@ -42,6 +42,8 @@ function mountCard(initialProps = {}) {
     notFound: false,
     retryCanvasProjectLoad: () => retries.push(true),
     goProjectList: () => listReturns.push(true),
+    goListMode: () => listReturns.push('list-mode'),
+    dramaId: 12,
     ...initialProps,
   }
   const harness = mountHarness(renderer, () => h(CanvasLoadFailureCard, {
@@ -58,6 +60,8 @@ test('DramaCanvas 把加载失败面交给独立卡片，并保留重试与返�
   assert.match(viewSource, /v-bind="loadFailureBindings"/)
   assert.match(bindingsSource, /retryCanvasProjectLoad: ctx.retryCanvasProjectLoad/)
   assert.match(bindingsSource, /goProjectList: ctx.goProjectList/)
+  assert.match(bindingsSource, /goListMode: ctx.goListMode/)
+  assert.match(cardSource, /aria-label="返回列表模式"/)
   assert.match(cardSource, /@click="retryCanvasProjectLoad">重试加载/)
   assert.match(cardSource, /canvas-load-actions[\s\S]*@click="goProjectList">返回项目列表/)
   assert.match(cardSource, /defineExpose\(\{\s*focus:/)
@@ -94,14 +98,17 @@ test('重试加载和返回项目列表会调用父级传入的动作', async ()
   const harness = mountCard({ loading: true })
   try {
     const retry = buttonByText(harness.root, '重试加载')
+    const listMode = buttonByText(harness.root, '返回列表模式')
     const back = buttonByText(harness.root, '返回项目列表')
     assert.ok(retry, '缺少重试加载按钮')
+    assert.ok(listMode, '缺少返回列表模式按钮')
     assert.ok(back, '缺少返回项目列表按钮')
     assert.equal(retry.props['data-loading'], true)
     click(retry)
+    click(listMode)
     click(back)
     assert.deepEqual(harness.retries, [true])
-    assert.deepEqual(harness.listReturns, [true])
+    assert.deepEqual(harness.listReturns, ['list-mode', true])
   } finally {
     harness.app.unmount()
   }

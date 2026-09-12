@@ -205,5 +205,7 @@ export function createDramaCanvasLoadFailureBindings(ctx = {}) {
     notFound: ctx.canvasLoadNotFound,
     retryCanvasProjectLoad: ctx.retryCanvasProjectLoad,
     goProjectList: ctx.goProjectList,
+    goListMode: ctx.goListMode,
+    dramaId: ctx.dramaId,
   })
 }

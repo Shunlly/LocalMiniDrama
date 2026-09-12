@@ -95,7 +95,7 @@ test('网络空态区分未搜索和没有结果，并具备状态角色', () =>
 
 test('导入中离开保护文案仍会拦住路由和刷新', () => {
   assert.match(source, /网络素材正在导入，请完成后再离开。/)
-  assert.match(source, /onBeforeRouteLeave\(\(\) => confirmMediaLibraryLeave\(\)\)/)
+  assert.match(source, /onBeforeRouteLeave\(confirmMediaLibraryLeave\)/)
   assert.match(source, /window\.addEventListener\('beforeunload', handleBeforeUnload\)/)
 })
 

@@ -21,9 +21,10 @@ test('media library uploads and network imports participate in route and browser
   assert.match(mediaLibrarySource, /import \{ onBeforeRouteLeave, useRoute, useRouter \} from 'vue-router'/)
   assert.match(
     mediaLibrarySource,
-    /function confirmMediaLibraryLeave\(\) \{[\s\S]*if \(!hasPendingMediaLibraryOperations\(uploading\.value, networkImportingKeys\)\) return true[\s\S]*ElMessage\.warning\([\s\S]*return false/,
+    /async function confirmMediaLibraryLeave\(\) \{[\s\S]*if \(!hasPendingMediaLibraryOperations\(uploading\.value, networkImportingKeys\)\) return true[\s\S]*ElMessageBox\.confirm\([\s\S]*confirmButtonText: '离开'[\s\S]*cancelButtonText: '继续留在本页'/,
   )
-  assert.match(mediaLibrarySource, /onBeforeRouteLeave\(\(\) => confirmMediaLibraryLeave\(\)\)/)
+  assert.match(mediaLibrarySource, /onBeforeRouteLeave\(confirmMediaLibraryLeave\)/)
+  assert.doesNotMatch(mediaLibrarySource, /function confirmMediaLibraryLeave\(\) \{[\s\S]*ElMessage\.warning\([\s\S]*return false/)
   assert.match(
     mediaLibrarySource,
     /function handleBeforeUnload\(event\) \{\s*if \(!hasPendingMediaLibraryOperations\(uploading\.value, networkImportingKeys\)\) return[\s\S]*event\.preventDefault\(\)[\s\S]*event\.returnValue = ''/,

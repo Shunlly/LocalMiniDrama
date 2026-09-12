@@ -304,6 +304,8 @@ export function createDramaCanvasPageBindings(ctx = {}) {
     canvasLoadNotFound: ctx.canvasLoadNotFound,
     retryCanvasProjectLoad: ctx.retryCanvasProjectLoad,
     goProjectList: ctx.goProjectList,
+    goListMode,
+    dramaId: ctx.dramaId,
   })
 
   return {

@@ -597,7 +597,7 @@ watch(
   { flush: 'post' },
 )
 
-onBeforeRouteLeave(() => confirmMediaLibraryLeave())
+onBeforeRouteLeave(confirmMediaLibraryLeave)
 
 onMounted(() => {
   mediaLibraryMounted = true

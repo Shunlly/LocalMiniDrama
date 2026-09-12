@@ -24,6 +24,9 @@
         <el-button v-if="!notFound" type="primary" :loading="pending" :aria-label="retryAriaLabel" :title="filmCreateActionTitle('', pending, '正在重新加载项目，请稍候')" @click="emit('retry')">
           <el-icon><Refresh /></el-icon>重试加载
         </el-button>
+        <el-button v-if="!notFound && dramaId" aria-label="返回剧集" @click="emit('go-to-drama')">
+          <el-icon><ArrowLeft /></el-icon>返回剧集
+        </el-button>
         <el-button aria-label="返回项目列表" @click="emit('go-list')">
           <el-icon><ArrowLeft /></el-icon>返回项目列表
         </el-button>
@@ -43,6 +46,7 @@ const props = defineProps({
   errorText: { type: String, default: '' },
   notFound: { type: Boolean, default: false },
   pending: { type: Boolean, default: false },
+  dramaId: { type: [String, Number], default: '' },
 })
 
 const displayErrorText = computed(() => toFilmCreateUserFacingText(props.errorText, '暂时无法打开制作项目，请稍后重试'))
@@ -51,7 +55,7 @@ const retryAriaLabel = computed(() => describeActionAriaLabel('重试加载', {
   loadingLabel: '正在重试加载',
 }))
 
-const emit = defineEmits(['retry', 'go-list'])
+const emit = defineEmits(['retry', 'go-list', 'go-to-drama'])
 const errorSectionRef = ref(null)
 
 defineExpose({
