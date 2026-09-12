@@ -163,7 +163,7 @@
         <p>{{ assetEmptyText('分镜媒体') }}</p>
         <button v-if="hasActiveAssetFilters" type="button" class="asset-empty-action" aria-label="清除素材筛选" @click="clearAssetFilters">清除筛选</button>
         <template v-else>
-          <button type="button" class="asset-empty-action" aria-label="空态上传素材" @click="fileInputRef?.click()">上传素材</button>
+          <button type="button" class="asset-empty-action" aria-label="上传素材" @click="fileInputRef?.click()">上传素材</button>
           <button type="button" class="asset-empty-action" aria-label="空态从素材中心选择" @click="emit('open-picker')">从素材中心选择</button>
         </template>
       </div>
@@ -195,7 +195,7 @@
         <p>{{ assetEmptyText('项目素材') }}</p>
         <button v-if="hasActiveAssetFilters" type="button" class="asset-empty-action" aria-label="清除素材筛选" @click="clearAssetFilters">清除筛选</button>
         <template v-else>
-          <button type="button" class="asset-empty-action" aria-label="空态上传素材" @click="fileInputRef?.click()">上传素材</button>
+          <button type="button" class="asset-empty-action" aria-label="上传素材" @click="fileInputRef?.click()">上传素材</button>
           <button type="button" class="asset-empty-action" aria-label="空态从素材中心选择" @click="emit('open-picker')">从素材中心选择</button>
         </template>
       </div>

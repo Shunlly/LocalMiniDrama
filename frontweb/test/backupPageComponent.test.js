@@ -264,7 +264,7 @@ test('列表刷新失败时，过期列表的恢复按钮锁在刷新失败原�
   const harness = mountBackup({
     backups: [{ id: 'keep.zip', name: 'keep.zip', createdAt: '2026-08-29T00:00:00Z', bytes: 2048 }],
     hasSuccessfulListLoad: true,
-    listError: '备份服务暂时不可用（HTTP 503）',
+    listError: '备份服务暂时不可用，请稍后重试',
     hasSuccessfulReadinessLoad: true,
     readiness: { ready: true, maintenanceError: '' },
   })
@@ -351,7 +351,7 @@ test('维护状态刷新失败时仍显示上次成功读取的租约，且不�
     backups: [{ id: 'keep.zip', name: 'keep.zip', createdAt: '2026-08-29T00:00:00Z', bytes: 2048 }],
     hasSuccessfulListLoad: true,
     hasSuccessfulReadinessLoad: true,
-    readinessError: '维护服务暂时不可用（HTTP 503）',
+    readinessError: '维护服务暂时不可用，请稍后重试',
     readiness: { ready: true, maintenanceError: '' },
   })
   try {
@@ -422,7 +422,7 @@ test('空态选择按钮读屏名包含可见文案选择已有备份', async ()
   })
   try {
     await nextTick()
-    const emptySelect = buttonByAriaLabel(harness.root, '空态选择已有备份')
+    const emptySelect = buttonByAriaLabel(harness.root, '选择已有备份')
     assert.ok(emptySelect)
     assert.match(textContent(emptySelect), /选择已有备份/)
     assert.equal(buttonByAriaLabel(harness.root, '空态选择备份文件'), undefined)
@@ -445,7 +445,7 @@ test('空备份列表展示空态，不出现恢复入口', async () => {
     await nextTick()
     assert.match(textContent(harness.root), /还没有备份/)
     assert.match(textContent(harness.root), /可以创建新备份，或选择已有备份文件恢复/)
-    assert.ok(buttonByAriaLabel(harness.root, '空态创建备份'))
+    assert.ok(buttonByAriaLabel(harness.root, '创建备份'))
     assert.equal(buttonByText(harness.root, '恢复'), undefined)
   } finally {
     harness.app.unmount()
@@ -673,7 +673,7 @@ test('恢复进行中离开也弹中文确认', async () => {
 
 test('就绪失败能区分 /ready 与 SPA HTML', () => {
   assert.equal(looksLikeBackupReadySpaHtmlFailure(''), false)
-  assert.equal(looksLikeBackupReadySpaHtmlFailure('\u7ef4\u62a4\u670d\u52a1\u6682\u65f6\u4e0d\u53ef\u7528\uff08HTTP 503\uff09'), false)
+  assert.equal(looksLikeBackupReadySpaHtmlFailure('\u7ef4\u62a4\u670d\u52a1\u6682\u65f6\u4e0d\u53ef\u7528\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5'), false)
   assert.equal(looksLikeBackupReadySpaHtmlFailure('\u7ef4\u62a4\u670d\u52a1\u6682\u65f6\u4e0d\u53ef\u7528\uff08HTTP 200\uff09'), true)
   assert.equal(looksLikeBackupReadySpaHtmlFailure('<!DOCTYPE html><html><div id="app">app</div></html>'), true)
   assert.equal(
@@ -681,8 +681,8 @@ test('就绪失败能区分 /ready 与 SPA HTML', () => {
     BACKUP_READY_SPA_HTML_MESSAGE,
   )
   assert.equal(
-    describeBackupReadinessDisplayError('\u7ef4\u62a4\u670d\u52a1\u6682\u65f6\u4e0d\u53ef\u7528\uff08HTTP 503\uff09'),
-    '\u7ef4\u62a4\u670d\u52a1\u6682\u65f6\u4e0d\u53ef\u7528\uff08HTTP 503\uff09',
+    describeBackupReadinessDisplayError('\u7ef4\u62a4\u670d\u52a1\u6682\u65f6\u4e0d\u53ef\u7528\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5'),
+    '\u7ef4\u62a4\u670d\u52a1\u6682\u65f6\u4e0d\u53ef\u7528\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5',
   )
   assert.match(BACKUP_READY_NOT_SPA_HINT, /\/ready/)
   assert.match(BACKUP_READY_NOT_SPA_HINT, /SPA HTML/)
@@ -713,7 +713,7 @@ test('就绪 HTTP 200 会说明 /ready 返回了前端页面', async () => {
 
 test('就绪 HTTP 503 仍指向 /ready，不误判 SPA HTML', async () => {
   const harness = mountBackup({
-    readinessError: '\u7ef4\u62a4\u670d\u52a1\u6682\u65f6\u4e0d\u53ef\u7528\uff08HTTP 503\uff09',
+    readinessError: '\u7ef4\u62a4\u670d\u52a1\u6682\u65f6\u4e0d\u53ef\u7528\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5',
     hasSuccessfulReadinessLoad: false,
   })
   try {
@@ -722,7 +722,7 @@ test('就绪 HTTP 503 仍指向 /ready，不误判 SPA HTML', async () => {
     assert.match(pageText, /\u7ef4\u62a4\u72b6\u6001\u52a0\u8f7d\u5931\u8d25/)
     assert.match(pageText, /\/ready/)
     assert.ok(pageText.includes(BACKUP_READY_NOT_SPA_HINT))
-    assert.match(pageText, /HTTP 503/)
+    assert.match(pageText, /暂时不可用/)
     assert.equal(pageText.includes(BACKUP_READY_SPA_HTML_MESSAGE), false)
   } finally {
     harness.app.unmount()

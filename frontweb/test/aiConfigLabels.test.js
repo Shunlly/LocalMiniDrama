@@ -11,6 +11,7 @@ import {
   configActionLabel,
   describeAiConfigSaveSuccess,
   describeAiConfigBulkKeySuccess,
+  describeDisabledControlLabel,
 } from '../src/utils/aiConfigLabels.js'
 import { readAiConfigFormDialogTreeSource } from './helpers/aiConfigFormDialogSources.js'
 
@@ -59,5 +60,25 @@ test('保存成功给出中文下一步，批量换密钥不回传英文或密�
   assert.doesNotMatch(
     describeAiConfigBulkKeySuccess({ message: 'Bearer sess-fake-local-session-key', updated: 1 }),
     /sess-fake|Bearer/,
+  )
+})
+
+test('禁用控件读屏名优先给出中文原因', () => {
+  assert.equal(describeDisabledControlLabel('保存配置', {}), '保存配置')
+  assert.equal(
+    describeDisabledControlLabel('保存配置', {
+      disabled: true,
+      reason: '配置列表尚未就绪',
+    }),
+    '配置列表尚未就绪',
+  )
+  assert.equal(
+    describeDisabledControlLabel('保存配置', {
+      disabled: true,
+      reason: '配置列表尚未就绪',
+      loading: true,
+      loadingLabel: '正在保存配置',
+    }),
+    '正在保存配置',
   )
 })

@@ -56,11 +56,11 @@ test('dramaDetailUserError 走统一中文转义并带上服务名', () => {
   assert.equal(dramaDetailUserError('cancel'), '操作已取消')
   assert.equal(
     dramaDetailUserError({ response: { status: 500 } }, '角色库加载失败，请重试', '角色库'),
-    '角色库暂时不可用（HTTP 500）',
+    '角色库暂时不可用，请稍后重试',
   )
   assert.equal(
     dramaDetailUserError({ response: { status: 503 } }),
-    '项目服务暂时不可用（HTTP 503）',
+    '项目服务暂时不可用，请稍后重试',
   )
   assert.doesNotMatch(dramaDetailUserError({ message: 'Failed to fetch' }, '上传失败'), /Failed to fetch/i)
 })

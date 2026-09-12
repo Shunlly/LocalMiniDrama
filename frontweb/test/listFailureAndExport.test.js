@@ -46,7 +46,7 @@ test('project list uses a persistent failure state without replacing it with an 
 test('project list load errors stay user-facing and never look like an empty catalog', () => {
   assert.equal(
     describeServiceLoadError({ response: { status: 503 } }, { serviceLabel: '项目服务' }),
-    '项目服务暂时不可用（HTTP 503）',
+    '项目服务暂时不可用，请稍后重试',
   )
   assert.equal(
     describeServiceLoadError({ message: 'Network Error' }, { serviceLabel: '项目服务' }),
@@ -107,7 +107,7 @@ test('material center preserves stale data and blocks upload and deletion on loa
       loading: false,
       uploading: false,
       hasSuccessfulLoad: true,
-      loadError: '素材服务暂时不可用（HTTP 503）',
+      loadError: '素材服务暂时不可用，请稍后重试',
       itemCount: 3,
     }),
     {
@@ -118,7 +118,7 @@ test('material center preserves stale data and blocks upload and deletion on loa
   )
   assert.equal(
     describeServiceLoadError({ response: { status: 503 } }, { serviceLabel: '素材服务' }),
-    '素材服务暂时不可用（HTTP 503）',
+    '素材服务暂时不可用，请稍后重试',
   )
 })
 
@@ -263,7 +263,7 @@ test('分类素材加载失败不会被伪装成空库，且 AI 配置在列表�
   assert.match(filmListSource, /Number.isNaN\(d\.getTime\(\)\)/)
   assert.equal(
     describeServiceLoadError({ response: { status: 502 } }, { serviceLabel: '角色素材服务' }),
-    '角色素材服务暂时不可用（HTTP 502）',
+    '角色素材服务暂时不可用，请稍后重试',
   )
 })
 

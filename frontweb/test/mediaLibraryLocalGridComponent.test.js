@@ -134,7 +134,7 @@ test('入口条无 returnTo 时返回项目首页，有 returnTo 时改回制作
 
 test('加载失败展示中文下一步，不漏英文', async () => {
   const harness = mountGrid({
-    loadError: '素材服务暂时不可用（HTTP 503）',
+    loadError: '素材服务暂时不可用，请稍后重试',
     mediaIsStale: false,
     hasSuccessfulMediaLoad: false,
     mediaItems: [],
@@ -186,7 +186,7 @@ test('上传失败给出中文下一步并可重新上传', async () => {
 test('重试加载禁用原因、上传进度和批量删除都挂到 aria-describedby 或 live region', async () => {
   const retryReason = MEDIA_LIBRARY_DISABLE_REASON.retryLoading
   const retrying = mountGrid({
-    loadError: '素材服务暂时不可用（HTTP 503）',
+    loadError: '素材服务暂时不可用，请稍后重试',
     mediaIsStale: false,
     hasSuccessfulMediaLoad: false,
     mediaItems: [],

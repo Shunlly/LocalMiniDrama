@@ -18,14 +18,14 @@
           :disabled="accessState.createLocked"
           :title="accessState.createLocked ? backupWriteLockReason : undefined"
           :aria-describedby="accessState.createLocked ? 'backup-list-write-reason' : undefined"
-          aria-label="空态创建备份"
+          aria-label="创建备份"
           @click="onCreateBackup"
         >创建备份</el-button>
         <el-button
           :disabled="accessState.writeLocked"
           :title="accessState.writeLocked ? backupWriteLockReason : undefined"
           :aria-describedby="accessState.writeLocked ? 'backup-list-write-reason' : undefined"
-          aria-label="空态选择已有备份"
+          aria-label="选择已有备份"
           @click="triggerFileSelect"
         >选择已有备份</el-button>
       </div>

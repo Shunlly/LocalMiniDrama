@@ -22,7 +22,7 @@ test('网络素材英文技术错误转成中文，中文原文保留', () => {
       { response: { status: 500, data: { error: { message: 'Internal Server Error' } } } },
       { fallback: '网络素材导入失败' },
     ),
-    '网络素材服务暂时不可用（HTTP 500）',
+    '网络素材服务暂时不可用，请稍后重试',
   )
   assert.equal(
     describeMediaLibraryUserError({ message: 'timeout of 15000ms exceeded' }),
@@ -30,7 +30,7 @@ test('网络素材英文技术错误转成中文，中文原文保留', () => {
   )
   assert.equal(
     describeMediaLibraryUserError({ response: { status: 503 } }),
-    '网络素材服务暂时不可用（HTTP 503）',
+    '网络素材服务暂时不可用，请稍后重试',
   )
   assert.equal(
     describeMediaLibraryUserError(

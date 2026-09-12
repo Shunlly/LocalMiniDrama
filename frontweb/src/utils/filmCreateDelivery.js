@@ -110,8 +110,9 @@ export async function fetchVerifiedVideoBlob(url, fetchImpl = globalThis.fetch, 
 
     if (!response?.ok) {
       const status = Number(response?.status)
-      const suffix = Number.isFinite(status) && status > 0 ? `（HTTP ${status}）` : ''
-      const httpError = new Error(`服务器暂时无法提供成片${suffix}。`)
+      const httpError = new Error(status >= 500
+        ? '服务器暂时无法提供成片，请稍后重试。'
+        : '暂时无法下载成片，请稍后重试。')
       httpError.status = Number.isFinite(status) && status > 0 ? status : 0
       httpError.response = { status: httpError.status, data: null, headers: response?.headers }
       reportAndThrow(httpError)

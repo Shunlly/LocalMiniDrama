@@ -37,7 +37,7 @@ test('canvasUserError 把英文技术错误翻成中文，中文原文原样返�
   assert.equal(canvasUserError({ message: 'Request failed with status code 500' }, '生成失败'), '生成失败')
   assert.equal(canvasUserError({ message: '请先填写角色名称' }, '保存失败'), '请先填写角色名称')
   assert.equal(canvasUserError({ message: '生成失败: Internal Server Error' }, '生成失败'), '生成失败')
-  assert.equal(canvasUserError({ response: { status: 503 } }, '保存失败'), '画布服务暂时不可用（HTTP 503）')
+  assert.equal(canvasUserError({ response: { status: 503 } }, '保存失败'), '画布服务暂时不可用，请稍后重试')
   assert.equal(canvasUserError({ response: { data: { error: { message: '配额已用完' } } } }, '生成失败'), '配额已用完')
   assert.equal(canvasUserError('cancel'), '操作已取消')
   assert.equal(isCanvasUserAbort('cancel'), true)

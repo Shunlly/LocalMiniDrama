@@ -25,7 +25,7 @@ test('Network Error / Failed to fetch / HTTP 500 / AbortError 对用户是中文
   assert.doesNotMatch(http500, /Failed to fetch/i)
   assert.equal(
     toUserFacingError({ response: { status: 500 } }, '保存失败'),
-    '服务暂时不可用（HTTP 500）',
+    '服务暂时不可用，请稍后重试',
   )
   assert.equal(toUserFacingError({ message: 'HTTP 500' }, '保存失败'), '保存失败')
   assert.equal(toUserFacingError({ message: 'drama_id 对应的项目不存在' }, '保存失败'), '保存失败')

@@ -289,8 +289,8 @@ test('打开角色库时加载失败不会伪装成空库，空库和搜索空�
     const dialog = dialogByTitle(harness.root, '素材库 · 角色')
     assert.ok(dialog)
     const error = textContent(dialog)
-    assert.match(error, /角色素材服务暂时不可用（HTTP 502）/)
-    assert.equal(describeServiceLoadError({ response: { status: 502 } }, { serviceLabel: '角色素材服务' }), '角色素材服务暂时不可用（HTTP 502）')
+    assert.match(error, /角色素材服务暂时不可用，请稍后重试/)
+    assert.equal(describeServiceLoadError({ response: { status: 502 } }, { serviceLabel: '角色素材服务' }), '角色素材服务暂时不可用，请稍后重试')
     assert.doesNotMatch(error, /素材库暂无角色/)
     assert.ok(buttonByText(dialog, '重试'))
 

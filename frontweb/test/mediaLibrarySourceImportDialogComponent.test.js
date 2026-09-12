@@ -110,7 +110,7 @@ test('空项目列表给出中文空态和新建入口，取消会关掉弹窗',
 
 test('加载失败展示中文错误并可重试，不会漏出英文技术信息', async () => {
   const harness = mountPicker({
-    loadError: '项目服务暂时不可用（HTTP 503）',
+    loadError: '项目服务暂时不可用，请稍后重试',
     hasSuccessfulLoad: false,
     projects: [],
   })

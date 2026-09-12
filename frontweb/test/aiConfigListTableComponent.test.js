@@ -302,7 +302,7 @@ test('失败空态只给重试，写锁空态禁用添加并保留查看全部',
     assert.ok(addButton)
     assert.equal(addButton.props.disabled, true)
     assert.equal(addButton.props.title, '配置列表尚未就绪')
-    assert.equal(addButton.props['aria-label'], '添加文本配置')
+    assert.equal(addButton.props['aria-label'], '配置列表尚未就绪')
     const clearButton = buttonByText(filtered.root, '查看全部')
     assert.equal(clearButton.props['aria-label'], '清除当前服务筛选，查看全部配置')
     click(clearButton)
@@ -340,5 +340,24 @@ test('读取中的空态是 status 区域，不给添加或查看全部', async 
     assert.equal(buttonByText(pending.root, '重试'), undefined)
   } finally {
     pending.app.unmount()
+  }
+})
+
+test('厂商锁定空态给出下一步，不展示添加按钮', async () => {
+  const harness = mountTable({
+    rows: [],
+    vendorLock: { enabled: true },
+    props: {
+      configEmptyTitle: '还没有 AI 服务配置',
+      configEmptyDescription: '下一步：点击下方「添加第一个配置」。',
+    },
+  })
+  try {
+    await nextTick()
+    assert.match(textContent(harness.root), /当前由管理员统一配置/)
+    assert.doesNotMatch(textContent(harness.root), /添加第一个配置/)
+    assert.equal(buttonByText(harness.root, '添加第一个配置'), undefined)
+  } finally {
+    harness.app.unmount()
   }
 })

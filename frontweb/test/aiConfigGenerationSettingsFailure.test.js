@@ -77,7 +77,7 @@ test('generation settings save remains fail closed until a successful reload', (
   assert.equal(validateGenerationConcurrency(3, 4), '')
   assert.equal(clampGenerationConcurrency('7.6'), 8)
   assert.equal(clampGenerationConcurrency('0'), null)
-  assert.match(describeGenerationSettingsLoadError({ response: { status: 502 } }), /生成设置服务暂时不可用（HTTP 502）/)
+  assert.match(describeGenerationSettingsLoadError({ response: { status: 502 } }), /生成设置服务暂时不可用，请稍后重试/)
 })
 
 test('超时不得当成取消忽略', async () => {

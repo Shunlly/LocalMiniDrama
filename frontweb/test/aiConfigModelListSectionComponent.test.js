@@ -88,6 +88,8 @@ test('模型列表可从服务读取；禁用时展示中文原因且不会发�
     await nextTick()
     const discover = buttonByText(locked.root, '从服务读取模型')
     assert.equal(discover.props.disabled, true)
+    assert.equal(discover.props.title, '请先填写 API 密钥后再读取模型')
+    assert.equal(discover.props['aria-label'], '请先填写 API 密钥后再读取模型')
     assert.match(textContent(locked.root), /请先填写 API 密钥后再读取模型/)
     assert.match(textContent(locked.root), /当前厂商没有可追加的预设模型/)
   } finally {

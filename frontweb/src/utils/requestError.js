@@ -62,7 +62,7 @@ export function isSafeUserFacingMessage(text) {
   if (/\/(?:v\d+|api|models)\b/i.test(value)) return false
   if (INTERNAL_FIELD_RE.test(value)) return false
   if (TECHNICAL_ENGLISH_RE.test(value) || STACK_RE.test(value)) return false
-  if (/^http\s*\d{3}$/i.test(value)) return false
+  if (/\bHTTP\s*\d{3}\b/i.test(value)) return false
   if (GENERIC_PROVIDER_ALIAS_RE.test(value)) return false
   if (hasUntrustedEnglishRun(value)) return false
   return true
@@ -208,6 +208,17 @@ function userFacingServiceLabel(label, options = {}) {
   return raw
 }
 
+
+export function describeHttpStatusServiceError(serviceLabel, status) {
+  const label = String(serviceLabel || '服务')
+  if (status === 401 || status === 403) return `${label}认证失败，请检查密钥或登录状态`
+  if (status === 404) return `${label}未找到`
+  if (status === 429) return `${label}请求过于频繁，请稍后重试`
+  if (status >= 500) return `${label}暂时不可用，请稍后重试`
+  if (status >= 400) return `${label}请求无效，请检查后重试`
+  return `${label}暂时不可用，请稍后重试`
+}
+
 export function describeServiceLoadError(error, options = {}) {
   const serviceLabel = userFacingServiceLabel(options.serviceLabel, options)
   const signal = options.signal
@@ -215,7 +226,7 @@ export function describeServiceLoadError(error, options = {}) {
   if (backendMessage) return backendMessage
   const status = Number(error?.status || error?.response?.status)
   if (status === 404 && options.notFoundMessage) return options.notFoundMessage
-  if (Number.isInteger(status) && status > 0) return `${serviceLabel}暂时不可用（HTTP ${status}）`
+  if (Number.isInteger(status) && status > 0) return describeHttpStatusServiceError(serviceLabel, status)
   if (isRequestTimeout(error, signal)) return `连接${serviceLabel}超时，请稍后重试`
   if (isRequestCanceled(error, signal)) return `${serviceLabel}请求已取消`
   return options.fallback || `无法连接${serviceLabel}，请检查服务是否已启动`

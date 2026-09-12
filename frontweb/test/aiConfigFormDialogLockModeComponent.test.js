@@ -295,10 +295,12 @@ test('锁定模式写锁禁用保存并展示中文原因，取消仍交给页�
   })
   try {
     await nextTick()
-    const save = buttonByAriaLabel(harness.root, '保存配置')
+    const save = buttonByAriaLabel(harness.root, WRITE_LOCK_REASON)
     assert.ok(save)
     assert.equal(save.props.disabled, true)
     assert.equal(save.props.title, WRITE_LOCK_REASON)
+    assert.equal(save.props['aria-label'], WRITE_LOCK_REASON)
+    assert.match(textContent(harness.root), /配置列表尚未就绪/)
     const switches = findAll(harness.root, (node) => node.props?.role === 'switch')
     assert.ok(switches.length >= 1)
     assert.equal(switches[0].props.disabled, true)

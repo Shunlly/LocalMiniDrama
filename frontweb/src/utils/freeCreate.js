@@ -1,4 +1,4 @@
-import { describeServiceLoadError, isRequestCanceled, isRequestTimeout } from './requestError.js'
+import { describeHttpStatusServiceError, describeServiceLoadError, isRequestCanceled, isRequestTimeout } from './requestError.js'
 
 export const FREE_CREATE_VIDEO_ASPECT_RATIOS = Object.freeze(['16:9', '9:16', '1:1'])
 export const FREE_CREATE_IMAGE_ASPECT_RATIOS = Object.freeze([...FREE_CREATE_VIDEO_ASPECT_RATIOS, '4:3'])
@@ -86,7 +86,7 @@ export function toFreeCreateUserError(error, fallback = '生成失败，请稍�
       return described
     }
     const status = Number(error?.status || error?.response?.status)
-    if (Number.isInteger(status) && status > 0) return `自由创作服务暂时不可用（HTTP ${status}）`
+    if (Number.isInteger(status) && status > 0) return describeHttpStatusServiceError('自由创作服务', status)
     if (isRequestTimeout(error)) return '连接自由创作服务超时，请稍后重试'
   }
 

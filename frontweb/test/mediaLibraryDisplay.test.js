@@ -59,13 +59,13 @@ test('网络导入失败反馈区分写入失败和列表未确认', () => {
   const failed = buildMediaLibraryNetworkImportFeedback({
     status: 'failed',
     item: { title: '夜雨' },
-    detail: '网络素材服务暂时不可用（HTTP 503）',
+    detail: '网络素材服务暂时不可用，请稍后重试',
   })
   assert.equal(failed.tone, 'error')
   assert.equal(failed.title, '网络素材导入失败')
   assert.match(failed.detail, /夜雨/)
   assert.match(failed.detail, /未能写入素材库/)
-  assert.match(failed.detail, /HTTP 503/)
+  assert.match(failed.detail, /暂时不可用/)
 
   const unconfirmed = buildMediaLibraryNetworkImportFeedback({
     status: 'unconfirmed',

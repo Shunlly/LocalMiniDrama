@@ -88,7 +88,7 @@ test('verified video fetch rejects HTTP errors, empty bodies, JSON errors and ti
 
   await assert.rejects(
     fetchVerifiedVideoBlob('/static/missing.mp4', async () => new Response('', { status: 502 })),
-    /HTTP 502/,
+    /暂时无法提供成片|暂时无法下载成片/,
   )
   await assert.rejects(
     fetchVerifiedVideoBlob('/static/empty.mp4', async () => new Response(new Uint8Array(), {

@@ -47,8 +47,17 @@ test('service load errors prefer backend copy and localize timeout/network', () 
   )
   assert.equal(
     describeServiceLoadError({ response: { status: 503 } }, { serviceLabel: '项目服务' }),
-    '项目服务暂时不可用（HTTP 503）',
+    '项目服务暂时不可用，请稍后重试',
   )
+  assert.equal(
+    describeServiceLoadError({ response: { status: 401 } }, { serviceLabel: '项目服务' }),
+    '项目服务认证失败，请检查密钥或登录状态',
+  )
+  assert.equal(
+    describeServiceLoadError({ response: { status: 429 } }, { serviceLabel: '项目服务' }),
+    '项目服务请求过于频繁，请稍后重试',
+  )
+  assert.equal(isSafeUserFacingMessage('项目服务暂时不可用（HTTP 503）'), false)
   assert.equal(
     describeServiceLoadError({ code: 'ECONNABORTED' }, { serviceLabel: '素材服务' }),
     '连接素材服务超时，请稍后重试',
@@ -78,13 +87,13 @@ test('Failed to fetch 视为网络错误，英文 HTTP 500 和 drama_id 不会�
       { response: { status: 500, data: { error: { message: 'Internal Server Error' } } } },
       { serviceLabel: '项目服务' },
     ),
-    '项目服务暂时不可用（HTTP 500）',
+    '项目服务暂时不可用，请稍后重试',
   )
   const dramaIdError = describeServiceLoadError(
     { response: { status: 400, data: { error: { message: '缺少 drama_id' } } } },
     { serviceLabel: '项目服务' },
   )
-  assert.equal(dramaIdError, '项目服务暂时不可用（HTTP 400）')
+  assert.equal(dramaIdError, '项目服务请求无效，请检查后重试')
   assert.doesNotMatch(dramaIdError, /drama_id/)
   assert.equal(
     describeServiceLoadError({ name: 'AbortError', message: 'The user aborted a request.' }, { serviceLabel: '项目服务' }),

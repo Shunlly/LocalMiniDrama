@@ -76,6 +76,7 @@ test('列表未就绪时表头不把五类服务标成已确认', async () => {
     await nextTick()
     assert.match(textContent(failed.root), /暂时无法确认服务状态/)
     assert.match(textContent(failed.root), /配置列表还没有成功加载/)
+    assert.match(textContent(failed.root), /下一步：点击重试/)
     const retry = buttonByText(failed.root, '重试')
     assert.ok(retry)
     assert.equal(retry.props['aria-label'], '重新读取配置列表')

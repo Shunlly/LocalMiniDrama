@@ -312,7 +312,7 @@ test('页面错误转义会吃掉英文技术信息，保留中文业务错误',
   assert.equal(toFreeCreateUserError(new Error('Internal Server Error')), '生成失败，请稍后重试')
   assert.equal(
     toFreeCreateUserError({ response: { status: 502, data: { error: { message: 'Bad Gateway' } } } }),
-    '自由创作服务暂时不可用（HTTP 502）',
+    '自由创作服务暂时不可用，请稍后重试',
   )
   assert.equal(
     toFreeCreateUserError({ response: { data: { error: { message: '当前模型额度不足' } } } }),

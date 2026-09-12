@@ -118,7 +118,7 @@ test('英文备份错误和错误码都会映射成中文，内部日志仍用�
   )
   assert.equal(
     describeBackupError({ response: { status: 503 } }),
-    '备份服务暂时不可用（HTTP 503）',
+    '备份服务暂时不可用，请稍后重试',
   )
   assert.equal(typeof useBackupSettings, 'function')
 })
@@ -144,7 +144,7 @@ test('失败空态与无备份空态互斥，加载失败时锁定列表恢复',
     backupAccessState({
       loading: false,
       hasSuccessfulLoad: false,
-      loadError: '备份服务暂时不可用（HTTP 503）',
+      loadError: '备份服务暂时不可用，请稍后重试',
       itemCount: 0,
     }),
     {
@@ -238,7 +238,7 @@ test('成功加载空列表才显示无备份，失败后重试成功会退出�
   const harness = useBackupSettings({ api })
   await harness.loadBackups()
   assert.equal(harness.accessState.value.showEmpty, false)
-  assert.match(harness.listError.value, /备份服务暂时不可用/)
+  assert.match(harness.listError.value, /备份服务未找到/)
   await harness.loadBackups()
   assert.equal(harness.listError.value, '')
   assert.equal(harness.hasSuccessfulListLoad.value, true)
@@ -417,7 +417,7 @@ test('备份操作失败可重试或关闭，空态也能创建或选择备份',
   assert.match(template, /aria-label="重试恢复备份"[\s\S]*>\s*重试恢复/)
   assert.match(template, /aria-label="重试创建备份"[\s\S]*>\s*重试创建备份/)
   assert.match(template, /aria-label="关闭备份操作错误"[\s\S]*>关闭/)
-  assert.match(template, /v-if="accessState.showEmpty"[\s\S]*空态创建备份[\s\S]*>创建备份[\s\S]*空态选择已有备份/)
+  assert.match(template, /v-if="accessState.showEmpty"[\s\S]*创建备份[\s\S]*>创建备份[\s\S]*选择已有备份/)
   assert.match(template, /aria-label="确认恢复备份"/)
   assert.match(template, /aria-label="创建全量备份"/)
   assert.match(template, /aria-label="选择备份文件"/)
