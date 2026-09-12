@@ -168,6 +168,8 @@ function mountResult(initial = {}) {
     onDownloadItem: (item) => events.push(['download-item', item]),
     onPreviewImage: (item, idx) => events.push(['preview-image', item, idx]),
     onSaveItem: (item) => events.push(['save-item', item]),
+    onOpenAiConfig: () => events.push('open-ai-config'),
+    onFocusPrompt: () => events.push('focus-prompt'),
   }))
   return { ...mounted, events, props }
 }
@@ -184,6 +186,9 @@ test('页头返回按钮读屏名称是返回项目首页，并通知页面返�
     assert.equal(buttonByAriaLabel(harness.root, '返回项目列表'), undefined)
     assert.match(textContent(harness.root), /自由创作/)
     assert.match(textContent(harness.root), /不绑定剧集，直接输入文字生成图片或视频/)
+    const [title] = findByType(harness.root, 'h1')
+    assert.ok(title)
+    assert.match(textContent(title), /自由创作/)
     click(back)
     assert.deepEqual(harness.events, ['go-back'])
   } finally {
@@ -200,6 +205,7 @@ test('提示词为空或参考图上传中时，生成按钮带中文禁用 titl
     const generate = buttonByText(emptyPrompt.root, '生成图片')
     assert.ok(generate)
     assert.equal(generate.props.disabled, true)
+    assert.equal(generate.props['aria-label'], '生成图片')
     assert.equal(generate.props.title, '请先填写提示词')
     const reason = findByTestId(emptyPrompt.root, 'generate-disabled-reason')[0]
     assert.ok(reason)
@@ -299,6 +305,51 @@ test('结果空态展示中文说明，失败时可重新检查服务', () => {
     assert.ok(retry)
     click(retry)
     assert.deepEqual(harness.events, ['load-service-configs'])
+    const config = buttonByText(harness.root, '前往 AI 配置')
+    assert.ok(config)
+    assert.equal(config.props['aria-label'], '前往 AI 配置')
+  } finally {
+    harness.app.unmount()
+  }
+})
+
+test('服务就绪的空结果下一步是去填写提示词', () => {
+  const harness = mountResult()
+  try {
+    assert.match(textContent(harness.root), /填写提示词后，生成结果会显示在这里/)
+    const next = buttonByAriaLabel(harness.root, '去填写提示词')
+    assert.ok(next)
+    assert.equal(buttonByText(harness.root, '去填写提示词'), next)
+    assert.equal(next.props['aria-label'], '去填写提示词')
+    assert.equal(buttonByText(harness.root, '前往 AI 配置'), undefined)
+    click(next)
+    assert.deepEqual(harness.events, ['focus-prompt'])
+  } finally {
+    harness.app.unmount()
+  }
+})
+
+test('输入区失败下一步的可见文案和读屏名对齐', () => {
+  const harness = mountInput({
+    generationCapability: {
+      ready: false,
+      status: 'error',
+      issue: '',
+      message: '无法读取图片服务配置',
+    },
+  })
+  try {
+    const retry = buttonByAriaLabel(harness.root, '重新检查生成能力')
+    const config = buttonByAriaLabel(harness.root, '前往 AI 配置')
+    assert.ok(retry)
+    assert.ok(config)
+    assert.equal(buttonByText(harness.root, '重新检查生成能力'), retry)
+    assert.equal(buttonByText(harness.root, '前往 AI 配置'), config)
+    assert.match(textContent(retry), /重新检查生成能力/)
+    assert.match(textContent(config), /前往 AI 配置/)
+    click(retry)
+    click(config)
+    assert.deepEqual(harness.events, ['load-service-configs', 'open-ai-config'])
   } finally {
     harness.app.unmount()
   }

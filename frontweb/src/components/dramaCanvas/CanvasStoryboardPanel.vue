@@ -121,6 +121,7 @@ import GlobalMediaPickerDialog from '@/components/GlobalMediaPickerDialog.vue'
 import { assetImageUrl } from '@/utils/mediaUrl'
 import { buildCanvasReferenceDisplaySlots } from '@/composables/useCanvasReferenceDisplay'
 import { canvasUserError, isCanvasUserAbort } from '@/composables/useCanvasUserError'
+import { toCanvasChineseStatus } from './canvasExperienceCopy.js'
 import { dramaUsesFirstLastFrame, resolveSbFirstImageRecord, resolveSbLastImageRecord } from '@/utils/storyboardMedia'
 import { createStoryboardDraftFingerprint, hasStoryboardDraftChanges } from '@/utils/storyboardDraft'
 import CanvasStoryboardPanelHeader from './CanvasStoryboardPanelHeader.vue'
@@ -257,7 +258,8 @@ const referenceDisplaySlots = computed(() => buildCanvasReferenceDisplaySlots({
 const busyLabel = computed(() => {
   const map = ctx?.nodeStatus?.map
   const st = map && sbNodeId.value ? map[sbNodeId.value] : null
-  return st?.message || (busyStep.value ? CANVAS_NODE_STATUS_LABELS[busyStep.value] : '')
+  const raw = st?.message || (busyStep.value ? CANVAS_NODE_STATUS_LABELS[busyStep.value] : '')
+  return toCanvasChineseStatus(raw, '处理中…')
 })
 
 function currentDraftValue() {

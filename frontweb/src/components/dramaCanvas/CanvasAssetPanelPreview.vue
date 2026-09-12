@@ -8,7 +8,7 @@
       </div>
       <div v-if="generating || nodeBusy" class="preview-loading">
         <span class="spinner" />
-        <span>{{ nodeBusy?.message || '生成参考图…' }}</span>
+        <span>{{ busyMessage }}</span>
       </div>
     </div>
     <div class="entity-status" :class="'st-' + (entityStatus || (previewUrl ? 'completed' : 'empty'))">{{ entityStatusLabel }}</div>
@@ -18,7 +18,10 @@
 </template>
 
 <script setup>
-defineProps({
+import { computed } from 'vue'
+import { toCanvasChineseMessage } from './canvasExperienceCopy.js'
+
+const props = defineProps({
   kindLabel: { type: String, required: true },
   kindIcon: { type: String, required: true },
   displayName: { type: String, required: true },
@@ -30,6 +33,8 @@ defineProps({
   previewSourceLabel: { type: String, required: true },
   generateError: { type: String, default: '' },
 })
+
+const busyMessage = computed(() => toCanvasChineseMessage(props.nodeBusy?.message, '生成参考图…'))
 </script>
 
 <style scoped>

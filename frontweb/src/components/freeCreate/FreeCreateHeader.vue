@@ -2,10 +2,10 @@
 <div class="page-header">
       <div class="header-left">
         <el-button text class="back-link" aria-label="返回项目首页" @click="goBack">
-          <el-icon><ArrowLeft /></el-icon>
+          <el-icon aria-hidden="true"><ArrowLeft /></el-icon>
           返回项目首页
         </el-button>
-        <h2 class="page-title">自由创作</h2>
+        <h1 class="page-title">自由创作</h1>
       </div>
       <p class="page-desc">不绑定剧集，直接输入文字生成图片或视频</p>
     </div>

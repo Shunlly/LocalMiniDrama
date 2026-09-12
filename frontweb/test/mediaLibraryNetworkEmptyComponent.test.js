@@ -48,6 +48,7 @@ test('未搜索空态说明会附带来源和许可信息', async () => {
     const copy = textContent(harness.root)
     assert.match(copy, /搜索可导入的网络素材/)
     assert.match(copy, /许可/)
+    assert.match(copy, /下一步：在上方输入关键词后点搜索/)
     assert.doesNotMatch(copy, /No data|Search results|Network Error/i)
     const [empty] = findByClass(harness.root, 'network-empty')
     assert.equal(empty.props.role, 'status')

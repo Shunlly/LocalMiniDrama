@@ -72,6 +72,7 @@ function mountPicker(initial = {}) {
     pageSize: initial.pageSize ?? 24,
     hasSuccessfulLoad: initial.hasSuccessfulLoad !== false,
     navigationLocked: Boolean(initial.navigationLocked),
+    navigationLockReason: initial.navigationLockReason || '',
     loadProjects: () => events.push(['load']),
     scheduleSearch: () => events.push(['search']),
     loadProjectPage: (value) => events.push(['page', value]),
@@ -171,6 +172,27 @@ test('搜索无结果与空项目列表分开，清除搜索是中文', async ()
     click(buttonByAriaLabel(harness.root, '清除项目搜索'))
     assert.equal(harness.keyword.value, '')
     assert.ok(harness.events.some((event) => event[0] === 'search'))
+  } finally {
+    harness.app.unmount()
+  }
+})
+
+test('导航锁定时新建和项目按钮读出中文原因', async () => {
+  const reason = '正在上传素材，请稍候'
+  const harness = mountPicker({
+    navigationLocked: true,
+    navigationLockReason: reason,
+    projects: [{ id: RAIN_ID, title: '雨巷', episodeCount: 2 }],
+    total: 1,
+  })
+  try {
+    await nextTick()
+    const createBtn = buttonByAriaLabel(harness.root, `新建项目后导入网页 URL不可用：${reason}`)
+    assert.ok(createBtn, '缺少带禁用原因的新建项目读屏名')
+    assert.equal(Boolean(createBtn.props.disabled), true)
+    const rain = buttonByAriaLabel(harness.root, `${describeMediaLibrarySourceImportProjectAction({ title: '雨巷' })}不可用：${reason}`)
+    assert.ok(rain)
+    assert.equal(Boolean(rain.props.disabled), true)
   } finally {
     harness.app.unmount()
   }

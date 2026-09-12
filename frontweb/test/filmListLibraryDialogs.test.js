@@ -300,8 +300,15 @@ test('打开角色库时加载失败不会伪装成空库，空库和搜索空�
     }
     buttonByText(dialog, '重试').props.onClick()
     await flushUi(nextTick)
-    assert.match(textContent(dialogByTitle(harness.root, '素材库 · 角色')), /素材库暂无角色，可在项目中将角色「加入素材库」后在此查看/)
-    assert.equal(buttonByText(dialogByTitle(harness.root, '素材库 · 角色'), '清除搜索'), undefined)
+    const emptyDialog = dialogByTitle(harness.root, '素材库 · 角色')
+    assert.match(textContent(emptyDialog), /素材库暂无角色，可在项目中将角色「加入素材库」后在此查看/)
+    assert.equal(buttonByText(emptyDialog, '清除搜索'), undefined)
+    const closeEmpty = buttonByText(emptyDialog, '关闭并回到项目列表')
+    assert.ok(closeEmpty, '空库应给出关闭并回到项目列表下一步')
+    assert.equal(closeEmpty.props['aria-label'], '关闭角色库并回到项目列表')
+    closeEmpty.props.onClick()
+    await flushUi(nextTick)
+    assert.equal(harness.showCharLibrary.value, false)
   } finally {
     harness.app.unmount()
   }

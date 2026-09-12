@@ -58,6 +58,7 @@
           link
           type="primary"
           native-type="button"
+          :autofocus="!actions.primaryAction"
           aria-label="返回列表模式"
           title="返回列表模式"
           @click="emit('go-list')"

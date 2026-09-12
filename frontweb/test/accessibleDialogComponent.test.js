@@ -485,11 +485,20 @@ test('opened 时用可见标题补齐 aria-labelledby，并去掉重复 aria-lab
     textContent: '新建项目',
     setAttribute(name, value) { this[name] = value },
   }
+  const closeButton = {
+    className: 'el-dialog__headerbtn',
+    attrs: {},
+    setAttribute(name, value) { this.attrs[name] = value },
+  }
   const labelled = {
     nodeType: 1,
     attrs: { 'aria-label': '新建项目' },
     closest() { return this },
-    querySelector(selector) { return selector === '.el-dialog__title' ? titleEl : null },
+    querySelector(selector) {
+      if (selector === '.el-dialog__title') return titleEl
+      if (selector === '.el-dialog__headerbtn') return closeButton
+      return null
+    },
     setAttribute(name, value) { this.attrs = { ...this.attrs, [name]: value } },
     getAttribute(name) { return this.attrs?.[name] },
     removeAttribute(name) {
@@ -510,6 +519,7 @@ test('opened 时用可见标题补齐 aria-labelledby，并去掉重复 aria-lab
     assert.ok(titleEl.id)
     assert.equal(labelled.attrs['aria-labelledby'], titleEl.id)
     assert.equal(Object.prototype.hasOwnProperty.call(labelled.attrs, 'aria-label'), false)
+    assert.equal(closeButton.attrs['aria-label'], '关闭新建项目')
   } finally {
     harness.app.unmount()
     delete globalThis.__accessibleDialogCalls

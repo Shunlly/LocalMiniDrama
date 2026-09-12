@@ -136,6 +136,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { ElMessage } from '@/utils/elementPlusFeedback.js'
 import { useCanvasContext } from '@/composables/useCanvasContext'
 import { canvasUserError } from '@/composables/useCanvasUserError'
+import { toCanvasChineseMessage, toCanvasChineseStatus } from './canvasExperienceCopy.js'
 import { CANVAS_NODE_STATUS_LABELS } from '@/composables/useCanvasNodeStatus'
 import { runImageStep, runFrameImageStep, runVideoStep, runAudioStep } from '@/composables/useCanvasWorkflowRunner'
 import { findStoryboardInDrama, getDramaGenerationOptions } from '@/utils/canvasWorkflow'
@@ -179,7 +180,7 @@ const audioActionDisabledReason = computed(() => (
 ))
 const mediaQueryStatus = computed(() => ctx?.getStoryboardMediaQueryStatus?.(props.storyboard?.id) || {})
 const mediaQueryUnknown = computed(() => mediaQueryStatus.value?.state === 'unknown')
-const mediaQueryMessage = computed(() => mediaQueryStatus.value?.error || '媒体查询失败，请重试。')
+const mediaQueryMessage = computed(() => toCanvasChineseMessage(mediaQueryStatus.value?.error, '媒体查询失败，请重试。'))
 const mediaQueryPreservedData = computed(() => Boolean(mediaQueryStatus.value?.preservedData))
 const showMediaQueryBlocker = computed(() => (
   mediaQueryUnknown.value && ['image', 'video', 'universal'].includes(props.kind)
@@ -213,7 +214,8 @@ const frameBusyLabel = computed(() => (
 const busyLabel = computed(() => {
   const map = ctx?.nodeStatus?.map
   const id = props.nodeId || sbNodeId.value
-  return id && map ? map[id]?.message : ''
+  const raw = id && map ? map[id]?.message : ''
+  return toCanvasChineseStatus(raw, '处理中…')
 })
 
 function focusStoryboard() {

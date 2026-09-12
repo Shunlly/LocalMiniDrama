@@ -9,6 +9,7 @@
   >
     <div class="source-import-picker">
       <p class="source-import-copy">网页 URL 导入需要先选定目标项目。选定后会进入该项目的故事素材流程。</p>
+      <span v-if="pickerBusyReason" id="source-import-picker-reason" class="visually-hidden">{{ pickerBusyReason }}</span>
       <el-input
         v-model="keyword"
         class="source-import-search"
@@ -16,6 +17,8 @@
         placeholder="搜索项目标题"
         aria-label="搜索项目"
         :disabled="navigationLocked"
+        :title="navigationLocked ? pickerBusyReason : undefined"
+        :aria-describedby="navigationLocked ? 'source-import-picker-reason' : undefined"
         @input="scheduleSearch"
       />
       <section
@@ -27,7 +30,7 @@
       >
         <h2>项目列表加载失败</h2>
         <p>{{ loadError }}</p>
-        <el-button type="primary" plain :loading="loading" :disabled="loading || navigationLocked" aria-label="重试加载项目列表" @click="loadProjects">
+        <el-button type="primary" plain :loading="loading" :disabled="loading || navigationLocked" :title="pickerBusyReason || undefined" :aria-describedby="pickerBusyReason ? 'source-import-picker-reason' : undefined" :aria-label="pickerBusyReason || '重试加载项目列表'" @click="loadProjects">
           重试
         </el-button>
       </section>
@@ -50,7 +53,7 @@
           aria-label="清除项目搜索"
           @click="keyword = ''; scheduleSearch()"
         >清除搜索</el-button>
-        <el-button v-else type="primary" :disabled="navigationLocked" aria-label="新建项目后导入网页 URL" @click="createProjectFromPicker">
+        <el-button v-else type="primary" :disabled="navigationLocked" :title="navigationLocked ? pickerBusyReason : undefined" :aria-describedby="navigationLocked ? 'source-import-picker-reason' : undefined" :aria-label="navigationLocked ? `新建项目后导入网页 URL不可用：${pickerBusyReason}` : '新建项目后导入网页 URL'" @click="createProjectFromPicker">
           新建项目
         </el-button>
       </div>
@@ -64,7 +67,9 @@
           <el-button
             class="source-import-project"
             :disabled="loading || navigationLocked"
-            :aria-label="describeProjectAction(item)"
+            :title="pickerBusyReason || undefined"
+            :aria-describedby="pickerBusyReason ? 'source-import-picker-reason' : undefined"
+            :aria-label="pickerBusyReason ? `${describeProjectAction(item)}不可用：${pickerBusyReason}` : describeProjectAction(item)"
             @click="selectProject(item)"
           >
             <span class="source-import-title">{{ item.title || '未命名项目' }}</span>
@@ -85,20 +90,22 @@
     </div>
     <template #footer>
       <el-button aria-label="取消选择项目" @click="showPicker = false">取消</el-button>
-      <el-button :disabled="navigationLocked" aria-label="新建项目后导入网页 URL" @click="createProjectFromPicker">新建项目</el-button>
+      <el-button :disabled="navigationLocked" :title="navigationLocked ? pickerBusyReason : undefined" :aria-describedby="navigationLocked ? 'source-import-picker-reason' : undefined" :aria-label="navigationLocked ? `新建项目后导入网页 URL不可用：${pickerBusyReason}` : '新建项目后导入网页 URL'" @click="createProjectFromPicker">新建项目</el-button>
     </template>
   </AccessibleDialog>
 </template>
 
 <script setup>
 // 仅展示目标项目选择；加载、搜索和跳转仍由素材中心页处理。
+import { computed } from 'vue'
 import { describeMediaLibrarySourceImportProjectAction } from '@/utils/mediaLibrarySourceImport.js'
+import { MEDIA_LIBRARY_DISABLE_REASON } from '@/utils/mediaLibraryUserError.js'
 
 const showPicker = defineModel('showPicker', { type: Boolean, default: false })
 const keyword = defineModel('keyword', { type: String, default: '' })
 const page = defineModel('page', { type: Number, default: 1 })
 
-defineProps({
+const props = defineProps({
   loading: { type: Boolean, default: false },
   loadError: { type: String, default: '' },
   projects: { type: Array, default: () => [] },
@@ -106,6 +113,7 @@ defineProps({
   pageSize: { type: Number, default: 24 },
   hasSuccessfulLoad: { type: Boolean, default: false },
   navigationLocked: { type: Boolean, default: false },
+  navigationLockReason: { type: String, default: '' },
   loadProjects: { type: Function, required: true },
   scheduleSearch: { type: Function, required: true },
   loadProjectPage: { type: Function, required: true },
@@ -115,6 +123,11 @@ defineProps({
 })
 
 const describeProjectAction = describeMediaLibrarySourceImportProjectAction
+const pickerBusyReason = computed(() => {
+  if (props.navigationLocked) return props.navigationLockReason || MEDIA_LIBRARY_DISABLE_REASON.uploading
+  if (props.loading) return '正在加载项目列表，请稍候'
+  return ''
+})
 </script>
 
 <style scoped>
@@ -180,5 +193,17 @@ const describeProjectAction = describeMediaLibrarySourceImportProjectAction
 
 .source-import-pagination {
   justify-self: center;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 </style>

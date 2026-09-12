@@ -13,6 +13,7 @@
       :is-network-importing="isNetworkImporting"
       :network-item-importability="networkItemImportability"
       :import-network-item="importNetworkItem"
+      :show-local-library="showLocalLibrary"
     />
 
     <MediaLibraryLocalGrid
@@ -423,6 +424,11 @@ function isNetworkImporting(item) {
   return networkImportingKeys.has(networkItemKey(item))
 }
 
+function showLocalLibrary() {
+  libraryMode.value = 'local'
+  loadMedia()
+}
+
 const headerBindings = computed(() => ({
   returnTo: returnTo.value,
   mediaAccessState: mediaAccessState.value,
@@ -519,6 +525,7 @@ const sourceImportPickerBindings = computed(() => ({
   pageSize: sourceImportPageSize.value,
   hasSuccessfulLoad: sourceImportHasSuccessfulLoad.value,
   navigationLocked: mediaAccessState.value.navigationLocked,
+  navigationLockReason: mediaNavigationLockReason.value,
   loadProjects: loadSourceImportProjects,
   scheduleSearch: scheduleSourceImportSearch,
   loadProjectPage: loadSourceImportProjectPage,

@@ -75,7 +75,7 @@ test('搜索失败和导入失败都提供中文可重点击的重试', () => {
   assert.match(source, /aria-label="取消网络素材搜索"/)
   assert.match(source, /aria-label="重试导入该网络素材"/)
   assert.match(source, /v-if="networkImportRetryItem"/)
-  assert.match(source, /<el-icon><Refresh \/><\/el-icon>重试导入/)
+  assert.match(source, /<el-icon aria-hidden="true"><Refresh \/><\/el-icon>重试导入/)
   assert.match(source, /networkImportRetryItem\.value = item/)
   assert.match(source, /networkImportRetryItem\.value = null/)
 })

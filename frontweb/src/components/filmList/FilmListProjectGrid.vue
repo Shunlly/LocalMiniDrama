@@ -35,7 +35,7 @@
                 <h3 class="project-title" :title="d.title || '未命名项目'">{{ d.title || '未命名项目' }}</h3>
               </div>
               <p class="project-desc">{{ d.description || '暂无描述' }}</p>
-              <div class="project-card-stats" aria-label="项目概览">
+              <div class="project-card-stats" :aria-label="`项目「${d.title || '未命名项目'}」概览`">
                 <span class="project-stat">
                   <strong>{{ countProjectEpisodes(d) }}</strong>
                   <span>集</span>

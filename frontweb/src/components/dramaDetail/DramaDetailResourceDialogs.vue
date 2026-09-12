@@ -86,30 +86,30 @@
             v-if="assetImageUrl(item)"
             type="button"
             class="library-item-cover"
-            :aria-label="`预览待导入素材「${importType === 'scene' ? (item.location || item.time || '未命名') : (item.name || '未命名')}」图片`"
+            :aria-label="`预览待导入${importTypeLabel(importType)}「${importItemName(importType, item)}」图片`"
             @click="openPreview(assetImageUrl(item))"
           >
-            <img :src="assetImageUrl(item)" alt="待导入素材图片" />
+            <img :src="assetImageUrl(item)" :alt="`待导入${importTypeLabel(importType)}「${importItemName(importType, item)}」预览图`" />
           </button>
           <div
             v-else
             class="library-item-cover library-item-cover--empty"
             role="img"
-            :aria-label="`待导入素材「${importType === 'scene' ? (item.location || item.time || '未命名') : (item.name || '未命名')}」暂无图片`"
+            :aria-label="`待导入${importTypeLabel(importType)}「${importItemName(importType, item)}」暂无图片`"
           >
-            <span class="library-placeholder">暂无图</span>
+            <span class="library-placeholder" aria-hidden="true">暂无图</span>
           </div>
           <div class="library-item-info">
             <div class="library-item-name">
-              {{ importType === 'scene' ? (item.location || item.time || '未命名') : (item.name || '未命名') }}
+              {{ importItemName(importType, item) }}
             </div>
             <div class="library-item-desc">{{ (item.description || item.prompt || '').slice(0, 80) }}</div>
             <div class="library-item-actions">
-              <el-button size="small" type="primary" :loading="importingId === item.id" :aria-label="importingId === item.id ? '正在导入' : `导入${item.name || item.location || '该资源'}`" @click="doImport(item)">导入</el-button>
+              <el-button size="small" type="primary" :loading="importingId === item.id" :aria-label="importingId === item.id ? `正在导入${importTypeLabel(importType)}「${importItemName(importType, item)}」` : `导入${importTypeLabel(importType)}「${importItemName(importType, item)}」`" @click="doImport(item)">导入</el-button>
             </div>
           </div>
         </div>
-        <div v-if="!importLoading && !importError && importList.length === 0" class="library-empty resource-empty-state" role="status">
+        <div v-if="!importLoading && !importError && importList.length === 0" class="library-empty resource-empty-state" role="status" aria-live="polite">
           <div class="empty-state-title">{{ importKw.trim() ? '没有匹配的素材' : '素材库暂无内容' }}</div>
           <div class="empty-state-copy">{{ importKw.trim() ? '试试其他关键词，或清除搜索后重新查看。' : (currentEpisodeId ? '可前往制作页新增素材并加入素材库。' : '请先新增一集，再去制作页提取素材。') }}</div>
           <el-button v-if="importKw.trim()" size="small" aria-label="清除导入搜索" @click="importKw = ''; loadImportList()">清除搜索</el-button>
@@ -156,6 +156,11 @@ function importTypeLabel(type) {
   if (type === 'scene') return '场景'
   if (type === 'prop') return '道具'
   return '角色'
+}
+
+function importItemName(type, item) {
+  if (type === 'scene') return item?.location || item?.time || '未命名'
+  return item?.name || '未命名'
 }
 
 defineProps({

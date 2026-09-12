@@ -46,6 +46,30 @@ export async function confirmUnsavedSourceIntakeLeave({
   }
 }
 
+export async function confirmSourceIntakeCancel({
+  confirmCancel,
+  isConfirmationOpen,
+  setConfirmationOpen,
+} = {}) {
+  if (isConfirmationOpen?.()) return false
+  setConfirmationOpen?.(true)
+  try {
+    await confirmCancel({
+      message: SOURCE_INTAKE_CANCEL_COPY.message,
+      title: SOURCE_INTAKE_CANCEL_COPY.title,
+      confirmButtonText: SOURCE_INTAKE_CANCEL_COPY.confirmButtonText,
+      cancelButtonText: SOURCE_INTAKE_CANCEL_COPY.cancelButtonText,
+      type: 'warning',
+      distinguishCancelAndClose: true,
+    })
+    return true
+  } catch (_) {
+    return false
+  } finally {
+    setConfirmationOpen?.(false)
+  }
+}
+
 export function createSourceIntakeLeaveController({
   sourceOperationActive,
   hasUnsavedSourceInput,
@@ -74,25 +98,18 @@ export function createSourceIntakeLeaveController({
   }
 
   async function confirmCancelProcessing() {
-    if (leaveConfirmationOpen) return false
-    leaveConfirmationOpen = true
-    try {
-      await ElMessageBox.confirm(
-        SOURCE_INTAKE_CANCEL_COPY.message,
-        SOURCE_INTAKE_CANCEL_COPY.title,
-        {
-          confirmButtonText: SOURCE_INTAKE_CANCEL_COPY.confirmButtonText,
-          cancelButtonText: SOURCE_INTAKE_CANCEL_COPY.cancelButtonText,
-          type: 'warning',
-          distinguishCancelAndClose: true,
-        },
-      )
-      return true
-    } catch {
-      return false
-    } finally {
-      leaveConfirmationOpen = false
-    }
+    return confirmSourceIntakeCancel({
+      isConfirmationOpen: () => leaveConfirmationOpen,
+      setConfirmationOpen: (value) => { leaveConfirmationOpen = value },
+      confirmCancel: ({ message, title, confirmButtonText, cancelButtonText, type, distinguishCancelAndClose }) => (
+        ElMessageBox.confirm(message, title, {
+          confirmButtonText,
+          cancelButtonText,
+          type,
+          distinguishCancelAndClose,
+        })
+      ),
+    })
   }
 
   function handleBeforeUnload(event) {

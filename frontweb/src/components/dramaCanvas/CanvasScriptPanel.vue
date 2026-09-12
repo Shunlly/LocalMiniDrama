@@ -94,6 +94,7 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from '@/utils/elementPlusFeedback.js'
 import { useCanvasContext } from '@/composables/useCanvasContext'
 import { canvasUserError, isCanvasUserAbort } from '@/composables/useCanvasUserError'
+import { toCanvasChineseStatus } from './canvasExperienceCopy.js'
 
 const props = defineProps({
   episode: { type: Object, required: true },
@@ -125,7 +126,7 @@ function requireScriptContent() {
 
 const busyLabel = computed(() => {
   const map = ctx?.nodeStatus?.map
-  return map?.[props.nodeId]?.message || ''
+  return toCanvasChineseStatus(map?.[props.nodeId]?.message, '处理中…')
 })
 
 function syncForm(ep) {

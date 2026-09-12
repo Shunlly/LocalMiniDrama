@@ -12,7 +12,7 @@
       ]"
       :aria-current="flowState.activeStepId === step.id ? 'step' : undefined"
       :aria-pressed="inspectedFlowStep.id === step.id"
-      :aria-label="step.label || step.id" @click="$emit('select', step.id)"
+      :aria-label="sourceWorkflowStepAriaLabel(step)" @click="$emit('select', step.id)"
     >
       <span class="flow-step-number">{{ step.status === 'done' ? '✓' : step.number }}</span>
       <span class="flow-step-copy">
@@ -25,6 +25,8 @@
 </template>
 
 <script setup>
+import { sourceWorkflowStepAriaLabel } from '@/utils/sourceWorkflowState'
+
 defineProps({
   flowState: { type: Object, required: true },
   inspectedFlowStep: { type: Object, required: true },

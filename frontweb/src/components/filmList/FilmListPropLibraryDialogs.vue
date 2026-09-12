@@ -17,8 +17,13 @@
           >
             <img :src="assetImageUrl(item)" :alt="`道具素材「${item.name || '未命名'}」预览图`" />
           </button>
-          <div v-else class="library-item-cover library-item-cover--empty">
-            <span class="library-item-placeholder">暂无图</span>
+          <div
+            v-else
+            class="library-item-cover library-item-cover--empty"
+            role="img"
+            :aria-label="`道具素材「${item.name || '未命名'}」暂无图片`"
+          >
+            <span class="library-item-placeholder" aria-hidden="true">暂无图</span>
           </div>
           <div class="library-item-info">
             <div class="library-item-name">{{ item.name || '未命名' }}</div>
@@ -44,6 +49,7 @@
         <div v-if="!propLibraryLoading && !propLibraryError && propLibraryList.length === 0" class="library-empty" role="status" aria-live="polite">
           <p>{{ propLibraryKeyword.trim() ? '没有匹配的道具，试试其他关键词。' : '素材库暂无道具，可在项目中将道具「加入素材库」后在此查看' }}</p>
           <el-button v-if="propLibraryKeyword.trim()" size="small" aria-label="清除道具素材搜索" @click="clearPropLibraryKeyword">清除搜索</el-button>
+          <el-button v-else size="small" aria-label="关闭道具库并回到项目列表" @click="showPropLibrary = false">关闭并回到项目列表</el-button>
         </div>
       </div>
       <div class="library-pagination">

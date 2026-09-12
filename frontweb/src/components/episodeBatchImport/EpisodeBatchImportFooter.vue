@@ -3,7 +3,7 @@
     <el-button
       :disabled="Boolean(closeDisabledReason)"
       :title="closeDisabledReason"
-      :aria-label="closeDisabledReason || '取消'"
+      :aria-label="closeDisabledReason ? `取消批量导入不可用：${closeDisabledReason}` : '取消批量导入'"
       @click="emit('cancel')"
     >取消</el-button>
     <el-button

@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs'
 import {
   getCanvasEpisodeEmptyNextCopy,
   toCanvasChineseMessage,
+  toCanvasChineseStatus,
 } from '../src/components/dramaCanvas/canvasExperienceCopy.js'
 
 function read(path) {
@@ -35,8 +36,13 @@ test('英文技术原文回落到中文，中文原因原样保留', () => {
   assert.equal(toCanvasChineseMessage('Failed to fetch', '处理中…'), '处理中…')
   assert.equal(toCanvasChineseMessage('Internal Server Error', '当前画布暂时无法打开'), '当前画布暂时无法打开')
   assert.equal(toCanvasChineseMessage('生成失败: Internal Server Error', '生成失败'), '生成失败')
+  assert.equal(toCanvasChineseMessage('生成失败: image generation did not complete', '生成失败'), '生成失败')
+  assert.equal(toCanvasChineseMessage('Network Error', '媒体查询失败，请重试。'), '媒体查询失败，请重试。')
   assert.equal(toCanvasChineseMessage('画布布局保存失败，请稍后重试', '保存失败'), '画布布局保存失败，请稍后重试')
   assert.equal(toCanvasChineseMessage('', '处理中…'), '处理中…')
+  assert.equal(toCanvasChineseStatus('', '处理中…'), '')
+  assert.equal(toCanvasChineseStatus('Failed to fetch', '处理中…'), '处理中…')
+  assert.equal(toCanvasChineseStatus('正在生成参考图', '处理中…'), '正在生成参考图')
 })
 
 test('剧集画布空下一步、节点上限和停止等待文案没有回退', () => {
@@ -58,6 +64,13 @@ test('剧集画布空下一步、节点上限和停止等待文案没有回退',
   assert.doesNotMatch(node, /取消生成/)
   assert.doesNotMatch(inspector, /取消生成/)
   assert.match(derived, /label: `分镜 · \$\{storyboard.label\}`/)
+
+  const dock = read('../src/components/dramaCanvas/CanvasInspectorDock.vue')
+  const media = read('../src/components/dramaCanvas/CanvasMediaPanel.vue')
+  const preview = read('../src/components/dramaCanvas/CanvasAssetPanelPreview.vue')
+  assert.match(dock, /toCanvasChineseMessage\(mediaQueryStatus\.value\?\.error, '媒体查询失败，请重试。'\)/)
+  assert.match(media, /toCanvasChineseMessage\(mediaQueryStatus\.value\?\.error, '媒体查询失败，请重试。'\)/)
+  assert.match(preview, /toCanvasChineseMessage\(props\.nodeBusy\?\.message, '生成参考图…'\)/)
 })
 
 test('画布新建按钮可见文案不含重复加号', () => {

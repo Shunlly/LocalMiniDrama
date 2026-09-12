@@ -1,5 +1,5 @@
 <template>
-  <div class="free-create-page">
+  <main class="free-create-page">
     <FreeCreateHeader @go-back="goBack" />
 
     <div class="create-layout">
@@ -52,6 +52,7 @@
         @download-item="downloadItem"
         @preview-image="openImagePreview"
         @save-item="saveItemToAssets"
+        @focus-prompt="focusPrompt"
       />
     </div>
 
@@ -60,7 +61,7 @@
       :src="previewImage.src"
       :alt="previewImage.alt"
     />
-  </div>
+  </main>
 </template>
 
 <script setup>
@@ -76,6 +77,10 @@ const router = useRouter()
 const route = useRoute()
 const inputPanelRef = ref(null)
 const leaveProtection = inject('appRouteLeaveProtection', null)
+
+function focusPrompt() {
+  inputPanelRef.value?.focusPrompt?.()
+}
 
 const {
   mode,

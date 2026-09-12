@@ -54,6 +54,7 @@
         @request-cancel-config="cancelFreeCanvasConfig"
         @request-retry-config="retryFreeCanvasConfig"
         @request-finish-edit="finishFreeCanvasNodeEditing"
+        @request-activate="openFreeCanvasInspectorFor"
       />
     </template>
   </VueFlow>

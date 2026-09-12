@@ -1,5 +1,5 @@
 /** 画布空态下一步和用户可见错误文案，避免英文技术原文漏到界面。 */
-const TECH_ERROR_RE = /(Internal Server Error|Failed to fetch|ECONNREFUSED|ENOTFOUND|ETIMEDOUT|TypeError|ReferenceError|timeout of \d+ms)/i
+const TECH_ERROR_RE = /(Internal Server Error|Failed to fetch|fetch failed|Network Error|ECONNREFUSED|ENOTFOUND|ETIMEDOUT|TypeError|ReferenceError|timeout of \d+ms|request failed|image generation did not complete|video generation did not complete|this model does not support|invalid api key|model is overloaded|status code \d+)/i
 
 function hasChinese(text) {
   return /[\u4e00-\u9fff]/.test(text)
@@ -11,6 +11,13 @@ export function toCanvasChineseMessage(message, fallback = '操作失败，请�
   if (!text) return safeFallback
   if (hasChinese(text) && !TECH_ERROR_RE.test(text)) return text
   return safeFallback
+}
+
+/** 忙碌/状态标签：空值保持空白，英文技术原文回落到中文。 */
+export function toCanvasChineseStatus(message, fallback = '处理中…') {
+  const text = String(message || '').trim()
+  if (!text) return ''
+  return toCanvasChineseMessage(text, fallback)
 }
 
 export function getCanvasEpisodeEmptyNextCopy(episode) {

@@ -71,6 +71,10 @@
           </el-button>
           <span v-if="extractionNextStep.extraHint">{{ extractionNextStep.extraHint }}</span>
         </div>
+        <div v-else-if="genericFailureNextHint" class="source-extraction-next-step">
+          <span class="next-step-kicker">下一步</span>
+          <span>{{ genericFailureNextHint }}</span>
+        </div>
       </div>
       <div
         v-if="sourceListRefreshError"
@@ -79,6 +83,8 @@
         aria-live="assertive"
       >
         <span>{{ sourceListRefreshError }}</span>
+        <div class="source-extraction-next-step">
+          <span class="next-step-kicker">下一步</span>
         <ActionGate label="刷新列表" :reason="sourceListRetryReason">
           <el-button
             size="small"
@@ -91,6 +97,7 @@
             刷新列表
           </el-button>
         </ActionGate>
+        </div>
       </div>
     </el-form-item>
 
@@ -115,7 +122,7 @@
 import { computed, ref, watch } from 'vue'
 import ActionGate from '@/components/filmCreate/ActionGate.vue'
 import SourceIntakeSourceTextPanel from '@/components/sourceIntake/SourceIntakeSourceTextPanel.vue'
-import { resolveSourceIntakeExtractionNextStep } from '@/utils/sourceWorkflowState.js'
+import { resolveSourceIntakeExtractionNextStep, resolveSourceIntakeGenericFailureNextHint } from '@/utils/sourceWorkflowState.js'
 
 const props = defineProps({
   sourceTypeOptions: { type: Array, required: true },
@@ -153,6 +160,11 @@ const extractionNextStep = computed(() => resolveSourceIntakeExtractionNextStep(
     file: props.sourceFile,
     filename: props.selectedFilename,
   },
+))
+const genericFailureNextHint = computed(() => (
+  extractionNextStep.value
+    ? ''
+    : resolveSourceIntakeGenericFailureNextHint(props.sourceOperationError)
 ))
 
 const form = defineModel({ type: Object, required: true })

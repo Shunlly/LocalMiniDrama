@@ -31,7 +31,7 @@
             type="primary"
             aria-label="重新检查生成能力" @click="loadServiceConfigs"
           >
-            重新检查
+            重新检查生成能力
           </el-button>
           <el-button
             v-if="generationCapability.status !== 'loading' && !generationCapability.ready"
@@ -39,13 +39,14 @@
             type="primary"
             aria-label="前往 AI 配置" @click="openAiConfig"
           >
-            配置{{ activeServiceLabel }}服务
+            前往 AI 配置
           </el-button>
         </div>
 
         <div class="form-section">
           <div class="form-label">提示词 <span class="required">*</span></div>
           <el-input
+            ref="promptInput"
             v-model="prompt"
             type="textarea"
             :rows="5"
@@ -194,7 +195,7 @@
             :disabled="generateDisabled"
             :title="(generating ? resultBusyDisabledReason : generateDisabledReason) || undefined"
             :aria-describedby="generateDisabledReason ? 'free-create-generate-reason' : undefined"
-            :aria-label="generating ? (resultBusyDisabledReason || '正在生成') : (generateDisabledReason || '开始生成')"
+            :aria-label="generating ? '生成中…' : (mode === 'image' ? '生成图片' : '生成视频')"
             class="generate-btn"
             @click="generate"
           >
@@ -256,7 +257,19 @@ const emit = defineEmits([
 
 const refImageInput = ref(null)
 const refImageUploadStatusRef = ref(null)
+const promptInput = ref(null)
 // 页面仍负责上传协议，这里只暴露参考图节点给原有脚本使用
+
+function focusPrompt() {
+  const input = promptInput.value
+  if (!input) return
+  if (typeof input.focus === 'function') {
+    input.focus()
+    return
+  }
+  const el = input.$el?.querySelector?.('textarea, input') || input.$el
+  el?.focus?.()
+}
 
 function loadServiceConfigs() {
   emit('load-service-configs')
@@ -283,7 +296,7 @@ function clearRefImage() {
   emit('clear-ref-image')
 }
 
-defineExpose({ refImageInput, refImageUploadStatusRef })
+defineExpose({ refImageInput, refImageUploadStatusRef, focusPrompt })
 </script>
 
 <style scoped>
@@ -314,6 +327,7 @@ defineExpose({ refImageInput, refImageUploadStatusRef })
   border: 1px solid var(--border-color);
   border-radius: 6px;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
   color: var(--text-muted);

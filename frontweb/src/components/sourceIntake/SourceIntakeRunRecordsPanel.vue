@@ -59,6 +59,10 @@
         </el-button>
         <span v-if="extractionNextStep.extraHint">{{ extractionNextStep.extraHint }}</span>
       </div>
+      <div v-else class="source-extraction-next-step" data-testid="process-retry-next-step">
+        <span class="next-step-kicker">下一步</span>
+        <span>{{ processRetryNextHint }}</span>
+      </div>
     </div>
     <slot name="actions" />
   </div>
@@ -70,6 +74,7 @@ import {
   workflowStepStatusLabel,
   workflowTypeLabel,
 } from '@/utils/workflowRunStatus'
+import { SOURCE_PROCESS_RETRY_NEXT_HINT } from '@/utils/sourceWorkflowState'
 
 defineProps({
   selectedRun: { type: Object, required: true },
@@ -81,6 +86,8 @@ defineProps({
 })
 
 defineEmits(['open-extraction-ai-config'])
+
+const processRetryNextHint = SOURCE_PROCESS_RETRY_NEXT_HINT
 </script>
 
 <style scoped>

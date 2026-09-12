@@ -116,7 +116,8 @@
                           size="small"
                           :loading="generatingPanoramaIds.has(scene.id)"
                           :disabled="Boolean(missingScenePanoramaReason(scene))"
-                          :aria-label="(scene.panorama_local_path || scene.panorama_image_url) ? `重新生成${scene.location || '场景'}全景图` : `生成${scene.location || '场景'}全景图`"
+                          :title="generatingPanoramaIds.has(scene.id) ? '正在生成全景图，请稍候' : (missingScenePanoramaReason(scene) || undefined)"
+                          :aria-label="generatingPanoramaIds.has(scene.id) ? '正在生成全景图，请稍候' : (missingScenePanoramaReason(scene) || ((scene.panorama_local_path || scene.panorama_image_url) ? `重新生成${scene.location || '场景'}全景图` : `生成${scene.location || '场景'}全景图`))"
                           @click="emit('generate-scene-panorama', scene)"
                         >{{ (scene.panorama_local_path || scene.panorama_image_url) ? '重新生成全景图' : '生成全景图' }}</el-button>
                       </ActionGate>

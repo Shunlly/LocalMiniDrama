@@ -41,6 +41,7 @@ function mountFeedback(initial = {}) {
     isNetworkImporting: (item) => item === importing,
     networkItemImportability,
     importNetworkItem: (item) => events.push(['import', item.title]),
+    showLocalLibrary: initial.showLocalLibrary || (() => events.push(['show-local'])),
   }))
   return { ...mounted, events }
 }
@@ -65,6 +66,7 @@ test('失败反馈可重试，导入中或缺少许可时禁用按钮', async ()
     await nextTick()
     assert.match(textContent(failed.root), /网络素材导入失败/)
     assert.match(textContent(failed.root), /雨巷导入失败/)
+    assert.match(textContent(failed.root), /下一步：请点「重试导入」/)
     const retry = buttonByAriaLabel(failed.root, '重试导入该网络素材')
     assert.ok(retry)
     assert.notEqual(retry.props.disabled, true)
@@ -121,8 +123,33 @@ test('只有失败反馈没有重试项时不渲染重试原因 id', async () =>
   try {
     await nextTick()
     assert.match(textContent(harness.root), /网络素材导入失败/)
+    assert.match(textContent(harness.root), /下一步：请切回“本地素材”后重试加载/)
     assert.equal(buttonByAriaLabel(harness.root, '重试导入该网络素材'), undefined)
     assert.equal(findAll(harness.root, (node) => node.props.id === 'media-network-import-retry-reason').length, 0)
+    const local = buttonByAriaLabel(harness.root, '查看本地素材')
+    assert.ok(local)
+    assert.match(textContent(local), /查看本地素材/)
+    click(local)
+    assert.deepEqual(harness.events, [['show-local']])
+  } finally {
+    harness.app.unmount()
+  }
+})
+
+test('导入未确认反馈给出查看本地素材的下一步', async () => {
+  const harness = mountFeedback({
+    feedback: { tone: 'error', title: '网络素材导入未确认', detail: '「雨巷」服务端已导入但列表未确认，请勿重复导入。请切回“本地素材”后重试加载。' },
+    retryItem: null,
+  })
+  try {
+    await nextTick()
+    assert.match(textContent(harness.root), /网络素材导入未确认/)
+    assert.match(textContent(harness.root), /下一步：请切回“本地素材”后重试加载/)
+    const local = buttonByAriaLabel(harness.root, '查看本地素材')
+    assert.ok(local)
+    assert.equal(local.props['aria-label'], '查看本地素材')
+    click(local)
+    assert.deepEqual(harness.events, [['show-local']])
   } finally {
     harness.app.unmount()
   }

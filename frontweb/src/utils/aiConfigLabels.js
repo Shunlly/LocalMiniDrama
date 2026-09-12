@@ -85,3 +85,15 @@ export function describeAiConfigBulkKeySuccess(result) {
   return '所有配置的 API 密钥已更新'
 }
 
+
+export function describeDisabledControlLabel(defaultLabel, {
+  disabled = false,
+  reason = '',
+  loading = false,
+  loadingLabel = '',
+} = {}) {
+  if (loading) return loadingLabel || defaultLabel
+  const text = String(reason || '').trim()
+  if (disabled && text) return text
+  return defaultLabel
+}

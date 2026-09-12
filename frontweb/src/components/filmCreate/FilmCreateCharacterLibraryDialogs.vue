@@ -39,10 +39,12 @@
         </div>
         <div v-loading="charLibraryLoading" class="library-list">
           <div v-for="item in charLibraryList" :key="'lib-' + item.id" class="library-item">
-            <button type="button" class="library-item-cover" :disabled="!assetImageUrl(item)" :aria-label="`预览${item.name || '角色'}图片`" @click="openImagePreview(assetImageUrl(item))">
-              <img v-if="item.image_url || item.local_path" :src="assetImageUrl(item)" :alt="item.name || '角色图片'" />
-              <span v-else class="library-item-placeholder">暂无图</span>
+            <button v-if="assetImageUrl(item)" type="button" class="library-item-cover" :aria-label="`预览${item.name || '角色'}图片`" @click="openImagePreview(assetImageUrl(item))">
+              <img :src="assetImageUrl(item)" :alt="item.name || '角色图片'" />
             </button>
+            <div v-else class="library-item-cover library-item-cover--empty" role="img" :aria-label="`${item.name || '角色'}暂无图片`">
+              <span class="library-item-placeholder">暂无图</span>
+            </div>
             <div class="library-item-info">
               <div class="library-item-name">{{ item.name || '未命名' }}</div>
               <div class="library-item-desc">{{ (item.description || '').slice(0, 60) }}{{ (item.description || '').length > 60 ? '…' : '' }}</div>
@@ -81,10 +83,12 @@
         </div>
         <div v-loading="dramaAllCharLoading" class="library-list">
           <div v-for="item in dramaAllCharList" :key="'drama-' + item.id" class="library-item">
-            <button type="button" class="library-item-cover" :disabled="!assetImageUrl(item)" :aria-label="`预览${item.name || '角色'}图片`" @click="openImagePreview(assetImageUrl(item))">
-              <img v-if="item.image_url || item.local_path" :src="assetImageUrl(item)" :alt="item.name || '角色图片'" />
-              <span v-else class="library-item-placeholder">暂无图</span>
+            <button v-if="assetImageUrl(item)" type="button" class="library-item-cover" :aria-label="`预览${item.name || '角色'}图片`" @click="openImagePreview(assetImageUrl(item))">
+              <img :src="assetImageUrl(item)" :alt="item.name || '角色图片'" />
             </button>
+            <div v-else class="library-item-cover library-item-cover--empty" role="img" :aria-label="`${item.name || '角色'}暂无图片`">
+              <span class="library-item-placeholder">暂无图</span>
+            </div>
             <div class="library-item-info">
               <div class="library-item-name">
                 {{ item.name || '未命名' }}

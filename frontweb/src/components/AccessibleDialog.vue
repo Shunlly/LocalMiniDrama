@@ -106,11 +106,18 @@ function resolveLabelledDialogElement() {
   return dialog
 }
 
+function dialogCloseButtonAccessibleName(titleText) {
+  const title = String(titleText || '').replace(/\s+/g, ' ').trim()
+  if (!title || title.startsWith('关闭')) return '关闭此对话框'
+  return /^[\u4e00-\u9fff]/.test(title) ? `关闭${title}` : `关闭 ${title}`
+}
+
 function applyDialogCloseButtonName(root) {
   if (!root || typeof root.querySelector !== 'function') return
   const closeBtn = root.querySelector('.el-dialog__headerbtn')
-  if (!closeBtn) return
-  if (typeof closeBtn.setAttribute === 'function') closeBtn.setAttribute('aria-label', '关闭')
+  if (!closeBtn || typeof closeBtn.setAttribute !== 'function') return
+  const titleEl = root.querySelector('.el-dialog__title')
+  closeBtn.setAttribute('aria-label', dialogCloseButtonAccessibleName(titleEl?.textContent))
 }
 
 function applyDialogAccessibleName() {

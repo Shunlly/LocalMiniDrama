@@ -25,6 +25,7 @@ const SourceIntakeRunRecordsPanel = await loadCompiledSfc(
   new Map([
     ['vue', vueUrl],
     ['@/utils/workflowRunStatus', workflowUrl.href],
+    ['@/utils/sourceWorkflowState', new URL('../src/utils/sourceWorkflowState.js', import.meta.url).href],
   ]),
 )
 const SourceIntakeSourceDetailDrawer = await loadCompiledSfc(
@@ -193,7 +194,7 @@ test('素材详情抽屉区分加载、空数据和片段/事件/关系', async 
 })
 
 
-test('处理失败给出图片识别下一步，普通失败没有这颗按钮', async () => {
+test('处理失败给出图片识别下一步，普通失败给出重试下一步且不给 AI 配置按钮', async () => {
   const withStep = mountRecords({
     error: '图片识别失败。请到「AI 配置」添加「图片识别」服务，或先使用本机 Tesseract。',
     extractionNextStep: {
@@ -220,7 +221,10 @@ test('处理失败给出图片识别下一步，普通失败没有这颗按钮',
   const plain = mountRecords()
   try {
     await nextTick()
-    assert.doesNotMatch(textContent(plain.root), /下一步/)
+    const text = textContent(plain.root)
+    assert.match(text, /下一步/)
+    assert.match(text, /重试失败步骤/)
+    assert.equal(buttonByText(plain.root, '去「AI 配置」添加图片识别'), undefined)
   } finally {
     plain.app.unmount()
   }

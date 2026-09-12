@@ -298,6 +298,8 @@ test('parent only commits a validated confirmation event', () => {
 
 test('空态下一步入口带 autofocus，方便键盘直接开始', () => {
   assert.match(componentSource, /autofocus/)
+  assert.match(componentSource, /:autofocus="!actions.primaryAction"/)
   assert.match(componentSource, /aria-label="新建第一集"/)
   assert.match(componentSource, /aria-label="进入这一集"|请先选择要进入的剧集/)
+  assert.match(componentSource, /aria-label="返回列表模式"/)
 })

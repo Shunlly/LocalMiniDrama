@@ -72,7 +72,7 @@
             <RouterLink
               class="episode-card-main"
               :to="{ path: `/film/${dramaId}`, query: withProjectListReturnTo({ episode: String(ep.id) }) }"
-              :aria-label="`进入${ep.title || `第 ${ep.episode_number ?? ep.number ?? '?'} 集`}制作`"
+              :aria-label="`进入第 ${ep.episode_number ?? ep.number ?? '未知'} 集「${ep.title || '未命名'}」制作`"
             >
               <span class="episode-num">第 {{ ep.episode_number ?? ep.number ?? '?' }} 集</span>
               <div class="episode-title">{{ ep.title || '未命名' }}</div>

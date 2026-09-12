@@ -71,3 +71,14 @@ test('角色、场景、道具编辑弹窗的取消和保存有中文无障碍�
   assert.match(propEdit, /aria-label="取消添加道具"/)
   assert.match(propEdit, /editPropForm\?\.id \? '保存道具' : '添加道具'/)
 })
+
+test('资源库无图封面不再用没有中文原因的禁用按钮', () => {
+  for (const source of [characterLibrary, sceneLibrary, propLibrary]) {
+    assert.doesNotMatch(source, /class="library-item-cover" :disabled/)
+    assert.match(source, /class="library-item-cover library-item-cover--empty"/)
+    assert.match(source, /role="img"/)
+    assert.match(source, /暂无图片/)
+  }
+  assert.match(sceneBlock, /missingScenePanoramaReason\(scene\)/)
+  assert.match(sceneBlock, /正在生成全景图，请稍候/)
+})

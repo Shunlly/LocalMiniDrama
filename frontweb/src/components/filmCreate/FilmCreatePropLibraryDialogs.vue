@@ -8,10 +8,12 @@
         </div>
         <div v-loading="propLibraryLoading" class="library-list">
           <div v-for="item in propLibraryList" :key="'plib-' + item.id" class="library-item">
-            <button type="button" class="library-item-cover" :disabled="!assetImageUrl(item)" :aria-label="`预览${item.name || '道具'}图片`" @click="openImagePreview(assetImageUrl(item))">
-              <img v-if="item.image_url || item.local_path" :src="assetImageUrl(item)" :alt="item.name || '道具图片'" />
-              <span v-else class="library-item-placeholder">暂无图</span>
+            <button v-if="assetImageUrl(item)" type="button" class="library-item-cover" :aria-label="`预览${item.name || '道具'}图片`" @click="openImagePreview(assetImageUrl(item))">
+              <img :src="assetImageUrl(item)" :alt="item.name || '道具图片'" />
             </button>
+            <div v-else class="library-item-cover library-item-cover--empty" role="img" :aria-label="`${item.name || '道具'}暂无图片`">
+              <span class="library-item-placeholder">暂无图</span>
+            </div>
             <div class="library-item-info">
               <div class="library-item-name">{{ item.name || '未命名' }}</div>
               <div class="library-item-desc">{{ (item.description || item.prompt || '').slice(0, 60) }}{{ (item.description || item.prompt || '').length > 60 ? '…' : '' }}</div>
@@ -41,10 +43,12 @@
         </div>
         <div v-loading="dramaAllPropLoading" class="library-list">
           <div v-for="item in dramaAllPropList" :key="'pdr-' + item.id" class="library-item">
-            <button type="button" class="library-item-cover" :disabled="!assetImageUrl(item)" :aria-label="`预览${item.name || '道具'}图片`" @click="openImagePreview(assetImageUrl(item))">
-              <img v-if="item.image_url || item.local_path" :src="assetImageUrl(item)" :alt="item.name || '道具图片'" />
-              <span v-else class="library-item-placeholder">暂无图</span>
+            <button v-if="assetImageUrl(item)" type="button" class="library-item-cover" :aria-label="`预览${item.name || '道具'}图片`" @click="openImagePreview(assetImageUrl(item))">
+              <img :src="assetImageUrl(item)" :alt="item.name || '道具图片'" />
             </button>
+            <div v-else class="library-item-cover library-item-cover--empty" role="img" :aria-label="`${item.name || '道具'}暂无图片`">
+              <span class="library-item-placeholder">暂无图</span>
+            </div>
             <div class="library-item-info">
               <div class="library-item-name">{{ item.name || '未命名' }}</div>
               <div class="library-item-desc">{{ (item.description || item.prompt || '').slice(0, 60) }}{{ (item.description || item.prompt || '').length > 60 ? '…' : '' }}</div>

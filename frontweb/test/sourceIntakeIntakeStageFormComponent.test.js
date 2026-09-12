@@ -134,6 +134,8 @@ test('\u7236\u9762\u677f\u628a intake \u8868\u5355\u4ea4\u7ed9\u5b50\u7ec4\u4ef6
   assert.match(panelSource, /<SourceIntakeCurrentStageCard/)
   assert.doesNotMatch(panelSource, /class="intake-form"/)
   assert.match(formSource, /v-model="form\.source_type"/)
+  assert.match(formSource, /:aria-label="sourceUploadBusyReason \|\| '选择故事素材文件'"/)
+
   assert.match(formSource, /ref="sourceUrlInput"[\s\S]*v-model="form\.source_url"/)
   assert.match(formSource, /<SourceIntakeSourceTextPanel v-model:text="form\.text" \/>/)
   assert.match(panelSource, /@open-extraction-ai-config="openAiConfigForExtraction"/)
@@ -267,17 +269,19 @@ test('音视频失败展示语音转写下一步，不提示 Tesseract', () => {
   }
 })
 
-test('非抽取失败不会给出 AI 配置下一步', () => {
+test('非抽取失败给出中文下一步，但不给 AI 配置按钮', () => {
   const cases = [
-    { sourceOperationError: '素材列表加载失败', selectedFilename: 'scan.png' },
-    { sourceOperationError: SOURCE_FILE_FORMAT_UNSUPPORTED_MESSAGE, selectedFilename: 'scan.png' },
-    { sourceOperationError: '暂时无法检查正式制作能力，请稍后重试。', selectedFilename: 'scan.png' },
+    { sourceOperationError: '素材列表加载失败', selectedFilename: 'scan.png', next: /刷新列表/ },
+    { sourceOperationError: SOURCE_FILE_FORMAT_UNSUPPORTED_MESSAGE, selectedFilename: 'scan.png', next: /改用支持的文件格式/ },
+    { sourceOperationError: '暂时无法检查正式制作能力，请稍后重试。', selectedFilename: 'scan.png', next: /草稿预演/ },
   ]
   for (const initial of cases) {
     const harness = mountForm(initial)
     try {
+      const text = textContent(harness.root)
       assert.equal(buttonByText(harness.root, SOURCE_OCR_NEXT_STEP_LABEL), undefined, initial.sourceOperationError)
-      assert.doesNotMatch(textContent(harness.root), /下一步/)
+      assert.match(text, /下一步/)
+      assert.match(text, initial.next)
     } finally {
       harness.app.unmount()
     }

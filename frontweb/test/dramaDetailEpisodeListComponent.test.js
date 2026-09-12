@@ -208,15 +208,15 @@ test('有分集时展示卡片和进入制作，删除走页面方法', async ()
     assert.match(textContent(harness.root), /2 分镜/)
     assert.match(textContent(harness.root), /制作中/)
 
-    const unnamedLink = linkByAriaLabel(harness.root, '进入第 1 集制作')
-    assert.ok(unnamedLink, '缺少进入第 1 集制作')
+    const unnamedLink = linkByAriaLabel(harness.root, '进入第 1 集「未命名」制作')
+    assert.ok(unnamedLink, '缺少进入第 1 集「未命名」制作')
     assert.deepEqual(JSON.parse(unnamedLink.props['data-to']), {
       path: `/film/${DRAMA_ID}`,
       query: { episode: String(EPISODE_ID), returnTo: '/' },
     })
     assert.doesNotMatch(unnamedLink.props['data-to'], new RegExp(String(OTHER_EPISODE_ID)))
 
-    const namedLink = linkByAriaLabel(harness.root, '进入雨夜对峙制作')
+    const namedLink = linkByAriaLabel(harness.root, '进入第 2 集「雨夜对峙」制作')
     assert.ok(namedLink)
     assert.match(namedLink.props['data-to'], new RegExp(String(OTHER_EPISODE_ID)))
 

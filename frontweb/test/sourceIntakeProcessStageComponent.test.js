@@ -30,6 +30,7 @@ const compiledRecordsUrl = compileSfc(
   new Map([
     ['vue', vueUrl],
     ['@/utils/workflowRunStatus', new URL('../src/utils/workflowRunStatus.js', import.meta.url).href],
+    ['@/utils/sourceWorkflowState', new URL('../src/utils/sourceWorkflowState.js', import.meta.url).href],
   ]),
 )
 const SourceIntakeProcessStageCard = await loadCompiledSfc(

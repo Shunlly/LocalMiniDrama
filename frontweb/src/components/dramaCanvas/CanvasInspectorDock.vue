@@ -104,6 +104,7 @@ import { ElMessage } from '@/utils/elementPlusFeedback.js'
 import { ArrowLeft, ArrowRight } from '@element-plus/icons-vue'
 import { useCanvasContext } from '@/composables/useCanvasContext'
 import { canvasUserError } from '@/composables/useCanvasUserError'
+import { toCanvasChineseMessage } from './canvasExperienceCopy.js'
 import {
   getStoryboardInspectorMediaSummary,
   getStoryboardInspectorNavigation,
@@ -140,7 +141,7 @@ const mediaQueryStatus = computed(() => (
   || {}
 ))
 const mediaQueryUnknown = computed(() => mediaQueryStatus.value?.state === 'unknown')
-const mediaQueryMessage = computed(() => mediaQueryStatus.value?.error || '媒体查询失败，请重试。')
+const mediaQueryMessage = computed(() => toCanvasChineseMessage(mediaQueryStatus.value?.error, '媒体查询失败，请重试。'))
 const mediaQueryPreservedData = computed(() => Boolean(mediaQueryStatus.value?.preservedData))
 
 const inspectorNavigation = computed(() => getStoryboardInspectorNavigation(

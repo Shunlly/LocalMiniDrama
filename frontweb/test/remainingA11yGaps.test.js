@@ -115,3 +115,15 @@ test('404 返回项目列表文案保持不变', () => {
   assert.match(notFound, />返回项目列表<\/el-button>/)
   assert.match(notFound, /aria-label="返回项目列表"/)
 })
+
+test('弹窗关闭按钮和素材导入禁用原因保持具体中文名', () => {
+  const accessibleDialog = read('../src/components/AccessibleDialog.vue')
+  const sourceImport = read('../src/components/mediaLibrary/MediaLibrarySourceImportDialog.vue')
+  const intakeForm = read('../src/components/sourceIntake/SourceIntakeIntakeStageForm.vue')
+  assert.match(accessibleDialog, /关闭此对话框/)
+  assert.doesNotMatch(accessibleDialog, /setAttribute\('aria-label', '关闭'\)/)
+  assert.match(sourceImport, /id="source-import-picker-reason"/)
+  assert.match(sourceImport, /pickerBusyReason/)
+  assert.match(mediaSource, /navigationLockReason: mediaNavigationLockReason\.value/)
+  assert.match(intakeForm, /sourceUploadBusyReason \|\| '选择故事素材文件'/)
+})

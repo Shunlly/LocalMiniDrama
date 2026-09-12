@@ -4,6 +4,7 @@ import assert from 'node:assert/strict'
 import {
   SOURCE_INTAKE_CANCEL_COPY,
   SOURCE_INTAKE_LEAVE_COPY,
+  confirmSourceIntakeCancel,
   confirmUnsavedSourceIntakeLeave,
   createSourceIntakeLeaveController,
   shouldBlockSourceIntakeUnload,
@@ -90,4 +91,39 @@ test('离开和取消处理文案都是中文', () => {
   }
   assert.equal(SOURCE_INTAKE_LEAVE_COPY.cancelButtonText, '继续编辑')
   assert.equal(SOURCE_INTAKE_CANCEL_COPY.cancelButtonText, '继续处理')
+})
+
+test('点继续处理不会确认取消，点确认取消才放行', async () => {
+  let open = true
+  assert.equal(await confirmSourceIntakeCancel({
+    isConfirmationOpen: () => open,
+    setConfirmationOpen: (value) => { open = value },
+    confirmCancel: async () => true,
+  }), false)
+
+  open = false
+  const prompts = []
+  const continued = await confirmSourceIntakeCancel({
+    isConfirmationOpen: () => open,
+    setConfirmationOpen: (value) => { open = value },
+    confirmCancel: async (options) => {
+      prompts.push(options)
+      throw new Error('cancel')
+    },
+  })
+  assert.equal(continued, false)
+  assert.equal(open, false)
+  assert.equal(prompts[0].title, '取消处理？')
+  assert.equal(prompts[0].confirmButtonText, '确认取消')
+  assert.equal(prompts[0].cancelButtonText, '继续处理')
+  assert.match(prompts[0].message, /已完成步骤会保留/)
+
+  open = false
+  const allowed = await confirmSourceIntakeCancel({
+    isConfirmationOpen: () => open,
+    setConfirmationOpen: (value) => { open = value },
+    confirmCancel: async () => true,
+  })
+  assert.equal(allowed, true)
+  assert.equal(open, false)
 })

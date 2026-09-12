@@ -179,3 +179,11 @@ test('删除工作流确认框使用中文按钮', () => {
   assert.match(workflow, /confirmButtonText: '删除'/)
   assert.match(workflow, /cancelButtonText: '取消'/)
 })
+
+test('画布新建弹窗取消和确定使用带类型的中文名称', () => {
+  const createDialog = read('../src/components/dramaCanvas/CanvasCreateDialog.vue')
+  assert.match(createDialog, /`取消\${dialogTitle}`/)
+  assert.match(createDialog, /`正在\${dialogTitle}`/)
+  assert.match(createDialog, /`确定\${dialogTitle}`/)
+  assert.doesNotMatch(createDialog, /aria-label="取消创建"/)
+})

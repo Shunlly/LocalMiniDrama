@@ -1,4 +1,4 @@
-import { revealSourceImportIntent } from '@/utils/sourceImportIntent'
+import { focusSourceUrlInput, revealSourceImportIntent } from '@/utils/sourceImportIntent'
 import {
   buildSourceIntakePayload,
   buildSourceUploadFormData,
@@ -87,7 +87,7 @@ export function createSourceIntakeImportActions({
 
   async function focusSourceIntakeForm() {
     await nextTickFn()
-    sourceUrlInput.value?.focus?.()
+    focusSourceUrlInput(sourceUrlInput)
   }
 
   async function openSourceImportIntent() {

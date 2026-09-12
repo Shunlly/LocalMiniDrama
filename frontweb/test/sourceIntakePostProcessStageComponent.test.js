@@ -204,9 +204,13 @@ test('QA 卡片展示草稿通知、问题、检查项和建议，未知检查�
     assert.match(text, /其他检查：未通过/)
     assert.match(text, /补齐对白后再交付/)
     assert.match(text, /完整质量检查明细/)
+    assert.match(text, /下一步/)
+    assert.match(text, /去查看修复建议/)
     assert.deepEqual(tagTypes(harness.root), ['warning'])
     assert.doesNotMatch(text, /Invalid Date/)
     assert.doesNotMatch(text, /pass\/fail/)
+    buttonByText(harness.root, '去查看修复建议').props.onClick()
+    assert.deepEqual(harness.events, [['select-step', 'remediation']])
   } finally {
     harness.app.unmount()
   }

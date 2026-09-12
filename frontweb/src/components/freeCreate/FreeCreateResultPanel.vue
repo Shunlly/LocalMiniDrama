@@ -23,7 +23,7 @@
           </el-icon>
           <p>{{ emptyResultCopy }}</p>
           <div
-            v-if="generationCapability.status !== 'loading' && !generationCapability.ready"
+            v-if="generationCapability.status !== 'loading'"
             class="empty-result-actions"
             role="group"
             aria-label="空结果下一步"
@@ -38,12 +38,22 @@
               重新检查服务
             </el-button>
             <el-button
+              v-if="!generationCapability.ready"
               size="small"
               type="primary"
               :plain="generationCapability.status === 'error'"
               aria-label="前往 AI 配置" @click="openAiConfig"
             >
               前往 AI 配置
+            </el-button>
+            <el-button
+              v-else
+              size="small"
+              type="primary"
+              aria-label="去填写提示词"
+              @click="focusPrompt"
+            >
+              去填写提示词
             </el-button>
           </div>
         </div>
@@ -201,6 +211,7 @@ const emit = defineEmits([
   'preview-image',
   'save-item',
   'open-ai-config',
+  'focus-prompt',
 ])
 
 function clearResults() {
@@ -226,6 +237,9 @@ function saveItemToAssets(item) {
 }
 function openAiConfig() {
   emit('open-ai-config')
+}
+function focusPrompt() {
+  emit('focus-prompt')
 }
 </script>
 

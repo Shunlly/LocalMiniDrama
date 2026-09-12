@@ -5,6 +5,9 @@
     :data-free-node-id="String(node.id)"
     tabindex="0"
     :aria-label="accessibleLabel"
+    :title="accessibleLabel"
+    @keydown.enter="onActivateKey"
+    @keydown.space="onActivateKey"
   >
     <Handle
       v-if="isFreeMode"
@@ -168,6 +171,7 @@ const emit = defineEmits([
   'request-cancel-config',
   'request-retry-config',
   'request-finish-edit',
+  'request-activate',
 ])
 
 const labels = {
@@ -193,6 +197,19 @@ const mediaRenderKey = computed(() => `${props.node.id}:${props.mediaUrl}:${medi
 const isLoading = computed(() => isMediaNode.value && mediaState.value === 'loading')
 const hasError = computed(() => isMediaNode.value && mediaState.value === 'error')
 const emptyLabel = computed(() => isLoading.value ? '内容加载中' : (hasError.value ? '内容加载失败' : '暂无内容'))
+
+function isActivateKeyBlocked(target) {
+  return Boolean(target?.closest?.(
+    'textarea, input, button, video, audio, [contenteditable="true"], [contenteditable="plaintext-only"], [role="textbox"], .el-input, .el-textarea, .node-editor',
+  ))
+}
+
+function onActivateKey(event) {
+  if (isActivateKeyBlocked(event.target)) return
+  event.preventDefault()
+  event.stopPropagation()
+  emit('request-activate', props.node.id)
+}
 
 function updateContent(content) {
   emit('update-content', { id: props.node.id, content })

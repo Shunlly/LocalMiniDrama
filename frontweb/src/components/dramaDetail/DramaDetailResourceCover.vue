@@ -14,7 +14,7 @@
     role="img"
     :aria-label="emptyLabel"
   >
-    <span class="library-placeholder">暂无图</span>
+    <span class="library-placeholder" aria-hidden="true">暂无图</span>
   </div>
   <button
     v-else-if="imageUrl"
@@ -31,7 +31,7 @@
     role="img"
     :aria-label="emptyLabel"
   >
-    <span class="library-placeholder">暂无图</span>
+    <span class="library-placeholder" aria-hidden="true">暂无图</span>
   </div>
 </template>
 

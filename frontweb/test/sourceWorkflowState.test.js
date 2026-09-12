@@ -24,6 +24,13 @@ import {
   localizeSourceIntakeFailure,
   extractionConfigServiceTypeFromMessage,
   resolveSourceIntakeExtractionNextStep,
+  resolveSourceIntakeGenericFailureNextHint,
+  sourceWorkflowStepAriaLabel,
+  SOURCE_FORMAT_RETRY_NEXT_HINT,
+  SOURCE_GENERIC_IMPORT_RETRY_NEXT_HINT,
+  SOURCE_LIST_REFRESH_NEXT_HINT,
+  SOURCE_PROCESS_RETRY_NEXT_HINT,
+  SOURCE_READINESS_RETRY_NEXT_HINT,
 } from '../src/utils/sourceWorkflowState.js'
 
 test('workflow state marks intake as active draft and exposes source empty-state CTAs', () => {
@@ -444,6 +451,26 @@ test('抽取失败文案能指向图片识别或语音转写配置', () => {
     'ocr',
   )
   assert.equal(extractionConfigServiceTypeFromMessage(SOURCE_MEDIA_EXTRACTION_CONFIG_GUIDANCE), '')
+})
+
+test('流程步骤读屏名用质量检查，不把 qa 暴露给用户', () => {
+  assert.equal(sourceWorkflowStepAriaLabel({ id: 'qa', label: '质量检查' }), '质量检查')
+  assert.equal(sourceWorkflowStepAriaLabel({ id: 'qa' }), '质量检查')
+  assert.equal(sourceWorkflowStepAriaLabel({ id: 'qa', label: 'QA' }), '质量检查')
+  assert.equal(sourceWorkflowStepAriaLabel('qa'), '质量检查')
+  assert.equal(sourceWorkflowStepAriaLabel({ id: 'intake' }), '导入素材')
+  assert.doesNotMatch(sourceWorkflowStepAriaLabel({ id: 'qa', label: '' }), /qa/i)
+})
+
+test('非抽取失败也给出中文下一步提示', () => {
+  assert.equal(resolveSourceIntakeGenericFailureNextHint('素材列表加载失败'), SOURCE_LIST_REFRESH_NEXT_HINT)
+  assert.equal(resolveSourceIntakeGenericFailureNextHint(SOURCE_FILE_FORMAT_UNSUPPORTED_MESSAGE), SOURCE_FORMAT_RETRY_NEXT_HINT)
+  assert.equal(
+    resolveSourceIntakeGenericFailureNextHint('暂时无法检查正式制作能力，请稍后重试。'),
+    SOURCE_READINESS_RETRY_NEXT_HINT,
+  )
+  assert.equal(resolveSourceIntakeGenericFailureNextHint('启动失败'), SOURCE_GENERIC_IMPORT_RETRY_NEXT_HINT)
+  assert.match(SOURCE_PROCESS_RETRY_NEXT_HINT, /重试失败步骤/)
 })
 
 test('PDF/图片/音视频失败会给出可点击的中文下一步，且不把内部服务类型写进文案', () => {

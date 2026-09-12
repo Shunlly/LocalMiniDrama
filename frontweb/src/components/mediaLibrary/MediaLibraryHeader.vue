@@ -2,7 +2,7 @@
     <div class="page-header">
       <div class="header-left">
         <el-button text class="back-link" :aria-label="returnTo ? '返回制作台' : '返回项目首页'" @click="goBack">
-          <el-icon><ArrowLeft /></el-icon>
+          <el-icon aria-hidden="true"><ArrowLeft /></el-icon>
           {{ returnTo ? '返回制作台' : '返回项目首页' }}
         </el-button>
         <div class="title-wrap">
@@ -14,7 +14,7 @@
       <span v-if="mediaUploadDisableReason" id="media-header-upload-reason" class="visually-hidden">{{ mediaUploadDisableReason }}</span>
       <div class="header-actions">
         <el-button :disabled="mediaAccessState.navigationLocked" aria-label="新建项目" :title="mediaAccessState.navigationLocked ? mediaNavigationLockReason : undefined" :aria-describedby="mediaAccessState.navigationLocked ? 'media-header-nav-reason' : undefined" @click="goNewProject">
-          <el-icon><Plus /></el-icon>
+          <el-icon aria-hidden="true"><Plus /></el-icon>
           新建项目
         </el-button>
         <el-button
@@ -26,7 +26,7 @@
           aria-label="上传图片或视频到素材中心"
           @click="triggerUpload"
         >
-          <el-icon><Upload /></el-icon>
+          <el-icon aria-hidden="true"><Upload /></el-icon>
           上传素材
         </el-button>
         <input ref="uploadInput" type="file" accept="image/*,video/*" multiple style="display:none" @change="onUpload" />

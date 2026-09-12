@@ -54,6 +54,12 @@
         </div>
         <div v-else class="stage-empty">暂无可以展示的修复建议。</div>
       </details>
+      <div v-if="!latestQa.passed" class="source-extraction-next-step">
+        <span class="next-step-kicker">下一步</span>
+        <el-button size="small" type="primary" plain aria-label="去查看修复建议" @click="$emit('select-step', 'remediation')">
+          去查看修复建议
+        </el-button>
+      </div>
     </template>
     <div v-else class="stage-empty stage-empty--actionable">
       <span>还没有质量检查结果。完成处理后点击「执行质量检查」，问题和建议会显示在这里。</span>
@@ -176,6 +182,26 @@ defineEmits(['run-qa', 'select-step'])
   margin-top: 8px;
   color: #e4e4e7;
   font-weight: 600;
+}
+.source-extraction-next-step {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  color: var(--source-text-secondary, #d4d4d8);
+  font-size: 12px;
+}
+.next-step-kicker {
+  padding: 2px 6px;
+  border-radius: 4px;
+  color: var(--accent-text, #a78bfa);
+  background: rgba(139, 92, 246, 0.2);
+  font-size: 11px;
+}
+.source-extraction-next-step :deep(.el-button:focus-visible) {
+  outline: 2px solid #818cf8;
+  outline-offset: 2px;
 }
 html.light .status-block {
   background: #f8fafc;

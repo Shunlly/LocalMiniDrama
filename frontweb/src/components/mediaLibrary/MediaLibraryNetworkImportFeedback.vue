@@ -10,6 +10,7 @@
     <div>
       <h2>{{ networkImportFeedback.title }}</h2>
       <p>{{ networkImportFeedback.detail }}</p>
+      <p>{{ networkImportRetryItem ? '下一步：请点「重试导入」。' : '下一步：请切回“本地素材”后重试加载。' }}</p>
       <p
         v-if="networkImportRetryItem && (isNetworkImporting(networkImportRetryItem) || !networkItemImportability(networkImportRetryItem).allowed)"
         id="media-network-import-retry-reason"
@@ -27,8 +28,15 @@
       aria-label="重试导入该网络素材"
       @click="importNetworkItem(networkImportRetryItem)"
     >
-      <el-icon><Refresh /></el-icon>重试导入
+      <el-icon aria-hidden="true"><Refresh /></el-icon>重试导入
     </el-button>
+    <el-button
+      v-else-if="showLocalLibrary"
+      type="primary"
+      plain
+      aria-label="查看本地素材"
+      @click="showLocalLibrary"
+    >查看本地素材</el-button>
   </section>
 </template>
 
@@ -43,6 +51,7 @@ defineProps({
   isNetworkImporting: { type: Function, required: true },
   networkItemImportability: { type: Function, required: true },
   importNetworkItem: { type: Function, required: true },
+  showLocalLibrary: { type: Function, default: null },
 })
 </script>
 

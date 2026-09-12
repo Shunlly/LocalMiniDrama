@@ -89,7 +89,8 @@
   outline-offset: 2px;
 }
 
-.library-item-cover:disabled {
+.library-item-cover:disabled,
+.library-item-cover--empty {
   cursor: default;
 }
 

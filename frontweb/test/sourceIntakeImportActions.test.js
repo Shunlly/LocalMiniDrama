@@ -101,4 +101,15 @@ test('空状态去填写素材会聚焦网页地址输入', async () => {
   const { controller, calls } = createImport()
   await controller.focusSourceIntakeForm()
   assert.deepEqual(calls.filter((item) => item[0] === 'focus'), [['focus']])
+
+  const nestedCalls = []
+  const native = { focus: () => nestedCalls.push('native') }
+  const nested = createImport({
+    sourceUrlInput: ref({
+      focus: () => nestedCalls.push('wrapper'),
+      $el: { querySelector: (selector) => (selector.includes('input') ? native : null) },
+    }),
+  })
+  await nested.controller.focusSourceIntakeForm()
+  assert.deepEqual(nestedCalls, ['wrapper', 'native'])
 })

@@ -37,6 +37,9 @@ test('详情页编辑弹窗取消和保存有中文名称', () => {
   assert.match(propEdit, /'保存道具'/)
   assert.match(dialogs, /取消导入\$\{importTypeLabel\(importType\)\}/)
   assert.match(dialogs, /前往制作页新增并入库/)
+  assert.match(dialogs, /正在导入\$\{importTypeLabel\(importType\)\}「\$\{importItemName\(importType, item\)\}」/)
+  assert.match(dialogs, /待导入\$\{importTypeLabel\(importType\)\}「\$\{importItemName\(importType, item\)\}」预览图/)
+  assert.match(dialogs, /class="library-empty resource-empty-state" role="status" aria-live="polite"/)
 })
 
 test('画布分镜操作条和右键菜单使用中文动作名', () => {

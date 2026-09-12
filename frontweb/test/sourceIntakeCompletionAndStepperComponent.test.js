@@ -29,7 +29,13 @@ const SourceIntakeCompletionBanner = await loadCompiledSfc(
     ['@element-plus/icons-vue', iconStubUrl],
   ]),
 )
-const SourceIntakeStepper = await loadCompiledSfc(stepperUrl, 'source-intake-stepper')
+const SourceIntakeStepper = await loadCompiledSfc(
+  stepperUrl,
+  'source-intake-stepper',
+  new Map([
+    ['@/utils/sourceWorkflowState', new URL('../src/utils/sourceWorkflowState.js', import.meta.url).href],
+  ]),
+)
 const renderer = createHostRenderer()
 
 function sampleTimeline(overrides = {}) {
@@ -146,6 +152,29 @@ test('完成摘要未就绪时只提示整理中，不展示轨道时长占位�
   }
 })
 
+test('步骤条缺少中文标签时仍用质量检查，不把 qa 读给用户', () => {
+  const events = []
+  const steps = [
+    { id: 'intake', number: 1, label: '导入素材', status: 'done', statusLabel: '已完成', summary: '' },
+    { id: 'process', number: 2, label: '启动处理', status: 'done', statusLabel: '已完成', summary: '' },
+    { id: 'qa', number: 3, label: '', status: 'ready', statusLabel: '可开始', summary: '' },
+    { id: 'remediation', number: 4, label: '修复', status: 'pending', statusLabel: '未开始', summary: '' },
+    { id: 'delivery', number: 5, label: '剧集 / 时间线', status: 'pending', statusLabel: '未开始', summary: '' },
+  ]
+  const harness = mountHarness(renderer, () => h(SourceIntakeStepper, {
+    flowState: { steps, activeStepId: 'qa' },
+    inspectedFlowStep: steps[2],
+    onSelect: (stepId) => events.push(stepId),
+  }))
+  try {
+    const qaStep = findByClass(harness.root, 'flow-step')[2]
+    assert.equal(qaStep.props['aria-label'], '质量检查')
+    assert.doesNotMatch(String(qaStep.props['aria-label'] || ''), /^qa$/i)
+  } finally {
+    harness.app.unmount()
+  }
+})
+
 test('步骤条区分当前进度和查看中的历史步骤，点击只发出选择事件', () => {
   const harness = mountStepper({ activeStepId: 'process', inspectedStepId: 'intake' })
   try {
@@ -163,6 +192,13 @@ test('步骤条区分当前进度和查看中的历史步骤，点击只发出�
     assert.equal(hasClass(process, 'is-selected'), false)
     assert.equal(process.props['aria-current'], 'step')
     assert.equal(Boolean(process.props['aria-pressed']), false)
+
+    for (const step of steps) {
+      const label = String(step.props['aria-label'] || '')
+      assert.match(label, /[\u4e00-\u9fff]/)
+      assert.doesNotMatch(label, /^qa$/i)
+    }
+    assert.equal(steps[2].props['aria-label'], '质量检查')
 
     click(intake)
     click(process)

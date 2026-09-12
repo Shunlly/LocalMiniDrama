@@ -17,8 +17,13 @@
           >
             <img :src="assetImageUrl(item)" :alt="`场景素材「${item.location || item.time || '未命名'}」预览图`" />
           </button>
-          <div v-else class="library-item-cover library-item-cover--empty">
-            <span class="library-item-placeholder">暂无图</span>
+          <div
+            v-else
+            class="library-item-cover library-item-cover--empty"
+            role="img"
+            :aria-label="`场景素材「${item.location || item.time || '未命名'}」暂无图片`"
+          >
+            <span class="library-item-placeholder" aria-hidden="true">暂无图</span>
           </div>
           <div class="library-item-info">
             <div class="library-item-name">{{ item.location || item.time || '未命名' }}</div>
@@ -44,6 +49,7 @@
         <div v-if="!sceneLibraryLoading && !sceneLibraryError && sceneLibraryList.length === 0" class="library-empty" role="status" aria-live="polite">
           <p>{{ sceneLibraryKeyword.trim() ? '没有匹配的场景，试试其他关键词。' : '素材库暂无场景，可在项目中将场景「加入素材库」后在此查看' }}</p>
           <el-button v-if="sceneLibraryKeyword.trim()" size="small" aria-label="清除场景素材搜索" @click="clearSceneLibraryKeyword">清除搜索</el-button>
+          <el-button v-else size="small" aria-label="关闭场景库并回到项目列表" @click="showSceneLibrary = false">关闭并回到项目列表</el-button>
         </div>
       </div>
       <div class="library-pagination">

@@ -14,6 +14,13 @@ const FLOW_STEPS = [
   { id: 'delivery', label: '剧集 / 时间线' },
 ]
 
+export function sourceWorkflowStepAriaLabel(step) {
+  const id = typeof step === 'string' ? step : String(step?.id || '').trim()
+  const explicit = typeof step === 'object' && step ? String(step.label || '').trim() : ''
+  if (explicit && explicit.toLowerCase() !== 'qa') return explicit
+  return FLOW_STEPS.find((item) => item.id === id)?.label || '素材步骤'
+}
+
 function statusLabel(status) {
   const labels = {
     done: '已完成',
@@ -285,6 +292,26 @@ export const SOURCE_OCR_NEXT_STEP_LABEL = '去「AI 配置」添加图片识别'
 export const SOURCE_TRANSCRIPTION_NEXT_STEP_LABEL = '去「AI 配置」添加语音转写'
 export const SOURCE_MEDIA_EXTRACTION_NEXT_STEP_LABEL = '去「AI 配置」添加对应服务'
 export const SOURCE_OCR_LOCAL_NEXT_STEP_HINT = '也可先安装本机 Tesseract。'
+export const SOURCE_PROCESS_RETRY_NEXT_HINT = '请点击下方「重试失败步骤」，按当前配置重跑失败步骤。'
+export const SOURCE_GENERIC_IMPORT_RETRY_NEXT_HINT = '请修改输入后重新导入。'
+export const SOURCE_LIST_REFRESH_NEXT_HINT = '请点击「刷新列表」确认导入结果，不要重复导入。'
+export const SOURCE_FORMAT_RETRY_NEXT_HINT = '请改用支持的文件格式后重新选择。'
+export const SOURCE_READINESS_RETRY_NEXT_HINT = '请稍后重试，或先切换到草稿预演。'
+
+export function resolveSourceIntakeGenericFailureNextHint(error) {
+  const text = String(error?.message || error || '').trim()
+  if (!text) return ''
+  if (text.includes('素材列表加载失败') || text.includes('列表尚未确认')) return SOURCE_LIST_REFRESH_NEXT_HINT
+  if (text.includes('不支持此文件格式') || text === SOURCE_FILE_FORMAT_UNSUPPORTED_MESSAGE) return SOURCE_FORMAT_RETRY_NEXT_HINT
+  if (
+    text.includes('暂时无法检查正式制作能力')
+    || text.includes('正式制作条件未满足')
+    || text.includes('尚未完成正式制作能力检查')
+  ) {
+    return SOURCE_READINESS_RETRY_NEXT_HINT
+  }
+  return SOURCE_GENERIC_IMPORT_RETRY_NEXT_HINT
+}
 
 export const TEXT_SOURCE_FILE_EXTENSIONS = Object.freeze([
   '.txt', '.md', '.csv', '.tsv', '.srt', '.vtt', '.ass', '.json',

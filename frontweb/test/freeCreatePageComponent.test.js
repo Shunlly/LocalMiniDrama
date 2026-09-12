@@ -197,6 +197,21 @@ test('空结果区展示中文说明，配置失败时可重新检查', async ()
   }
 })
 
+test('服务就绪的空结果下一步可去填写提示词', async () => {
+  const harness = mountPage()
+  try {
+    await nextTick()
+    const next = buttonByAriaLabel(harness.root, '去填写提示词')
+    assert.ok(next)
+    assert.match(textContent(next), /去填写提示词/)
+    click(next)
+  } finally {
+    harness.app.unmount()
+    resetVueRouterHarness()
+    delete globalThis.__freeCreateWorkspace
+  }
+})
+
 test('服务未就绪的空结果下一步可前往 AI 配置', async () => {
   const harness = mountPage({
     emptyResultCopy: '请先配置可用的图片服务，生成结果会显示在这里',
