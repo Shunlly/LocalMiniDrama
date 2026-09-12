@@ -4,6 +4,7 @@ import {
   isRequestCanceled,
   withRequestRetry,
 } from '@/utils/requestError.js'
+import { isUserFacingAbort } from '@/utils/userFacingError.js'
 
 export function parseGenerationSettingsPayload(res) {
   const concurrency = Number(res?.concurrency)
@@ -42,7 +43,7 @@ export async function loadGenerationSettingsPayload(api, {
     }),
     { maxAttempts: 2, delayMs, signal },
   )
-  if (signal?.aborted) return { aborted: true }
+  if (isUserFacingAbort(signal?.reason, signal)) return { aborted: true }
   return { aborted: false, ...parseGenerationSettingsPayload(res) }
 }
 
@@ -55,5 +56,5 @@ export function describeGenerationSettingsLoadError(error, signal) {
 }
 
 export function shouldIgnoreGenerationSettingsError(error, signal) {
-  return isRequestCanceled(error, signal) || Boolean(signal?.aborted)
+  return isRequestCanceled(error, signal)
 }

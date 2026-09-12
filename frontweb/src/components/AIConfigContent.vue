@@ -921,7 +921,7 @@ async function openTest(row) {
       serviceType: row.service_type || 'text',
     })
   } catch (e) {
-    if (isUserFacingAbort(e, controller.signal) || controller.signal.aborted) {
+    if (isUserFacingAbort(e, controller.signal)) {
       if (testVisible.value && String(testingConfigId.value) === String(row.id)) {
         testResultAnnouncement.value = ''
       }

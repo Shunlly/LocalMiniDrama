@@ -72,7 +72,7 @@ export function useAiConfigGenerationSettings(deps = {}) {
         timeout: DEFAULT_JSON_TIMEOUT_MS,
         ...(delayMs === undefined ? {} : { delayMs }),
       })
-      if (payload.aborted || controller.signal.aborted) return
+      if (payload.aborted) return
       genConcurrencyInput.value = payload.concurrency
       genVideoConcurrencyInput.value = payload.videoConcurrency
       rememberGenerationSettingsBaseline()

@@ -112,9 +112,7 @@ import {
   generationStyleOptions,
 } from '@/constants/styleOptions'
 import { useNavigation } from '@/composables/filmCreate/useNavigation'
-import { useCharacters } from '@/composables/filmCreate/useCharacters'
-import { useProps as usePropsComposable } from '@/composables/filmCreate/useProps'
-import { useScenes } from '@/composables/filmCreate/useScenes'
+import { useFilmCreateEpisodeAssets } from '@/composables/filmCreate/useFilmCreateEpisodeAssets'
 import { useFilmCreateStoryboardMediaAccess } from '@/composables/filmCreate/useFilmCreateStoryboardMediaAccess'
 import { useFilmCreateStoryboardPrep } from '@/composables/filmCreate/useFilmCreateStoryboardPrep'
 import { useFilmCreateScriptActions } from '@/composables/filmCreate/useFilmCreateScriptActions'
@@ -484,7 +482,7 @@ const {
 } = omniPolishState
 
 // ── Composable: Characters ────────────────────────────
-const charactersApi = useCharacters({
+const { charactersApi, propsApi, scenesApi } = useFilmCreateEpisodeAssets({
   store,
   dramaId,
   currentEpisodeId,
@@ -499,50 +497,24 @@ const charactersApi = useCharacters({
   dramaAPI,
   generationAPI,
   uploadAPI,
+  propAPI,
+  propLibraryAPI,
+  sceneAPI,
+  sceneLibraryAPI,
+  scriptLanguage,
 })
+
 const {
   showEditCharacter, editCharacterForm, doGenerateCharacterPrompt,
   extractingCharAppearance, addCharRefImage, charactersGenerating, generatingCharIds,
   showCharLibrary, onGenerateCharacters: onGenerateCharactersRaw,
 } = charactersApi
 
-// ── Composable: Props ──────────────────────────────────
-const propsApi = usePropsComposable({
-  store,
-  dramaId,
-  currentEpisodeId,
-  getSelectedStyle,
-  loadDrama: (...args) => loadDrama(...args),
-  pollTask,
-  pollUntilResourceHasImage,
-  hasAssetImage,
-  ElMessage,
-  propAPI,
-  propLibraryAPI,
-  uploadAPI,
-})
 const {
   editPropForm, extractingPropDesc, addPropRefImage, addPropAddRefImage,
   propsExtracting, generatingPropIds, showPropLibrary, onExtractProps: onExtractPropsRaw,
 } = propsApi
 
-// ── Composable: Scenes ─────────────────────────────────
-const scenesApi = useScenes({
-  store,
-  dramaId,
-  currentEpisodeId,
-  getSelectedStyle,
-  scriptLanguage,
-  loadDrama: (...args) => loadDrama(...args),
-  pollTask,
-  pollUntilResourceHasImage,
-  hasAssetImage,
-  dramaAPI,
-  ElMessage,
-  sceneAPI,
-  sceneLibraryAPI,
-  uploadAPI,
-})
 const {
   editSceneForm, extractingSceneDesc, addSceneRefImage,
   scenesExtracting, generatingSceneIds, generatingPanoramaIds, showSceneLibrary,

@@ -73,7 +73,7 @@ export function useAiConfigDiscoverModels(deps = {}) {
       }
     } catch (e) {
       if (requestId !== discoverModelsSequence) return
-      if (isUserFacingAbort(e, controller.signal) || controller.signal.aborted) return
+      if (isUserFacingAbort(e, controller.signal)) return
       ElMessage.error(toUserFacingError(e, '暂时无法读取模型目录，请稍后重试或手工填写模型名。', {
         serviceLabel: '模型目录服务',
         signal: controller.signal,

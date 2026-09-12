@@ -79,3 +79,28 @@ test('generation settings save remains fail closed until a successful reload', (
   assert.equal(clampGenerationConcurrency('0'), null)
   assert.match(describeGenerationSettingsLoadError({ response: { status: 502 } }), /生成设置服务暂时不可用（HTTP 502）/)
 })
+
+test('超时不得当成取消忽略', async () => {
+  const timeoutError = Object.assign(new Error('timeout of 15000ms exceeded'), {
+    name: 'TimeoutError',
+    code: 'ECONNABORTED',
+    isTimeout: true,
+  })
+  const controller = new AbortController()
+  controller.abort(timeoutError)
+  assert.equal(shouldIgnoreGenerationSettingsError(timeoutError, controller.signal), false)
+  await assert.rejects(
+    loadGenerationSettingsPayload({
+      async get() {
+        throw timeoutError
+      },
+    }, { signal: controller.signal, delayMs: 0, maxAttempts: 1 }),
+    (error) => error === timeoutError || error?.isTimeout === true,
+  )
+  const composableSource = readFileSync(new URL('../src/composables/useAiConfigGenerationSettings.js', import.meta.url), 'utf8')
+  const discoverSource = readFileSync(new URL('../src/composables/useAiConfigDiscoverModels.js', import.meta.url), 'utf8')
+  const contentSource = readFileSync(new URL('../src/components/AIConfigContent.vue', import.meta.url), 'utf8')
+  assert.doesNotMatch(composableSource, /payload\.aborted \|\| controller\.signal\.aborted/)
+  assert.doesNotMatch(discoverSource, /isUserFacingAbort\(e, controller\.signal\) \|\| controller\.signal\.aborted/)
+  assert.doesNotMatch(contentSource, /isUserFacingAbort\(e, controller\.signal\) \|\| controller\.signal\.aborted/)
+})
