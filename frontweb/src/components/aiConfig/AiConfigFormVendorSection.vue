@@ -146,19 +146,19 @@
         </p>
       </el-form-item>
     </template>
-    <!-- TTS 专属字段：声音 ID 和 MiniMax Group ID -->
+    <!-- TTS 专属字段：音色和 MiniMax Group ID -->
     <template v-if="form.service_type === 'tts'">
       <el-form-item>
         <template #label>
-          <span class="form-label-tip">声音 ID
+          <span class="form-label-tip">音色
             <el-tooltip placement="top" popper-class="cfg-tip-popper">
               <template #content>
                 <div class="cfg-tip-content">
-                  TTS 合成使用的音色 ID。<br>
+                  TTS 合成使用的音色。<br>
                   <b>MiniMax 常用音色：</b><br>
-                  female-shaonv（少女）、female-chengshu（成熟）<br>
-                  male-qingxin（清新男）、male-zhicheng（知城男）<br>
-                  audiobook_female_2（有声书女）、audiobook_male_1（有声书男）
+                  少女（female-shaonv）、成熟女声（female-chengshu）<br>
+                  清新男声（male-qingxin）、知城男声（male-zhicheng）<br>
+                  有声书女声（audiobook_female_2）、有声书男声（audiobook_male_1）
                 </div>
               </template>
               <el-icon class="tip-icon"><QuestionFilled /></el-icon>
@@ -170,24 +170,24 @@
           filterable
           allow-create
           default-first-option
-          aria-label="声音 ID"
-          placeholder="选择或输入声音 ID"
-          no-data-text="暂无预设声音，可直接输入"
+          aria-label="音色"
+          placeholder="选择或输入音色"
+          no-data-text="暂无预设音色，可直接输入"
           style="width: 100%"
         >
           <el-option-group label="MiniMax 女声">
-            <el-option label="female-shaonv（少女）" value="female-shaonv" />
-            <el-option label="female-chengshu（成熟）" value="female-chengshu" />
-            <el-option label="female-tianmei（甜美）" value="female-tianmei" />
-            <el-option label="audiobook_female_2（有声书）" value="audiobook_female_2" />
+            <el-option label="少女（female-shaonv）" value="female-shaonv" />
+            <el-option label="成熟女声（female-chengshu）" value="female-chengshu" />
+            <el-option label="甜美（female-tianmei）" value="female-tianmei" />
+            <el-option label="有声书女声（audiobook_female_2）" value="audiobook_female_2" />
           </el-option-group>
           <el-option-group label="MiniMax 男声">
-            <el-option label="male-qingxin（清新）" value="male-qingxin" />
-            <el-option label="male-zhicheng（知城）" value="male-zhicheng" />
-            <el-option label="audiobook_male_1（有声书）" value="audiobook_male_1" />
+            <el-option label="清新男声（male-qingxin）" value="male-qingxin" />
+            <el-option label="知城男声（male-zhicheng）" value="male-zhicheng" />
+            <el-option label="有声书男声（audiobook_male_1）" value="audiobook_male_1" />
           </el-option-group>
         </el-select>
-        <p class="field-tip">MiniMax 必填；不填默认 female-shaonv。</p>
+        <p class="field-tip">MiniMax 必填；不填默认少女音色。</p>
       </el-form-item>
       <el-form-item>
         <template #label>

@@ -375,6 +375,30 @@ test('pipeline stages surface Chinese warnings for missing script, storyboard an
 })
 
 
+
+test('缺文本模型时草稿预演先提示配置，不启动提取', async () => {
+  assertDistinctIds(DRAMA_ID, EPISODE_ID)
+  const feedback = stubElementPlusFeedback()
+  try {
+    const executeCalls = []
+    const missingText = useFilmCreatePipelineStages(createPipelineStageDeps({
+      store: { scriptContent: '李华走进办公室。' },
+      productionCapabilityGaps: refOf([
+        { service_type: 'text', label: '文本模型', detail: '还没有可用的默认配置' },
+      ]),
+      executeOwnedPipelineRun: async () => {
+        executeCalls.push('run')
+      },
+      trackFilmCreateAction() {},
+    }))
+    await missingText.startTextFrameworkPipeline()
+    assert.equal(feedback.last('warning').message, '文本模型：还没有可用的默认配置')
+    assert.equal(executeCalls.length, 0)
+  } finally {
+    feedback.restore()
+  }
+})
+
 function createRunnablePipelineStages(overrides = {}) {
   const errors = []
   const pipelineErrorLog = overrides.pipelineErrorLog || refOf([])

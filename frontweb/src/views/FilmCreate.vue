@@ -1018,7 +1018,7 @@ const pipelineActions = useFilmCreatePipelineActions({
   pipelineStepTotal, pipelineConcurrency, pipelineVideoConcurrency, executeOwnedPipelineRun,
   confirmProductionPipelineCost, checkPause, pollTaskWithPause, addPipelineError,
   pipelineRest, runPipelineCountdown, pipelineWithRetry, runConcurrently,
-  setPipelineStep, storyboardMediaActionReason,
+  setPipelineStep, storyboardMediaActionReason, productionCapabilityGaps,
   pollTask,
 })
 

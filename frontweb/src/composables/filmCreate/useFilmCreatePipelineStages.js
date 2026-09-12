@@ -26,6 +26,7 @@ export function useFilmCreatePipelineStages(deps = {}) {
     executeOwnedPipelineRun,
     confirmProductionPipelineCost,
     storyboardMediaActionReason,
+    productionCapabilityGaps,
   } = deps
 
   const { runOneClickPipeline } = useFilmCreatePipelineOneClick(deps)
@@ -39,6 +40,23 @@ export function useFilmCreatePipelineStages(deps = {}) {
   function warnEmptyEpisodeScript() {
     if (!store || hasEpisodeScript()) return false
     ElMessage.warning('当前集还没有剧本，请先编写或导入剧本')
+    return true
+  }
+
+  function missingTextCapabilityGap() {
+    const raw = productionCapabilityGaps && typeof productionCapabilityGaps === 'object' && 'value' in productionCapabilityGaps
+      ? productionCapabilityGaps.value
+      : productionCapabilityGaps
+    const gaps = Array.isArray(raw) ? raw : []
+    return gaps.find((item) => String(item?.service_type || '') === 'text') || null
+  }
+
+  function warnMissingTextModel() {
+    const gap = missingTextCapabilityGap()
+    if (!gap) return false
+    const label = String(gap.label || '文本模型').trim() || '文本模型'
+    const detail = String(gap.detail || '').trim()
+    ElMessage.warning(detail ? (label + '：' + detail) : '草稿预演需要先配置文本模型')
     return true
   }
 
@@ -89,6 +107,7 @@ export function useFilmCreatePipelineStages(deps = {}) {
   async function startTextFrameworkPipeline() {
     if (!currentEpisodeId.value || pipelineStarting.value || pipelineRunning.value || pipelineStopping.value || activePipelineRunPromise.value) return
     if (warnEmptyEpisodeScript()) return
+    if (warnMissingTextModel()) return
     pipelineAbortRequested.value = false
     pipelineStarting.value = true
     try {

@@ -312,14 +312,17 @@ test('厂商区按服务类型切换即梦2、可灵和 TTS 字段', async () =>
     assert.equal(listed.props['data-loading'], true)
     click(listed)
     assert.deepEqual(events, [['open-assets']])
-    assert.equal(findAll(harness.root, (node) => node.props?.['aria-label'] === '声音 ID').length, 0)
+    assert.equal(findAll(harness.root, (node) => node.props?.['aria-label'] === '音色').length, 0)
     assert.equal(findAll(harness.root, (node) => node.props?.placeholder === '可灵开放平台 AccessKey（与 SecretKey 成对，可不填上方 API 密钥）').length, 0)
 
     form.service_type = 'tts'
     await nextTick()
     assert.match(textContent(harness.root), /API 密钥/)
     assert.doesNotMatch(textContent(harness.root), /\bAPI Key\b/)
-    assert.ok(findAll(harness.root, (node) => node.props?.['aria-label'] === '声音 ID')[0])
+    assert.ok(findAll(harness.root, (node) => node.props?.['aria-label'] === '音色')[0])
+    assert.match(textContent(harness.root), /少女（female-shaonv）/)
+    assert.doesNotMatch(textContent(harness.root), /female-shaonv（少女）/)
+    assert.match(textContent(harness.root), /不填默认少女音色/)
     assert.ok(findAll(harness.root, (node) => node.props?.placeholder === 'MiniMax GroupId，如 1234567890')[0])
     assert.equal(findAll(harness.root, (node) => node.type === 'button' && textContent(node).includes('列出素材')).length, 0)
 
@@ -328,7 +331,7 @@ test('厂商区按服务类型切换即梦2、可灵和 TTS 字段', async () =>
     await nextTick()
     assert.ok(findAll(harness.root, (node) => node.props?.placeholder === '可灵开放平台 AccessKey（与 SecretKey 成对，可不填上方 API 密钥）')[0])
     assert.ok(findAll(harness.root, (node) => node.props?.placeholder === '可灵开放平台 SecretKey')[0])
-    assert.equal(findAll(harness.root, (node) => node.props?.['aria-label'] === '声音 ID').length, 0)
+    assert.equal(findAll(harness.root, (node) => node.props?.['aria-label'] === '音色').length, 0)
   } finally {
     harness.app.unmount()
   }

@@ -152,5 +152,6 @@ test('制作页仍把禁用原因和收尾留在页面接线里', () => {
   assert.match(filmCreate, /mountWorkspace/)
   assert.match(filmCreate, /unmountWorkspace/)
   assert.match(filmCreate, /useFilmCreatePipelineActions\(\{[\s\S]*composeActionDisabledReason/)
+  assert.match(filmCreate, /useFilmCreatePipelineActions\(\{[\s\S]*productionCapabilityGaps/)
   assert.match(filmCreate, /useFilmCreateActionDisabledReasons\(\{[\s\S]*scriptContent/)
 })
