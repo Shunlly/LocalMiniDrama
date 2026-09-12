@@ -135,12 +135,18 @@ export function createDramaDetailLoadAndNav({
   }
 
   function scrollToSection(id, { focus = true } = {}) {
-    scrollAndFocusSection(id, { focus, focusDelay: id === 'source-intake-workflow' ? 250 : 0 })
+    const sourceIntake = id === 'source-intake-workflow'
+    scrollAndFocusSection(id, {
+      focus: focus && !sourceIntake,
+      focusDelay: 0,
+    })
+    if (focus && sourceIntake) {
+      focusSectionField(id, '[aria-label="网页 URL"]', { delay: 250 })
+    }
   }
 
   function scrollToSourceIntake() {
     scrollToSection('source-intake-workflow')
-    focusSectionField('source-intake-workflow', '[aria-label="网页 URL"]', { delay: 250 })
   }
 
   function handleReadinessAction(action) {

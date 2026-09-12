@@ -85,7 +85,7 @@ test('\u52a0\u8f7d\u5931\u8d25\u548c\u5bfc\u822a\u90fd\u8d70\u9879\u76ee ID\uff0
   assert.match(pageSource, /createDramaDetailLoadAndNav\(/)
   assert.match(helperSource, /async function loadDrama\(/)
   assert.match(helperSource, /function handleReadinessAction\(/)
-  assert.match(helperSource, /focusSectionField\('source-intake-workflow', '\[aria-label="网页 URL"\]'/)
+  assert.match(helperSource, /focusSectionField\(id, '\[aria-label="网页 URL"\]'/)
   assert.match(helperSource, /function goList\(/)
   const missing = createNav()
   const loaded = await missing.nav.loadDrama({ blocking: true })
