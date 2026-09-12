@@ -342,14 +342,14 @@ test('维护状态失败不会显示正常空态，操作日志保持英文 oper
 test('备份页把失败、空态和恢复确认分成独立用户路径', () => {
   const template = templateOnly(pageSource)
   assert.match(template, /<h1 class="page-title">数据备份与维护<\/h1>/)
-  assert.match(template, /v-if="listError"[\s\S]*备份列表加载失败[\s\S]*备份空态不会在连接恢复前显示/)
+  assert.match(template, /v-if="listError"[\s\S]*备份列表加载失败[\s\S]*加载失败时不会显示备份列表/)
   assert.match(template, /v-if="accessState.showEmpty"[\s\S]*还没有备份/)
   assert.match(template, /正在加载备份列表/)
   assert.match(template, /aria-label="清除所选备份文件"/)
   assert.match(template, /v-if="fileError"[\s\S]*备份文件选择失败[\s\S]*重新选择备份文件/)
   assert.match(template, /<AccessibleDialog[\s\S]*:title="restoreCopy.title"/)
   assert.match(template, /type="danger"[\s\S]*aria-label="确认恢复备份"/)
-  assert.match(template, /v-if="readinessError"[\s\S]*维护状态加载失败[\s\S]*维护正常空态不会在连接恢复前显示/)
+  assert.match(template, /v-if="readinessError"[\s\S]*维护状态加载失败[\s\S]*加载失败时不会显示维护正常状态/)
   assert.match(template, /lastFailedAction === 'restore'/)
 })
 

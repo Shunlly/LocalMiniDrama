@@ -82,19 +82,21 @@ export function describeConnectionTestError(error, signal, serviceType = '') {
       detail: '连接测试会向该厂商请求可用模型。失败常见原因是密钥无效、地址不正确，或该服务不提供模型目录。你可以稍后重试，或直接在配置里手工填写模型名。',
     }
   }
-  if (status === 404) {
+  const hasSafeChinese = isSafeConnectionTestCopy(cleaned)
+    && !/(认证失败，请检查密钥|未找到|请求过于频繁，请稍后重试|暂时不可用，请稍后重试|请求无效，请检查后重试)$/.test(cleaned)
+  if (status === 404 && !hasSafeChinese) {
     return {
       title: '找不到该服务地址',
       detail: '请检查接口地址是否填写正确，然后重试。',
     }
   }
-  if (status === 429) {
+  if (status === 429 && !hasSafeChinese) {
     return {
       title: '请求过于频繁',
       detail: '请稍后再试，或降低并发后重新测试。',
     }
   }
-  if (status >= 500) {
+  if (status >= 500 && !hasSafeChinese) {
     return {
       title: '服务暂时不可用',
       detail: '对方服务返回了错误，请稍后重试。如果只是模型目录不可用，仍可在配置中手工填写模型名。',

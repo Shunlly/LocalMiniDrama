@@ -314,7 +314,7 @@ export function useFilmCreateStoryboardAccessors(deps = {}) {
       return
     }
     try {
-      await ElMessageBox.confirm('将此图绑定到哪个槽位？', '设置参考帧', {
+      await ElMessageBox.confirm('将此图设为首帧或尾帧。关闭窗口则不做修改。', '设置参考帧', {
         confirmButtonText: '设为首帧',
         cancelButtonText: '设为尾帧',
         distinguishCancelAndClose: true,

@@ -15,7 +15,7 @@
       <h2>{{ listIsStale ? '备份列表刷新失败' : '备份列表加载失败' }}</h2>
       <p>暂时无法确认服务器中的备份。已有备份文件没有被删除。</p>
       <p v-if="listIsStale" class="data-load-state__stale">下方显示上次成功加载的数据，当前内容已过期；成功重试前不能从列表恢复。</p>
-      <p v-else>备份空态不会在连接恢复前显示。</p>
+      <p v-else>加载失败时不会显示备份列表。</p>
       <p class="data-load-state__detail">错误详情：{{ listError }}</p>
     </div>
     <el-button

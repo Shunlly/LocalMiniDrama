@@ -16,7 +16,7 @@
         <h2>{{ mediaIsStale ? '素材列表刷新失败' : '素材数据加载失败' }}</h2>
         <p>暂时无法确认服务器中的最新素材。您的素材数据没有被删除。</p>
         <p v-if="mediaIsStale" class="data-load-state__stale">下方显示上次成功加载的数据，当前内容已过期；成功重试前不能上传、选择或删除素材。</p>
-        <p v-else>素材空态不会在连接恢复前显示，也不会执行任何素材写操作。</p>
+        <p v-else>加载失败时不会显示素材列表，也不会执行上传或删除。</p>
         <p class="data-load-state__detail">错误详情：{{ loadError }}</p>
         <p>下一步：请检查本机素材服务后点「重试加载」。</p>
       </div>

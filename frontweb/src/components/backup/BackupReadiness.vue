@@ -18,7 +18,7 @@
         data-testid="backup-readiness-spa-html"
       >{{ BACKUP_READY_SPA_HTML_MESSAGE }}</p>
       <p v-if="hasSuccessfulReadinessLoad" class="data-load-state__stale">下方显示上次成功读取的维护状态，当前内容已过期。</p>
-      <p v-else>维护正常空态不会在连接恢复前显示。</p>
+      <p v-else>加载失败时不会显示维护正常状态。</p>
       <p
         v-if="!readinessLooksLikeSpaHtml"
         class="data-load-state__detail"

@@ -121,4 +121,10 @@ test('HTTP 状态给出中文连接失败原因', () => {
     status: 502,
   }), undefined, 'text')
   assert.equal(down.title, '服务暂时不可用')
+
+  const gateway = describeConnectionTestError(Object.assign(new Error('Request failed with status code 502'), {
+    response: { status: 502, data: { error: { message: '网关拒绝连接' } } },
+    status: 502,
+  }), undefined, 'text')
+  assert.equal(gateway.title, '网关拒绝连接')
 })

@@ -138,7 +138,7 @@ export function useFilmCreateStoryboardCrud(deps = {}) {
 
   async function onDeleteSingleStoryboard(id){
     try {
-      await ElMessageBox.confirm('确定要删除这个分镜吗？', '提示', {
+      await ElMessageBox.confirm('确定要删除这个分镜吗？', '删除分镜', {
         confirmButtonText: '删除',
         cancelButtonText: '取消',
         type: 'warning'

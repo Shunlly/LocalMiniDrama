@@ -82,7 +82,7 @@
         <el-input v-model="editSceneLibraryForm.location" aria-label="公共场景地点" placeholder="场景地点" />
       </el-form-item>
       <el-form-item label="时间">
-        <el-input v-model="editSceneLibraryForm.time" aria-label="公共场景时间" placeholder="如：浅色/夜晚" />
+        <el-input v-model="editSceneLibraryForm.time" aria-label="公共场景时间" placeholder="如：白天、夜晚" />
       </el-form-item>
       <el-form-item label="分类">
         <el-input v-model="editSceneLibraryForm.category" aria-label="公共场景分类" placeholder="可选" />

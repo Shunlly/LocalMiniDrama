@@ -56,7 +56,7 @@ function openingButtonFor(clickHandler) {
 }
 
 // 所有 configWriteLocked 按钮 title 形态：写锁原因优先，一键配置空密钥才回落「请先填写密钥」
-const CONFIG_WRITE_LOCKED_TITLE_MORPHOLOGY = /:title="configWriteLocked \? configWriteLockReason : (?:undefined|\(!\w+\.trim\(\) \? '请先填写密钥' : undefined\))"/
+const CONFIG_WRITE_LOCKED_TITLE_MORPHOLOGY = /:title="configWriteLocked \? (?:\(configWriteLockReason \|\| '[^']+'\)|configWriteLockReason) : (?:undefined|\(!\w+\.trim\(\) \? '请先填写密钥' : undefined\))"/
 
 const pageMutationHandlers = [
   'onRowEdit',

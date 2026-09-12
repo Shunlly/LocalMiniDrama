@@ -102,7 +102,7 @@
           <input ref="sceneLibFileRef" type="file" accept="image/*" style="display:none" @change="e => doUploadLibImg(e, editSceneLibraryForm, sceneLibraryAPI, loadSceneLibraryList)" />
         </el-form-item>
         <el-form-item label="地点"><el-input v-model="editSceneLibraryForm.location" aria-label="场景地点" placeholder="场景地点" /></el-form-item>
-        <el-form-item label="时间"><el-input v-model="editSceneLibraryForm.time" aria-label="场景时间" placeholder="如：浅色/夜晚" /></el-form-item>
+        <el-form-item label="时间"><el-input v-model="editSceneLibraryForm.time" aria-label="场景时间" placeholder="如：白天、夜晚" /></el-form-item>
         <el-form-item label="分类"><el-input v-model="editSceneLibraryForm.category" aria-label="场景分类" placeholder="可选" /></el-form-item>
         <el-form-item label="描述"><el-input v-model="editSceneLibraryForm.description" type="textarea" :rows="3" aria-label="场景描述" placeholder="可选" /></el-form-item>
         <el-form-item label="标签"><el-input v-model="editSceneLibraryForm.tags" aria-label="场景标签" placeholder="可选，逗号分隔" /></el-form-item>
