@@ -96,3 +96,9 @@ test('导入中不会重复提交，详情失败会提示中文', async () => {
   assert.equal(failed.calls.at(-1)[0], 'error')
   assert.match(failed.calls.at(-1)[1], /加载素材详情失败|down/)
 })
+
+test('空状态去填写素材会聚焦网页地址输入', async () => {
+  const { controller, calls } = createImport()
+  await controller.focusSourceIntakeForm()
+  assert.deepEqual(calls.filter((item) => item[0] === 'focus'), [['focus']])
+})

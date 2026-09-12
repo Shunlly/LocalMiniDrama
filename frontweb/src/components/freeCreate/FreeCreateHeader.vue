@@ -45,7 +45,6 @@ function goBack() {
   font-size: 14px;
   margin: 0;
 }
-</style>
 .back-link {
   padding-left: 0;
 }
@@ -54,3 +53,4 @@ function goBack() {
   outline: 2px solid var(--el-color-primary, #818cf8);
   outline-offset: 2px;
 }
+</style>

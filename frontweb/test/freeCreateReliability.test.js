@@ -459,6 +459,8 @@ test('自由创作空态、失败、取消和离开保护文案可直接断言',
   assert.match(freeCreateHeaderSource, /aria-label="返回项目首页"/)
   assert.match(freeCreateHeaderSource, />\s*返回项目首页\s*</)
   assert.doesNotMatch(freeCreateHeaderSource, /返回项目列表/)
+  assert.match(freeCreateHeaderSource, /<style scoped>[\s\S]*\.back-link:focus-visible[\s\S]*<\/style>/)
+  assert.doesNotMatch(freeCreateHeaderSource.split('</style>').slice(1).join('</style>'), /\.back-link/)
   assert.match(freeCreateResultSource, /class="empty-result" role="status" aria-live="polite"/)
   assert.match(freeCreateResultSource, /role="group"[\s\S]*aria-label="空结果下一步"/)
   assert.match(freeCreateResultSource, /item\.assetSaveError \? '重试保存' : '保存到素材中心'/

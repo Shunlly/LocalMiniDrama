@@ -103,6 +103,7 @@ function mountQa(initial = {}) {
     displayedQaIssues: initial.issues || [],
     displayedQaRecommendations: initial.recommendations || [],
     onRunQa: () => events.push('run-qa'),
+    onSelectStep: (stepId) => events.push(['select-step', stepId]),
   }))
   return { ...mounted, events }
 }
@@ -164,10 +165,11 @@ test('QA 卡片空态展示中文引导，并把审计动作交给父级', () =>
     assert.match(text, /执行 QA 审计/)
     assert.doesNotMatch(text, /Invalid Date/)
     assert.equal(findByClass(harness.root, 'qa-line').length, 0)
+    buttonByText(harness.root, '去启动处理').props.onClick()
     const button = buttonByText(harness.root, '执行 QA 审计')
     assert.equal(Boolean(button.props.disabled), false)
     button.props.onClick()
-    assert.deepEqual(harness.events, ['run-qa'])
+    assert.deepEqual(harness.events, [['select-step', 'process'], 'run-qa'])
   } finally {
     harness.app.unmount()
   }
@@ -400,6 +402,8 @@ test('交付卡片区分占位、缺轨、仅有剧集和完全空态', () => {
   })
   try {
     assert.match(textContent(empty.root), /完成素材处理后，这里会显示剧集与时间线摘要/)
+    buttonByText(empty.root, '去启动处理').props.onClick()
+    assert.deepEqual(empty.events, [['select-step', 'process']])
   } finally {
     empty.app.unmount()
   }
