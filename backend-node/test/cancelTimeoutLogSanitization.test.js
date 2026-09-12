@@ -36,6 +36,12 @@ function capturingLog() {
   };
 }
 
+const timeoutSecret = ['sk-', 'timeout-route-secret-123456'].join('');
+const cancelSecret = ['sk-', 'cancel-route-secret-123456'].join('');
+const headerSecret = ['hdr-', 'synthetic-token-987654'].join('');
+const headerKey = ['sk-', 'header-route-secret-123456'].join('');
+const discoverSecret = ['sk-', 'discover-timeout-route-123456'].join('');
+
 describe('cancel-timeout-log', () => {
   it('timeout-chinese', () => {
     assert.equal(isTimeoutLikeError(new Error('\u8fde\u63a5\u6d4b\u8bd5\u8d85\u65f6')), true);
@@ -79,14 +85,14 @@ describe('cancel-timeout-log', () => {
           provider: 'openai',
           service_type: 'text',
           base_url: 'https://provider.example.com/v1',
-          api_key: 'sk-timeout-route-secret-123456',
+          api_key: timeoutSecret,
         },
       }, res);
       assert.equal(res.statusCode, 400);
       assert.match(res.body.error.message, /\u8d85\u65f6/);
       assert.doesNotMatch(res.body.error.message, /\u53d6\u6d88/);
       const serialized = JSON.stringify({ body: res.body, events: log.events });
-      assert.doesNotMatch(serialized, /sk-timeout-route-secret-123456/);
+      assert.equal(serialized.includes(timeoutSecret), false);
       const op = log.events.find((item) => item.level === 'operation');
       assert.ok(op);
       assert.notEqual(op.event.phase, 'cancel');
@@ -112,7 +118,7 @@ describe('cancel-timeout-log', () => {
           provider: 'openai',
           service_type: 'text',
           base_url: 'https://provider.example.com/v1',
-          api_key: 'sk-cancel-route-secret-123456',
+          api_key: cancelSecret,
         },
       }, res);
       assert.match(res.body.error.message, /\u53d6\u6d88/);
@@ -120,7 +126,7 @@ describe('cancel-timeout-log', () => {
       const op = log.events.find((item) => item.level === 'operation');
       assert.equal(op.event.phase, 'cancel');
       assert.notEqual(op.event.phase, 'success');
-      assert.doesNotMatch(JSON.stringify(log.events), /sk-cancel-route-secret-123456/);
+      assert.equal(JSON.stringify(log.events).includes(cancelSecret), false);
     } finally {
       aiConfigService.testConnection = original;
     }
@@ -128,7 +134,6 @@ describe('cancel-timeout-log', () => {
 
   it('connection-header-secret', async () => {
     const original = aiConfigService.testConnection;
-    const headerSecret = 'hdr-synthetic-token-987654';
     aiConfigService.testConnection = async () => {
       throw new Error('provider rejected ' + headerSecret);
     };
@@ -140,13 +145,13 @@ describe('cancel-timeout-log', () => {
           provider: 'openai',
           service_type: 'text',
           base_url: 'https://provider.example.com/v1',
-          api_key: 'sk-header-route-secret-123456',
+          api_key: headerKey,
           settings: { headers: { 'X-Custom-Auth': headerSecret } },
         },
       }, res);
       const serialized = JSON.stringify({ body: res.body, events: log.events });
-      assert.doesNotMatch(serialized, /hdr-synthetic-token-987654/);
-      assert.doesNotMatch(serialized, /sk-header-route-secret-123456/);
+      assert.equal(serialized.includes(headerSecret), false);
+      assert.equal(serialized.includes(headerKey), false);
       assert.match(res.body.error.message, /[\u4e00-\u9fff]/);
     } finally {
       aiConfigService.testConnection = original;
@@ -155,9 +160,8 @@ describe('cancel-timeout-log', () => {
 
   it('discover-timeout-abort', async () => {
     const original = aiConfigService.discoverModels;
-    const secret = 'sk-discover-timeout-route-123456';
     aiConfigService.discoverModels = async () => {
-      throw Object.assign(new Error('timeout after using ' + secret), {
+      throw Object.assign(new Error('timeout after using ' + discoverSecret), {
         name: 'AbortError',
         code: 'ETIMEDOUT',
         isTimeout: true,
@@ -171,13 +175,13 @@ describe('cancel-timeout-log', () => {
           provider: 'openai_compatible',
           service_type: 'text',
           base_url: 'https://provider.example.com/v1',
-          api_key: secret,
+          api_key: discoverSecret,
         },
       }, res);
       assert.match(res.body.error.message, /\u8d85\u65f6/);
       assert.doesNotMatch(res.body.error.message, /\u53d6\u6d88/);
       const serialized = JSON.stringify({ body: res.body, events: log.events });
-      assert.doesNotMatch(serialized, /sk-discover-timeout-route-123456/);
+      assert.equal(serialized.includes(discoverSecret), false);
     } finally {
       aiConfigService.discoverModels = original;
     }

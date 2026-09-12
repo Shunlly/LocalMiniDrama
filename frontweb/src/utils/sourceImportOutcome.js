@@ -142,7 +142,7 @@ export async function runGatedQaRemediation({
   onFinished,
 }) {
   if (!report?.id || blockedReason) {
-    return { status: 'blocked', reason: blockedReason || '当前没有可修复的 QA 报告' }
+    return { status: 'blocked', reason: blockedReason || '当前没有可修复的质量检查报告' }
   }
 
   await onStarted?.()

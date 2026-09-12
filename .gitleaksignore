@@ -32,3 +32,9 @@ f285d312216d495f34f5d6748fce81347ec3aea2:backend-node/test/imageVideoGatewayAsse
 
 # Synthetic route-observability credential fixture; the current test builds it from fragments.
 f285d312216d495f34f5d6748fce81347ec3aea2:backend-node/test/routeObservability.test.js:generic-api-key:71
+
+# Synthetic cancel/timeout route fixtures from 8c9c313; current test builds them from fragments.
+8c9c313716b9db8e93e88e06dc71e7f4cd48c415:backend-node/test/cancelTimeoutLogSanitization.test.js:generic-api-key:82
+8c9c313716b9db8e93e88e06dc71e7f4cd48c415:backend-node/test/cancelTimeoutLogSanitization.test.js:generic-api-key:115
+8c9c313716b9db8e93e88e06dc71e7f4cd48c415:backend-node/test/cancelTimeoutLogSanitization.test.js:generic-api-key:143
+8c9c313716b9db8e93e88e06dc71e7f4cd48c415:backend-node/test/cancelTimeoutLogSanitization.test.js:generic-api-key:158

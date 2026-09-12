@@ -52,7 +52,7 @@ function mountHeader(initial = {}) {
   return { ...mounted, events, props }
 }
 
-test('DramaDetail 把页头交给独立组件，Logo 读屏名称仍是返回项目列表', () => {
+test('DramaDetail 把页头交给独立组件，Logo 读屏名称带产品前缀', () => {
   assert.match(pageSource, /<DramaDetailHeader/)
   assert.match(pageSource, /@go-list="goList"/)
   assert.match(pageSource, /@go-create="goCreate"/)
@@ -70,8 +70,8 @@ test('无分集时进入制作和画布模式保留中文禁用原因', async ()
   const harness = mountHeader({ isDramaReady: true, currentEpisodeId: null })
   try {
     await nextTick()
-    const logo = buttonByAriaLabel(harness.root, '返回项目列表')
-    assert.ok(logo, '缺少 Logo 返回项目列表')
+    const logo = buttonByAriaLabel(harness.root, '本地短剧助手，返回项目列表')
+    assert.ok(logo, '缺少 Logo 返回')
     click(logo)
     const back = buttonByText(harness.root, '返回项目列表')
     assert.ok(back, '缺少返回项目列表按钮')
