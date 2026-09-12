@@ -86,7 +86,7 @@
             :aria-label="listWriteLocked ? `新建项目不可用：${listWriteLockReason}` : undefined"
             :aria-describedby="listWriteLocked && listWriteLockReason ? 'project-list-write-lock-reason' : undefined"
           >
-            <el-button type="primary" class="btn-new" :disabled="listWriteLocked" aria-label="新建项目" :title="listWriteLocked ? listWriteLockReason : undefined" :aria-describedby="listWriteLocked && listWriteLockReason ? 'project-list-write-lock-reason' : undefined" @click="goNewProject">
+            <el-button :type="newProjectPrimary ? 'primary' : undefined" class="btn-new" :disabled="listWriteLocked" aria-label="新建项目" :title="listWriteLocked ? listWriteLockReason : undefined" :aria-describedby="listWriteLocked && listWriteLockReason ? 'project-list-write-lock-reason' : undefined" @click="goNewProject">
               <el-icon><Plus /></el-icon>新建项目
             </el-button>
           </span>
@@ -118,6 +118,7 @@ defineProps({
   goBackup: { type: Function, required: true },
   triggerImport: { type: Function, required: true },
   goNewProject: { type: Function, required: true },
+  newProjectPrimary: { type: Boolean, default: true },
 })
 
 const importTriggerButton = ref(null)

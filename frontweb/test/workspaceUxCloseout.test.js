@@ -121,6 +121,8 @@ test('顶栏已去掉微信入口，设置深链接接到备份页', () => {
   }
   assert.match(filmListSource, /<el-icon><Setting \/><\/el-icon>AI 配置/)
   assert.doesNotMatch(filmListSource, /<el-icon><Setting \/><\/el-icon>AI配置/)
+  assert.match(filmListSource, /:new-project-primary="newProjectHeaderPrimary"/)
+  assert.match(filmListSource, /const newProjectHeaderPrimary = computed\(\(\) => !emptyStateOwnsNewProjectPrimary\.value && !sourceImportIntent\.value\)/)
   assert.match(routerSource, /path: '\/settings'[\s\S]*redirect: '\/backup'/)
   assert.match(routerSource, /path: '\/media'[\s\S]*redirect: '\/media-library'/)
   assert.match(viewsSource, /id: 'backup', view: 'backup', label: '数据备份'/)

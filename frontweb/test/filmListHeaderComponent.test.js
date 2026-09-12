@@ -66,6 +66,7 @@ function mountHeader(initial = {}) {
     goBackup: () => events.push(['backup']),
     triggerImport: () => events.push(['import']),
     goNewProject: () => events.push(['new-project']),
+    newProjectPrimary: initial.newProjectPrimary !== false,
   }))
   return { ...mounted, events, showAiConfigDialog }
 }
@@ -85,6 +86,7 @@ test('项目列表页头保留品牌，并把素材和工作区入口交给页�
     click(buttonByAriaLabel(harness.root, '切换到暗色模式'))
     click(buttonByAriaLabel(harness.root, '打开数据备份与维护'))
     click(buttonByAriaLabel(harness.root, '新建项目'))
+    assert.equal(buttonByAriaLabel(harness.root, '新建项目').props['data-variant'], 'primary')
     assert.deepEqual(harness.events, [
       ['material-center'],
       ['free-create'],
@@ -142,6 +144,20 @@ test('没有备份入口时不渲染数据备份，AI 配置通过 v-model 打�
     click(config)
     assert.equal(harness.showAiConfigDialog.value, true)
     assert.deepEqual(harness.events, [])
+  } finally {
+    harness.app.unmount()
+  }
+})
+
+test('空列表起步路径占用主按钮时，页头新建项目降为次按钮', async () => {
+  const harness = mountHeader({ newProjectPrimary: false })
+  try {
+    await nextTick()
+    const created = buttonByAriaLabel(harness.root, '新建项目')
+    assert.ok(created, '缺少新建项目')
+    assert.notEqual(created.props['data-variant'], 'primary')
+    click(created)
+    assert.deepEqual(harness.events, [['new-project']])
   } finally {
     harness.app.unmount()
   }

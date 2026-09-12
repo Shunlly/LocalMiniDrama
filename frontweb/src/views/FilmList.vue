@@ -17,6 +17,7 @@
       :go-backup="goBackup"
       :trigger-import="triggerImport"
       :go-new-project="goNewProject"
+      :new-project-primary="newProjectHeaderPrimary"
     />
     <input ref="importFileInput" type="file" accept=".zip" style="display:none" @change="onImportFile" />
 
@@ -328,6 +329,16 @@ const projectListCountLabel = computed(() => resolveProjectListCountLabel({
   filteredCount: filteredDramas.value.length,
   hasFilters: hasProjectFilters.value,
 }))
+const emptyStateOwnsNewProjectPrimary = computed(() => (
+  hasSuccessfulListLoad.value
+  && !listError.value
+  && !loading.value
+  && (
+    (dramas.value.length === 0 && !hasProjectFilters.value)
+    || (hasProjectFilters.value && filteredDramas.value.length === 0)
+  )
+))
+const newProjectHeaderPrimary = computed(() => !emptyStateOwnsNewProjectPrimary.value && !sourceImportIntent.value)
 
 let applyingProjectListRoute = false
 
