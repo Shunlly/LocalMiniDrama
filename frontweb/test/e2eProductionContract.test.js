@@ -940,6 +940,9 @@ test('生产 E2E 连接测试关闭按钮必须用关闭连接测试这个读屏
   const connectionDialog = normalizeNewlines(readFileSync(new URL('../src/components/aiConfig/AiConfigConnectionTestDialog.vue', import.meta.url), 'utf8'))
   assert.match(connectionDialog, /aria-label="关闭连接测试"/)
   assert.match(productionSource, /getByRole\('button', \{ name: UI\.closeConnectionTest, exact: true \}\)/)
+  const browserSource = normalizeNewlines(readFileSync(new URL('./aiConfigConnectionBrowser.test.js', import.meta.url), 'utf8'))
+  assert.match(browserSource, /getByRole\('button', \{ name: '\u5173\u95ed\u8fde\u63a5\u6d4b\u8bd5', exact: true \}\)/)
+  assert.doesNotMatch(browserSource, /getByRole\('button', \{ name: '\u5173\u95ed', exact: true \}\)/)
 })
 
 test('生产 E2E 草稿启动必须点得了「以当前模式启动」，空 run 不能当成 running', () => {

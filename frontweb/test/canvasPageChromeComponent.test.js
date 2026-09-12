@@ -207,7 +207,7 @@ test('页头闭合区块挂上真实工具条后仍能看到 AI 分镜', async (
     assert.match(pageText, /本地短剧助手/)
     assert.match(pageText, /画布模式/)
     assert.match(pageText, /演示短剧/)
-    const logo = buttonByAriaLabel(harness.root, '返回项目列表')
+    const logo = buttonByAriaLabel(harness.root, '本地短剧助手，返回项目列表')
     assert.ok(logo)
     click(logo)
     const storyboard = buttonByAriaLabel(harness.root, 'AI 生成分镜')
