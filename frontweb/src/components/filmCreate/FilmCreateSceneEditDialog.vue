@@ -155,4 +155,9 @@ watch(showEditScene, (open) => {
   if (!open) return
   sceneDraftBaseline.value = captureResourceEditDraft(props.editSceneForm, addSceneRefImage.value)
 }, { immediate: true, flush: 'sync' })
+
+defineExpose({
+  hasUnsaved: hasUnsavedSceneDraft,
+  confirmLeave: () => sceneCloser.confirmClose(hasUnsavedSceneDraft),
+})
 </script>

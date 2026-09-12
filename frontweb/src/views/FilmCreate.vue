@@ -1037,6 +1037,8 @@ const {
   pipelineOwnedTaskIds,
   showAiConfigDialog,
   aiConfigContentRef,
+  confirmResourceEditorLeave: async () => (await aiConfigContentRef.value?.confirmResourceEditorLeave?.()) !== false,
+  hasUnsavedResourceEditors: () => Boolean(aiConfigContentRef.value?.hasUnsavedResourceEditors?.()),
   scriptDraftController,
   flushScriptDraft,
   cancelPipelineRun,

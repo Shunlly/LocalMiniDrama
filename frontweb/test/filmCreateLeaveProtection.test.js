@@ -142,11 +142,32 @@ test('制作页把批量停止和单条生视频接到离开保护', () => {
   assert.match(call, /getRunningGenerationTasks/)
   assert.match(filmCreateSource, /onBeforeRouteLeave\(allowNavigationAfterDraftFlush\)/)
   assert.match(filmCreateSource, /handleBeforeUnload/)
+  assert.match(filmCreateSource, /confirmResourceEditorLeave/)
   const guardsSource = readFileSync(
     new URL('../src/composables/filmCreate/useFilmCreateNavigationGuards.js', import.meta.url),
     'utf8',
   ).replace(/\r\n?/g, '\n')
   assert.match(guardsSource, /getAllRunningTasks/)
+  assert.match(guardsSource, /confirmResourceEditorLeave/)
+})
+
+test('返回剧集前会确认未保存的角色场景道具编辑', async () => {
+  const blocked = createGuards({
+    confirmResourceEditorLeave: async () => false,
+  })
+  assert.equal(await blocked.guards.allowNavigationAfterDraftFlush(), false)
+
+  const allowed = createGuards({
+    confirmResourceEditorLeave: async () => true,
+  })
+  assert.equal(await allowed.guards.allowNavigationAfterDraftFlush(), true)
+
+  const event = unloadEvent()
+  const dirty = createGuards({
+    hasUnsavedResourceEditors: () => true,
+  })
+  dirty.guards.handleBeforeUnload(event)
+  assert.equal(event.wasPrevented(), true)
 })
 
 test('普通编辑不拦截关页，媒体生成才弹出中文计费确认', async () => {

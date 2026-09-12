@@ -1,5 +1,5 @@
 <template>
-  <FilmCreateResourceDialogs v-bind="resourceDialogs" />
+  <FilmCreateResourceDialogs ref="resourceDialogsRef" v-bind="resourceDialogs" />
   <FilmCreateStoryboardDialogs v-bind="storyboardDialogs" />
   <FilmCreateNovelImportDialog
     v-model:visible="visible"
@@ -81,9 +81,12 @@ const emit = defineEmits([
 ])
 
 const aiConfigDialogRef = ref(null)
+const resourceDialogsRef = ref(null)
 
 defineExpose({
   requestClose: (...args) => aiConfigDialogRef.value?.requestClose?.(...args),
   hasUnsavedChanges: (...args) => aiConfigDialogRef.value?.hasUnsavedChanges?.(...args),
+  hasUnsavedResourceEditors: () => Boolean(resourceDialogsRef.value?.hasUnsaved?.()),
+  confirmResourceEditorLeave: (...args) => resourceDialogsRef.value?.confirmLeave?.(...args),
 })
 </script>

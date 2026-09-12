@@ -286,6 +286,11 @@ const extractIdentityAnchorsDisabledReason = computed(() => {
   if (!props.editCharacterForm?.appearance) return '请先填写角色外貌描述'
   return ''
 })
+
+defineExpose({
+  hasUnsaved: hasUnsavedCharacterDraft,
+  confirmLeave: confirmCloseCharacterDialog,
+})
 </script>
 
 <style scoped>

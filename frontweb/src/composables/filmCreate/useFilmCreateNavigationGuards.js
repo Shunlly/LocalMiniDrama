@@ -51,6 +51,8 @@ export function useFilmCreateNavigationGuards(deps = {}) {
     generatingSceneIds,
     generatingPropIds,
     generatingPanoramaIds,
+    confirmResourceEditorLeave,
+    hasUnsavedResourceEditors,
   } = deps
 
   function hasActivePipelineWork() {
@@ -90,7 +92,9 @@ export function useFilmCreateNavigationGuards(deps = {}) {
   function handleBeforeUnload(event) {
     const hasUnsavedAiConfig = showAiConfigDialog.value
       && aiConfigContentRef.value?.hasUnsavedChanges?.()
-    if (!scriptDraftController.hasPendingChanges() && !hasActiveGenerationWork() && !hasUnsavedAiConfig) return
+    const hasUnsavedResources = typeof hasUnsavedResourceEditors === 'function'
+      && hasUnsavedResourceEditors()
+    if (!scriptDraftController.hasPendingChanges() && !hasActiveGenerationWork() && !hasUnsavedAiConfig && !hasUnsavedResources) return
     event.preventDefault()
     event.returnValue = ''
   }
@@ -177,6 +181,7 @@ export function useFilmCreateNavigationGuards(deps = {}) {
 
   async function allowNavigationAfterDraftFlush() {
     if (!await requestAiConfigWorkspaceNavigation()) return false
+    if (typeof confirmResourceEditorLeave === 'function' && !await confirmResourceEditorLeave()) return false
     const draftDecision = await flushDraftBeforeNavigation()
     if (!draftDecision.allowed) return false
     if (!await confirmPipelineNavigation()) return false

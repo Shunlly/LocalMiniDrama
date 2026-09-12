@@ -1,6 +1,7 @@
 <template>
   <div class="film-create-resource-dialogs">
     <FilmCreateCharacterEditDialog
+      ref="characterEditRef"
       v-model:show-edit-character="showEditCharacter"
       v-model:add-char-ref-image="addCharRefImage"
       :edit-character-form="editCharacterForm"
@@ -60,6 +61,7 @@
     />
 
     <FilmCreatePropEditDialog
+      ref="propEditRef"
       v-model:show-add-prop="showAddProp"
       v-model:show-edit-prop="showEditProp"
       v-model:add-prop-form="addPropForm"
@@ -123,6 +125,7 @@
     />
 
     <FilmCreateSceneEditDialog
+      ref="sceneEditRef"
       v-model:show-edit-scene="showEditScene"
       v-model:add-scene-ref-image="addSceneRefImage"
       :edit-scene-form="editSceneForm"
@@ -180,7 +183,7 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { describeAddToEpisodeDisabledReason } from '@/components/filmCreate/filmCreateResourceDialogsCopy.js'
 import FilmCreateCharacterEditDialog from './FilmCreateCharacterEditDialog.vue'
 import FilmCreateCharacterLibraryDialogs from './FilmCreateCharacterLibraryDialogs.vue'
@@ -340,4 +343,21 @@ const sceneLibraryPageSize = defineModel('sceneLibraryPageSize', { type: Number,
 const sceneLibraryTab = defineModel('sceneLibraryTab', { type: String, default: '' })
 
 const addToEpisodeDisabledReason = computed(() => describeAddToEpisodeDisabledReason(props.currentEpisodeId))
+const characterEditRef = ref(null)
+const sceneEditRef = ref(null)
+const propEditRef = ref(null)
+
+defineExpose({
+  hasUnsaved: () => Boolean(
+    characterEditRef.value?.hasUnsaved?.()
+    || sceneEditRef.value?.hasUnsaved?.()
+    || propEditRef.value?.hasUnsaved?.()
+  ),
+  confirmLeave: async () => {
+    if (await characterEditRef.value?.confirmLeave?.() === false) return false
+    if (await sceneEditRef.value?.confirmLeave?.() === false) return false
+    if (await propEditRef.value?.confirmLeave?.() === false) return false
+    return true
+  },
+})
 </script>

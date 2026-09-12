@@ -209,4 +209,12 @@ watch(showEditProp, (open) => {
   if (!open) return
   propDraftBaseline.value = captureResourceEditDraft(props.editPropForm, addPropRefImage.value)
 }, { immediate: true, flush: 'sync' })
+
+defineExpose({
+  hasUnsaved: () => hasUnsavedAddPropDraft() || hasUnsavedPropDraft(),
+  confirmLeave: async () => {
+    if (!await addPropCloser.confirmClose(hasUnsavedAddPropDraft)) return false
+    return propCloser.confirmClose(hasUnsavedPropDraft)
+  },
+})
 </script>
