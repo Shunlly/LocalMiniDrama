@@ -11,6 +11,7 @@ import {
   compileIconStub,
   compileSfc,
   createHostRenderer,
+  findByClass,
   findByType,
   loadCompiledSfc,
   mountHarness,
@@ -195,3 +196,68 @@ test('无禁用原因时，空态提取会发出真实事件', async () => {
     harness.app.unmount()
   }
 })
+
+function visibleButtonText(node) {
+  return textContent(node).replace(/\s+/g, ' ').trim()
+}
+
+test('\u8d44\u6e90\u7a7a\u6001\u6bcf\u4e2a\u533a\u5757\u53ea\u6709\u4e00\u4e2a primary\uff0c\u8bfb\u5c4f\u540d\u5305\u542b\u53ef\u89c1\u6587\u6848', async () => {
+  const harness = mountPanel({
+    characterGenerationDisabledReason: EMPTY_SCRIPT_REASON,
+    propsExtractionDisabledReason: EMPTY_SCRIPT_REASON,
+    scenesExtractionDisabledReason: EMPTY_SCRIPT_REASON,
+  })
+  try {
+    await nextTick()
+    const sections = findByClass(harness.root, 'resource-empty-actions')
+    assert.equal(sections.length, 3)
+    for (const section of sections) {
+      const buttons = findByType(section, 'button')
+      const primaries = buttons.filter((node) => node.props['data-variant'] === 'primary')
+      assert.equal(primaries.length, 1)
+      for (const button of buttons) {
+        const visible = visibleButtonText(button)
+        const label = String(button.props['aria-label'] || '')
+        assert.ok(visible)
+        assert.ok(label.includes(visible), `${visible} should be inside aria-label "${label}"`)
+      }
+    }
+    const headerExtract = buttonsByText(harness.root, '\u5267\u672c\u81ea\u52a8\u63d0\u53d6\u89d2\u8272').filter((node) => {
+      let current = node
+      while (current) {
+        if (String(current.props?.class || '').includes('resource-empty-actions')) return false
+        current = current.parent
+      }
+      return true
+    })
+    assert.ok(headerExtract.length >= 1)
+    assert.ok(headerExtract.every((button) => button.props['data-variant'] !== 'primary'))
+    assert.ok(headerExtract.every((button) => String(button.props['aria-label'] || '').includes('\u5267\u672c\u81ea\u52a8\u63d0\u53d6\u89d2\u8272')))
+  } finally {
+    harness.app.unmount()
+  }
+})
+
+test('\u7f3a\u5c11\u5267\u96c6\u65f6\u7a7a\u6001\u4e3b\u6309\u94ae\u662f\u53bb\u521b\u5efa\u5267\u96c6\uff0c\u8bfb\u5c4f\u540d\u4e0e\u53ef\u89c1\u6587\u6848\u4e00\u81f4', async () => {
+  const harness = mountPanel({
+    hasAnyEpisode: false,
+    characterGenerationDisabledReason: EPISODE_REQUIRED_REASON,
+    propsExtractionDisabledReason: EPISODE_REQUIRED_REASON,
+    scenesExtractionDisabledReason: EPISODE_REQUIRED_REASON,
+  })
+  try {
+    await nextTick()
+    const sections = findByClass(harness.root, 'resource-empty-actions')
+    assert.equal(sections.length, 3)
+    for (const section of sections) {
+      const buttons = findByType(section, 'button')
+      const primaries = buttons.filter((node) => node.props['data-variant'] === 'primary')
+      assert.equal(primaries.length, 1)
+      assert.equal(visibleButtonText(primaries[0]), '\u53bb\u521b\u5efa\u5267\u96c6')
+      assert.equal(primaries[0].props['aria-label'], '\u53bb\u521b\u5efa\u5267\u96c6')
+    }
+  } finally {
+    harness.app.unmount()
+  }
+})
+

@@ -33,7 +33,7 @@ test('分镜配置条批量、导出和停止有中文名称', () => {
   assert.match(configBar, /aria-label="停止批量生成图片"/)
   assert.match(configBar, /aria-label="停止批量生成视频"/)
   assert.match(configBar, /批量生成分镜图/)
-  assert.match(emptyState, /storyboardActionDisabledReason \|\| '生成分镜'/)
+  assert.match(emptyState, /generateStoryboardAriaLabel/)
   assert.match(pipelineStatus, /label="立即开始下一阶段"/)
   assert.match(pipelineStatus, /:aria-label="skipCountdownAriaLabel"/)
   assert.match(pipelineStatus, /立即开始下一阶段/)

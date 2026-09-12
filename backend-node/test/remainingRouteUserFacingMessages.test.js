@@ -436,12 +436,12 @@ describe('剩余服务对用户返回中文错误', () => {
     assert.match(classified.message, /认证失败/);
     assert.doesNotMatch(classified.message, leak);
 
-    const timeout = toSafeProviderErrorMessage(
+    const cancelled = toSafeProviderErrorMessage(
       Object.assign(new Error('The operation was aborted.'), { name: 'AbortError' }),
       { provider: 'ModelArk', operation: 'CreateAsset' },
     );
-    assert.match(timeout, /取消/);
-    assert.doesNotMatch(timeout, /超时|成功|timeout|aborted/i);
+    assert.match(cancelled, /取消/);
+    assert.doesNotMatch(cancelled, /超时|成功|timeout|aborted/i);
   });
 
   it('批量换密钥缺密钥返回中文，不含 API Key 字段名', () => {

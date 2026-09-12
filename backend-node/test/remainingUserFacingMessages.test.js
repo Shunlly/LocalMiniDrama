@@ -926,7 +926,7 @@ test('HTTP 404 与 Invalid Authorization 不得进入用户文案，取消也不
     { provider: 'ModelArk', operation: 'CreateAsset' },
   );
   assert.match(cancel.message, /取消/);
-  assert.doesNotMatch(cancel.message, /超时|\u6210\u529f|timeout|aborted/i);
+  assert.doesNotMatch(cancel.message, /超时|成功|timeout|aborted/i);
   assert.equal(cancel.code, 'OPERATION_CANCELLED');
   assert.equal(cancel.retryable, false);
   assert.equal(isRequestCanceled(cancel), true);

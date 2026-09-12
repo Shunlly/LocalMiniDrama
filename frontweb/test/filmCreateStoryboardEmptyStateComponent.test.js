@@ -124,6 +124,36 @@ test('没有剧集时只提供去创建剧集，不展示生成分镜', async ()
     assert.equal(create.props['aria-label'], '去创建剧集')
     click(create)
     assert.deepEqual(harness.events, [['add-episode']])
+    const actions = findByClass(harness.root, 'empty-tip-actions')[0]
+    const primaries = findByType(actions, 'button').filter((node) => node.props['data-variant'] === 'primary')
+    assert.equal(primaries.length, 1)
+    assert.ok(String(create.props['aria-label'] || '').includes(textContent(create).replace(/\s+/g, ' ').trim()))
+  } finally {
+    harness.app.unmount()
+  }
+})
+
+test('有剧集空态只有一个 primary，禁用时读屏名仍包含可见文案', async () => {
+  const harness = mountEmpty({
+    storyboardActionDisabledReason: EMPTY_SCRIPT_REASON,
+    episodeActionDisabledReason: EMPTY_SCRIPT_REASON,
+  })
+  try {
+    await nextTick()
+    const actions = findByClass(harness.root, 'empty-tip-actions')[0]
+    const buttons = findByType(actions, 'button')
+    const primaries = buttons.filter((node) => node.props['data-variant'] === 'primary')
+    assert.equal(primaries.length, 1)
+    assert.match(textContent(primaries[0]), /生成分镜/)
+    for (const button of buttons) {
+      const visible = textContent(button).replace(/\s+/g, ' ').trim()
+      assert.ok(visible)
+      assert.ok(String(button.props['aria-label'] || '').includes(visible), visible)
+    }
+    const generate = requireButton(harness.root, '生成分镜')
+    assert.equal(generate.props['aria-label'], `生成分镜不可用：${EMPTY_SCRIPT_REASON}`)
+    const addOne = requireButton(harness.root, '添加一个分镜')
+    assert.equal(addOne.props['aria-label'], `添加一个分镜不可用：${EMPTY_SCRIPT_REASON}`)
   } finally {
     harness.app.unmount()
   }

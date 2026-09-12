@@ -11,6 +11,8 @@ import {
   compileIconStub,
   compileSfc,
   createHostRenderer,
+  findByClass,
+  findByType,
   loadCompiledSfc,
   mountHarness,
   textContent,
@@ -164,3 +166,59 @@ test('选择剧本空态去掉英文省略号，导入中禁用原因可见', as
     harness.app.unmount()
   }
 })
+
+function visibleButtonText(node) {
+  return textContent(node).replace(/\s+/g, ' ').trim()
+}
+
+function assertEmptyActions(root, className, primaryText) {
+  const section = findByClass(root, className)[0]
+  assert.ok(section, `missing ${className}`)
+  const buttons = findByType(section, 'button')
+  const primaries = buttons.filter((node) => node.props['data-variant'] === 'primary')
+  assert.equal(primaries.length, 1, `${className} should have exactly one primary`)
+  assert.match(visibleButtonText(primaries[0]), new RegExp(primaryText))
+  assert.ok(String(primaries[0].props['aria-label'] || '').includes(primaryText))
+  for (const button of buttons) {
+    const visible = visibleButtonText(button)
+    const label = String(button.props['aria-label'] || '')
+    assert.ok(visible)
+    assert.ok(label.includes(visible), `${visible} should be inside aria-label "${label}"`)
+  }
+}
+
+test('\u7a7a\u5267\u96c6\u7a7a\u6001\u53ea\u6709\u4e00\u4e2a primary\uff0c\u8bfb\u5c4f\u540d\u5305\u542b\u53ef\u89c1\u6587\u6848', async () => {
+  const harness = mountWorkbench({
+    hasAnyEpisode: false,
+    currentEpisodeId: null,
+    episodes: [],
+    scriptTitle: '',
+    scriptContent: '',
+  })
+  try {
+    await nextTick()
+    assertEmptyActions(harness.root, 'film-episode-empty-actions', '\u6dfb\u52a0\u4e00\u96c6')
+    const back = buttonByAriaLabel(harness.root, '\u8fd4\u56de\u5267\u96c6')
+    assert.equal(back.props['data-variant'], '')
+  } finally {
+    harness.app.unmount()
+  }
+})
+
+test('\u9009\u62e9\u5267\u672c\u7a7a\u6001\u53ea\u6709\u4e00\u4e2a primary\uff0c\u5bfc\u5165\u4e2d\u8bfb\u5c4f\u540d\u4ecd\u5305\u542b\u53ef\u89c1\u6587\u6848', async () => {
+  const harness = mountWorkbench({
+    hasAnyEpisode: false,
+    currentEpisodeId: null,
+    episodes: [],
+    storyInput: '',
+    selectScriptImporting: true,
+    scriptWorkbenchMode: 'select',
+  })
+  try {
+    await nextTick()
+    assertEmptyActions(harness.root, 'script-select-empty-actions', '\u4ece\u5df2\u6709\u5267\u672c\u4e2d\u9009\u62e9')
+  } finally {
+    harness.app.unmount()
+  }
+})
+
