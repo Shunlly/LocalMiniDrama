@@ -75,6 +75,7 @@ test('toolbar empty next steps and generation cancel remain Chinese and clickabl
 
   assert.match(toolbar, /画布是空的，下一步可直接开始/)
   assert.match(toolbar, /aria-label="新建文本"/)
+  assert.doesNotMatch(toolbar, /type="primary"[^>]*aria-label="新建文本"/)
   assert.match(toolbar, /aria-label="新建配置"/)
   assert.match(toolbar, /aria-label="打开素材栏"/)
   assert.match(toolbar, /emit\('create-node', 'text'\)/)

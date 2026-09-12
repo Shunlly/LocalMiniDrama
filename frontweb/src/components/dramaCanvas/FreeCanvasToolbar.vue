@@ -114,7 +114,7 @@
           aria-label="显示制作节点"
           @click="emit('toggle-hide-production', false)"
         >显示制作节点</el-button>
-        <el-button size="small" type="primary" aria-label="新建文本" @click="emit('create-node', 'text')">新建文本</el-button>
+        <el-button size="small" aria-label="新建文本" @click="emit('create-node', 'text')">新建文本</el-button>
         <el-button size="small" aria-label="新建配置" @click="emit('create-node', 'config')">新建配置</el-button>
         <el-button size="small" aria-label="打开素材栏" @click="emit('toggle-library')">打开素材栏</el-button>
       </div>
