@@ -34,6 +34,7 @@ export function useFilmCreatePipelineRun(options = {}) {
   const pipelinePaused = ref(false)
   const pipelineAbortRequested = ref(false)
   const pipelineErrorLog = ref([])
+  const lastPipelineMode = ref('')
   const pipelineCurrentStep = ref('')
   const pipelineStepIndex = ref(0)    // 当前步骤序号（1-based）
   /** 全流程 10 步；仅文本框架为前 4 步 */
@@ -378,6 +379,7 @@ export function useFilmCreatePipelineRun(options = {}) {
     pipelinePaused,
     pipelineAbortRequested,
     pipelineErrorLog,
+    lastPipelineMode,
     pipelineCurrentStep,
     pipelineStepIndex,
     pipelineStepTotal,

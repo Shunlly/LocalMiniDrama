@@ -788,6 +788,22 @@ test('pipeline shows pause disable reason while stopping and retry after failure
   } finally {
     failed.app.unmount()
   }
+
+  const draftFailed = mountPipeline({
+    running: false,
+    lastPipelineMode: 'draft',
+    errorLog: [{ step: '提取角色', message: '提取角色失败' }],
+  })
+  try {
+    await nextTick()
+    const retryDraft = buttonByText(draftFailed.root, '重试草稿预演')
+    assert.ok(retryDraft)
+    assert.equal(findByType(draftFailed.root, 'button').some((node) => textContent(node).trim() === '重试全流程'), false)
+    retryDraft.props.onClick()
+    assert.deepEqual(draftFailed.events, [['start-text-framework']])
+  } finally {
+    draftFailed.app.unmount()
+  }
 })
 test('pipeline compact action can add the first episode', async () => {
   const harness = mountPipeline({

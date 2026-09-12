@@ -27,6 +27,7 @@ export function useFilmCreatePipelineStages(deps = {}) {
     confirmProductionPipelineCost,
     storyboardMediaActionReason,
     productionCapabilityGaps,
+    lastPipelineMode,
   } = deps
 
   const { runOneClickPipeline } = useFilmCreatePipelineOneClick(deps)
@@ -87,6 +88,7 @@ export function useFilmCreatePipelineStages(deps = {}) {
         return
       }
 
+      if (lastPipelineMode) lastPipelineMode.value = 'production'
       trackFilmCreateAction('one_click_generate_start')
       pipelineErrorLog.value = []
       pipelineCurrentStep.value = ''
@@ -111,6 +113,7 @@ export function useFilmCreatePipelineStages(deps = {}) {
     pipelineAbortRequested.value = false
     pipelineStarting.value = true
     try {
+      if (lastPipelineMode) lastPipelineMode.value = 'draft'
       pipelineErrorLog.value = []
       pipelineCurrentStep.value = ''
       pipelineStepIndex.value = 0

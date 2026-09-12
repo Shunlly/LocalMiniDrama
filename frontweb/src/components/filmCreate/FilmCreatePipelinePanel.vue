@@ -97,7 +97,7 @@
                 <el-option label="9:16 竖屏" value="9:16" />
                 <el-option label="3:4 竖版" value="3:4" />
                 <el-option label="1:1 方形" value="1:1" />
-                <el-option label="4:3" value="4:3" />
+                <el-option label="4:3 传统横屏" value="4:3" />
                 <el-option label="21:9 宽银幕" value="21:9" />
               </el-select>
             </label>
@@ -176,6 +176,7 @@
         @skip-countdown="$emit('skip-countdown')"
         @pause="$emit('pause')"
         @start-one-click="$emit('start-one-click')"
+        @start-text-framework="$emit('start-text-framework')"
       />
     </div>
     <div v-else-if="hasEpisode === false" class="pipeline-empty" role="status" data-testid="film-pipeline-empty">
@@ -221,6 +222,7 @@ const props = defineProps({
   running: { type: Boolean, default: false },
   paused: { type: Boolean, default: false },
   errorLog: { type: Array, default: () => [] },
+  lastPipelineMode: { type: String, default: '' },
   currentStep: { type: String, default: '' },
   stepIndex: { type: Number, default: 0 },
   stepTotal: { type: Number, default: 0 },

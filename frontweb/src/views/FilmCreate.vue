@@ -383,6 +383,7 @@ const {
   pipelinePaused,
   pipelineAbortRequested,
   pipelineErrorLog,
+  lastPipelineMode,
   pipelineCurrentStep,
   pipelineStepIndex,
   pipelineStepTotal,
@@ -1018,7 +1019,7 @@ const pipelineActions = useFilmCreatePipelineActions({
   pipelineStepTotal, pipelineConcurrency, pipelineVideoConcurrency, executeOwnedPipelineRun,
   confirmProductionPipelineCost, checkPause, pollTaskWithPause, addPipelineError,
   pipelineRest, runPipelineCountdown, pipelineWithRetry, runConcurrently,
-  setPipelineStep, storyboardMediaActionReason, productionCapabilityGaps,
+  setPipelineStep, storyboardMediaActionReason, productionCapabilityGaps, lastPipelineMode,
   pollTask,
 })
 

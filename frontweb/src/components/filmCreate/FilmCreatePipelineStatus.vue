@@ -41,9 +41,9 @@
     <div v-for="(entry, index) in displayErrorLog" :key="index" class="pipeline-error-line">
       [{{ entry.step }}] {{ entry.message }}
     </div>
-    <ActionGate v-if="!running" label="重试全流程" :reason="retryDisabledReason">
-      <el-button type="primary" :disabled="Boolean(retryDisabledReason) || starting" :title="retryDisabledReason || (starting ? '正在启动全流程，请稍候' : undefined)" :aria-label="retryDisabledReason || (starting ? '正在启动全流程，请稍候' : '重试全流程')" @click="$emit('start-one-click')">
-        重试全流程
+    <ActionGate v-if="!running" :label="retryLabel" :reason="retryDisabledReason">
+      <el-button type="primary" :disabled="Boolean(retryDisabledReason) || starting" :title="retryDisabledReason || (starting ? '正在启动全流程，请稍候' : undefined)" :aria-label="retryDisabledReason || (starting ? '正在启动全流程，请稍候' : retryLabel)" @click="$emit(retryEvent)">
+        {{ retryLabel }}
       </el-button>
     </ActionGate>
   </div>
@@ -66,13 +66,18 @@ const props = defineProps({
   running: { type: Boolean, default: false },
   starting: { type: Boolean, default: false },
   retryDisabledReason: { type: String, default: '' },
+  lastPipelineMode: { type: String, default: '' },
+  retryLabel: { type: String, default: '重试全流程' },
+  retryEvent: { type: String, default: 'start-one-click' },
 })
 
 const emit = defineEmits([
   'skip-countdown',
   'pause',
   'start-one-click',
+  'start-text-framework',
 ])
+
 
 const skipCountdownAriaLabel = computed(() => (
   props.skipCountdownDisabledReason

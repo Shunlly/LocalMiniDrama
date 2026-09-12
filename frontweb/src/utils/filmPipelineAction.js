@@ -25,8 +25,16 @@ export function getPipelineCompactAction(state = {}) {
   }
 
   if (state.readinessState !== 'ready' || state.productionReason) return null
-  if (state.hasError) return { key: 'retry-run', label: '重试全流程', event: 'start-one-click' }
+  if (state.hasError) return getPipelineRetryAction(state)
   return { key: 'start', label: '一键生成成片', event: 'start-one-click' }
+}
+
+/** 草稿预演失败后重试仍走草稿，不要误开正式成片。 */
+export function getPipelineRetryAction(state = {}) {
+  if (state.lastPipelineMode === 'draft') {
+    return { key: 'retry-draft', label: '重试草稿预演', event: 'start-text-framework' }
+  }
+  return { key: 'retry-run', label: '重试全流程', event: 'start-one-click' }
 }
 
 export function getPipelineCompactSecondaryAction(state = {}) {

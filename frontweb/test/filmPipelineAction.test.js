@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { getPipelineCompactAction, getPipelineCompactSecondaryAction, getPipelineControlReasons } from '../src/utils/filmPipelineAction.js'
+import { getPipelineCompactAction, getPipelineCompactSecondaryAction, getPipelineControlReasons, getPipelineRetryAction } from '../src/utils/filmPipelineAction.js'
 
 test('pipeline compact command follows readiness and execution state', () => {
   assert.deepEqual(
@@ -58,6 +58,21 @@ test('失败后的紧凑操作变成重试全流程', () => {
     { key: 'retry-run', label: '重试全流程', event: 'start-one-click' },
   )
   assert.equal(getPipelineCompactAction({ readinessState: 'ready' }).label, '一键生成成片')
+})
+
+test('草稿预演失败后重试仍走草稿，不开正式成片', () => {
+  assert.deepEqual(
+    getPipelineRetryAction({ lastPipelineMode: 'draft' }),
+    { key: 'retry-draft', label: '重试草稿预演', event: 'start-text-framework' },
+  )
+  assert.deepEqual(
+    getPipelineCompactAction({ readinessState: 'ready', hasError: true, lastPipelineMode: 'draft' }),
+    { key: 'retry-draft', label: '重试草稿预演', event: 'start-text-framework' },
+  )
+  assert.deepEqual(
+    getPipelineRetryAction({ lastPipelineMode: 'production' }),
+    { key: 'retry-run', label: '重试全流程', event: 'start-one-click' },
+  )
 })
 
 test('暂停和停止按钮在停止中给出可见的禁用原因', () => {

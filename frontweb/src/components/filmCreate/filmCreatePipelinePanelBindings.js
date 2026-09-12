@@ -1,5 +1,5 @@
 import { computed } from 'vue'
-import { getPipelineCompactAction, getPipelineCompactSecondaryAction, getPipelineControlReasons, isPipelineLocallyStopped } from '@/utils/filmPipelineAction'
+import { getPipelineCompactAction, getPipelineCompactSecondaryAction, getPipelineControlReasons, getPipelineRetryAction, isPipelineLocallyStopped } from '@/utils/filmPipelineAction'
 import { toPipelineDisabledReason, describePipelineErrorLog, describePipelinePanelUx, resolvePipelineProductionReason } from '@/components/filmCreate/filmCreatePipelinePanelUx'
 
 /** 把全流程面板的展示状态收成可绑定属性，不改空剧本禁用语义。 */
@@ -100,7 +100,7 @@ export function createFilmCreatePipelinePanelBindings(props) {
     if (props.stopRequired) return '重试停止剩余远端任务'
     if (props.running) return props.paused ? '继续当前生成流程' : '等待当前阶段完成'
     if (locallyStopped.value) return '可重新开始完整成片'
-    if (hasPipelineError.value) return '查看错误后重试全流程'
+    if (hasPipelineError.value) return '查看错误后' + getPipelineRetryAction({ lastPipelineMode: props.lastPipelineMode }).label
     if (props.hasEpisode === false) return '添加一集后再保存剧本或启动生成'
     if (draftReason.value) return draftReason.value
     if (props.productionReadinessState === 'checking') return '等待检查完成'
@@ -127,6 +127,7 @@ export function createFilmCreatePipelinePanelBindings(props) {
     draftReason: draftReason.value,
     productionReason: productionReason.value,
     hasError: hasPipelineError.value,
+    lastPipelineMode: props.lastPipelineMode,
   }))
   const compactSecondaryAction = computed(() => getPipelineCompactSecondaryAction({
     readinessState: props.productionReadinessState,
@@ -191,6 +192,9 @@ export function createFilmCreatePipelinePanelBindings(props) {
     running: props.running,
     starting: props.starting,
     retryDisabledReason: retryDisabledReason.value,
+    lastPipelineMode: props.lastPipelineMode || '',
+    retryLabel: getPipelineRetryAction({ lastPipelineMode: props.lastPipelineMode }).label,
+    retryEvent: getPipelineRetryAction({ lastPipelineMode: props.lastPipelineMode }).event,
   }))
   return {
     activeTaskLabels,
