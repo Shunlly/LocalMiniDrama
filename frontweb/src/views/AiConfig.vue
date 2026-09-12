@@ -65,7 +65,7 @@ async function goBack() {
   if (!await requestAiConfigPageClose()) return
   skipNextRouteGuard = true
   try {
-    await router.replace(returnTo.value || { name: 'list' })
+    await router.replace(returnTo.value || '/')
   } finally {
     skipNextRouteGuard = false
   }
