@@ -113,6 +113,9 @@ test('说明文案使用系统提示词，不再出现 System Prompt', () => {
   assert.match(parentSource, /promptsAPI\.list\(\)/)
   assert.match(parentSource, /promptsAPI\.update\(p\.key, content\.trim\(\)\)/)
   assert.match(parentSource, /promptsAPI\.reset\(p\.key\)/)
+  assert.match(parentSource, /isUserFacingAbort/)
+  assert.match(parentSource, /保存提示词失败，请稍后重试/)
+  assert.match(parentSource, /恢复默认失败，请稍后重试/)
 })
 
 test('加载失败不伪装成空列表，成功且无数据才显示空态', () => {

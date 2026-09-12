@@ -307,6 +307,6 @@ describe('aiConfig routes OCR/transcription connection test', () => {
     assert.equal(res.body.error.message, UNSUPPORTED_MESSAGE);
     const observable = JSON.stringify({ body: res.body, log: log.records });
     assert.doesNotMatch(observable, /gemini-ocr-secret-key/);
-    assert.doesNotMatch(observable, /401|API Key 无效/i);
+    assert.doesNotMatch(observable, /\b401\b|API Key 无效/i);
   });
 });

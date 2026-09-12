@@ -63,6 +63,7 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import { ElMessage, ElMessageBox } from '@/utils/elementPlusFeedback.js'
+import { isUserFacingAbort, toUserFacingError } from '@/utils/userFacingError.js'
 import { promptsAPI } from '@/api/prompts'
 import PromptEditorSidebar from './promptEditor/PromptEditorSidebar.vue'
 import PromptEditorPane from './promptEditor/PromptEditorPane.vue'
@@ -163,18 +164,27 @@ async function save(p) {
     p.is_customized = true
     isDirty.value[p.key] = false
     ElMessage.success('已保存')
-  } catch (_) {
+  } catch (error) {
+    if (isUserFacingAbort(error)) return
+    ElMessage.error(toUserFacingError(error, '保存提示词失败，请稍后重试'))
   } finally {
     savingKey.value = null
   }
 }
 
 async function reset(p) {
-  await ElMessageBox.confirm(`确定将「${p.label}」恢复为系统默认提示词？`, '恢复默认', {
-    type: 'warning',
-    confirmButtonText: '恢复默认',
-    cancelButtonText: '取消',
-  })
+  try {
+    await ElMessageBox.confirm(`确定将「${p.label}」恢复为系统默认提示词？`, '恢复默认', {
+      type: 'warning',
+      confirmButtonText: '恢复默认',
+      cancelButtonText: '取消',
+      distinguishCancelAndClose: true,
+    })
+  } catch (error) {
+    if (isUserFacingAbort(error) || error === 'close') return
+    ElMessage.error(toUserFacingError(error, '恢复默认失败，请稍后重试'))
+    return
+  }
   resettingKey.value = p.key
   try {
     await promptsAPI.reset(p.key)
@@ -183,7 +193,9 @@ async function reset(p) {
     editState.value[p.key] = p.default_body
     isDirty.value[p.key] = false
     ElMessage.success('已恢复默认')
-  } catch (_) {
+  } catch (error) {
+    if (isUserFacingAbort(error)) return
+    ElMessage.error(toUserFacingError(error, '恢复默认失败，请稍后重试'))
   } finally {
     resettingKey.value = null
   }

@@ -583,7 +583,7 @@ test('说明文案走认证资产库，不抽 AI 配置 loadList / openTest', as
     assert.match(visible, /私有资产库/)
     assert.match(visible, /保存到 AI 配置/)
     assert.match(visible, /创作页「认证资产」将优先使用/)
-    assert.match(visible, /创建资产组（CreateAssetGroup）/)
+    assert.match(visible, /创建资产组/)
     assert.doesNotMatch(visible, /SD2\s*认证/)
     const links = findAll(harness.root, (node) => node.type === 'a')
     assert.ok(links.some((node) => String(node.props?.href || '').includes('2318270')))

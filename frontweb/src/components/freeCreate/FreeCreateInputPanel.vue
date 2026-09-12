@@ -145,7 +145,7 @@
         <div class="form-section form-row">
           <div class="form-item">
             <div class="form-label">风格</div>
-            <el-input v-model="style" aria-label="风格" placeholder="例如：电影感 cinematic、日式动漫 anime…" />
+            <el-input v-model="style" aria-label="风格" placeholder="例如：电影感、日式动漫…" />
           </div>
           <div class="form-item">
             <div class="form-label">{{ mode === 'video' ? '视频比例' : '画面比例' }}</div>
