@@ -44,7 +44,10 @@ test('详情页编辑弹窗取消和保存有中文名称', () => {
 
 test('画布分镜操作条和右键菜单使用中文动作名', () => {
   assert.match(canvasActions, /'保存分镜'/)
-  assert.match(canvasActions, /'生成分镜图'/)
+  assert.match(canvasActions, /: '生图'/)
+  assert.match(canvasActions, />生图<\/el-button>/)
+  assert.match(canvasActions, /: '生视频'/)
+  assert.match(canvasActions, />生视频<\/el-button>/)
   assert.match(canvasActions, /aria-label="删除分镜"/)
   assert.match(contextMenu, /aria-label="添加分镜节点"/)
   assert.match(contextMenu, /aria-label="添加自由图片节点"/)

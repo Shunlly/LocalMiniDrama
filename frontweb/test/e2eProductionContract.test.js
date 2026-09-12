@@ -64,6 +64,8 @@ const ciWorkflow = readFileSync(new URL('../../.github/workflows/ci.yml', import
 const releaseWorkflow = readFileSync(new URL('../../.github/workflows/release.yml', import.meta.url), 'utf8')
 const gitignoreSource = readFileSync(new URL('../../.gitignore', import.meta.url), 'utf8')
 const pipelinePanelSource = readFileSync(new URL('../src/components/filmCreate/FilmCreatePipelinePanel.vue', import.meta.url), 'utf8')
+const deliveryStageSource = normalizeNewlines(readFileSync(new URL('../src/components/sourceIntake/SourceIntakeDeliveryStageCard.vue', import.meta.url), 'utf8'))
+const processStageSource = normalizeNewlines(readFileSync(new URL('../src/components/sourceIntake/SourceIntakeProcessStageCard.vue', import.meta.url), 'utf8'))
 
 function sourceFunction(name) {
   const value = productionE2e[name]
@@ -2768,6 +2770,11 @@ test('browser acceptance contract covers the full UI journey, recovery, download
   assert.match(productionSource, /message\.type\(\) === 'error'/)
   assert.match(productionSource, /rootScrollWidth <= result\.rootClientWidth \+ 1/)
   assert.match(productionSource, /deliveryExport:\s*'\\u4ea4\\u4ed8\\u4e0e\\u5bfc\\u51fa'/)
+  assert.match(productionSource, /continueImport:\s*'\\u7ee7\\u7eed\\u5bfc\\u5165\\u6545\\u4e8b\\u7d20\\u6750'/)
+  assert.match(deliveryStageSource, />\u7ee7\u7eed\u5bfc\u5165\u6545\u4e8b\u7d20\u6750<\/el-button>/)
+  assert.match(processStageSource, />\u53bb\u5bfc\u5165\u7d20\u6750<\/el-button>/)
+  assert.doesNotMatch(deliveryStageSource, />\u53bb\u5bfc\u5165\u7d20\u6750<\/el-button>/)
+  assert.doesNotMatch(processStageSource, /\u7ee7\u7eed\u5bfc\u5165\u6545\u4e8b\u7d20\u6750/)
   assert.match(productionSource, /filter\(\{ hasText: UI\.deliveryExport \}\)\.click\(\)/)
   assert.doesNotMatch(productionSource, /compositeVideo/)
   assert.match(productionSource, /await video\.play\(\)/)
@@ -2780,7 +2787,7 @@ test('browser acceptance contract covers the full UI journey, recovery, download
   assert.match(productionSource, /project_export:\s*\{\s*status: 'failed',\s*validated: false,/)
   assert.match(productionSource, /getByText\(`\$\{expectedTrackCount\} \\u8f68`/)
   assert.match(productionSource, /expectedTrackCount: timelineEvidence\.tracks/)
-  assert.match(productionSource, /getByRole\('button', \{ name: UI\.continueImport/)
+  assert.match(productionSource, /getByRole\('button', \{ name: UI\.continueImport, exact: true \}\)\.click\(\)/)
   assert.match(productionSource, /getByRole\('button', \{ name: UI\.enterProduction/)
   assert.match(productionSource, /getByTestId\('source-workflow-complete'\)/)
   assert.match(productionSource, /completion\.getByRole\('button', \{ name: UI\.enterProduction, exact: true \}\)/)

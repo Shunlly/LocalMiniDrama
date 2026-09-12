@@ -233,7 +233,7 @@ test('769px 展开侧栏和常规桌面窄屏时画布工具条/节点列表/参
   assert.match(windowedListSource, /\.canvas-windowed-list \{[\s\S]*?min-width: 0;[\s\S]*?max-width: 100%;/)
   assert.match(referenceBarSource, /\.reference-row \{[\s\S]*?max-width: 100%;[\s\S]*?flex-wrap: wrap;/)
   assert.match(referenceBarSource, /\.reference-list \{[\s\S]*?flex-wrap: wrap;[\s\S]*?min-width: 0;/)
-  assert.doesNotMatch(referenceBarSource, /\.reference-row \{[\s\S]*?overflow:\s*hidden/)
+  assert.doesNotMatch(referenceBarSource, /\.reference-row \{[^}]*overflow:\s*hidden/)
   assert.match(freeToolbarSource, /\.free-canvas-toolbar \{[\s\S]*?max-width: 100%;[\s\S]*?flex-wrap: wrap;/)
   assert.doesNotMatch(freeToolbarSource, /overflow-x:\s*auto/)
   assert.match(workspaceSource, /\.free-canvas-bottom-toolbar \{[\s\S]*?overflow-x: visible;/)
