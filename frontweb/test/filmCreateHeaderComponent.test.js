@@ -104,7 +104,7 @@ test('制作页头展示品牌、返回剧集和画布模式，无剧集时是�
   try {
     assert.match(textContent(harness.root), /本地短剧助手/)
     assert.match(textContent(harness.root), /演示短剧/)
-    const logo = buttonByAriaLabel(harness.root, '返回项目列表')
+    const logo = buttonByAriaLabel(harness.root, '本地短剧助手，返回项目列表')
     assert.ok(logo)
     assert.match(logo.props.class, /logo/)
     click(logo)

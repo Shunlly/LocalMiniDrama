@@ -1,7 +1,7 @@
 <template>
   <header class="header">
     <div class="header-inner">
-      <button type="button" class="logo" aria-label="返回项目列表" @click="emit('go-list')">
+      <button type="button" class="logo" aria-label="本地短剧助手，返回项目列表" @click="emit('go-list')">
         <span class="logo-main">本地短剧助手</span>
         <span class="logo-sub">LocalMiniDrama</span>
       </button>

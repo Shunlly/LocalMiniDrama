@@ -113,7 +113,7 @@ test('FilmCreate and DramaDetail use the shared focus-managed preview for every 
 test('custom canvas and asset controls expose native or complete keyboard semantics', () => {
   assert.match(dramaCanvasSource, /<button type="button" class="logo" aria-label="返回项目列表"/)
   assert.equal((dramaCanvasSource.match(/class="sidebar-item"/g) || []).length, 3)
-  assert.match(filmCreateSource, /<button type="button" class="logo" aria-label="返回项目列表"/)
+  assert.match(filmCreateSource, /<button type="button" class="logo" aria-label="本地短剧助手，返回项目列表"/)
   assert.equal((resourcePanelSource.match(/:role="hasAssetImage\(/g) || []).length, 3)
   assert.equal((resourcePanelSource.match(/@keydown\.enter\.prevent=/g) || []).length, 3)
   assert.equal((resourcePanelSource.match(/@keydown\.space\.prevent=/g) || []).length, 3)

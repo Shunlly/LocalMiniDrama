@@ -943,7 +943,7 @@ test('FilmCreate 把模板头交给独立组件并保留当前集与主题入口
   assert.doesNotMatch(filmCreateSource, /function onSelectEpisode\(/)
   assert.match(filmCreateSource, /useFilmCreateWorkspaceNav\(/)
   assert.match(filmCreateSource, /onSelectEpisode,/)
-  assert.match(header, /aria-label="返回项目列表"/)
+  assert.match(header, /aria-label="本地短剧助手，返回项目列表"/)
   assert.match(header, /ref="episodeSelectRef"/)
   assert.match(header, /class="header-episode-select"/)
   assert.match(header, /defineExpose\(\{\s*focusEpisodeSelect\s*\}\)/)
