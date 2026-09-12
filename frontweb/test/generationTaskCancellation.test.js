@@ -387,3 +387,13 @@ test('取消中任务随后 completed 也不得标成成功', async () => {
     assert.equal(readTask(genStore, meta)?.status, 'cancelled')
   })
 })
+
+test('超时或失败后 markDone 不得覆盖成成功', () => {
+  const genStore = createGenStore()
+  const failedMeta = sampleMeta('task-keep-failed')
+  genStore.markRunning(failedMeta)
+  genStore.markFailed(failedMeta, '角色生成超时，请稍后重试')
+  assert.equal(readTask(genStore, failedMeta).status, 'failed')
+  genStore.markDone(failedMeta)
+  assert.equal(readTask(genStore, failedMeta).status, 'failed')
+})
