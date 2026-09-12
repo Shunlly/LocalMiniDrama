@@ -97,10 +97,12 @@ defineProps({
   letter-spacing: 0;
 }
 .coverage-header p {
+  min-width: 0;
   margin: 4px 0 0;
   color: var(--el-text-color-regular, #606266);
   font-size: 13px;
   line-height: 1.5;
+  overflow-wrap: anywhere;
 }
 .coverage-test-note {
   min-width: 0;

@@ -71,7 +71,7 @@
             aria-label="取消生成"
             @click="cancelGeneration"
           >
-            <el-icon v-if="!cancelling"><CircleClose /></el-icon>
+            <el-icon v-if="!cancelling" aria-hidden="true"><CircleClose /></el-icon>
             <span>取消生成</span>
           </el-button>
         </div>

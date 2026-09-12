@@ -127,6 +127,20 @@ describe('imageGateway/videoGateway 共用 requestError', () => {
     assert.equal(error.providerCode, 'AUTH_DENIED');
     assert.equal(shouldRetryRequest(error), false);
   });
+
+  it('HTTP 404 Invalid Authorization 不重试，用户文案是认证失败', () => {
+    const error = classifyHttpFailure({
+      provider: 'Kling',
+      operation: 'image request',
+      status: 404,
+      code: 'AUTH_DENIED',
+      responseBody: 'Invalid Authorization',
+    });
+    assert.match(error.message, /认证失败/);
+    assert.doesNotMatch(error.message, /HTTP\s*404|Invalid Authorization|AUTH_DENIED|Not Found/i);
+    assert.equal(error.status, 404);
+    assert.equal(shouldRetryRequest(error), false);
+  });
 });
 
 describe('Gateway 取消不记失败、超时可重试，且 dramaId 与 jobId 不相等', () => {

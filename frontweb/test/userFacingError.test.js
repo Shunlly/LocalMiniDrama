@@ -258,6 +258,19 @@ test('中英混杂的 fallback 和日志原文不会漏到用户', () => {
     '生成失败',
   )
   assert.equal(
+    toUserFacingError({ message: '列出资产组 ListAssetGroups 失败' }, '操作失败，请稍后重试'),
+    '操作失败，请稍后重试',
+  )
+  assert.doesNotMatch(
+    toUserFacingError({ message: '认证失败：Invalid Authorization' }, '操作失败，请稍后重试'),
+    /Invalid Authorization/,
+  )
+  assert.doesNotMatch(
+    toUserFacingError({ message: '认证失败 403' }, '操作失败，请稍后重试'),
+    /\b403\b/,
+  )
+
+  assert.equal(
     toUserFacingError({ message: '烧录字幕或混音失败（请确认已安装 ffmpeg 且支持 libx264）' }, '处理失败'),
     '烧录字幕或混音失败（请确认已安装 ffmpeg 且支持 libx264）',
   )

@@ -62,6 +62,8 @@ describe('TTS 用户可见错误为简体中文', () => {
     assert.match(ttsHttpFailureMessage(401), /TTS 认证失败/);
     assert.match(ttsHttpFailureMessage(403), /TTS 认证失败/);
     assert.match(ttsHttpFailureMessage(404), /TTS 接口不存在/);
+    assert.match(toUserFacingTtsMessage(Object.assign(new Error('HTTP 404 Invalid Authorization'), { status: 404 })), /TTS 认证失败/);
+    assert.doesNotMatch(toUserFacingTtsMessage(Object.assign(new Error('HTTP 404 Invalid Authorization'), { status: 404 })), /HTTP\s*404|Invalid Authorization/i);
     assert.match(ttsHttpFailureMessage(429), /繁忙/);
     assert.match(ttsHttpFailureMessage(500), /配音生成失败/);
     for (const status of [400, 401, 403, 404, 408, 429, 500, 502]) {

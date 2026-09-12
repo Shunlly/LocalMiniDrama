@@ -37,6 +37,7 @@ function mountEmpty(initial = {}) {
     networkItems: initial.networkItems ?? [],
     searchNetworkMedia: () => events.push(['search']),
     clearNetworkSearch: () => events.push(['clear']),
+    focusNetworkSearch: initial.focusNetworkSearch === false ? null : () => events.push(['focus']),
   }))
   return { ...mounted, events }
 }
@@ -54,6 +55,11 @@ test('未搜索空态说明会附带来源和许可信息', async () => {
     assert.equal(empty.props.role, 'status')
     assert.equal(empty.props['aria-live'], 'polite')
     assert.equal(buttonByAriaLabel(harness.root, '重新搜索'), undefined)
+    const focus = buttonByAriaLabel(harness.root, '去输入网络素材关键词')
+    assert.ok(focus, '未搜索空态应给出去输入关键词下一步')
+    assert.equal(focus.props['data-variant'], 'default')
+    click(focus)
+    assert.deepEqual(harness.events, [['focus']])
   } finally {
     harness.app.unmount()
   }

@@ -26,7 +26,7 @@
     <div class="network-empty-actions">
       <el-button
         v-if="focusNetworkSearch"
-        type="primary"
+        type="default"
         aria-label="去输入网络素材关键词"
         @click="focusNetworkSearch"
       >去输入网络素材关键词</el-button>

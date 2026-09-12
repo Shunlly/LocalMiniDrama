@@ -398,6 +398,52 @@ describe('剩余服务对用户返回中文错误', () => {
     }
   });
 
+  it('HTTP 404 加 Invalid Authorization 走认证失败，不把英文状态或错误码交给用户', () => {
+    const {
+      buildProviderErrorMessage,
+      createProviderHttpError,
+      sanitizeProviderException,
+      toSafeProviderErrorMessage,
+    } = require('../src/services/providerErrorSanitizer');
+    const leak = /HTTP\s*404|Invalid Authorization|Not Found|AUTH_DENIED/i;
+    const message = buildProviderErrorMessage({
+      provider: 'ModelArk',
+      operation: 'CreateAsset',
+      status: 404,
+      responseBody: { Message: 'Invalid Authorization', code: 'AUTH_DENIED' },
+    });
+    assertUserFacingChinese(message);
+    assert.match(message, /认证失败/);
+    assert.doesNotMatch(message, leak);
+    assert.doesNotMatch(message, /CreateAsset|未找到接口/);
+
+    const error = createProviderHttpError({
+      provider: 'ModelArk',
+      operation: 'ListAssets',
+      status: 404,
+      responseBody: 'HTTP 404 Invalid Authorization',
+    });
+    assertUserFacingChinese(error.message);
+    assert.match(error.message, /认证失败/);
+    assert.doesNotMatch(error.message, leak);
+    assert.equal(error.status, 404);
+
+    const classified = sanitizeProviderException(
+      Object.assign(new Error('Invalid Authorization'), { status: 404, code: 'AUTH_DENIED' }),
+      { provider: 'ModelArk', operation: 'GetAsset' },
+    );
+    assertUserFacingChinese(classified.message);
+    assert.match(classified.message, /认证失败/);
+    assert.doesNotMatch(classified.message, leak);
+
+    const timeout = toSafeProviderErrorMessage(
+      Object.assign(new Error('The operation was aborted.'), { name: 'AbortError' }),
+      { provider: 'ModelArk', operation: 'CreateAsset' },
+    );
+    assert.match(timeout, /取消/);
+    assert.doesNotMatch(timeout, /超时|成功|timeout|aborted/i);
+  });
+
   it('批量换密钥缺密钥返回中文，不含 API Key 字段名', () => {
     const res = mockRes();
     aiConfigRoutes({}, { error() {} }, { vendor_lock: { enabled: true } }).bulkUpdateKey({ body: { api_key: '  ' } }, res);

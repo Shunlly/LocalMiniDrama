@@ -814,6 +814,8 @@ test('AI 配置工作台在 1024px 桌面重排覆盖矩阵，连接测试关闭
   assert.match(workspaceSwitchSource, /aria-label="配置管理"/)
   assert.match(workspaceSwitchSource, />\s*配置管理\s*<\/button>/)
   assert.match(listToolbarSource, /@media \(max-width: 1024px\) \{[\s\S]*?\.content-actions,[\s\S]*?flex-wrap: wrap;/)
+  assert.match(listTableSource, /class="config-row-actions"/)
+  assert.match(listTableSource, /\.config-row-actions :deep\(\.el-button \+ \.el-button\) \{[\s\S]*?margin-left: 0;/)
   assert.match(vueSource, /@media \(max-width: 1024px\) \{[\s\S]*?\.ai-config-content,[\s\S]*?max-width: 100%;[\s\S]*?min-width: 0;/)
   assert.match(coverageCardSource, /\.coverage-actions :deep\(\.el-button \+ \.el-button\) \{[\s\S]*?margin-left: 0;/)
   assert.equal(

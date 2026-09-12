@@ -77,7 +77,7 @@ const PROVIDER_LABELS = Object.freeze({
 // 产品允许品牌名保留英文；连续两个未允许拉丁词视为不可信。
 const ALLOWED_LATIN_TOKEN_RE = /^(?:ffmpeg|libx264|tesseract|comfyui|openai|ollama|minimax|seedance|kling|gemini|sora|dashscope|volcengine|vidu|agnes|jimeng|wikimedia|commons|openverse|http|https|json|pdf|txt|zip|api|tts|ocr|url|jwt|bearer|sqlite|modelark)$/i;
 const MIXED_TECHNICAL_ENGLISH_RE = /invalid api key|incorrect api key|invalid\s*authorization|invalidauthorization|invalid\s+token|this model does not support|image generation did not complete|video generation did not complete|model is overloaded|retry later|request failed with status code/i;
-const AUTH_FAILURE_RE = /invalid\s*authorization|invalidauthorization|unauthorized|invalid\s+(?:api\s+)?key|invalid\s+token|authentication(?:\s+\w+){0,3}\s+(?:rejected|failed)|authorization\s+is\s+not\s+active|\b(?:AUTH_DENIED|ACCESS_DENIED|INVALID_AUTH)\b/i;
+const AUTH_FAILURE_RE = /invalid\s*authorization|invalidauthorization|\bunauthorized\b|invalid\s+(?:api\s+)?key|invalid\s+token|authentication(?:\s+\w+){0,3}\s+(?:rejected|failed)|authorization\s+is\s+not\s+active|\b(?:AUTH_DENIED|ACCESS_DENIED|INVALID_AUTH)\b/i;
 const SCREAMING_ERROR_CODE_RE = /\b[A-Z]{3,}(?:_[A-Z0-9]+){1,}\b/;
 const GENERIC_PROVIDER_ALIAS_RE = /\b(?:image|video)(?:\s+provider)?\b/i;
 

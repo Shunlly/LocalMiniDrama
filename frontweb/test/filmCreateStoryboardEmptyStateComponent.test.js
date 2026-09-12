@@ -9,6 +9,7 @@ import {
   click,
   compileSfc,
   createHostRenderer,
+  findByClass,
   findByType,
   loadCompiledSfc,
   mountHarness,
@@ -120,7 +121,7 @@ test('没有剧集时只提供去创建剧集，不展示生成分镜', async ()
     assert.equal(buttonByText(harness.root, '生成分镜'), undefined)
     assert.equal(buttonByText(harness.root, '添加一个分镜'), undefined)
     const create = requireButton(harness.root, '去创建剧集')
-    assert.equal(create.props['aria-label'], '去创建剧集后再生成分镜')
+    assert.equal(create.props['aria-label'], '去创建剧集')
     click(create)
     assert.deepEqual(harness.events, [['add-episode']])
   } finally {

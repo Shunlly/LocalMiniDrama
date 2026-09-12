@@ -160,7 +160,7 @@ test('项目加载失败可重试，不把剧集 id 当成项目标题', () => {
 
 test('依赖警告提供重试和查看分镜，不另造按钮文案', () => {
   assert.match(warningSource, /重试加载素材/)
-  assert.match(warningSource, /aria-label="重试加载素材"/)
+  assert.match(warningSource, /describeActionAriaLabel\('重试加载素材'/)
   assert.match(warningSource, /href="#anchor-storyboard-images"/)
   assert.match(warningSource, /查看分镜/)
   assert.match(warningSource, /event\?\.currentTarget\?\.focus/)

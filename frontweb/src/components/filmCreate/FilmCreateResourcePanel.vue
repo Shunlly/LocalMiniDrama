@@ -51,8 +51,8 @@
                   <p class="resource-empty-copy">暂无角色，可用「剧本自动提取角色」或「添加角色」</p>
                   <div class="resource-empty-actions">
                     <template v-if="needsEpisode">
-                      <el-button v-if="!hasAnyEpisode" type="primary" size="small" aria-label="去创建剧集后再提取角色" @click="goCreateEpisode">去创建剧集</el-button>
-                      <el-button v-else type="primary" size="small" aria-label="去选择剧集后再提取角色" @click="goSelectEpisode">去选择剧集</el-button>
+                      <el-button v-if="!hasAnyEpisode" type="primary" size="small" aria-label="去创建剧集" @click="goCreateEpisode">去创建剧集</el-button>
+                      <el-button v-else type="primary" size="small" aria-label="去选择剧集" @click="goSelectEpisode">去选择剧集</el-button>
                     </template>
                     <template v-else>
                       <ActionGate :reason="characterGenerationDisabledReason" label="剧本自动提取角色">
@@ -95,8 +95,8 @@
                   <p class="resource-empty-copy">暂无道具，可用「从剧本提取道具」或「添加道具」</p>
                   <div class="resource-empty-actions">
                     <template v-if="needsEpisode">
-                      <el-button v-if="!hasAnyEpisode" type="primary" size="small" aria-label="去创建剧集后再提取道具" @click="goCreateEpisode">去创建剧集</el-button>
-                      <el-button v-else type="primary" size="small" aria-label="去选择剧集后再提取道具" @click="goSelectEpisode">去选择剧集</el-button>
+                      <el-button v-if="!hasAnyEpisode" type="primary" size="small" aria-label="去创建剧集" @click="goCreateEpisode">去创建剧集</el-button>
+                      <el-button v-else type="primary" size="small" aria-label="去选择剧集" @click="goSelectEpisode">去选择剧集</el-button>
                     </template>
                     <template v-else>
                       <ActionGate :reason="propsExtractionDisabledReason" label="从剧本提取道具">
@@ -139,8 +139,8 @@
                   <p class="resource-empty-copy">暂无场景，可用「从剧本提取场景」或「添加场景」</p>
                   <div class="resource-empty-actions">
                     <template v-if="needsEpisode">
-                      <el-button v-if="!hasAnyEpisode" type="primary" size="small" aria-label="去创建剧集后再提取场景" @click="goCreateEpisode">去创建剧集</el-button>
-                      <el-button v-else type="primary" size="small" aria-label="去选择剧集后再提取场景" @click="goSelectEpisode">去选择剧集</el-button>
+                      <el-button v-if="!hasAnyEpisode" type="primary" size="small" aria-label="去创建剧集" @click="goCreateEpisode">去创建剧集</el-button>
+                      <el-button v-else type="primary" size="small" aria-label="去选择剧集" @click="goSelectEpisode">去选择剧集</el-button>
                     </template>
                     <template v-else>
                       <ActionGate :reason="scenesExtractionDisabledReason" label="从剧本提取场景">

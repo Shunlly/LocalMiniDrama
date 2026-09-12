@@ -298,7 +298,7 @@ test('delete shortcut ignores inspector and other editable chrome', () => {
 
 test('free-mode controls sit above the bottom toolbar and hide the minimap on small inspector layouts', () => {
   assert.match(dramaCanvasSource, /\.drama-canvas-page\.free-mode :deep\(\.vue-flow__controls\)[\s\S]*bottom: 76px/)
-  assert.match(dramaCanvasSource, /max-width: min\(720px, calc\(100% - 160px\)\)/)
+  assert.match(dramaCanvasSource, /max-width: min\(720px, calc\(100% - 24px\)\)/)
   assert.match(dramaCanvasSource, /\.drama-canvas-page\.free-inspector-open :deep\(\.vue-flow__minimap\)[\s\S]*display: none/)
 })
 

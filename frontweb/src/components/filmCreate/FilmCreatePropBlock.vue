@@ -2,10 +2,10 @@
 
               <div class="asset-actions">
                 <ActionGate :reason="propsExtractionDisabledReason" label="从剧本提取道具">
-                  <el-button type="primary" size="small" :loading="propsExtracting" :disabled="Boolean(propsExtractionDisabledReason)" :title="propsExtracting ? '正在提取道具，请稍候' : (propsExtractionDisabledReason || undefined)" :aria-label="propsExtracting ? '正在提取道具，请稍候' : (propsExtractionDisabledReason || '从剧本提取道具')" @click="emit('extract-props')">从剧本提取道具</el-button>
+                  <el-button :type="propItems.length ? 'primary' : undefined" size="small" :loading="propsExtracting" :disabled="Boolean(propsExtractionDisabledReason)" :title="propsExtracting ? '正在提取道具，请稍候' : (propsExtractionDisabledReason || undefined)" :aria-label="extractPropsAriaLabel" @click="emit('extract-props')">从剧本提取道具</el-button>
                 </ActionGate>
                 <ActionGate :reason="projectActionDisabledReason" label="添加道具">
-                  <el-button size="small" :disabled="Boolean(projectActionDisabledReason)" :title="projectActionDisabledReason || undefined" :aria-label="projectActionDisabledReason || '添加道具'" @click="emit('add-prop')">添加道具</el-button>
+                  <el-button size="small" :disabled="Boolean(projectActionDisabledReason)" :title="projectActionDisabledReason || undefined" :aria-label="addPropAriaLabel" @click="emit('add-prop')">添加道具</el-button>
                 </ActionGate>
                 <el-button size="small" aria-label="打开本剧道具库" @click="emit('open-prop-library')">本剧道具库</el-button>
               </div>
@@ -78,7 +78,7 @@
                       @drop="resourceDrop($event, 'prop', prop.id)"
                     >
                       <img v-if="hasAssetImage(prop)" :src="assetImageUrl(prop)" class="cover-img" alt="" />
-                      <div v-else-if="prop.error_msg || prop.errorMsg" class="cover-placeholder error" :title="assetErrorText(prop)">{{ assetErrorText(prop) }}</div>
+                      <div v-else-if="prop.error_msg || prop.errorMsg" class="cover-placeholder error" :title="displayAssetError(prop)">{{ displayAssetError(prop) }}</div>
                       <div v-else class="cover-placeholder">暂无图</div>
                       <div v-if="dragOverResourceKey === 'prop-' + prop.id" class="asset-cover-drop-hint">松开上传</div>
                     </div>
@@ -113,14 +113,16 @@
 </template>
 
 <script setup>
+import { computed } from 'vue'
 import { Delete, MagicStick, Upload, ZoomIn } from '@element-plus/icons-vue'
 import ActionGate from '@/components/filmCreate/ActionGate.vue'
+import { describeActionAriaLabel, toFilmCreateUserFacingText } from './filmCreateActionCopy.js'
 
 defineOptions({ inheritAttrs: false })
 
 const propUseQuadGrid = defineModel('propUseQuadGrid', { type: Boolean, default: false })
 
-defineProps({
+const props = defineProps({
   propItems: { type: Array, default: () => [] },
   propsExtractionDisabledReason: { type: String, default: '' },
   propsExtracting: { type: Boolean, default: false },
@@ -145,6 +147,19 @@ defineProps({
   regenSbImagesProgress: { type: Object, default: () => ({}) },
   dragOverResourceKey: { type: [String, null], default: null },
 })
+
+const extractPropsAriaLabel = computed(() => describeActionAriaLabel('从剧本提取道具', {
+  loading: props.propsExtracting,
+  loadingLabel: '正在从剧本提取道具',
+  disabledReason: props.propsExtractionDisabledReason,
+}))
+const addPropAriaLabel = computed(() => describeActionAriaLabel('添加道具', {
+  disabledReason: props.projectActionDisabledReason,
+}))
+
+function displayAssetError(asset) {
+  return toFilmCreateUserFacingText(props.assetErrorText(asset), '生成失败')
+}
 
 defineEmits([
   'extract-props', 'add-prop', 'open-prop-library',

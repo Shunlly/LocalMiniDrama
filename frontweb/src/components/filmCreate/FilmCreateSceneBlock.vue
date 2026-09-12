@@ -2,12 +2,12 @@
 
               <div class="asset-actions">
                 <ActionGate :reason="scenesExtractionDisabledReason" label="从剧本提取场景">
-                  <el-button type="primary" size="small" :loading="scenesExtracting" :disabled="Boolean(scenesExtractionDisabledReason)" :title="scenesExtracting ? '正在提取场景，请稍候' : (scenesExtractionDisabledReason || undefined)" :aria-label="scenesExtracting ? '正在提取场景，请稍候' : (scenesExtractionDisabledReason || '从剧本提取场景')" @click="emit('extract-scenes')">
+                  <el-button :type="scenes.length ? 'primary' : undefined" size="small" :loading="scenesExtracting" :disabled="Boolean(scenesExtractionDisabledReason)" :title="scenesExtracting ? '正在提取场景，请稍候' : (scenesExtractionDisabledReason || undefined)" :aria-label="extractScenesAriaLabel" @click="emit('extract-scenes')">
                     从剧本提取场景
                   </el-button>
                 </ActionGate>
                 <ActionGate :reason="projectActionDisabledReason" label="添加场景">
-                  <el-button size="small" :disabled="Boolean(projectActionDisabledReason)" :title="projectActionDisabledReason || undefined" :aria-label="projectActionDisabledReason || '添加场景'" @click="emit('add-scene')">添加场景</el-button>
+                  <el-button size="small" :disabled="Boolean(projectActionDisabledReason)" :title="projectActionDisabledReason || undefined" :aria-label="addSceneAriaLabel" @click="emit('add-scene')">添加场景</el-button>
                 </ActionGate>
                 <el-button size="small" aria-label="打开本剧场景库" @click="emit('open-scene-library')">本剧场景库</el-button>
               </div>
@@ -80,7 +80,7 @@
                       @drop="resourceDrop($event, 'scene', scene.id)"
                     >
                       <img v-if="hasAssetImage(scene)" :src="assetImageUrl(scene)" class="cover-img" alt="" />
-                      <div v-else-if="scene.error_msg || scene.errorMsg" class="cover-placeholder error" :title="assetErrorText(scene)">{{ assetErrorText(scene) }}</div>
+                      <div v-else-if="scene.error_msg || scene.errorMsg" class="cover-placeholder error" :title="displayAssetError(scene)">{{ displayAssetError(scene) }}</div>
                       <div v-else class="cover-placeholder">暂无图</div>
                       <div v-if="dragOverResourceKey === 'scene-' + scene.id" class="asset-cover-drop-hint">松开上传</div>
                     </div>
@@ -147,14 +147,16 @@
 </template>
 
 <script setup>
+import { computed } from 'vue'
 import { Delete, MagicStick, Upload, ZoomIn } from '@element-plus/icons-vue'
 import ActionGate from '@/components/filmCreate/ActionGate.vue'
+import { describeActionAriaLabel, toFilmCreateUserFacingText } from './filmCreateActionCopy.js'
 
 defineOptions({ inheritAttrs: false })
 
 const sceneUseQuadGrid = defineModel('sceneUseQuadGrid', { type: Boolean, default: false })
 
-defineProps({
+const props = defineProps({
   scenes: { type: Array, default: () => [] },
   scenesExtractionDisabledReason: { type: String, default: '' },
   scenesExtracting: { type: Boolean, default: false },
@@ -182,6 +184,19 @@ defineProps({
   regenSbImagesProgress: { type: Object, default: () => ({}) },
   dragOverResourceKey: { type: [String, null], default: null },
 })
+
+const extractScenesAriaLabel = computed(() => describeActionAriaLabel('从剧本提取场景', {
+  loading: props.scenesExtracting,
+  loadingLabel: '正在从剧本提取场景',
+  disabledReason: props.scenesExtractionDisabledReason,
+}))
+const addSceneAriaLabel = computed(() => describeActionAriaLabel('添加场景', {
+  disabledReason: props.projectActionDisabledReason,
+}))
+
+function displayAssetError(asset) {
+  return toFilmCreateUserFacingText(props.assetErrorText(asset), '生成失败')
+}
 
 defineEmits([
   'extract-scenes', 'add-scene', 'open-scene-library',

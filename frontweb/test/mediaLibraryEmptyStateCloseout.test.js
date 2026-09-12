@@ -117,6 +117,7 @@ const pickerEmpty = read('../src/components/globalMediaPicker/GlobalMediaPickerE
 const toolbar = read('../src/components/filmList/FilmListWorkspaceToolbar.vue')
 const libraryCss = read('../src/components/filmList/filmListLibraryDialogs.css')
 const sourceImport = read('../src/components/mediaLibrary/MediaLibrarySourceImportDialog.vue')
+const networkPanel = read('../src/components/mediaLibrary/MediaLibraryNetworkPanel.vue')
 
 test('素材中心空态只有上传素材是 primary，去搜网络素材必须是次要按钮', () => {
   assertEmptyStateContract('MediaLibraryEmptyState.vue', emptyState, {
@@ -142,8 +143,14 @@ test('网络素材空态没有 primary，读屏名包含可见文案', () => {
       /\.network-empty-actions :deep\(\.el-button\) \{[\s\S]*?white-space: normal;/,
     ],
   })
-  assert.match(networkEmpty, /aria-label="重新搜索"/)
-  assert.match(networkEmpty, /aria-label="清除搜索"/)
+  assert.match(networkEmpty, /type="default"[\s\S]{0,80}aria-label="去输入网络素材关键词"/)
+  assert.match(networkEmpty, /type="default"[\s\S]{0,80}aria-label="重新搜索"/)
+  assert.match(networkEmpty, /<el-button type="default" aria-label="清除搜索"/)
+  assert.doesNotMatch(networkEmpty, /type="primary"/)
+  assert.doesNotMatch(networkEmpty, /<el-button[^>]*type="primary"[^>]*aria-label="去搜网络素材"/)
+  assert.match(networkPanel, /:focus-network-search="focusNetworkSearch"/)
+  assert.match(networkPanel, /function focusNetworkSearch\(\)/)
+  assert.match(networkPanel, /ref="networkKeywordInputRef"/)
 })
 
 test('媒体库选择器空态读屏名包含前往素材中心，且只有一个 primary', () => {

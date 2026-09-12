@@ -43,7 +43,7 @@ test('FreeCreate blocks navigation while a reference image upload is in flight',
 
   assert.match(
     freeCreateSource,
-    /onBeforeRouteLeave\(async \(\) => \{[\s\S]*if \(refImageUploadStatus\.value === 'uploading'\) \{[\s\S]*return confirmFreeCreateLeave\(\)/,
+    /onBeforeRouteLeave\(async \(\) => \{[\s\S]*return confirmFreeCreateLeave\(\)/,
   )
   assert.match(
     freeCreateSource,

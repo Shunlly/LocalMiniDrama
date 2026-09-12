@@ -263,6 +263,10 @@ const leftoverEnglish = [
   'new Error(safeMessage)',
   'error_message: error.message ||',
   'GPT-4o、Gemini 1.5',
+  'Invalid Authorization',
+  'HTTP 错误:',
+  'HTTP ${response.status}',
+  'HTTP ${status}',
 ];
 
 function leftoverScanText(source, phrase) {
@@ -851,6 +855,100 @@ test('ModelArk 资产库 OpenAPI Action 失败使用中文操作名，不把 Act
     assert.doesNotMatch(classifiedHttp.message, actionNameRe);
     assert.equal(isTrustedChineseUserError(classifiedHttp.message), true);
   }
+});
+
+test('HTTP 404 与 Invalid Authorization 不得进入用户文案，取消也不得收成超时或成功', () => {
+  const {
+    isTrustedChineseUserError,
+    toUserFacingProcessError,
+    toUserFacingGatewayError,
+    sanitizeProviderException,
+    createProviderHttpError,
+    looksLikeAuthFailure,
+  } = require('../src/services/providerErrorSanitizer');
+  const { toUserFacingWorkflowError } = require('../src/services/workflowStatus');
+  const {
+    classifyHttpFailure,
+    shouldRetryRequest,
+    isRequestCanceled,
+  } = require('../src/services/imageGateway/requestError');
+  const leak = /HTTP\s*404|Invalid Authorization|Not Found|AUTH_DENIED|Unauthorized/i;
+
+  assert.equal(isTrustedChineseUserError('认证失败 Invalid Authorization'), false);
+  assert.equal(isTrustedChineseUserError('请求失败 HTTP 404'), false);
+  assert.equal(isTrustedChineseUserError('资产库失败 AUTH_DENIED'), false);
+  assert.equal(looksLikeAuthFailure('Invalid Authorization'), true);
+
+  const body = JSON.stringify({
+    ResponseMetadata: { Error: { Code: 'AUTH_DENIED', Message: 'Invalid Authorization' } },
+  });
+  const http404 = createProviderHttpError({
+    provider: 'ModelArk',
+    operation: 'CreateAsset',
+    status: 404,
+    responseBody: body,
+  });
+  assert.match(http404.message, /认证失败/);
+  assert.doesNotMatch(http404.message, leak);
+  assert.doesNotMatch(http404.message, /未找到接口/);
+  assert.equal(http404.status, 404);
+  assert.equal(isTrustedChineseUserError(http404.message), true);
+
+  const classified = sanitizeProviderException(
+    Object.assign(new Error('Invalid Authorization'), { status: 404 }),
+    { provider: 'ModelArk', operation: 'CreateAsset' },
+  );
+  assert.match(classified.message, /认证失败/);
+  assert.doesNotMatch(classified.message, leak);
+
+  const gateway = toUserFacingGatewayError(
+    Object.assign(new Error('HTTP 404 Invalid Authorization'), { status: 404 }),
+    { provider: '', operation: 'image request' },
+  );
+  assert.match(gateway, /图片服务/);
+  assert.match(gateway, /认证失败/);
+  assert.doesNotMatch(gateway, leak);
+  assert.doesNotMatch(gateway, /视频服务/);
+
+  const processMessage = toUserFacingProcessError(
+    new Error('资产库失败 HTTP 404 Invalid Authorization'),
+    '资产库请求失败，请稍后重试',
+  );
+  assert.equal(processMessage, '资产库请求失败，请稍后重试');
+  assert.doesNotMatch(processMessage, leak);
+
+  const workflow = toUserFacingWorkflowError(new Error('步骤失败 Invalid Authorization AUTH_DENIED'));
+  assert.match(workflow, /[\u4e00-\u9fff]/);
+  assert.doesNotMatch(workflow, leak);
+
+  const cancel = sanitizeProviderException(
+    Object.assign(new Error('The operation was aborted.'), { name: 'AbortError' }),
+    { provider: 'ModelArk', operation: 'CreateAsset' },
+  );
+  assert.match(cancel.message, /取消/);
+  assert.doesNotMatch(cancel.message, /超时|\u6210\u529f|timeout|aborted/i);
+  assert.equal(cancel.code, 'OPERATION_CANCELLED');
+  assert.equal(cancel.retryable, false);
+  assert.equal(isRequestCanceled(cancel), true);
+  assert.equal(shouldRetryRequest(cancel), false);
+
+  const classified404 = classifyHttpFailure({
+    provider: 'Kling',
+    operation: 'image request',
+    status: 404,
+    code: 'AUTH_DENIED',
+    responseBody: 'Invalid Authorization',
+  });
+  assert.match(classified404.message, /认证失败/);
+  assert.doesNotMatch(classified404.message, leak);
+  assert.equal(shouldRetryRequest(classified404), false);
+
+  const uploadSource = fs.readFileSync(path.join(__dirname, '../src/services/uploadService.js'), 'utf8');
+  assert.equal(uploadSource.includes('HTTP ${response.status}'), false);
+  assert.match(uploadSource, /远程媒体不存在/);
+  const proxySource = fs.readFileSync(path.join(__dirname, '../src/services/modelArkAssetProxyService.js'), 'utf8');
+  assert.equal(proxySource.includes('Invalid Authorization'), false);
+  assert.equal(proxySource.includes('HTTP 错误:'), false);
 });
 
 test('从图片提取描述时非法地址返回不含英文字段名的中文', async () => {

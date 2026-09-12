@@ -324,6 +324,11 @@ test('Image/Video 别名不会泄漏到超时文案，空名称按图片/视频�
   assert.equal(isSafeUserFacingMessage('Image 图片请求超时，请稍后重试'), false)
   assert.equal(isSafeUserFacingMessage('Video 视频请求超时，请稍后重试'), false)
   assert.equal(isSafeUserFacingMessage('图片服务 图片请求超时，请稍后重试'), true)
+  assert.equal(isSafeUserFacingMessage('列出资产组 ListAssetGroups 失败'), false)
+  assert.equal(isSafeUserFacingMessage('认证失败：Invalid Authorization'), false)
+  assert.equal(isSafeUserFacingMessage('认证失败 403'), false)
+  assert.equal(isSafeUserFacingMessage('若仍报 403 且文案里是 project/*'), false)
+
   const canceled = describeServiceLoadError(
     { code: 'ERR_CANCELED', name: 'CanceledError' },
     { serviceLabel: 'Video' },

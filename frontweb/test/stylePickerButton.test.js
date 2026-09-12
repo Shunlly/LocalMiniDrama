@@ -248,7 +248,7 @@ test('风格选择器搜索空态提供清除搜索下一步', () => {
   assert.match(componentSource, /class="spd-empty"/)
   assert.match(componentSource, /没有匹配的风格/)
   assert.match(componentSource, /aria-label="清除风格搜索"/)
-  assert.match(componentSource, />清除搜索</)
+  assert.match(componentSource, />清除风格搜索</)
   assert.match(componentSource, /@click="search = ''"/)
   assert.match(componentSource, /placeholder="搜索风格名称\.\.\."/)
   assert.match(componentSource, /\sclearable\s/)
@@ -272,7 +272,7 @@ test('点击清除搜索会清空关键词并恢复风格列表，且不改当�
     assert.equal(styleItemLabels(harness.root).length, 0)
     const clearButton = clearSearchButton(harness.root)
     assert.ok(clearButton, '空态应提供清除搜索按钮')
-    assert.match(textContent(clearButton), /清除搜索/)
+    assert.match(textContent(clearButton), /清除风格搜索/)
     assert.equal(searchInput(harness.root).props.value, 'zzz-no-style')
 
     assert.equal(typeof clearButton.props.onClick, 'function')

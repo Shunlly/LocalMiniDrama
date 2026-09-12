@@ -57,6 +57,31 @@ describe('图片/视频 gateway 用户错误为简体中文', () => {
     assert.doesNotMatch(videoResult.error, LEAK);
   });
 
+  it('HTTP 404 Invalid Authorization 不回传状态原文，而是认证失败', () => {
+    const body = JSON.stringify({ error: 'Invalid Authorization', code: 'AUTH_DENIED' });
+    const error = classifyHttpFailure({
+      provider: 'Kling',
+      operation: 'image request',
+      status: 404,
+      code: 'AUTH_DENIED',
+      responseBody: body,
+    });
+    const message = toUserFacingGatewayError(error, { provider: 'Kling', operation: 'image request' });
+    assert.match(message, /认证失败/);
+    assert.doesNotMatch(message, /HTTP\s*404|Invalid Authorization|Not Found|AUTH_DENIED/i);
+    assert.equal(error.status, 404);
+    assert.equal(error.providerCode, 'AUTH_DENIED');
+
+    const imageResult = imageProviderFailure('Kling', 'image request', 404, body, 'AUTH_DENIED');
+    assert.match(imageResult.error, /认证失败/);
+    assert.doesNotMatch(imageResult.error, /HTTP\s*404|Invalid Authorization/i);
+
+    const videoResult = videoProviderFailure('', 'video request', 404, body, 'AUTH_DENIED');
+    assert.match(videoResult.error, /视频服务/);
+    assert.match(videoResult.error, /认证失败/);
+    assert.doesNotMatch(videoResult.error, /HTTP\s*404|Invalid Authorization|\bVideo\b/i);
+  });
+
   it('缺省视频厂商名使用中文，不把 Video provider 原文交给用户', () => {
     const timeout = requestTimeoutError(null, { provider: 'Video provider', operation: 'video request' });
     assert.match(timeout.message, /超时/);

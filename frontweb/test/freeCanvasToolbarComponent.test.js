@@ -236,3 +236,10 @@ test('节点较多时提示可见区域，达到上限后禁用新建', async ()
     setFreeCanvasUxState({ nodeCount: 0 })
   }
 })
+
+test('自由画布工具条窄屏换行，不把按钮藏进横向滚动', () => {
+  const source = readFileSync(toolbarUrl, 'utf8')
+  assert.match(source, /\.free-canvas-toolbar \{[\s\S]*?max-width: 100%;[\s\S]*?flex-wrap: wrap;/)
+  assert.doesNotMatch(source, /overflow-x:\s*auto/)
+})
+

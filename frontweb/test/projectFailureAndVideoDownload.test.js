@@ -216,7 +216,7 @@ test('project pages keep core load failures outside every editable project surfa
   assert.match(filmCreateHeaderSource, /:disabled="projectLoadState !== 'ready'"[\s\S]*open-ai-config/)
   assert.match(filmCreateLoadStateSource, /v-if="!notFound"[\s\S]*重试加载/)
   assert.match(dramaDetailLoadStateSource, /v-if="!notFound"[\s\S]*重试加载/)
-  assert.match(filmCreateLoadStateSource, /aria-label="重试加载"/)
+  assert.match(filmCreateLoadStateSource, /describeActionAriaLabel\('重试加载'/)
   assert.match(dramaDetailLoadStateSource, /aria-label="重试加载"/)
   assert.match(filmCreateLoadStateSource, /aria-label="返回项目列表"/)
   assert.match(dramaDetailLoadStateSource, /aria-label="返回项目列表"/)

@@ -43,12 +43,12 @@ function visibleButtonText(node) {
 
 function assertEmptyStateButtons(root, sectionClass, { primaryText = '', allowZeroPrimary = false } = {}) {
   const section = findByClass(root, sectionClass)[0]
-  assert.ok(section, `missing ${sectionClass}`)
+  assert.ok(section, `缺少 ${sectionClass}`)
   const buttons = findByType(section, 'button')
-  assert.ok(buttons.length > 0, `${sectionClass} should have buttons`)
+  assert.ok(buttons.length > 0, `${sectionClass} 应该有按钮`)
   const primaries = buttons.filter((node) => node.props['data-variant'] === 'primary')
-  if (allowZeroPrimary) assert.ok(primaries.length <= 1, `${sectionClass} can have at most one primary`)
-  else assert.equal(primaries.length, 1, `${sectionClass} should have exactly one primary`)
+  if (allowZeroPrimary) assert.ok(primaries.length <= 1, `${sectionClass} 最多只能有一个 type=primary`)
+  else assert.equal(primaries.length, 1, `${sectionClass} 应该只有一个 type=primary`)
   if (primaryText) {
     assert.match(visibleButtonText(primaries[0]), new RegExp(primaryText))
     assert.ok(String(primaries[0].props['aria-label'] || '').includes(primaryText))
@@ -56,8 +56,8 @@ function assertEmptyStateButtons(root, sectionClass, { primaryText = '', allowZe
   for (const button of buttons) {
     const visible = visibleButtonText(button)
     const label = String(button.props['aria-label'] || '')
-    assert.ok(visible, 'empty-state button needs visible text')
-    assert.ok(label.includes(visible), `${visible} should be inside aria-label "${label}"`)
+    assert.ok(visible, '空态按钮需要可见文案')
+    assert.ok(label.includes(visible), `${visible} 应出现在 aria-label「${label}」中`)
   }
 }
 
@@ -164,6 +164,8 @@ test('筛选无结果时可以清除筛选或新建项目', async () => {
     const clear = buttonByAriaLabel(harness.root, '清除筛选并查看全部项目')
     const created = buttonByAriaLabel(harness.root, '新建项目')
     assert.ok(clear)
+    assert.match(textContent(clear), /清除筛选/)
+    assert.ok(String(clear.props['aria-label'] || '').includes('清除筛选'))
     assert.ok(created)
     assert.notEqual(created.props.disabled, true)
     click(clear)
@@ -234,36 +236,36 @@ test('加载失败时工具条不冒充空项目起步路径', async () => {
   }
 })
 
-test('\u7a7a\u9879\u76ee\u8d77\u6b65\u8def\u5f84\u53ea\u6709\u4e00\u4e2a\u4e3b\u6309\u94ae\uff0c\u4e14\u8bfb\u5c4f\u540d\u5305\u542b\u53ef\u89c1\u6587\u6848', async () => {
+test('空项目起步路径只有一个主按钮，且读屏名包含可见文案', async () => {
   const harness = mountToolbar({
     dramas: [],
     filteredDramas: [],
     hasProjectFilters: false,
-    exampleList: [{ filename: 'demo.zip', name: '\u96e8\u5df7\u793a\u4f8b' }],
+    exampleList: [{ filename: 'demo.zip', name: '雨巷示例' }],
   })
   try {
     await nextTick()
-    assertEmptyStateButtons(harness.root, 'action-card--empty', { primaryText: '\u65b0\u5efa\u9879\u76ee' })
+    assertEmptyStateButtons(harness.root, 'action-card--empty', { primaryText: '新建项目' })
     assert.equal(findByClass(harness.root, 'action-card--search-empty').length, 0)
   } finally {
     harness.app.unmount()
   }
 })
 
-test('\u7b5b\u9009\u7a7a\u6001\u53ea\u6709\u4e00\u4e2a\u4e3b\u6309\u94ae\uff0c\u6e05\u9664\u7b5b\u9009\u7684\u8bfb\u5c4f\u540d\u5305\u542b\u53ef\u89c1\u6587\u6848', async () => {
+test('筛选空态只有一个主按钮，清除筛选的读屏名包含可见文案', async () => {
   const harness = mountToolbar({
     projectSearch: 'moon',
-    dramas: [{ id: 1, title: '\u96e8\u5df7' }],
+    dramas: [{ id: 1, title: '雨巷' }],
     filteredDramas: [],
     hasProjectFilters: true,
-    projectListCountLabel: '0 \u4e2a\u9879\u76ee',
+    projectListCountLabel: '0 个项目',
   })
   try {
     await nextTick()
-    assertEmptyStateButtons(harness.root, 'action-card--search-empty', { primaryText: '\u65b0\u5efa\u9879\u76ee' })
-    const clear = buttonByAriaLabel(harness.root, '\u6e05\u9664\u7b5b\u9009\u5e76\u67e5\u770b\u5168\u90e8\u9879\u76ee')
+    assertEmptyStateButtons(harness.root, 'action-card--search-empty', { primaryText: '新建项目' })
+    const clear = buttonByAriaLabel(harness.root, '清除筛选并查看全部项目')
     assert.ok(clear)
-    assert.match(visibleButtonText(clear), /\u6e05\u9664\u7b5b\u9009/)
+    assert.match(visibleButtonText(clear), /清除筛选/)
   } finally {
     harness.app.unmount()
   }

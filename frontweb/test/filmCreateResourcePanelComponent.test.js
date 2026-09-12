@@ -37,10 +37,13 @@ const iconStubUrl = compileIconStub([
   'ZoomIn',
 ])
 const compiledActionGateUrl = compileSfc(actionGateUrl, 'resource-panel-action-gate', new Map([['vue', vueUrl]]))
+const actionCopyUrl = new URL('../src/components/filmCreate/filmCreateActionCopy.js', import.meta.url).href
 const blockReplacements = new Map([
   ['vue', vueUrl],
   ['@element-plus/icons-vue', iconStubUrl],
   ['@/components/filmCreate/ActionGate.vue', compiledActionGateUrl],
+  ['./filmCreateActionCopy.js', actionCopyUrl],
+  ['@/components/filmCreate/filmCreateActionCopy.js', actionCopyUrl],
 ])
 const compiledCharacterBlockUrl = compileSfc(characterBlockUrl, 'film-create-character-block', blockReplacements)
 const compiledPropBlockUrl = compileSfc(propBlockUrl, 'film-create-prop-block', blockReplacements)
@@ -161,7 +164,7 @@ test('缺少剧集时，空态提取改成去创建剧集，区块头提取仍�
     await nextTick()
     const createButtons = buttonsByText(harness.root, '去创建剧集')
     assert.equal(createButtons.length, 3)
-    assert.equal(buttonByAriaLabel(harness.root, '去创建剧集后再提取角色')?.props.disabled, false)
+    assert.equal(buttonByAriaLabel(harness.root, '去创建剧集')?.props.disabled, false)
     click(createButtons[0])
     assert.deepEqual(harness.events, [['add-episode']])
 

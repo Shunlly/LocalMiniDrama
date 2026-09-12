@@ -123,6 +123,7 @@ import MediaLibraryNetworkEmpty from './MediaLibraryNetworkEmpty.vue'
 const networkKeywordInputRef = ref(null)
 
 function focusNetworkSearch() {
+  // 空态下一步只负责把焦点送回关键词框，真正搜索仍由上方按钮执行。
   const target = networkKeywordInputRef.value
   if (typeof target?.focus === 'function') target.focus()
   else target?.input?.focus?.()

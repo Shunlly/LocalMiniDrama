@@ -17,11 +17,11 @@
     >
       <el-icon class="project-load-state-icon"><WarningFilled /></el-icon>
       <h1 id="film-project-load-error-title">{{ notFound ? '制作项目不存在' : '暂时无法打开制作项目' }}</h1>
-      <p>{{ errorText }}</p>
+      <p>{{ displayErrorText }}</p>
       <p v-if="notFound" class="project-load-state-assurance">项目可能已移入回收站或被删除，请返回项目列表确认。</p>
       <p v-else class="project-load-state-assurance">项目数据没有被删除，当前页面已停止所有项目编辑和生成操作。</p>
       <div class="project-load-state-actions">
-        <el-button v-if="!notFound" type="primary" :loading="pending" aria-label="重试加载" :title="filmCreateActionTitle('', pending, '正在重新加载项目，请稍候')" @click="emit('retry')">
+        <el-button v-if="!notFound" type="primary" :loading="pending" :aria-label="retryAriaLabel" :title="filmCreateActionTitle('', pending, '正在重新加载项目，请稍候')" @click="emit('retry')">
           <el-icon><Refresh /></el-icon>重试加载
         </el-button>
         <el-button aria-label="返回项目列表" @click="emit('go-list')">
@@ -33,16 +33,23 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { ArrowLeft, Loading, Refresh, WarningFilled } from '@element-plus/icons-vue'
+import { describeActionAriaLabel, toFilmCreateUserFacingText } from './filmCreateActionCopy.js'
 import { filmCreateActionTitle } from './filmCreateActionTitle.js'
 
-defineProps({
+const props = defineProps({
   state: { type: String, default: 'loading' },
   errorText: { type: String, default: '' },
   notFound: { type: Boolean, default: false },
   pending: { type: Boolean, default: false },
 })
+
+const displayErrorText = computed(() => toFilmCreateUserFacingText(props.errorText, '暂时无法打开制作项目，请稍后重试'))
+const retryAriaLabel = computed(() => describeActionAriaLabel('重试加载', {
+  loading: props.pending,
+  loadingLabel: '正在重试加载',
+}))
 
 const emit = defineEmits(['retry', 'go-list'])
 const errorSectionRef = ref(null)

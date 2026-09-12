@@ -16,7 +16,7 @@
         type="primary"
         :loading="loading"
         :title="loading ? '正在重试加载素材，请稍候' : undefined"
-        aria-label="重试加载素材"
+        :aria-label="retryAriaLabel"
         @click="onRetry"
       >
         <el-icon><Refresh /></el-icon>重试加载素材
@@ -33,6 +33,7 @@
 <script setup>
 import { computed } from 'vue'
 import { Refresh, WarningFilled } from '@element-plus/icons-vue'
+import { describeActionAriaLabel, toFilmCreateOptionalUserFacingText } from './filmCreateActionCopy.js'
 
 const props = defineProps({
   mediaError: { type: String, default: '' },
@@ -42,7 +43,14 @@ const props = defineProps({
 
 const emit = defineEmits(['retry'])
 
-const warningText = computed(() => [props.mediaError, props.dependencyWarning].filter(Boolean).join('；'))
+const warningText = computed(() => [
+  toFilmCreateOptionalUserFacingText(props.mediaError, '分镜素材读取失败，请稍后重试'),
+  toFilmCreateOptionalUserFacingText(props.dependencyWarning, '项目依赖暂时无法同步，请稍后重试'),
+].filter(Boolean).join('；'))
+const retryAriaLabel = computed(() => describeActionAriaLabel('重试加载素材', {
+  loading: props.loading,
+  loadingLabel: '正在重试加载素材',
+}))
 const actionHint = computed(() => {
   if (props.mediaError && props.dependencyWarning) {
     return '项目仍可继续编辑。可重试加载素材，或先查看已加载的分镜。'

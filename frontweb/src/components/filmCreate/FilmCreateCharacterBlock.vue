@@ -2,12 +2,12 @@
 
               <div class="asset-actions">
                 <ActionGate :reason="characterGenerationDisabledReason" label="剧本自动提取角色">
-                  <el-button type="primary" size="small" :loading="charactersGenerating" :disabled="Boolean(characterGenerationDisabledReason)" :title="charactersGenerating ? '正在提取角色，请稍候' : (characterGenerationDisabledReason || undefined)" :aria-label="charactersGenerating ? '正在提取角色，请稍候' : (characterGenerationDisabledReason || '剧本自动提取角色')" @click="emit('generate-characters')">
+                  <el-button :type="characters.length ? 'primary' : undefined" size="small" :loading="charactersGenerating" :disabled="Boolean(characterGenerationDisabledReason)" :title="charactersGenerating ? '正在提取角色，请稍候' : (characterGenerationDisabledReason || undefined)" :aria-label="extractCharactersAriaLabel" @click="emit('generate-characters')">
                     剧本自动提取角色
                   </el-button>
                 </ActionGate>
                 <ActionGate :reason="projectActionDisabledReason" label="添加角色">
-                  <el-button size="small" :disabled="Boolean(projectActionDisabledReason)" :title="projectActionDisabledReason || undefined" :aria-label="projectActionDisabledReason || '添加角色'" @click="emit('add-character')">添加角色</el-button>
+                  <el-button size="small" :disabled="Boolean(projectActionDisabledReason)" :title="projectActionDisabledReason || undefined" :aria-label="addCharacterAriaLabel" @click="emit('add-character')">添加角色</el-button>
                 </ActionGate>
                 <el-button size="small" aria-label="打开本剧角色库" @click="emit('open-char-library')">本剧角色库</el-button>
               </div>
@@ -140,7 +140,7 @@
                       @drop="resourceDrop($event, 'character', char.id)"
                     >
                       <img v-if="hasAssetImage(char)" :src="assetImageUrl(char)" class="cover-img" alt="" />
-                      <div v-else-if="char.error_msg || char.errorMsg" class="cover-placeholder error" :title="assetErrorText(char)">{{ assetErrorText(char) }}</div>
+                      <div v-else-if="char.error_msg || char.errorMsg" class="cover-placeholder error" :title="displayAssetError(char)">{{ displayAssetError(char) }}</div>
                       <div v-else class="cover-placeholder">暂无图</div>
                       <div v-if="dragOverResourceKey === 'char-' + char.id" class="asset-cover-drop-hint">松开上传</div>
                     </div>
@@ -174,12 +174,14 @@
 </template>
 
 <script setup>
+import { computed } from 'vue'
 import { Delete, MagicStick, Upload, VideoPlay, ZoomIn } from '@element-plus/icons-vue'
 import ActionGate from '@/components/filmCreate/ActionGate.vue'
+import { describeActionAriaLabel, toFilmCreateUserFacingText } from './filmCreateActionCopy.js'
 
 defineOptions({ inheritAttrs: false })
 
-defineProps({
+const props = defineProps({
   characters: { type: Array, default: () => [] },
   characterGenerationDisabledReason: { type: String, default: '' },
   charactersGenerating: { type: Boolean, default: false },
@@ -210,6 +212,19 @@ defineProps({
   regenSbImagesProgress: { type: Object, default: () => ({}) },
   dragOverResourceKey: { type: [String, null], default: null },
 })
+
+const extractCharactersAriaLabel = computed(() => describeActionAriaLabel('剧本自动提取角色', {
+  loading: props.charactersGenerating,
+  loadingLabel: '正在剧本自动提取角色',
+  disabledReason: props.characterGenerationDisabledReason,
+}))
+const addCharacterAriaLabel = computed(() => describeActionAriaLabel('添加角色', {
+  disabledReason: props.projectActionDisabledReason,
+}))
+
+function displayAssetError(asset) {
+  return toFilmCreateUserFacingText(props.assetErrorText(asset), '生成失败')
+}
 
 defineEmits([
   'generate-characters', 'add-character', 'open-char-library',

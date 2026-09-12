@@ -180,6 +180,16 @@ test('父面板接线到表单/工具条/关联/参考图/首尾帧/操作栏子
   assert.doesNotMatch(parentSource, /class="panel-form compact-form"/)
 })
 
+test('参考图条和关联行在窄屏换行，不把上传按钮裁掉', () => {
+  const referenceRow = panelUiSource.match(/\.reference-row \{[\s\S]*?\}/)?.[0] || ''
+  assert.match(panelUiSource, /\.reference-row \{[\s\S]*?max-width: 100%;[\s\S]*?flex-wrap: wrap;/)
+  assert.match(panelUiSource, /\.reference-list \{[\s\S]*?flex-wrap: wrap;[\s\S]*?min-width: 0;/)
+  assert.match(panelUiSource, /\.relation-row \{[\s\S]*?flex-wrap: wrap;/)
+  assert.match(panelUiSource, /\.inline-add-row \{[\s\S]*?flex-wrap: wrap;/)
+  assert.match(referenceRow, /flex-wrap: wrap;/)
+  assert.doesNotMatch(referenceRow, /overflow:\s*hidden/)
+})
+
 test('本面板不含 AI 分镜按钮；工具条仍保留完整无障碍名', () => {
   assert.doesNotMatch(panelUiSource, /AI 生成分镜/)
   assert.doesNotMatch(panelUiSource, />\s*AI 分镜\s*</)

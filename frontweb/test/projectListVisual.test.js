@@ -150,3 +150,11 @@ test('project list header keeps a visible data-backup command next to workspace 
   assert.match(filmListSource, /v-if="backupNavItem"/)
   assert.doesNotMatch(filmListSource, /微信我/)
 })
+
+test('项目卡片故事素材入口不覆盖内容区，空态和失败区焦点可见', () => {
+  assert.match(filmListSource, /\.project-card-assets \{[\s\S]*max-width: 96px/)
+  assert.match(filmListSource, /@media \(max-width: 620px\)[\s\S]*\.project-card-assets \{[\s\S]*max-width: 80px/)
+  assert.match(filmListSource, /action-card-secondary :deep\(\.el-button:focus-visible\)/)
+  assert.match(filmListSource, /\.data-load-state,[\s\S]*flex-wrap: wrap/)
+  assert.match(filmListSource, /\.trash-empty :deep\(\.el-button:focus-visible\)/)
+})

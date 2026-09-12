@@ -9,14 +9,14 @@
           :loading="storyboardGenerating || universalOmniPolishRunning"
           :disabled="Boolean(storyboardActionDisabledReason)"
           :title="storyboardGenerating || universalOmniPolishRunning ? '正在生成分镜，请稍候' : (storyboardActionDisabledReason || undefined)"
-          :aria-label="storyboardGenerating || universalOmniPolishRunning ? '正在生成分镜，请稍候' : (storyboardActionDisabledReason || '生成分镜')" @click="onGenerateStoryboard"
+          :aria-label="generateStoryboardAriaLabel" @click="onGenerateStoryboard"
         >生成分镜</el-button>
       </ActionGate>
       <ActionGate :reason="episodeActionDisabledReason" label="添加一个分镜">
         <el-button
           :disabled="Boolean(episodeActionDisabledReason)"
           :title="episodeActionDisabledReason || undefined"
-          :aria-label="episodeActionDisabledReason || '添加一个分镜'" @click="onAddSingleStoryboard"
+          :aria-label="addStoryboardAriaLabel" @click="onAddSingleStoryboard"
         >添加一个分镜</el-button>
       </ActionGate>
     </div>
@@ -24,18 +24,20 @@
   <template v-else>
     <p>请先创建或选择剧集，再生成或添加分镜</p>
     <div class="empty-tip-actions">
-      <el-button type="primary" aria-label="去创建剧集后再生成分镜" @click="onAddEpisode">去创建剧集</el-button>
+      <el-button type="primary" aria-label="去创建剧集" @click="onAddEpisode">去创建剧集</el-button>
     </div>
   </template>
 </div>
 </template>
 
 <script setup>
+import { computed } from 'vue'
 import ActionGate from '@/components/filmCreate/ActionGate.vue'
+import { describeActionAriaLabel } from '@/components/filmCreate/filmCreateActionCopy.js'
 
 defineOptions({ inheritAttrs: false })
 
-defineProps({
+const props = defineProps({
   hasAnyEpisode: { type: Boolean, default: false },
   storyboardGenerating: { type: Boolean, default: false },
   universalOmniPolishRunning: { type: Boolean, default: false },
@@ -45,6 +47,15 @@ defineProps({
   onAddSingleStoryboard: { type: Function, required: true },
   onAddEpisode: { type: Function, default: () => {} },
 })
+
+const generateStoryboardAriaLabel = computed(() => describeActionAriaLabel('生成分镜', {
+  loading: props.storyboardGenerating || props.universalOmniPolishRunning,
+  loadingLabel: '正在生成分镜',
+  disabledReason: props.storyboardActionDisabledReason,
+}))
+const addStoryboardAriaLabel = computed(() => describeActionAriaLabel('添加一个分镜', {
+  disabledReason: props.episodeActionDisabledReason,
+}))
 </script>
 
 <style scoped>

@@ -188,7 +188,7 @@ test('mounted media rows publish versioned project-scoped identity payloads with
 
 test('素材栏空态区分筛选和真正没有素材，并给出下一步', () => {
   assert.match(componentSource, /没有匹配的\$\{kind\}/)
-  assert.match(componentSource, /清除筛选/)
+  assert.match(componentSource, /清除素材筛选/)
   assert.match(componentSource, /function clearAssetFilters/)
   assert.match(componentSource, /aria-label="上传素材"/)
   assert.match(componentSource, /aria-label="从素材中心选择"/)

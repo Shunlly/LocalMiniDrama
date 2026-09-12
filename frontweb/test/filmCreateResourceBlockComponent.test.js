@@ -37,10 +37,13 @@ const iconStubUrl = compileIconStub([
   'ZoomIn',
 ])
 const compiledActionGateUrl = compileSfc(actionGateUrl, 'resource-block-action-gate', new Map([['vue', vueUrl]]))
+const actionCopyUrl = new URL('../src/components/filmCreate/filmCreateActionCopy.js', import.meta.url).href
 const blockReplacements = new Map([
   ['vue', vueUrl],
   ['@element-plus/icons-vue', iconStubUrl],
   ['@/components/filmCreate/ActionGate.vue', compiledActionGateUrl],
+  ['./filmCreateActionCopy.js', actionCopyUrl],
+  ['@/components/filmCreate/filmCreateActionCopy.js', actionCopyUrl],
 ])
 const FilmCreateCharacterBlock = await loadCompiledSfc(characterBlockUrl, 'resource-character-block', blockReplacements)
 const renderer = createHostRenderer()

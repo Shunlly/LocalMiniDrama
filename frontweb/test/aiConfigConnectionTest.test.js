@@ -96,6 +96,17 @@ test('假密钥和英文原文不会进入连接测试标题或详情', () => {
   }
 })
 
+test('Invalid Authorization 和 ListAssetGroups 不会进入连接测试标题', () => {
+  const invalid = describeConnectionTestError(new Error('认证失败：Invalid Authorization'))
+  assert.match(invalid.title, /[\u4e00-\u9fff]/)
+  assert.doesNotMatch(invalid.title, /Invalid Authorization/)
+  assert.doesNotMatch(invalid.detail, /Invalid Authorization/)
+  const listed = describeConnectionTestError(new Error('列出资产组 ListAssetGroups 失败'))
+  assert.match(listed.title, /[\u4e00-\u9fff]/)
+  assert.doesNotMatch(listed.title, /ListAssetGroups/)
+  assert.doesNotMatch(listed.detail, /ListAssetGroups/)
+})
+
 test('HTTP 状态给出中文连接失败原因', () => {
   const unauthorized = describeConnectionTestError(Object.assign(new Error('Request failed with status code 401'), {
     response: { status: 401 },

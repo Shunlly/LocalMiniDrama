@@ -186,6 +186,12 @@ test('工作流可见错误会丢掉英文泄漏并保留可信中文', () => {
   assert.match(toUserFacingWorkflowError(new Error('fetch failed')), /[一-鿿]/);
   assert.doesNotMatch(toUserFacingWorkflowError(new Error('fetch failed')), /fetch failed/i);
   assert.equal(toUserFacingWorkflowError(new Error('请先选择剧集')), '请先选择剧集');
+  const leaked = toUserFacingWorkflowError(new Error('步骤失败 HTTP 404 Invalid Authorization AUTH_DENIED'));
+  assert.match(leaked, /[一-鿿]/);
+  assert.doesNotMatch(leaked, /HTTP\s*404|Invalid Authorization|AUTH_DENIED|Not Found/i);
+  const cancelled = toUserFacingWorkflowError(Object.assign(new Error('The operation was aborted.'), { name: 'AbortError' }));
+  assert.match(cancelled, /取消/);
+  assert.doesNotMatch(cancelled, /超时|成功|timeout|aborted/i);
 });
 
 

@@ -98,6 +98,19 @@ test('写锁定按钮给出中文原因，隐藏输入不加 title', () => {
   }
 })
 
+test('即梦资产说明不泄漏英文错误码、HTTP 状态码和 ListAssetGroups', () => {
+  assert.match(sources.connectionForm, /若仍提示没有权限/)
+  assert.doesNotMatch(sources.connectionForm, /报\s*40[13]/)
+  assert.doesNotMatch(sources.connectionForm, /\b(?:HTTP\s*)?40[13]\b/)
+  assert.doesNotMatch(sources.intro, /Invalid Authorization/)
+  assert.doesNotMatch(sources.connectionForm, /Invalid Authorization/)
+  const visible = [sources.intro, sources.connectionForm, sources.groupList, sources.assetList, sources.filter, sources.dialogs, sources.lastResponse].join('\n')
+  assert.doesNotMatch(visible, /Invalid Authorization/)
+  assert.doesNotMatch(visible, /ListAssetGroups/)
+  assert.doesNotMatch(visible, /\bHTTP\s*\d{3}\b/)
+  assert.match(parentSource, /call\('ListAssetGroups'/)
+})
+
 test('用户可见的资产组 Id 改为编号，接口字段名保持原文', () => {
   assert.match(source, /label="默认资产组编号"/)
   assert.match(source, /与下方「资产」列表使用的组编号一致/)

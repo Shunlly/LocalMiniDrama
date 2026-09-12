@@ -134,6 +134,12 @@ test('按钮读屏名称把禁用原因读出来', () => {
     loadingLabel: '正在合成成片',
   }), '正在合成成片，请稍候')
   assert.equal(toFilmCreateUserFacingText('Network Error', '操作失败，请稍后重试'), '操作失败，请稍后重试')
+  assert.equal(toFilmCreateUserFacingText('素材读取失败（HTTP 503）', '操作失败，请稍后重试'), '操作失败，请稍后重试')
+  assert.equal(toFilmCreateUserFacingText('HTTP 404', '操作失败，请稍后重试'), '操作失败，请稍后重试')
+  assert.equal(
+    describeActionAriaLabel('重试加载素材', { disabledReason: '加载失败 HTTP 502' }),
+    '重试加载素材不可用：当前不可用',
+  )
   assert.equal(toFilmCreateDisabledReasonText('', '当前不可用'), '')
 })
 
