@@ -133,8 +133,14 @@ test('editing preserves an unavailable default model until a valid model is expl
   await installLocalApiFixtures(page, updateBodies)
 
   await page.goto(`${vite.url}/ai-config`, { waitUntil: 'domcontentloaded' })
-  await page.getByRole('tab', { name: '配置管理' }).click()
+  await page.getByRole('heading', { name: 'AI 服务配置与验证', exact: true }).waitFor({ timeout: 30000 })
+  const configsTab = page.getByTestId('ai-config-mode-configs')
+  await configsTab.waitFor({ state: 'visible', timeout: 30000 })
+  assert.equal(await configsTab.getAttribute('role'), 'tab')
+  assert.equal(await configsTab.getAttribute('aria-label'), '配置管理')
+  await configsTab.click()
   const configRow = page.getByRole('row').filter({ hasText: staleDefaultConfig.name })
+  await configRow.waitFor({ state: 'visible', timeout: 30000 })
   await configRow.getByRole('button', { name: '编辑' }).click()
 
   const dialog = page.getByRole('dialog', { name: '编辑配置' })
