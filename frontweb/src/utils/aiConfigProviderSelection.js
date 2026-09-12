@@ -22,6 +22,7 @@ export function applyProviderSelection(form, providerId, options = {}) {
     form.default_model = ''
     return form
   }
+  form.provider = providerId
   const st = form.service_type || 'text'
   const p = (providerConfigs[st] || []).find((x) => x.id === providerId)
   if (!p) {

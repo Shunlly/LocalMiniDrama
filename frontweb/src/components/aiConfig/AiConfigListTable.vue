@@ -57,7 +57,7 @@
       >
         <el-icon class="config-empty-icon"><MagicStick /></el-icon>
         <strong>{{ configEmptyTitle }}</strong>
-        <span>{{ configEmptyDescription }}</span>
+        <span>{{ displayedEmptyDescription }}</span>
         <div class="config-empty-actions">
           <el-button
             v-if="configListFailedEmpty"
@@ -75,7 +75,7 @@
             size="small"
             :disabled="configWriteLocked"
             :title="configWriteLocked ? configWriteLockReason : undefined"
-            :aria-label="activeServiceFilter ? `添加${serviceTypeLabel(activeServiceFilter)}配置` : '添加第一个配置'"
+            :aria-label="emptyAddAriaLabel"
             @click="openAddForService(activeServiceFilter || 'text')"
           >
             <el-icon><Plus /></el-icon>
@@ -94,10 +94,12 @@
 </template>
 
 <script setup>
+import { computed } from 'vue'
 import { Plus, MagicStick, ChatDotRound, Picture, Film, VideoCamera, Key, Microphone, Folder, Document, Headset } from '@element-plus/icons-vue'
-import { serviceTypeLabel, configActionLabel } from '@/utils/aiConfigLabels.js'
+import { describeConfigEmptyDescription } from '@/utils/aiConfigEmptyCopy.js'
+import { serviceTypeLabel, configActionLabel, describeDisabledControlLabel } from '@/utils/aiConfigLabels.js'
 
-defineProps({
+const props = defineProps({
   loading: { type: Boolean, default: false },
   vendorLockLoading: { type: Boolean, default: false },
   rows: { type: Array, default: () => [] },
@@ -118,6 +120,21 @@ defineProps({
   openAddForService: { type: Function, required: true },
   clearServiceFilter: { type: Function, required: true },
 })
+
+const displayedEmptyDescription = computed(() => {
+  if (props.vendorLock?.enabled && !props.configListFailedEmpty && !props.configListPendingEmpty) {
+    return describeConfigEmptyDescription({
+      vendorLockEnabled: true,
+      serviceFilter: props.activeServiceFilter,
+    })
+  }
+  return props.configEmptyDescription
+})
+
+const emptyAddAriaLabel = computed(() => describeDisabledControlLabel(
+  props.activeServiceFilter ? `添加${serviceTypeLabel(props.activeServiceFilter)}配置` : '添加第一个配置',
+  { disabled: props.configWriteLocked, reason: props.configWriteLockReason },
+))
 </script>
 
 <style scoped>

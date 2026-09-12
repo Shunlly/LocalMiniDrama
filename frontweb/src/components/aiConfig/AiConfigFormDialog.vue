@@ -61,7 +61,7 @@
           :is-config-field-invalid="isConfigFieldInvalid"
           :config-field-description-id="configFieldDescriptionId"
           :config-field-description="configFieldDescription"
-          :on-provider-change="onProviderChange"
+          :on-provider-change="handleProviderChange"
           :open-jimeng2-material-assets-dialog="openJimeng2MaterialAssetsDialog"
         />
         <AiConfigFormEndpointSection
@@ -103,24 +103,30 @@
       </el-form>
       </div>
       <template #footer>
+        <span
+          v-if="configWriteLocked && configWriteLockReason"
+          class="ai-config-save-disabled-reason"
+          role="status"
+        >{{ configWriteLockReason }}</span>
         <el-button :aria-label="editingId ? '取消编辑配置' : '取消添加配置'" @click="requestConfigDialogClose">取消</el-button>
-        <el-button type="primary" aria-label="保存配置" :loading="saving" :disabled="configWriteLocked" :title="configWriteLocked ? configWriteLockReason : undefined" @click="submit">保存</el-button>
+        <el-button type="primary" :aria-label="saveAriaLabel" :loading="saving" :disabled="configWriteLocked" :title="configWriteLocked ? (configWriteLockReason || '当前不能保存配置') : undefined" @click="submit">保存</el-button>
       </template>
     </AccessibleDialog>
 </template>
 
 <script setup>
+import { computed } from 'vue'
 import AiConfigFormBasicSection from '@/components/aiConfig/AiConfigFormBasicSection.vue'
 import AiConfigFormEndpointSection from '@/components/aiConfig/AiConfigFormEndpointSection.vue'
 import AiConfigFormLockSection from '@/components/aiConfig/AiConfigFormLockSection.vue'
 import AiConfigFormModelSection from '@/components/aiConfig/AiConfigFormModelSection.vue'
 import AiConfigFormPolicySection from '@/components/aiConfig/AiConfigFormPolicySection.vue'
 import AiConfigFormVendorSection from '@/components/aiConfig/AiConfigFormVendorSection.vue'
-import { configFieldDisplayLabel } from '@/utils/aiConfigLabels.js'
+import { configFieldDisplayLabel, describeDisabledControlLabel } from '@/utils/aiConfigLabels.js'
 
 defineOptions({ inheritAttrs: false })
 
-defineProps({
+const props = defineProps({
   vendorLock: { type: Object, required: true },
   editingId: { default: null },
   configValidationSummary: { type: Array, default: () => [] },
@@ -182,6 +188,18 @@ function bindConfigDialogScrollRef(el) {
 function bindWorkflowInputRef(el) {
   workflowInputRef.value = el
 }
+
+const saveAriaLabel = computed(() => describeDisabledControlLabel('保存配置', {
+  disabled: props.configWriteLocked,
+  reason: props.configWriteLockReason,
+  loading: props.saving,
+  loadingLabel: '正在保存配置',
+}))
+
+function handleProviderChange(providerId) {
+  presetModelPick.value = ''
+  props.onProviderChange(providerId)
+}
 </script>
 
 <style>
@@ -229,6 +247,12 @@ function bindWorkflowInputRef(el) {
   padding-left: 20px;
   font-size: 12px;
   line-height: 1.6;
+}
+.ai-config-save-disabled-reason {
+  margin: 0 12px 0 0;
+  color: var(--el-text-color-secondary, #909399);
+  font-size: 12px;
+  line-height: 1.4;
 }
 @media (max-width: 760px) {
   :deep(.el-form-item__content),

@@ -4,12 +4,12 @@
 import { toUserFacingError, isUserFacingAbort } from '@/utils/userFacingError.js'
 import { isRequestTimeout, isSafeUserFacingMessage } from '@/utils/requestError.js'
 
-export const CONNECTION_TEST_ENGLISH_RE = /network error|timeout of \d+ms|request failed with status code|failed to fetch|fetch failed|load failed|internal server error|err_network|econnaborted|etimedout|econnrefused|enotfound|econnreset|eai_again|socket hang up|getaddrinfo|und_err_|incorrect api key|invalid api key|the operation was aborted|this operation was aborted/i
+export const CONNECTION_TEST_ENGLISH_RE = /network error|timeout of \d+ms|request failed with status code|failed to fetch|fetch failed|load failed|internal server error|err_network|econnaborted|etimedout|econnrefused|enotfound|econnreset|eai_again|socket hang up|getaddrinfo|und_err_|incorrect api key|invalid api key|unauthorized|forbidden|too many requests|the operation was aborted|this operation was aborted/i
 
 export function stripConnectionTestDecorations(message) {
   return String(message || '')
     .replace(/^连接测试失败[:：]\s*/u, '')
-    .replace(/\bProvider\b/gi, '该厂商')
+    .replace(/\bProvider\s*/gi, '该厂商')
     .replace(/[;；,]?\s*response_bytes=\d+/gi, '')
     .replace(/\s{2,}/g, ' ')
     .replace(/\s+([）)])/g, '$1')
@@ -43,6 +43,12 @@ export function pickConnectionTestTitle(message) {
   return message
 }
 
+function readHttpStatus(error) {
+  if (error == null || typeof error === 'string') return 0
+  const status = Number(error.response?.status || error.status)
+  return Number.isInteger(status) && status > 0 ? status : 0
+}
+
 export function describeConnectionTestError(error, signal, serviceType = '') {
   if (isRequestTimeout(error, signal)) {
     return {
@@ -57,16 +63,41 @@ export function describeConnectionTestError(error, signal, serviceType = '') {
     }
   }
   const original = typeof error === 'string' ? error : String(error?.message || '')
+  const status = readHttpStatus(error)
   const raw = toUserFacingError(error, '暂时无法完成连接测试，请稍后重试。', {
     serviceLabel: 'AI 配置服务',
     signal,
   })
   const cleaned = stripConnectionTestDecorations(raw)
   const probeLike = /模型列表探测|ollama 模型列表|\/v1\/models|\b\/models\b/i.test(`${original}\n${cleaned}\n${raw}`)
+  if (status === 401 || status === 403) {
+    return {
+      title: '认证失败',
+      detail: '请检查 API 密钥、会话或访问密钥是否填写正确。如果该服务不提供模型目录，也可直接在配置里手工填写模型名。',
+    }
+  }
   if (probeLike) {
     return {
       title: '无法读取模型列表',
       detail: '连接测试会向该厂商请求可用模型。失败常见原因是密钥无效、地址不正确，或该服务不提供模型目录。你可以稍后重试，或直接在配置里手工填写模型名。',
+    }
+  }
+  if (status === 404) {
+    return {
+      title: '找不到该服务地址',
+      detail: '请检查接口地址是否填写正确，然后重试。',
+    }
+  }
+  if (status === 429) {
+    return {
+      title: '请求过于频繁',
+      detail: '请稍后再试，或降低并发后重新测试。',
+    }
+  }
+  if (status >= 500) {
+    return {
+      title: '服务暂时不可用',
+      detail: '对方服务返回了错误，请稍后重试。如果只是模型目录不可用，仍可在配置中手工填写模型名。',
     }
   }
   let title = pickConnectionTestTitle(cleaned)

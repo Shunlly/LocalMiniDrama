@@ -15,7 +15,7 @@ const vueSource = readFileSync(new URL('../src/components/AIConfigContent.vue', 
 test('连接测试失败会去掉英文装饰并保留中文标题', () => {
   assert.equal(
     stripConnectionTestDecorations('连接测试失败：Provider 认证失败； response_bytes=2048'),
-    '该厂商 认证失败',
+    '该厂商认证失败',
   )
   assert.equal(
     pickConnectionTestTitle('AI 配置服务：认证失败'),
@@ -94,4 +94,31 @@ test('假密钥和英文原文不会进入连接测试标题或详情', () => {
     assert.doesNotMatch(described.title, /sk-test-not-a-real|sess-fake|Bearer /)
     assert.doesNotMatch(described.detail, /sk-test-not-a-real|sess-fake|Bearer /)
   }
+})
+
+test('HTTP 状态给出中文连接失败原因', () => {
+  const unauthorized = describeConnectionTestError(Object.assign(new Error('Request failed with status code 401'), {
+    response: { status: 401 },
+    status: 401,
+  }), undefined, 'text')
+  assert.equal(unauthorized.title, '认证失败')
+  assert.match(unauthorized.detail, /API 密钥/)
+
+  const missing = describeConnectionTestError(Object.assign(new Error('Request failed with status code 404'), {
+    response: { status: 404 },
+    status: 404,
+  }), undefined, 'text')
+  assert.equal(missing.title, '找不到该服务地址')
+
+  const busy = describeConnectionTestError(Object.assign(new Error('Request failed with status code 429'), {
+    response: { status: 429 },
+    status: 429,
+  }), undefined, 'text')
+  assert.equal(busy.title, '请求过于频繁')
+
+  const down = describeConnectionTestError(Object.assign(new Error('Request failed with status code 502'), {
+    response: { status: 502 },
+    status: 502,
+  }), undefined, 'text')
+  assert.equal(down.title, '服务暂时不可用')
 })

@@ -67,3 +67,17 @@ test('编辑已有配置时不改名称；页面仍走 onProviderChange', () => 
   assert.match(vueSource, /async function loadList\(\)/)
   assert.match(vueSource, /async function openTest\(row\)/)
 })
+
+test('切换预设厂商会换成新厂商的模型列表，不会沿用上一份', () => {
+  const form = blankForm('text')
+  applyProviderSelection(form, 'openai')
+  assert.equal(form.provider, 'openai')
+  assert.match(form.modelText, /gpt-4o/)
+  const oldDefault = form.default_model
+  applyProviderSelection(form, 'deepseek')
+  assert.equal(form.provider, 'deepseek')
+  assert.match(form.modelText, /deepseek-v4-flash/)
+  assert.doesNotMatch(form.modelText, /gpt-4o/)
+  assert.match(form.default_model, /deepseek/)
+  assert.notEqual(form.default_model, oldDefault)
+})

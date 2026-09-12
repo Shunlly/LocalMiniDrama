@@ -95,11 +95,14 @@ test('未保存关闭确认仍由页面处理，保存按钮写锁优先', () =>
   assert.match(formDialogSource, /:before-close="confirmConfigDialogClose"/)
   assert.match(formDialogSource, /@click="requestConfigDialogClose"/)
   assert.match(formDialogSource, /:aria-label="editingId \? '取消编辑配置' : '取消添加配置'"/)
-  assert.match(formDialogSource, /aria-label="保存配置"/)
-  const saveButton = formDialogSource.match(/<el-button type="primary" aria-label="保存配置"[^>]*>/)?.[0]
+  assert.match(formDialogSource, /:aria-label="saveAriaLabel"/)
+  assert.match(formDialogSource, /describeDisabledControlLabel\('保存配置'/)
+  assert.match(formDialogSource, /ai-config-save-disabled-reason/)
+  assert.match(formDialogSource, /function handleProviderChange\(providerId\)/)
+  assert.match(formDialogSource, /presetModelPick\.value = ''/)
+  const saveButton = formDialogSource.match(/<el-button type="primary"[\s\S]*?@click="submit">/)?.[0]
   assert.ok(saveButton, '缺少保存按钮')
   assert.match(saveButton, /:disabled="configWriteLocked"/)
-  assert.match(saveButton, /:title="configWriteLocked \? configWriteLockReason : undefined"/)
   assert.match(saveButton, /@click="submit"/)
   assert.match(oneKeyDialogSource, /aria-label="通义密钥"/)
   assert.match(oneKeyDialogSource, /aria-label="火山引擎密钥"/)

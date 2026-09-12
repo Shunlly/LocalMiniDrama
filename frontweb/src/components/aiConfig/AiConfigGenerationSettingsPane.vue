@@ -74,7 +74,7 @@
       <el-button
         type="primary"
         size="small"
-        aria-label="保存生成设置"
+        :aria-label="genSettingSaving ? '正在保存生成设置' : (generationSettingsWriteLocked ? (generationSettingsWriteLockReason || '当前不能保存生成设置') : '保存生成设置')"
         :loading="genSettingSaving"
         :disabled="generationSettingsWriteLocked"
         :title="generationSettingsWriteLocked ? generationSettingsWriteLockReason : undefined"

@@ -34,7 +34,9 @@
         plain
         :loading="discoverModelsLoading"
         :disabled="discoverModelsDisabled"
-        :aria-label="discoverModelsLoading ? '正在读取模型' : '从服务读取模型'" @click="discoverModelsFromService"
+        :title="discoverModelsDisabled ? discoverModelsDisabledReason : undefined"
+        :aria-label="discoverModelsLoading ? '正在读取模型' : (discoverModelsDisabled ? (discoverModelsDisabledReason || '当前不能读取模型') : '从服务读取模型')"
+        @click="discoverModelsFromService"
       >从服务读取模型</el-button>
     </div>
     <p v-if="discoverModelsLoading" class="field-tip">正在从服务读取模型…</p>

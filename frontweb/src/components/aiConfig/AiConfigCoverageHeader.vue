@@ -32,7 +32,7 @@
     >
       <div class="coverage-unresolved-copy">
         <strong>暂时无法确认服务状态</strong>
-        <span>配置列表还没有成功加载，当前不能判断五类服务是否已配置。</span>
+        <span>配置列表还没有成功加载，当前不能判断五类服务是否已配置。下一步：点击重试。</span>
       </div>
       <el-button size="small" type="primary" plain aria-label="重新读取配置列表" :loading="loading" @click="retryConfigDependencies">
         重试

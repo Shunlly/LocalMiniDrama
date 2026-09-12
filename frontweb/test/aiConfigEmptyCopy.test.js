@@ -4,6 +4,10 @@ import { readFileSync } from 'node:fs'
 import { ref } from 'vue'
 
 import { useAiConfigEmptyCopy } from '../src/composables/useAiConfigEmptyCopy.js'
+import {
+  describeConfigEmptyDescription,
+  describeConfigEmptyTitle,
+} from '../src/utils/aiConfigEmptyCopy.js'
 
 const vueSource = readFileSync(new URL('../src/components/AIConfigContent.vue', import.meta.url), 'utf8')
 const emptyCopySource = readFileSync(new URL('../src/composables/useAiConfigEmptyCopy.js', import.meta.url), 'utf8')
@@ -69,4 +73,26 @@ test('OCR 与语音转写过滤空态不会互相串用', () => {
   assert.match(transcription.configEmptyTitle.value, /语音转写/)
   assert.match(transcription.configEmptyDescription.value, /音频\/视频转写/)
   assert.doesNotMatch(transcription.configEmptyDescription.value, /PDF\/图片识别/)
+
+  assert.match(ocr.configEmptyDescription.value, /下一步：添加一个配置并设为默认/)
+  assert.match(transcription.configEmptyDescription.value, /下一步/)
+})
+
+test('空态下一步区分失败、厂商锁定和默认添加', () => {
+  const failed = describeConfigEmptyDescription({
+    failed: true,
+    loadError: '暂时无法读取 AI 配置，请稍后重试。',
+  })
+  assert.match(failed, /暂时无法读取 AI 配置/)
+  assert.match(failed, /下一步：点击下方「重试」/)
+  assert.equal(
+    describeConfigEmptyDescription({ vendorLockEnabled: true }),
+    '下一步：当前由管理员统一配置，请返回项目列表或联系管理员。',
+  )
+  assert.match(
+    describeConfigEmptyDescription({ vendorLockEnabled: true, serviceFilter: 'text' }),
+    /联系管理员添加文本配置/,
+  )
+  assert.match(describeConfigEmptyDescription({}), /添加第一个配置/)
+  assert.equal(describeConfigEmptyTitle({}), '还没有 AI 服务配置')
 })
