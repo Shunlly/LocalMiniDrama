@@ -2,6 +2,8 @@
 
 // 从 taskService 拆出的取消状态：上下文解析、状态常量和用户可见取消/超时文案。
 
+const { isTrustedChineseUserError } = require('./providerErrorSanitizer');
+
 const CANCEL_STATE_REQUESTED = 'requested';
 const CANCEL_STATE_ATTEMPTING = 'attempting';
 const CANCEL_STATE_RETRY_WAIT = 'retry_wait';
@@ -94,9 +96,9 @@ function isUncertainOutcome(outcome) {
 
 function userFacingRemoteCancelError(outcome, fallback = REMOTE_CANCEL_UNCERTAIN_MSG) {
   const message = String(outcome?.error || '').trim();
-  if (/[\u4e00-\u9fff]/.test(message)) return message.slice(0, 2000);
+  if (isTrustedChineseUserError(message)) return message.slice(0, 2000);
   if (isUncertainOutcome(outcome)) return fallback;
-  return (message || fallback).slice(0, 2000);
+  return fallback;
 }
 
 module.exports = {

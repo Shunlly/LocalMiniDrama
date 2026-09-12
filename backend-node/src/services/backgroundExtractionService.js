@@ -1,5 +1,6 @@
 // 与 Go ImageGenerationService.ExtractBackgroundsForEpisode + processBackgroundExtraction 对齐
 const taskService = require('./taskService');
+const { createOperationCancelledError } = require('./operationRegistry');
 const aiClient = require('./aiClient');
 const promptI18n = require('./promptI18n');
 const sceneService = require('./sceneService');
@@ -10,17 +11,11 @@ const { toUserFacingProcessError } = require('./providerErrorSanitizer');
 function waitForTaskSignal(promise, signal) {
   if (!signal) return promise;
   if (signal.aborted) {
-    const error = new Error('操作已取消');
-    error.name = 'AbortError';
-    error.code = 'OPERATION_CANCELLED';
-    return Promise.reject(error);
+    return Promise.reject(createOperationCancelledError(signal.reason));
   }
   return new Promise((resolve, reject) => {
     const onAbort = () => {
-      const error = new Error('操作已取消');
-      error.name = 'AbortError';
-      error.code = 'OPERATION_CANCELLED';
-      reject(error);
+      reject(createOperationCancelledError(signal.reason));
     };
     signal.addEventListener('abort', onAbort, { once: true });
     Promise.resolve(promise).then(

@@ -10,9 +10,27 @@ const taskService = require('../src/services/taskService');
 const videoClient = require('../src/services/videoClient');
 const videoService = require('../src/services/videoService');
 const workflowService = require('../src/services/workflowService');
-const { createOperationRegistry } = require('../src/services/operationRegistry');
+const { createOperationRegistry, createOperationCancelledError } = require('../src/services/operationRegistry');
 
 const log = { debug() {}, info() {}, warn() {}, error() {}, errorw() {} };
+
+test('超时 abort 原因不得被包装成取消', () => {
+  const timeout = Object.assign(new Error('请求超时，请稍后重试'), {
+    name: 'TimeoutError',
+    code: 'ETIMEDOUT',
+    isTimeout: true,
+  });
+  const preserved = createOperationCancelledError(timeout);
+  assert.equal(preserved, timeout);
+  assert.equal(preserved.isTimeout, true);
+  assert.notEqual(preserved.code, 'OPERATION_CANCELLED');
+
+  const cancelled = createOperationCancelledError('用户已取消');
+  assert.equal(cancelled.name, 'AbortError');
+  assert.equal(cancelled.code, 'OPERATION_CANCELLED');
+  assert.equal(cancelled.message, '用户已取消');
+});
+
 let sequence = 0;
 
 function deferred() {
@@ -114,7 +132,8 @@ test('远端取消失败返回失败并把任务恢复为原活动状态', async
 
   assert.equal(result.ok, false);
   assert.equal(result.reason, 'remote_cancel_failed');
-  assert.match(result.error, /provider refused cancellation/);
+  assert.equal(result.error, '远端拒绝取消');
+  assert.doesNotMatch(result.error, /provider refused cancellation/i);
   assert.equal(db.prepare('SELECT status FROM async_tasks WHERE id = ?').get(taskId).status, 'processing');
   assert.equal(events.some((event) => event.operation === 'task_cancel' && event.phase === 'start'), true);
   assert.equal(

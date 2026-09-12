@@ -125,8 +125,8 @@ test('时间线和 QA 路由不再向前端返回英文错误文案', () => {
   assert.match(timelinesSrc, /未找到该项目的时间线/);
   assert.match(timelinesSrc, /未找到该分集的时间线/);
   assert.match(timelinesSrc, /时间线操作失败，请稍后重试/);
-  assert.match(qaSrc, /未找到该 QA 报告/);
-  assert.match(qaSrc, /QA 操作失败，请稍后重试/);
+  assert.match(qaSrc, /未找到该质量检查报告/);
+  assert.match(qaSrc, /质量检查操作失败，请稍后重试/);
 });
 
 test('时间线路由返回可操作的简体中文错误', () => {
@@ -202,7 +202,7 @@ test('QA 报告路由返回可操作的简体中文错误并保留错误码', ()
     [qaService, 'getQaReportById', () => null],
     [qaService, 'remediateQaReport', () => null],
   ], () => {
-    const message = '未找到该 QA 报告，请确认报告 ID 是否正确，或先重新执行 QA 审计';
+    const message = '未找到该质量检查报告，请确认报告 ID 是否正确，或先重新执行质量检查';
     assertUserError(invoke(qa.get, { params: { report_id: 8 } }), 404, 'NOT_FOUND', message);
     assertUserError(invoke(qa.remediate, { params: { report_id: 8 }, body: {} }), 404, 'NOT_FOUND', message);
   });
@@ -222,7 +222,7 @@ test('QA 报告路由返回可操作的简体中文错误并保留错误码', ()
         invoke(qa.list, { query: {} }),
         500,
         'INTERNAL_ERROR',
-        'QA 操作失败，请稍后重试'
+        '质量检查操作失败，请稍后重试'
       );
       assertUserError(
         invoke(qa.get, { params: { report_id: 1 } }),
@@ -257,7 +257,7 @@ test('QA 报告路由返回可操作的简体中文错误并保留错误码', ()
         invoke(qa.remediate, { params: { report_id: 2 }, body: {} }),
         409,
         'WORKFLOW_NOT_READY',
-        '当前制作流程尚未就绪，请先完成必要配置后再执行 QA 修复'
+        '当前制作流程尚未就绪，请先完成必要配置后再执行质量检查修复'
       );
     });
   });

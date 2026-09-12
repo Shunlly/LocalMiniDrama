@@ -247,7 +247,7 @@ async function processWorkflowRunInner(db, log, runId, options = {}) {
     if (!step) {
       const qaStep = steps.find((item) => item.step_key === 'qa_audit');
       if (qaStep && (qaStep.output_json?.passed !== true || Number(qaStep.output_json?.score) < 80)) {
-        const message = '工作流无法完成：质量检查得分需至少 80 分，请根据 QA 报告修复后再重试';
+        const message = '工作流无法完成：质量检查得分需至少 80 分，请根据质量检查报告修复后再重试';
         setRunStatus(db, runId, 'failed', {
           current_step: 'qa_audit',
           error: message,

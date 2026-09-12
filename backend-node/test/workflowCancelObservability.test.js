@@ -42,8 +42,13 @@ test('cancelWorkflowRun 留下取消和已终结生命周期日志', (t) => {
 
   workflowService.cancelWorkflowRun(db, log, run.id, 'again');
   assert.equal(
-    events.some((event) => event.operation === 'workflow_cancel' && event.status === 'already_terminal'),
+    events.some((event) => event.operation === 'workflow_cancel' && event.phase === 'cancel' && event.status === 'already_terminal'),
     true,
+    JSON.stringify(events),
+  );
+  assert.equal(
+    events.some((event) => event.operation === 'workflow_cancel' && event.phase === 'success'),
+    false,
     JSON.stringify(events),
   );
 });

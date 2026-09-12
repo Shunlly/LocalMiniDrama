@@ -84,7 +84,7 @@ function assertAdaptationApplyResult(result) {
 }
 
 function qaAuditFailureError(report) {
-  const error = new Error(`质量检查未通过，当前得分 ${report.score}，请根据 QA 报告修复后再重试`);
+  const error = new Error(`质量检查未通过，当前得分 ${report.score}，请根据质量检查报告修复后再重试`);
   error.report = report;
   return error;
 }

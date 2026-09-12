@@ -229,12 +229,12 @@ async function processStrictProductionMerge(db, log, row, scenes, mergeOpts, bas
         mode: 'production',
       });
       if (!qaReport.passed) {
-        throw strictMergeError(`生产 QA 未通过，得分 ${qaReport.score}`);
+        throw strictMergeError(`生产质量检查未通过，得分 ${qaReport.score}`);
       }
     } catch (error) {
       throw error.code === 'STRICT_PRODUCTION_MERGE_FAILED'
         ? error
-        : strictMergeError(toUserFacingProcessError(error, '生产 QA 失败，请稍后重试'));
+        : strictMergeError(toUserFacingProcessError(error, '生产质量检查失败，请稍后重试'));
     }
 
     const mergedRelativePath = relativeStoragePath(storageRoot, outputAbsPath);
@@ -484,11 +484,11 @@ async function processVideoMergeWorker(db, log, mergeId, baseUrl, execution) {
       mode: 'production',
     });
     if (!qaReport.passed && mergeOpts.enforce_qa_gate) {
-      throw new Error(`生产 QA 未通过，得分 ${qaReport.score}`);
+      throw new Error(`生产质量检查未通过，得分 ${qaReport.score}`);
     }
   } catch (e) {
     if (mergeOpts.enforce_qa_gate) {
-      const message = toUserFacingProcessError(e, '生产 QA 失败，请稍后重试');
+      const message = toUserFacingProcessError(e, '生产质量检查失败，请稍后重试');
       const hadPostPublication = !!postPublication;
       execution.rollbackPublication(outputPublication);
       execution.rollbackPublication(postPublication);

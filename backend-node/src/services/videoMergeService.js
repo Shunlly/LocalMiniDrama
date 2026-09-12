@@ -117,7 +117,7 @@ function completeQaPendingMerge(db, mergeId, completedAt = new Date().toISOStrin
       const taskService = require('./taskService');
       const task = taskService.getTask(db, row.task_id);
       if (task && task.status !== 'completed') {
-        throw new Error('视频合成：QA 完成任务尚未完成');
+        throw new Error('视频合成：质量检查完成任务尚未完成');
       }
       if (task && !taskService.refreshCompletedTaskResult(db, row.task_id, {
         merge_id: row.id,
@@ -126,7 +126,7 @@ function completeQaPendingMerge(db, mergeId, completedAt = new Date().toISOStrin
         mode: STRICT_PRODUCTION_MODE,
         status: 'completed',
       })) {
-        throw new Error('视频合成：QA 完成任务结果未能刷新');
+        throw new Error('视频合成：质量检查完成任务结果未能刷新');
       }
     }
     return true;

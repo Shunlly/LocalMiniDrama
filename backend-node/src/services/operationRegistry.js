@@ -1,7 +1,15 @@
 const DEFAULT_MAX_ACTIVE = 10_000;
 const DEFAULT_REMOTE_CANCEL_TIMEOUT_MS = 5_000;
 
+function isTimeoutReason(reason) {
+  if (!reason || typeof reason !== 'object') return false;
+  if (reason.isTimeout === true || reason.name === 'TimeoutError') return true;
+  const code = String(reason.code || '');
+  return code === 'ETIMEDOUT' || code === 'ECONNABORTED' || code === 'TIMEOUT' || /(?:^|_)TIME(?:D)?OUT$/i.test(code);
+}
+
 function createOperationCancelledError(reason) {
+  if (reason instanceof Error && isTimeoutReason(reason)) return reason;
   if (reason instanceof Error && reason.code === 'OPERATION_CANCELLED') return reason;
   const error = new Error(reason instanceof Error ? reason.message : String(reason || '操作已取消'));
   error.name = 'AbortError';

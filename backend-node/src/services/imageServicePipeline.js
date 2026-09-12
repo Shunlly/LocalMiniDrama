@@ -8,6 +8,7 @@
 
 const path = require('path');
 const { isUserFacingAbort } = require('./providerErrorSanitizer');
+const { createOperationCancelledError } = require('./operationRegistry');
 const taskService = require('./taskService');
 const uploadService = require('./uploadService');
 const {
@@ -45,10 +46,7 @@ function runImageTaskMutation(db, row, signal, mutation) {
 function assertImageTaskActive(db, row, signal) {
   if (row.task_id) return taskService.throwIfTaskInactive(db, row.task_id, signal);
   if (signal?.aborted) {
-    const error = new Error('操作已取消');
-    error.name = 'AbortError';
-    error.code = 'OPERATION_CANCELLED';
-    throw error;
+    throw createOperationCancelledError(signal.reason);
   }
   return null;
 }

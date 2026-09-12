@@ -117,6 +117,14 @@ test('超时和网络类不确定结果对外返回中文，已有中文错误�
   );
   assert.match(REMOTE_CANCEL_UNCERTAIN_MSG, /[\u4e00-\u9fff]/);
   assert.doesNotMatch(REMOTE_CANCEL_UNCERTAIN_MSG, /timeout|ETIMEDOUT|timed out/i);
+  assert.equal(
+    userFacingRemoteCancelError({ error: 'provider refused cancellation' }, '远端拒绝取消'),
+    '远端拒绝取消'
+  );
+  assert.doesNotMatch(
+    userFacingRemoteCancelError({ error: '远端取消失败: timeout' }),
+    /timeout|ETIMEDOUT|timed out/i
+  );
 
   const next = updateContextAfterUncertain(
     { cancel_context: '{"scope":"task"}' },

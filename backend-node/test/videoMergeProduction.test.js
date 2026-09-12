@@ -921,7 +921,7 @@ describe('videoMergeService strict production mode', { concurrency: false }, () 
 
     assert.equal(result.ok, false);
     assert.equal(result.status, 'failed');
-    assert.match(result.error, /生产 QA 未通过/);
+    assert.match(result.error, /生产质量检查未通过/);
     assertStrictFailureState(fixture.db, fixture.mergeId, fixture.taskId);
     const after = fs.existsSync(mergedDir) ? fs.readdirSync(mergedDir) : [];
     assert.deepEqual(after.filter((name) => !before.has(name)), []);

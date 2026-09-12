@@ -285,7 +285,7 @@ test('质量检查未通过仍返回带得分的中文失败，且不把 episode
   });
   const detail = await workflowService.processWorkflowRun(db, log, created.id);
   assert.equal(detail.status, 'failed');
-  assert.match(detail.error, /^质量检查未通过，当前得分 \d+，请根据 QA 报告修复后再重试$/);
+  assert.match(detail.error, /^质量检查未通过，当前得分 \d+，请根据质量检查报告修复后再重试$/);
   assert.equal(detail.steps[0].output_json.passed, false);
 
   assert.equal(captured.drama_id, dramaId);

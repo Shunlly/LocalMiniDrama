@@ -175,7 +175,7 @@ async function executeCancellationAttempt(db, log, taskId, reason, prepared, opt
     return {
       ok: false,
       reason: restored.failed ? 'remote_cancel_exhausted' : 'remote_cancel_failed',
-      error: restored.error || outcome.error || REMOTE_CANCEL_FAILED_MSG,
+      error: restored.error || userFacingRemoteCancelError(outcome, REMOTE_CANCEL_FAILED_MSG),
       outcome,
       task: restored.task,
     };

@@ -17,6 +17,7 @@ const {
   taskCancelContext,
   taskCancelDetails,
   updateContextAfterUncertain,
+  userFacingRemoteCancelError,
 } = require('./taskCancelState');
 const {
   getRawTask,
@@ -144,7 +145,7 @@ function restoreAfterRemoteRejection(db, taskId, token, outcome) {
     return {
       failed: false,
       task: rowToTask(getRawTask(db, taskId)),
-      error: outcome?.error || REMOTE_CANCEL_REJECTED_MSG,
+      error: userFacingRemoteCancelError(outcome, REMOTE_CANCEL_REJECTED_MSG),
     };
   });
   const result = persist();

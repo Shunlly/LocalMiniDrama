@@ -158,7 +158,7 @@ function cancelWorkflowRun(db, log, runId, reason = '用户已取消工作流') 
     log?.operation?.({
       operation: 'workflow_cancel',
       operationId: run.id,
-      phase: 'success',
+      phase: 'cancel',
       status: 'already_terminal',
       run_status: run.status,
     });

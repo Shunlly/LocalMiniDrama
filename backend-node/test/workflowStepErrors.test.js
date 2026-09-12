@@ -164,7 +164,7 @@ test('前置步骤输出缺失时装配可操作中文错误', () => {
 test('质量检查失败会带上 report 并在得分不足时拒绝', () => {
   const failedReport = { id: 9, score: 70, passed: false, report_json: { issues: [1] } };
   const failed = qaAuditFailureError(failedReport);
-  assert.equal(failed.message, '质量检查未通过，当前得分 70，请根据 QA 报告修复后再重试');
+  assert.equal(failed.message, '质量检查未通过，当前得分 70，请根据质量检查报告修复后再重试');
   assert.equal(failed.report, failedReport);
 
   assert.throws(
