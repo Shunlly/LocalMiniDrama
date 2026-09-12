@@ -51,6 +51,7 @@ export function createFilmCreateShellBindingSources(ctx = {}) {
     projectDependencyWarning: {
       mediaError: storyboardMediaLoadError, dependencyWarning: projectDependencyWarning,
       loading: projectDependencyLoading, onRetry: retryProjectDependencies,
+      onScrollToAnchor: scrollToAnchor,
     },
     workspaceDialogsLayer: {
       resourceDialogs: resourceDialogsBindings, storyboardDialogs: storyboardDialogsBindings,

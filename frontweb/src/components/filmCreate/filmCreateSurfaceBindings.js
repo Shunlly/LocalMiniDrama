@@ -45,7 +45,7 @@ export function createFilmCreateSurfaceBindingSources(ctx = {}) {
     videoDownloadError, currentEpisodeId, deliverySubtitleAvailable,
     deliveryExportStatus, videoErrorMsg, deliveryExportFeedback, deliveryExportHasError,
     onGenerateVideo, downloadCurrentEpisodeVideo, downloadCurrentEpisodeSubtitle,
-    exportCurrentProjectPackage,
+    exportCurrentProjectPackage, scrollToAnchor,
   } = ctx
 
   return {
@@ -85,6 +85,7 @@ export function createFilmCreateSurfaceBindingSources(ctx = {}) {
       onOpenAiConfig: openAiConfig, onGenerateVideo,
       onDownloadVideo: downloadCurrentEpisodeVideo, onDownloadSubtitle: downloadCurrentEpisodeSubtitle,
       onExportProject: exportCurrentProjectPackage,
+      onScrollToAnchor: scrollToAnchor,
     },
   }
 }

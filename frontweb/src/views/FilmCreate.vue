@@ -1118,6 +1118,7 @@ const {
   ...projectLoadSurface,
   store, router, isDark, toggleTheme,
   generationStyleOptions,
+  scrollToAnchor,
 })
 
 const {

@@ -32,6 +32,7 @@
     @download-video="emit('download-video')"
     @download-subtitle="emit('download-subtitle')"
     @export-project="emit('export-project')"
+    @scroll-to-anchor="(anchor, activeId) => emit('scroll-to-anchor', anchor, activeId)"
   />
 
   <p
@@ -97,6 +98,7 @@ const emit = defineEmits([
   'download-video',
   'download-subtitle',
   'export-project',
+  'scroll-to-anchor',
 ])
 </script>
 

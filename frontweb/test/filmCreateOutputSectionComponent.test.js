@@ -112,6 +112,7 @@ function mountOutput(initial = {}) {
     onDownloadVideo: () => events.push(['download-video']),
     onDownloadSubtitle: () => events.push(['download-subtitle']),
     onExportProject: () => events.push(['export-project']),
+    onScrollToAnchor: (anchor, activeId) => events.push(['scroll-to-anchor', anchor, activeId]),
   }), {
     components: {
       ...createFormStubs(),
@@ -139,6 +140,11 @@ test('没有分镜视频时展示中文空态，合成入口带禁用原因', as
     assert.ok(actionGateReasons(harness.root).includes('请先生成或添加分镜'))
     assert.match(textContent(harness.root), /视频配置/)
     assert.doesNotMatch(textContent(harness.root), new RegExp(`${DRAMA_ID}|${EPISODE_ID}`))
+    const emptyAction = findByTestId(harness.root, 'delivery-empty-action')[0]
+    assert.ok(emptyAction)
+    assert.equal(emptyAction.type, 'button')
+    click(emptyAction)
+    assert.deepEqual(harness.events, [['scroll-to-anchor', 'anchor-storyboard', 'anchor-storyboard']])
   } finally {
     harness.app.unmount()
   }

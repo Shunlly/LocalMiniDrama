@@ -6,10 +6,12 @@ import { h, nextTick, ref } from 'vue'
 import {
   actionGateReasons,
   buttonByText,
+  click,
   compileIconStub,
   compileSfc,
   createHostRenderer,
   findByClass,
+  findByTestId,
   findByType,
   loadCompiledSfc,
   mountHarness,
@@ -38,10 +40,11 @@ const FilmCreateDeliveryPanel = await loadCompiledSfc(
 
 const renderer = createHostRenderer()
 const deliveryEventListeners = {
-  onGenerateVideo: (_value, events) => events.push(['generate-video']),
-  onDownloadVideo: (_value, events) => events.push(['download-video']),
-  onDownloadSubtitle: (_value, events) => events.push(['download-subtitle']),
-  onExportProject: (_value, events) => events.push(['export-project']),
+  onGenerateVideo: (_args, events) => events.push(['generate-video']),
+  onDownloadVideo: (_args, events) => events.push(['download-video']),
+  onDownloadSubtitle: (_args, events) => events.push(['download-subtitle']),
+  onExportProject: (_args, events) => events.push(['export-project']),
+  onScrollToAnchor: (args, events) => events.push(['scroll-to-anchor', ...args]),
 }
 
 function mountDelivery(initialProps = {}) {
@@ -69,7 +72,7 @@ function mountDelivery(initialProps = {}) {
   const mounted = mountHarness(renderer, () => {
     const listeners = {}
     for (const [name, listener] of Object.entries(deliveryEventListeners)) {
-      listeners[name] = (value) => listener(value, events)
+      listeners[name] = (...args) => listener(args, events)
     }
     return h(FilmCreateDeliveryPanel, { ...props.value, ...listeners })
   })
@@ -193,6 +196,45 @@ test('未选剧集的空态不会误导去生成分镜视频，合成入口保�
     assert.equal(requireButton(harness.root, '合成成片').props['aria-label'], '合成成片不可用：请先创建或选择剧集')
   } finally {
     harness.app.unmount()
+  }
+})
+
+test('没有分镜时点空态入口滚动到分镜面板，不使用 hash 链接', async () => {
+  const noStoryboards = mountDelivery({
+    composeActionDisabledReason: '请先生成或添加分镜',
+    playableStoryboardVideoCount: 0,
+    storyboardCount: 0,
+    currentEpisodeId: EPISODE_ID,
+    dramaId: DRAMA_ID,
+  })
+  try {
+    await nextTick()
+    const action = findByTestId(noStoryboards.root, 'delivery-empty-action')[0]
+    assert.ok(action)
+    assert.equal(action.type, 'button')
+    assert.equal(action.props.type, 'button')
+    assert.equal(textContent(action).trim(), '去分镜面板添加分镜')
+    click(action)
+    assert.deepEqual(noStoryboards.events, [['scroll-to-anchor', 'anchor-storyboard', 'anchor-storyboard']])
+  } finally {
+    noStoryboards.app.unmount()
+  }
+
+  const missingVideos = mountDelivery({
+    playableStoryboardVideoCount: 0,
+    storyboardCount: 3,
+    currentEpisodeId: EPISODE_ID,
+    dramaId: DRAMA_ID,
+  })
+  try {
+    await nextTick()
+    const action = findByTestId(missingVideos.root, 'delivery-empty-action')[0]
+    assert.ok(action)
+    assert.equal(textContent(action).trim(), '去分镜面板生成视频')
+    click(action)
+    assert.deepEqual(missingVideos.events, [['scroll-to-anchor', 'anchor-storyboard-images', 'anchor-storyboard-images']])
+  } finally {
+    missingVideos.app.unmount()
   }
 })
 

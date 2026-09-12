@@ -21,11 +21,12 @@
       >
         <el-icon><Refresh /></el-icon>重试加载素材
       </el-button>
-      <a
+      <button
         v-if="mediaError"
+        type="button"
         class="project-dependency-warning-link"
-        href="#anchor-storyboard-images"
-      >查看分镜</a>
+        @click="onViewStoryboard"
+      >查看分镜</button>
     </div>
   </section>
 </template>
@@ -41,7 +42,7 @@ const props = defineProps({
   loading: { type: Boolean, default: false },
 })
 
-const emit = defineEmits(['retry'])
+const emit = defineEmits(['retry', 'scroll-to-anchor'])
 
 const warningText = computed(() => [
   toFilmCreateOptionalUserFacingText(props.mediaError, '分镜素材读取失败，请稍后重试'),
@@ -63,6 +64,10 @@ const actionHint = computed(() => {
 function onRetry(event) {
   emit('retry')
   event?.currentTarget?.focus?.()
+}
+
+function onViewStoryboard() {
+  emit('scroll-to-anchor', 'anchor-storyboard-images', 'anchor-storyboard-images')
 }
 </script>
 
@@ -99,11 +104,16 @@ function onRetry(event) {
   flex-shrink: 0;
 }
 .project-dependency-warning-link {
+  padding: 0;
+  border: 0;
+  background: none;
   color: inherit;
+  font: inherit;
   font-size: 13px;
   line-height: 1.4;
   text-decoration: underline;
   white-space: nowrap;
+  cursor: pointer;
 }
 .project-dependency-warning-link:focus-visible {
   outline: 2px solid #818cf8;

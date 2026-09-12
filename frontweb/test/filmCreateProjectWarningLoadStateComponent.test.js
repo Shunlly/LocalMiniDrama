@@ -45,6 +45,7 @@ test('依赖警告只有一个 primary，读屏名包含可见重试加载素材
     mediaError: '分镜素材读取失败',
     loading: false,
     onRetry: () => events.push('retry'),
+    onScrollToAnchor: (anchor, activeId) => events.push(['scroll-to-anchor', anchor, activeId]),
   }))
   try {
     await nextTick()
@@ -57,7 +58,11 @@ test('依赖警告只有一个 primary，读屏名包含可见重试加载素材
     assert.equal(retry.props['aria-label'], '重试加载素材')
     assert.ok(String(retry.props['aria-label']).includes(visibleButtonText(retry)))
     click(retry)
-    assert.deepEqual(events, ['retry'])
+    const viewStoryboard = buttonByText(harness.root, '查看分镜')
+    assert.ok(viewStoryboard)
+    assert.equal(viewStoryboard.props['data-variant'], undefined)
+    click(viewStoryboard)
+    assert.deepEqual(events, ['retry', ['scroll-to-anchor', 'anchor-storyboard-images', 'anchor-storyboard-images']])
   } finally {
     harness.app.unmount()
   }

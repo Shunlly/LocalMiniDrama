@@ -9,6 +9,27 @@ function asTaskList(value) {
   return []
 }
 
+function stableRecord(value) {
+  const record = value && typeof value === 'object' && !Array.isArray(value) ? value : {}
+  return JSON.stringify(record, Object.keys(record).sort())
+}
+
+/** 同页只改 hash 时不算离开制作页，避免空态锚点把未保存确认弹出来 */
+export function isSamePageHashOnlyNavigation(to, from) {
+  if (!to || !from) return false
+  const toName = to.name ?? ''
+  const fromName = from.name ?? ''
+  const toPath = to.path || ''
+  const fromPath = from.path || ''
+  const sameIdentity = (toName || fromName)
+    ? toName === fromName
+    : toPath === fromPath
+  if (!sameIdentity) return false
+  if (stableRecord(to.params) !== stableRecord(from.params)) return false
+  if (stableRecord(to.query) !== stableRecord(from.query)) return false
+  return (to.hash || '') !== (from.hash || '')
+}
+
 function readRunningGenerationTasks(deps = {}) {
   if (typeof deps.getRunningGenerationTasks === 'function') {
     return asTaskList(deps.getRunningGenerationTasks())
@@ -179,7 +200,8 @@ export function useFilmCreateNavigationGuards(deps = {}) {
     return confirmMediaGenerationNavigation()
   }
 
-  async function allowNavigationAfterDraftFlush() {
+  async function allowNavigationAfterDraftFlush(to, from) {
+    if (isSamePageHashOnlyNavigation(to, from)) return true
     if (!await requestAiConfigWorkspaceNavigation()) return false
     if (typeof confirmResourceEditorLeave === 'function' && !await confirmResourceEditorLeave()) return false
     const draftDecision = await flushDraftBeforeNavigation()

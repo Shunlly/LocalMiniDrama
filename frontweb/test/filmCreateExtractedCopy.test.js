@@ -76,6 +76,7 @@ test('交付面板空态和英文错误仍收成中文', () => {
   assert.equal(empty.guidanceKind, 'empty')
   assert.match(empty.guidanceText, /还没有可播放的分镜视频/)
   assert.equal(empty.guidanceActionLabel, '去分镜面板添加分镜')
+  assert.equal(empty.guidanceAnchor, 'anchor-storyboard')
   assert.equal(english.composeDisabledReason, '当前不能合成成片')
   assert.match(english.composeButtonAriaLabel, /合成成片不可用/)
   assert.doesNotMatch(JSON.stringify(english), /Network Error/i)

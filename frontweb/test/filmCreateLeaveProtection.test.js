@@ -6,7 +6,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
 import { hasActiveMediaGenerationWork } from '../src/composables/filmCreate/useFilmCreateBatchGeneration.js'
-import { useFilmCreateNavigationGuards } from '../src/composables/filmCreate/useFilmCreateNavigationGuards.js'
+import { isSamePageHashOnlyNavigation, useFilmCreateNavigationGuards } from '../src/composables/filmCreate/useFilmCreateNavigationGuards.js'
 import { useGenerationTaskStore } from '../src/stores/generationTaskStore.js'
 
 const filmCreateSource = readFileSync(
@@ -339,4 +339,35 @@ test('任务中心 getAllRunningTasks 非空时离开要确认并提示计费可
   } finally {
     feedback.restore()
   }
+})
+
+test('同页只改 hash 不走离开保护，切集 query 仍要保存剧本', async () => {
+  const from = {
+    name: 'film',
+    path: '/film/11',
+    params: { id: '11' },
+    query: { episode: '22' },
+    hash: '',
+  }
+  const hashOnly = { ...from, hash: '#anchor-storyboard' }
+  const episodeSwitch = { ...from, query: { episode: '33' } }
+  assert.equal(isSamePageHashOnlyNavigation(hashOnly, from), true)
+  assert.equal(isSamePageHashOnlyNavigation(episodeSwitch, from), false)
+  assert.equal(isSamePageHashOnlyNavigation(from, from), false)
+  assert.equal(isSamePageHashOnlyNavigation(null, from), false)
+
+  setActivePinia(createPinia())
+  let flushCount = 0
+  const { guards } = createGuards({
+    getRunningGenerationTasks: () => [],
+    scriptDraftController: {
+      hasPendingChanges: () => true,
+      markSaved() {},
+    },
+    flushScriptDraft: async () => { flushCount += 1 },
+  })
+  assert.equal(await guards.allowNavigationAfterDraftFlush(hashOnly, from), true)
+  assert.equal(flushCount, 0)
+  assert.equal(await guards.allowNavigationAfterDraftFlush(episodeSwitch, from), true)
+  assert.equal(flushCount, 1)
 })

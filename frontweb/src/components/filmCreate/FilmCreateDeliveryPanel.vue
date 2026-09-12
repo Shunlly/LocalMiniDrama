@@ -28,13 +28,14 @@
       data-testid="delivery-guidance"
     >
       <p>{{ panelState.guidanceText }}</p>
-      <a
-        v-if="panelState.guidanceHref"
+      <button
+        v-if="panelState.guidanceAnchor"
+        type="button"
         class="delivery-guidance-link"
-        :href="panelState.guidanceHref"
         :aria-label="panelState.guidanceActionLabel"
         data-testid="delivery-empty-action"
-      >{{ panelState.guidanceActionLabel }}</a>
+        @click="$emit('scroll-to-anchor', panelState.guidanceAnchor, panelState.guidanceAnchor)"
+      >{{ panelState.guidanceActionLabel }}</button>
     </div>
     <div class="delivery-actions">
       <ActionGate :reason="visibleComposeDisabledReason" label="合成成片">
@@ -167,7 +168,7 @@ const props = defineProps({
   deliveryExportHasError: { type: Boolean, default: false },
 })
 
-defineEmits(['generate-video', 'download-video', 'download-subtitle', 'export-project'])
+defineEmits(['generate-video', 'download-video', 'download-subtitle', 'export-project', 'scroll-to-anchor'])
 
 const panelState = computed(() => describeDeliveryPanelState(props))
 const visibleComposeDisabledReason = computed(() => panelState.value.composeDisabledReason)
@@ -297,8 +298,13 @@ html.light .delivery-guidance.is-disabled {
 .delivery-guidance-link {
   display: inline-block;
   margin-top: 0;
+  padding: 0;
+  border: 0;
+  background: none;
   color: var(--el-color-primary);
+  font: inherit;
   text-decoration: underline;
+  cursor: pointer;
 }
 .delivery-guidance-link:focus-visible {
   outline: 2px solid #818cf8;

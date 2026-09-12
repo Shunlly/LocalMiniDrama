@@ -269,6 +269,8 @@ test('制作页把页头、流水线和交付区显式 props 交给独立绑定�
   assert.match(surfaceBindingsSource, /pipelinePanel: \{[\s\S]*aspectRatio: projectAspectRatio[\s\S]*onOpenAiConfig: openAiConfigFromPipeline/)
   assert.match(surfaceBindingsSource, /outputSection: \{[\s\S]*watermarkText: videoWatermarkText[\s\S]*currentEpisodeId/)
   assert.match(surfaceBindingsSource, /outputSection: \{[\s\S]*storyboardCount: computed\(\(\) => \(unref\(storyboards\) \|\| \[\]\)\.length\)/)
+  assert.match(surfaceBindingsSource, /outputSection: \{[\s\S]*onScrollToAnchor: scrollToAnchor/)
+  assert.match(filmCreateSource, /createFilmCreateSurfaceBindings\(\{[\s\S]*scrollToAnchor/)
   assert.match(surfaceBindingsSource, /productionDisabledReason: productionPipelineActionDisabledReason/)
   assert.match(surfaceBindingsSource, /draftDisabledReason: pipelineActionDisabledReason/)
   assert.doesNotMatch(surfaceBindingsSource, /const currentEpisodeId = ref/)
