@@ -381,18 +381,33 @@ test('缺文本模型时草稿预演先提示配置，不启动提取', async ()
   const feedback = stubElementPlusFeedback()
   try {
     const executeCalls = []
+    const configCalls = []
     const missingText = useFilmCreatePipelineStages(createPipelineStageDeps({
       store: { scriptContent: '李华走进办公室。' },
       productionCapabilityGaps: refOf([
         { service_type: 'text', label: '文本模型', detail: '还没有可用的默认配置' },
       ]),
+      openAiConfigFromPipeline: (serviceType) => {
+        configCalls.push(serviceType)
+      },
       executeOwnedPipelineRun: async () => {
         executeCalls.push('run')
       },
       trackFilmCreateAction() {},
     }))
     await missingText.startTextFrameworkPipeline()
-    assert.equal(feedback.last('warning').message, '文本模型：还没有可用的默认配置')
+    assert.equal(feedback.last('confirm').message, '文本模型：还没有可用的默认配置')
+    assert.equal(feedback.last('confirm').title, '需要配置文本模型')
+    assert.equal(feedback.last('confirm').options.confirmButtonText, '去配置文本模型')
+    assert.equal(feedback.last('confirm').options.cancelButtonText, '先留在制作页')
+    assert.deepEqual(configCalls, ['text'])
+    assert.equal(executeCalls.length, 0)
+
+    feedback.setConfirm(async () => {
+      throw new Error('cancel')
+    })
+    await missingText.startTextFrameworkPipeline()
+    assert.deepEqual(configCalls, ['text'])
     assert.equal(executeCalls.length, 0)
   } finally {
     feedback.restore()

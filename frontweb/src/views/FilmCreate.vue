@@ -1020,6 +1020,7 @@ const pipelineActions = useFilmCreatePipelineActions({
   confirmProductionPipelineCost, checkPause, pollTaskWithPause, addPipelineError,
   pipelineRest, runPipelineCountdown, pipelineWithRetry, runConcurrently,
   setPipelineStep, storyboardMediaActionReason, productionCapabilityGaps, lastPipelineMode,
+  openAiConfigFromPipeline: (...args) => aiConfigWorkspace.openAiConfigFromPipeline(...args),
   pollTask,
 })
 

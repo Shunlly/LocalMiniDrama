@@ -1,4 +1,4 @@
-import { ElMessage } from '@/utils/elementPlusFeedback.js'
+import { ElMessage, ElMessageBox } from '@/utils/elementPlusFeedback.js'
 import { useFilmCreatePipelineOneClick } from './useFilmCreatePipelineOneClick.js'
 import { useFilmCreatePipelineRepair } from './useFilmCreatePipelineRepair.js'
 
@@ -28,6 +28,7 @@ export function useFilmCreatePipelineStages(deps = {}) {
     storyboardMediaActionReason,
     productionCapabilityGaps,
     lastPipelineMode,
+    openAiConfigFromPipeline,
   } = deps
 
   const { runOneClickPipeline } = useFilmCreatePipelineOneClick(deps)
@@ -52,12 +53,24 @@ export function useFilmCreatePipelineStages(deps = {}) {
     return gaps.find((item) => String(item?.service_type || '') === 'text') || null
   }
 
-  function warnMissingTextModel() {
+  async function warnMissingTextModel() {
     const gap = missingTextCapabilityGap()
     if (!gap) return false
     const label = String(gap.label || '文本模型').trim() || '文本模型'
     const detail = String(gap.detail || '').trim()
-    ElMessage.warning(detail ? (label + '：' + detail) : '草稿预演需要先配置文本模型')
+    const message = detail ? (label + '：' + detail) : '草稿预演需要先配置文本模型'
+    try {
+      await ElMessageBox.confirm(
+        message,
+        '需要配置文本模型',
+        {
+          type: 'warning',
+          confirmButtonText: '去配置文本模型',
+          cancelButtonText: '先留在制作页',
+        },
+      )
+      if (typeof openAiConfigFromPipeline === 'function') openAiConfigFromPipeline('text')
+    } catch (_) {}
     return true
   }
 
@@ -109,7 +122,7 @@ export function useFilmCreatePipelineStages(deps = {}) {
   async function startTextFrameworkPipeline() {
     if (!currentEpisodeId.value || pipelineStarting.value || pipelineRunning.value || pipelineStopping.value || activePipelineRunPromise.value) return
     if (warnEmptyEpisodeScript()) return
-    if (warnMissingTextModel()) return
+    if (await warnMissingTextModel()) return
     pipelineAbortRequested.value = false
     pipelineStarting.value = true
     try {
